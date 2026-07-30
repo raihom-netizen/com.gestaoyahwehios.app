@@ -12,7 +12,7 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 abstract final class EventoMediaUpload {
   EventoMediaUpload._();
 
-  static const Duration uploadTimeout = Duration(seconds: 90);
+  static const Duration uploadTimeout = Duration(seconds: 120);
   static const int maxParallelSlots = kMaxEventFeedPhotosPerPost;
 
   static Future<void> ensureUploadReady({bool requireAuth = true}) async {
@@ -102,6 +102,7 @@ abstract final class EventoMediaUpload {
           ),
           logLabel: 'evento_photo',
           alreadyCompressed: alreadyCompressed,
+          compressForFeed: !alreadyCompressed,
         ),
       );
       nextSlot++;

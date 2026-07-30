@@ -50,7 +50,9 @@ abstract final class ChurchInstantUploadPipeline {
     final isAviso = postType?.trim().toLowerCase() == 'aviso';
     Uint8List base = raw;
     if (base.isEmpty && localPath != null && localPath.isNotEmpty) {
-      base = await IosPublishImagePipeline.compressForPublishFromPath(localPath);
+      base = await IosPublishImagePipeline.compressForPublishFromPath(
+        localPath,
+      );
     }
     if (base.isEmpty) return base;
     if (isAviso) {
@@ -87,7 +89,11 @@ abstract final class ChurchInstantUploadPipeline {
   }) {
     final t = postType.trim().toLowerCase();
     if (t == 'aviso' || t == 'noticia' || t == 'noticias') {
-      return ChurchStorageLayout.avisoPostPhotoPath(tenantId, postId, slotIndex);
+      return ChurchStorageLayout.avisoPostPhotoPath(
+        tenantId,
+        postId,
+        slotIndex,
+      );
     }
     if (t == 'evento') {
       return ChurchStorageLayout.eventPostPhotoPath(
@@ -200,9 +206,6 @@ abstract final class ChurchInstantUploadPipeline {
       onProgress: onProgress,
     );
     final clean = sanitizeImageUrl(downloadUrl);
-    if (!isValidImageUrl(clean)) {
-      throw StateError('Upload concluiu sem URL de download válida.');
-    }
     // putData OK — verificação de metadata em background (não invalidar upload na Web).
     unawaited(
       ChurchStorageMetadataVerify.assertExists(storagePath).catchError((_) {}),
@@ -210,8 +213,8 @@ abstract final class ChurchInstantUploadPipeline {
     return FeedPhotoSlotResult(
       fullPath: storagePath,
       thumbPath: storagePath,
-      downloadUrl: clean,
-      thumbDownloadUrl: clean,
+      downloadUrl: isValidImageUrl(clean) ? clean : null,
+      thumbDownloadUrl: isValidImageUrl(clean) ? clean : null,
     );
   }
 
@@ -219,7 +222,8 @@ abstract final class ChurchInstantUploadPipeline {
   static Future<List<T>> uploadParallel<T>({
     required int count,
     required int maxConcurrent,
-    required Future<T> Function(int index, void Function(double) report) uploadOne,
+    required Future<T> Function(int index, void Function(double) report)
+    uploadOne,
   }) async {
     if (count <= 0) return const [];
     final maxConc = maxConcurrent.clamp(1, count);

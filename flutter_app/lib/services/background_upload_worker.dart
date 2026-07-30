@@ -44,13 +44,11 @@ abstract final class BackgroundUploadWorker {
       if (WebPanelStability.allowAutomaticRecovery) {
         await ChurchChatAutoRecoveryService.recoverOnSessionStart();
       }
-      await ChurchChatMediaOutboxService.resumeRecoverableNow();
-
       await Future.wait([
+        ChurchChatMediaOutboxService.resumeRecoverableNow(),
         MuralPublishOutboxService.drainPendingJobs(),
         ModuleMediaOutboxService.drainPendingJobs(),
-        if (!kIsWeb)
-          StorageUploadPersistenceService.resumePendingOnAppStart(),
+        if (!kIsWeb) StorageUploadPersistenceService.resumePendingOnAppStart(),
       ], eagerError: false);
 
       await PendingUploadsMigration.migrateAwayFromFirestoreQueueIfNeeded();
@@ -89,5 +87,4 @@ abstract final class BackgroundUploadWorker {
     ChurchChatMediaOutboxService.bindConnectivityResume();
     await drainAll(reason: 'cold_start');
   }
-
 }

@@ -16,10 +16,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/services/member_card_directory_service.dart'
-    show
-        MemberCardDirectoryService,
-        MemberCardListEntry,
-        MemberCardSignatory;
+    show MemberCardDirectoryService, MemberCardListEntry, MemberCardSignatory;
 import 'package:gestao_yahweh/services/member_card_load_service.dart';
 import 'package:gestao_yahweh/services/member_card_pdf_builder.dart';
 import 'package:gestao_yahweh/services/member_card_pdf_export_service.dart';
@@ -144,7 +141,9 @@ class _MemberCardPageState extends State<MemberCardPage>
 
   bool get _canManage {
     if (AppPermissions.isSelfOnlyMemberAccess(
-        widget.role, widget.permissions)) {
+      widget.role,
+      widget.permissions,
+    )) {
       return false;
     }
     final n = ChurchRolePermissions.normalize(widget.role);
@@ -156,10 +155,8 @@ class _MemberCardPageState extends State<MemberCardPage>
     return ChurchRolePermissions.snapshotFor(widget.role).editAnyMember;
   }
 
-  bool get _isRestricted => AppPermissions.isSelfOnlyMemberAccess(
-        widget.role,
-        widget.permissions,
-      );
+  bool get _isRestricted =>
+      AppPermissions.isSelfOnlyMemberAccess(widget.role, widget.permissions);
 
   @override
   void initState() {
@@ -200,12 +197,12 @@ class _MemberCardPageState extends State<MemberCardPage>
     final payload = _cardPayload;
     final preview = _previewMember;
     final targetId = (preview?.id ?? widget.memberId ?? '').trim();
-    final payloadAuth = (payload?.member['authUid'] ??
-            payload?.member['firebaseUid'] ??
-            '')
-        .toString()
-        .trim();
-    final matches = (uid.isNotEmpty &&
+    final payloadAuth =
+        (payload?.member['authUid'] ?? payload?.member['firebaseUid'] ?? '')
+            .toString()
+            .trim();
+    final matches =
+        (uid.isNotEmpty &&
             (targetId == uid ||
                 payload?.memberId == uid ||
                 payloadAuth == uid ||
@@ -221,10 +218,29 @@ class _MemberCardPageState extends State<MemberCardPage>
     final thumbUrl = (n.lastPhotoThumbUrl ?? photoUrl).trim();
     final storagePath = (n.lastStoragePath ?? '').trim();
     final rev = n.lastCacheRevision;
+    final removed = n.lastRemoved;
 
     Map<String, dynamic> photoPatch(Map<String, dynamic> base) {
       final merged = Map<String, dynamic>.from(base);
       if (rev > 0) merged['fotoUrlCacheRevision'] = rev;
+      if (removed) {
+        for (final key in const [
+          'fotoUrl',
+          'photoUrl',
+          'photoURL',
+          'FOTO_URL_OU_ID',
+          'FOTO_URL_DB',
+          'avatarUrl',
+          'fotoThumbUrl',
+          'photoThumbUrl',
+          'photoStoragePath',
+          'photoThumbStoragePath',
+          'fotoPath',
+          'fotoThumbPath',
+        ]) {
+          merged.remove(key);
+        }
+      }
       if (photoUrl.isNotEmpty) {
         merged['fotoUrl'] = photoUrl;
         merged['photoUrl'] = photoUrl;
@@ -262,7 +278,9 @@ class _MemberCardPageState extends State<MemberCardPage>
             id: m.id,
             name: m.name,
             data: d,
-            photoUrl: photoUrl.isNotEmpty ? photoUrl : m.photoUrl,
+            photoUrl: removed
+                ? null
+                : (photoUrl.isNotEmpty ? photoUrl : m.photoUrl),
           );
         }).toList();
       }
@@ -272,7 +290,9 @@ class _MemberCardPageState extends State<MemberCardPage>
           id: preview.id,
           name: preview.name,
           data: d,
-          photoUrl: photoUrl.isNotEmpty ? photoUrl : preview.photoUrl,
+          photoUrl: removed
+              ? null
+              : (photoUrl.isNotEmpty ? photoUrl : preview.photoUrl),
         );
       }
       final payloadNow = _cardPayload;
@@ -280,9 +300,7 @@ class _MemberCardPageState extends State<MemberCardPage>
           (matches ||
               (docId.isNotEmpty && payloadNow.memberId == docId) ||
               (uid.isNotEmpty &&
-                  ((payloadNow.member['authUid'] ?? '')
-                              .toString()
-                              .trim() ==
+                  ((payloadNow.member['authUid'] ?? '').toString().trim() ==
                           uid ||
                       payloadNow.memberId == uid)))) {
         _cardPayload = MemberCardLoadPayload(
@@ -299,20 +317,20 @@ class _MemberCardPageState extends State<MemberCardPage>
     }
 
     // Recarrega do servidor sem seed antigo — garante cartão CNH alinhado.
-    final reloadId = (docId.isNotEmpty
-            ? docId
-            : (preview?.id ??
-                payload?.memberId ??
-                widget.memberId ??
-                ''))
-        .trim();
+    final reloadId =
+        (docId.isNotEmpty
+                ? docId
+                : (preview?.id ?? payload?.memberId ?? widget.memberId ?? ''))
+            .trim();
     if (widget.cnhFullscreenOnly || _isRestricted || preview != null) {
-      unawaited(_loadSingleCard(
-        memberId: reloadId.isEmpty ? null : reloadId,
-        seed: _cardPayload?.member ?? _previewMember?.data,
-        restricted: _isRestricted,
-        preferFresh: true,
-      ));
+      unawaited(
+        _loadSingleCard(
+          memberId: reloadId.isEmpty ? null : reloadId,
+          seed: _cardPayload?.member ?? _previewMember?.data,
+          restricted: _isRestricted,
+          preferFresh: true,
+        ),
+      );
     } else {
       unawaited(_reloadMembers(forceRefresh: true));
     }
@@ -375,7 +393,9 @@ class _MemberCardPageState extends State<MemberCardPage>
         if (nome.isEmpty) continue;
         depts.add((id: d.id, name: nome));
       }
-      depts.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      depts.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
       setState(() => _departments = depts);
     } catch (_) {}
   }
@@ -497,16 +517,16 @@ class _MemberCardPageState extends State<MemberCardPage>
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       const limit = YahwehPerformanceV4.adminExportBatchLimit;
-      final dirMem =
-          MembersDirectorySnapshotService.peekMemory(_churchIdResolved);
+      final dirMem = MembersDirectorySnapshotService.peekMemory(
+        _churchIdResolved,
+      );
       final expectedTotal = dirMem?.totalCount ?? 0;
       final instant = MemberCardDirectoryService.peekMembersSync(
         _churchIdResolved,
         limit: limit,
       );
       if (instant != null && instant.isNotEmpty && mounted) {
-        final incomplete =
-            expectedTotal > 0 && instant.length < expectedTotal;
+        final incomplete = expectedTotal > 0 && instant.length < expectedTotal;
         setState(() {
           _members = _mapEntries(instant);
           _loadingMembers = false;
@@ -587,12 +607,7 @@ class _MemberCardPageState extends State<MemberCardPage>
         final v = old.data[key];
         if (v != null) d[key] = v;
       }
-      return _MemberRow(
-        id: m.id,
-        name: m.name,
-        data: d,
-        photoUrl: m.photoUrl,
-      );
+      return _MemberRow(id: m.id, name: m.name, data: d, photoUrl: m.photoUrl);
     }).toList();
   }
 
@@ -607,8 +622,8 @@ class _MemberCardPageState extends State<MemberCardPage>
             .toString()
             .replaceAll(RegExp(r'\D'), '');
         final qDigits = q.replaceAll(RegExp(r'\D'), '');
-        final textHit = m.name.toLowerCase().contains(q) ||
-            m.id.toLowerCase().contains(q);
+        final textHit =
+            m.name.toLowerCase().contains(q) || m.id.toLowerCase().contains(q);
         final cpfHit = qDigits.length >= 3 && cpf.contains(qDigits);
         if (!textHit && !cpfHit) return false;
       }
@@ -692,8 +707,8 @@ class _MemberCardPageState extends State<MemberCardPage>
                   Text(
                     'Formato do PDF',
                     style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -835,9 +850,7 @@ class _MemberCardPageState extends State<MemberCardPage>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                LinearProgressIndicator(
-                  value: total > 0 ? d / total : null,
-                ),
+                LinearProgressIndicator(value: total > 0 ? d / total : null),
                 const SizedBox(height: 12),
                 Text(
                   total > 0
@@ -900,22 +913,19 @@ class _MemberCardPageState extends State<MemberCardPage>
           detail.isNotEmpty
               ? detail
               : result.memberCount == 0
-                  ? 'Não foi possível gerar o PDF. Verifique conexão e tente de novo.'
-                  : 'PDF incompleto — nenhum membro carregado.',
+              ? 'Não foi possível gerar o PDF. Verifique conexão e tente de novo.'
+              : 'PDF incompleto — nenhum membro carregado.',
         ),
       );
       return;
     }
 
-    final layoutTag =
-        layout == MemberCardPdfLayout.a4GridCut ? 'a4_cnh' : 'cnh_real';
+    final layoutTag = layout == MemberCardPdfLayout.a4GridCut
+        ? 'a4_cnh'
+        : 'cnh_real';
     final filename =
         'carteirinhas_${result.memberCount}_membros_$layoutTag.pdf';
-    await showPdfActions(
-      context,
-      bytes: result.pdfBytes!,
-      filename: filename,
-    );
+    await showPdfActions(context, bytes: result.pdfBytes!, filename: filename);
 
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -923,7 +933,7 @@ class _MemberCardPageState extends State<MemberCardPage>
         result.failCount == 0
             ? 'PDF com ${result.memberCount} carteirinha(s) pronto.'
             : 'PDF com ${result.memberCount} de ${result.requestedCount} '
-                'carteirinha(s) · ${result.failCount} não carregou(aram).',
+                  'carteirinha(s) · ${result.failCount} não carregou(aram).',
       ),
     );
   }
@@ -960,11 +970,10 @@ class _MemberCardPageState extends State<MemberCardPage>
         var finalPayload = payload;
         final prev = _cardPayload;
         if (finalPayload != null && prev != null) {
-          final prevRev = int.tryParse(
-                '${prev.member['fotoUrlCacheRevision'] ?? 0}',
-              ) ??
-              0;
-          final nextRev = int.tryParse(
+          final prevRev =
+              int.tryParse('${prev.member['fotoUrlCacheRevision'] ?? 0}') ?? 0;
+          final nextRev =
+              int.tryParse(
                 '${finalPayload.member['fotoUrlCacheRevision'] ?? 0}',
               ) ??
               0;
@@ -1005,10 +1014,11 @@ class _MemberCardPageState extends State<MemberCardPage>
           );
           _previewMember = _MemberRow(
             id: finalPayload.memberId,
-            name: (finalPayload.member['NOME_COMPLETO'] ??
-                    finalPayload.member['nome'] ??
-                    '')
-                .toString(),
+            name:
+                (finalPayload.member['NOME_COMPLETO'] ??
+                        finalPayload.member['nome'] ??
+                        '')
+                    .toString(),
             data: finalPayload.member,
             photoUrl: photo.isEmpty ? null : photo,
           );
@@ -1108,8 +1118,9 @@ class _MemberCardPageState extends State<MemberCardPage>
                 content: ValueListenableBuilder<int>(
                   valueListenable: progress,
                   builder: (_, done, _) {
-                    final pct =
-                        totalSign > 0 ? (done / totalSign * 100).round() : 0;
+                    final pct = totalSign > 0
+                        ? (done / totalSign * 100).round()
+                        : 0;
                     return Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -1168,13 +1179,13 @@ class _MemberCardPageState extends State<MemberCardPage>
       final msg = r.fail == 0
           ? '${r.ok} carteirinha(s) assinada(s).'
           : r.ok > 0
-              ? 'Assinadas: ${r.ok}. Falhas: ${r.fail}.'
-              : (r.lastError != null && r.lastError!.trim().isNotEmpty
-                  ? 'Não foi possível assinar: ${friendlyErr(r.lastError)}'
-                  : 'Não foi possível assinar. Verifique permissão e conexão.');
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(msg),
-      );
+          ? 'Assinadas: ${r.ok}. Falhas: ${r.fail}.'
+          : (r.lastError != null && r.lastError!.trim().isNotEmpty
+                ? 'Não foi possível assinar: ${friendlyErr(r.lastError)}'
+                : 'Não foi possível assinar. Verifique permissão e conexão.');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
       if (r.ok > 0) {
         // UI já atualizada localmente — adia reload Firestore (evita assert web).
         unawaited(() async {
@@ -1197,11 +1208,11 @@ class _MemberCardPageState extends State<MemberCardPage>
       final raw = e.toString();
       final friendly =
           FirestoreWebGuard.isInternalAssertionError(e) ||
-                  raw.contains('INTERNAL ASSERTION') ||
-                  raw.contains('Unexpected state')
-              ? 'Conexão com o banco instável na web. '
-                  'Aguarde alguns segundos e tente novamente.'
-              : raw;
+              raw.contains('INTERNAL ASSERTION') ||
+              raw.contains('Unexpected state')
+          ? 'Conexão com o banco instável na web. '
+                'Aguarde alguns segundos e tente novamente.'
+          : raw;
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar('Erro ao assinar: $friendly'),
       );
@@ -1248,7 +1259,10 @@ class _MemberCardPageState extends State<MemberCardPage>
       tenant: tenant,
       churchTitle: title.isEmpty ? 'Igreja' : title,
       churchSubtitle: subtitle,
-      qrPayload: CarteirinhaConsultaUrl.validationUrl(p.igrejaDocId, p.memberId),
+      qrPayload: CarteirinhaConsultaUrl.validationUrl(
+        p.igrejaDocId,
+        p.memberId,
+      ),
     );
   }
 
@@ -1286,22 +1300,12 @@ class _MemberCardPageState extends State<MemberCardPage>
     final hideAppBar =
         widget.embeddedInShell && ThemeCleanPremium.isMobile(context);
     // Chrome próprio só fora do shell; no shell o ModuleHeaderPremium já traz Voltar.
-    final shellChrome = widget.onShellBack != null &&
-        _canManage &&
-        !widget.embeddedInShell;
+    final shellChrome =
+        widget.onShellBack != null && _canManage && !widget.embeddedInShell;
     const memberTabs = [
-      Tab(
-        icon: Icon(Icons.people_alt_rounded, size: 20),
-        text: 'Membros',
-      ),
-      Tab(
-        icon: Icon(Icons.badge_rounded, size: 20),
-        text: 'Cartão',
-      ),
-      Tab(
-        icon: Icon(Icons.draw_rounded, size: 20),
-        text: 'Assinar',
-      ),
+      Tab(icon: Icon(Icons.people_alt_rounded, size: 20), text: 'Membros'),
+      Tab(icon: Icon(Icons.badge_rounded, size: 20), text: 'Cartão'),
+      Tab(icon: Icon(Icons.draw_rounded, size: 20), text: 'Assinar'),
     ];
 
     Widget tabBody;
@@ -1339,11 +1343,7 @@ class _MemberCardPageState extends State<MemberCardPage>
         },
         body: TabBarView(
           controller: _tabs,
-          children: [
-            _buildMembersTab(),
-            _buildCardTab(),
-            _buildSignTab(),
-          ],
+          children: [_buildMembersTab(), _buildCardTab(), _buildSignTab()],
         ),
       );
     } else {
@@ -1361,18 +1361,13 @@ class _MemberCardPageState extends State<MemberCardPage>
               ),
               flexibleSpace: Container(
                 decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [_gradA, _gradB, _gradC],
-                  ),
+                  gradient: LinearGradient(colors: [_gradA, _gradB, _gradC]),
                 ),
               ),
               foregroundColor: Colors.white,
             ),
       body: YahwehWisdomPanelBackdrop(
-        child: SafeArea(
-          top: !hideAppBar,
-          child: tabBody,
-        ),
+        child: SafeArea(top: !hideAppBar, child: tabBody),
       ),
     );
   }
@@ -1399,9 +1394,12 @@ class _MemberCardPageState extends State<MemberCardPage>
                 ),
                 onChanged: (_) {
                   _searchDebounce?.cancel();
-                  _searchDebounce = Timer(const Duration(milliseconds: 200), () {
-                    if (mounted) setState(() => _search = _searchCtrl.text);
-                  });
+                  _searchDebounce = Timer(
+                    const Duration(milliseconds: 200),
+                    () {
+                      if (mounted) setState(() => _search = _searchCtrl.text);
+                    },
+                  );
                 },
               ),
               const SizedBox(height: 10),
@@ -1409,12 +1407,27 @@ class _MemberCardPageState extends State<MemberCardPage>
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _filterChip('Todos', 'todos', const Color(0xFF6366F1), _genderFilter,
-                      (v) => _genderFilter = v),
-                  _filterChip('Homens', 'masculino', const Color(0xFF0EA5E9), _genderFilter,
-                      (v) => _genderFilter = v),
-                  _filterChip('Mulheres', 'feminino', const Color(0xFFEC4899), _genderFilter,
-                      (v) => _genderFilter = v),
+                  _filterChip(
+                    'Todos',
+                    'todos',
+                    const Color(0xFF6366F1),
+                    _genderFilter,
+                    (v) => _genderFilter = v,
+                  ),
+                  _filterChip(
+                    'Homens',
+                    'masculino',
+                    const Color(0xFF0EA5E9),
+                    _genderFilter,
+                    (v) => _genderFilter = v,
+                  ),
+                  _filterChip(
+                    'Mulheres',
+                    'feminino',
+                    const Color(0xFFEC4899),
+                    _genderFilter,
+                    (v) => _genderFilter = v,
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -1422,16 +1435,41 @@ class _MemberCardPageState extends State<MemberCardPage>
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _filterChip('Todas idades', 'todas', const Color(0xFF64748B), _ageFilter,
-                      (v) => _ageFilter = v),
-                  _filterChip('Crianças', 'criancas', const Color(0xFFF59E0B), _ageFilter,
-                      (v) => _ageFilter = v),
-                  _filterChip('Adolescentes', 'adolescentes', const Color(0xFF8B5CF6), _ageFilter,
-                      (v) => _ageFilter = v),
-                  _filterChip('Adultos', 'adultos', const Color(0xFF10B981), _ageFilter,
-                      (v) => _ageFilter = v),
-                  _filterChip('Idosos', 'idosos', const Color(0xFF78716C), _ageFilter,
-                      (v) => _ageFilter = v),
+                  _filterChip(
+                    'Todas idades',
+                    'todas',
+                    const Color(0xFF64748B),
+                    _ageFilter,
+                    (v) => _ageFilter = v,
+                  ),
+                  _filterChip(
+                    'Crianças',
+                    'criancas',
+                    const Color(0xFFF59E0B),
+                    _ageFilter,
+                    (v) => _ageFilter = v,
+                  ),
+                  _filterChip(
+                    'Adolescentes',
+                    'adolescentes',
+                    const Color(0xFF8B5CF6),
+                    _ageFilter,
+                    (v) => _ageFilter = v,
+                  ),
+                  _filterChip(
+                    'Adultos',
+                    'adultos',
+                    const Color(0xFF10B981),
+                    _ageFilter,
+                    (v) => _ageFilter = v,
+                  ),
+                  _filterChip(
+                    'Idosos',
+                    'idosos',
+                    const Color(0xFF78716C),
+                    _ageFilter,
+                    (v) => _ageFilter = v,
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -1477,7 +1515,10 @@ class _MemberCardPageState extends State<MemberCardPage>
                         onPressed: _exportingPdf
                             ? null
                             : () => unawaited(_exportSelectedPdf(context)),
-                        icon: const Icon(Icons.picture_as_pdf_rounded, size: 18),
+                        icon: const Icon(
+                          Icons.picture_as_pdf_rounded,
+                          size: 18,
+                        ),
                         label: Text('PDF ($_validSelectedCount)'),
                       ),
                     ],
@@ -1487,8 +1528,8 @@ class _MemberCardPageState extends State<MemberCardPage>
                 children: [
                   Text(
                     '${_filtered.length} de ${_members.length} membros'
-                        '${_validSelectedCount == 0 ? '' : ' · $_validSelectedCount sel.'}'
-                        '${_selectedIds.length > _validSelectedCount ? ' (${_selectedIds.length - _validSelectedCount} inválidos)' : ''}',
+                    '${_validSelectedCount == 0 ? '' : ' · $_validSelectedCount sel.'}'
+                    '${_selectedIds.length > _validSelectedCount ? ' (${_selectedIds.length - _validSelectedCount} inválidos)' : ''}',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -1597,12 +1638,12 @@ class _MemberCardPageState extends State<MemberCardPage>
         onTap: () => unawaited(_openPreview(m)),
         onLongPress: _canManage
             ? () => setState(() {
-                  if (selected) {
-                    _selectedIds.remove(m.id);
-                  } else {
-                    _selectedIds.add(m.id);
-                  }
-                })
+                if (selected) {
+                  _selectedIds.remove(m.id);
+                } else {
+                  _selectedIds.add(m.id);
+                }
+              })
             : null,
         child: Container(
           decoration: BoxDecoration(
@@ -1738,7 +1779,7 @@ class _MemberCardPageState extends State<MemberCardPage>
                             n == 0
                                 ? 'Marque membros na lista ou abra um cartão para assinar só ele.'
                                 : '$n membro(s) selecionado(s) para assinatura.'
-                                    '${stale > 0 ? ' ($stale fora da lista atual — recarregue em Membros)' : ''}',
+                                      '${stale > 0 ? ' ($stale fora da lista atual — recarregue em Membros)' : ''}',
                             style: GoogleFonts.poppins(
                               fontSize: 13,
                               height: 1.45,
@@ -1773,7 +1814,10 @@ class _MemberCardPageState extends State<MemberCardPage>
                   onPressed: _exportingPdf
                       ? null
                       : () => unawaited(_exportSelectedPdf(context)),
-                  icon: const Icon(Icons.picture_as_pdf_rounded, color: Colors.white),
+                  icon: const Icon(
+                    Icons.picture_as_pdf_rounded,
+                    color: Colors.white,
+                  ),
                   label: Text(
                     n == 0
                         ? 'Exportar PDF (preview ou selecionados)'
@@ -1898,22 +1942,24 @@ class _MemberCardPageState extends State<MemberCardPage>
                 imageUrl: memberPhotoUrl,
                 tenantId: payload.igrejaDocId,
                 memberId: payload.memberId,
-                authUid: (payload.member['authUid'] ??
-                        payload.member['firebaseUid'] ??
-                        '')
-                    .toString()
-                    .trim()
-                    .isEmpty
+                authUid:
+                    (payload.member['authUid'] ??
+                            payload.member['firebaseUid'] ??
+                            '')
+                        .toString()
+                        .trim()
+                        .isEmpty
                     ? null
                     : (payload.member['authUid'] ??
-                            payload.member['firebaseUid'])
-                        .toString()
-                        .trim(),
+                              payload.member['firebaseUid'])
+                          .toString()
+                          .trim(),
                 memberFirestoreHint: payload.member,
                 width: 88,
                 height: 88,
-                imageCacheRevision:
-                    memberPhotoDisplayCacheRevision(payload.member),
+                imageCacheRevision: memberPhotoDisplayCacheRevision(
+                  payload.member,
+                ),
                 preferListThumbnail: false,
               ),
             ),

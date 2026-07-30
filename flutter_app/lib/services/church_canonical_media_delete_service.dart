@@ -39,13 +39,12 @@ abstract final class ChurchCanonicalMediaDeleteService {
     required String postId,
     required bool isEvento,
     Map<String, dynamic>? data,
-  }) =>
-      _purgeFeedPostMedia(
-        tenantId: tenantId,
-        postId: postId,
-        isEvento: isEvento,
-        data: data,
-      );
+  }) => _purgeFeedPostMedia(
+    tenantId: tenantId,
+    postId: postId,
+    isEvento: isEvento,
+    data: data,
+  );
 
   static Future<void> _purgeFeedPostMedia({
     required String tenantId,
@@ -165,11 +164,7 @@ abstract final class ChurchCanonicalMediaDeleteService {
     Map<String, dynamic>? data,
   }) {
     unawaited(
-      _purgePatrimonioItem(
-        tenantId: tenantId,
-        itemId: itemId,
-        data: data,
-      ),
+      _purgePatrimonioItem(tenantId: tenantId, itemId: itemId, data: data),
     );
   }
 
@@ -223,7 +218,10 @@ abstract final class ChurchCanonicalMediaDeleteService {
   }) {
     final tid = ChurchRepository.churchId(tenantId.trim());
     final iid = itemId.trim();
-    final idx = slot.clamp(0, ChurchCanonicalMediaContract.patrimonioMaxPhotos - 1);
+    final idx = slot.clamp(
+      0,
+      ChurchCanonicalMediaContract.patrimonioMaxPhotos - 1,
+    );
     if (tid.isEmpty || iid.isEmpty) return;
 
     if (docRef != null) {
@@ -238,7 +236,11 @@ abstract final class ChurchCanonicalMediaDeleteService {
       if (existingData != null) {
         final eu = PatrimonioPhotoFields.urlsFromData(existingData);
         final ep = PatrimonioPhotoFields.pathsFromData(existingData);
-        for (var i = 0; i < ChurchCanonicalMediaContract.patrimonioMaxPhotos; i++) {
+        for (
+          var i = 0;
+          i < ChurchCanonicalMediaContract.patrimonioMaxPhotos;
+          i++
+        ) {
           if (i < eu.length) urls[i] = eu[i];
           if (i < ep.length) paths[i] = ep[i];
         }
@@ -282,8 +284,9 @@ abstract final class ChurchCanonicalMediaDeleteService {
         storagePath: (data['comprovanteStoragePath'] ?? '').toString(),
         downloadUrl: (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
             .toString(),
-        referenceDate:
-            FinanceComprovantePublishService.referenceDateFromMap(data),
+        referenceDate: FinanceComprovantePublishService.referenceDateFromMap(
+          data,
+        ),
         ext: _extFromComprovanteData(data),
       ),
     );
@@ -324,12 +327,12 @@ abstract final class ChurchCanonicalMediaDeleteService {
         tenantData: tenantData,
         storagePath: storagePath,
         downloadUrl: downloadUrl,
-      ),
+      ).catchError((_) {}),
     );
     ChurchBrandService.invalidate(churchId: cid);
   }
 
-  /// Remove logo — Firestore + Storage (await strict, cadastro igreja).
+  /// Remove logo — Firestore confirmado; limpeza Storage não bloqueia a UI.
   static Future<void> removeChurchLogoStrict({
     required String churchId,
     Map<String, dynamic>? tenantData,
@@ -346,11 +349,13 @@ abstract final class ChurchCanonicalMediaDeleteService {
       ),
     );
 
-    await _purgeChurchLogo(
-      churchId: cid,
-      tenantData: tenantData,
-      storagePath: storagePath,
-      downloadUrl: downloadUrl,
+    unawaited(
+      _purgeChurchLogo(
+        churchId: cid,
+        tenantData: tenantData,
+        storagePath: storagePath,
+        downloadUrl: downloadUrl,
+      ),
     );
     ChurchBrandService.invalidate(churchId: cid);
   }
@@ -366,7 +371,8 @@ abstract final class ChurchCanonicalMediaDeleteService {
 
     var path = (storagePath ?? '').trim();
     if (path.isEmpty) {
-      path = ChurchBrandService.logoPathFromData(tenantData, churchId: cid) ?? '';
+      path =
+          ChurchBrandService.logoPathFromData(tenantData, churchId: cid) ?? '';
     }
     final url = (downloadUrl ?? '').trim();
 
@@ -379,13 +385,12 @@ abstract final class ChurchCanonicalMediaDeleteService {
       FirebaseStorageCleanupService.deleteByUrlPathOrGs(
         ChurchStorageLayout.churchIdentityLogoPath(cid),
       ),
-      FirebaseStorageCleanupService.deleteAllObjectsUnderPrefix(
-        'igrejas/$cid/configuracoes',
-      ),
     ]);
   }
 
-  static Future<void> _deleteChurchLogoPathWithVariants(String storagePath) async {
+  static Future<void> _deleteChurchLogoPathWithVariants(
+    String storagePath,
+  ) async {
     final p = storagePath.trim();
     if (p.isEmpty) return;
     await FirebaseStorageCleanupService.deleteByUrlPathOrGs(p);

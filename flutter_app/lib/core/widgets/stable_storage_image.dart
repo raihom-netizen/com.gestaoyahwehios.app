@@ -27,8 +27,9 @@ class StableStorageImage extends StatefulWidget {
     this.memCacheWidth,
     this.memCacheHeight,
     this.onLoadError,
+
     /// `false` = renovar token Storage na web antes dos bytes (painel avisos/eventos com URL antiga).
-    this.skipFreshDisplayUrl = true,
+    this.skipFreshDisplayUrl = false,
     this.fallbackStoragePaths = const [],
   });
 
@@ -43,6 +44,7 @@ class StableStorageImage extends StatefulWidget {
   final Widget? errorWidget;
   final int? memCacheWidth;
   final int? memCacheHeight;
+
   /// Diagnóstico (ex.: mural): falha ao resolver URL ou carregar bytes.
   final void Function(String url, Object? error)? onLoadError;
   final bool skipFreshDisplayUrl;
@@ -65,32 +67,33 @@ class _StableStorageImageState extends State<StableStorageImage> {
   void didUpdateWidget(covariant StableStorageImage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (AppStorageImageService.cacheKey(
-          storagePath: oldWidget.storagePath,
-          imageUrl: oldWidget.imageUrl,
-          gsUrl: oldWidget.gsUrl,
-          fallbackStoragePaths: oldWidget.fallbackStoragePaths,
-        ) !=
-        AppStorageImageService.cacheKey(
-          storagePath: widget.storagePath,
-          imageUrl: widget.imageUrl,
-          gsUrl: widget.gsUrl,
-          fallbackStoragePaths: widget.fallbackStoragePaths,
-        ) ||
+              storagePath: oldWidget.storagePath,
+              imageUrl: oldWidget.imageUrl,
+              gsUrl: oldWidget.gsUrl,
+              fallbackStoragePaths: oldWidget.fallbackStoragePaths,
+            ) !=
+            AppStorageImageService.cacheKey(
+              storagePath: widget.storagePath,
+              imageUrl: widget.imageUrl,
+              gsUrl: widget.gsUrl,
+              fallbackStoragePaths: widget.fallbackStoragePaths,
+            ) ||
         oldWidget.skipFreshDisplayUrl != widget.skipFreshDisplayUrl) {
       _future = _load();
     }
   }
 
   Future<String?> _load() => AppStorageImageService.instance.resolveImageUrl(
-        storagePath: widget.storagePath,
-        imageUrl: widget.imageUrl,
-        gsUrl: widget.gsUrl,
-        fallbackStoragePaths: widget.fallbackStoragePaths,
-      );
+    storagePath: widget.storagePath,
+    imageUrl: widget.imageUrl,
+    gsUrl: widget.gsUrl,
+    fallbackStoragePaths: widget.fallbackStoragePaths,
+  );
 
   @override
   Widget build(BuildContext context) {
-    final ph = widget.placeholder ??
+    final ph =
+        widget.placeholder ??
         SizedBox(
           width: widget.width,
           height: widget.height,
@@ -102,11 +105,16 @@ class _StableStorageImageState extends State<StableStorageImage> {
             ),
           ),
         );
-    final err = widget.errorWidget ??
+    final err =
+        widget.errorWidget ??
         SizedBox(
           width: widget.width,
           height: widget.height,
-          child: Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade400, size: 36),
+          child: Icon(
+            Icons.image_not_supported_outlined,
+            color: Colors.grey.shade400,
+            size: 36,
+          ),
         );
 
     return SizedBox(
@@ -117,23 +125,27 @@ class _StableStorageImageState extends State<StableStorageImage> {
         builder: (context, snap) {
           if (snap.hasError) {
             widget.onLoadError?.call(
-                widget.imageUrl ?? widget.storagePath ?? widget.gsUrl ?? '',
-                snap.error!);
+              widget.imageUrl ?? widget.storagePath ?? widget.gsUrl ?? '',
+              snap.error!,
+            );
             return err;
           }
-          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          if (snap.connectionState == ConnectionState.waiting &&
+              !snap.hasData) {
             return ph;
           }
           final u = snap.data;
           final clean = u != null ? sanitizeImageUrl(u) : '';
-          final canDisplay = clean.isNotEmpty &&
+          final canDisplay =
+              clean.isNotEmpty &&
               (isValidImageUrl(clean) ||
                   clean.toLowerCase().startsWith('gs://') ||
                   firebaseStorageMediaUrlLooksLike(clean));
           if (!canDisplay) {
             widget.onLoadError?.call(
-                widget.imageUrl ?? widget.storagePath ?? widget.gsUrl ?? '',
-                StateError('resolveImageUrl vazio ou inválido: ${u ?? "null"}'));
+              widget.imageUrl ?? widget.storagePath ?? widget.gsUrl ?? '',
+              StateError('resolveImageUrl vazio ou inválido: ${u ?? "null"}'),
+            );
             return err;
           }
           // [ResilientNetworkImage]: renova token Storage antes do decode (igual carteirinha, mural).
@@ -175,6 +187,7 @@ class StableChurchLogo extends StatefulWidget {
     this.fit = BoxFit.contain,
     this.memCacheWidth,
     this.memCacheHeight,
+
     /// Ex.: spinner no tom do cabeçalho escuro (site público).
     this.loadingPlaceholder,
   });
@@ -259,9 +272,7 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
   String? _immediateLogoUrl() {
     final https = _preferHttpsImageUrl();
     if (https != null) return https;
-    for (final raw in <String?>[
-      widget.gsUrl,
-    ]) {
+    for (final raw in <String?>[widget.gsUrl]) {
       final clean = sanitizeImageUrl(raw ?? '');
       if (clean.isEmpty) continue;
       if (!isValidImageUrl(clean) &&
@@ -338,7 +349,8 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
 
   @override
   Widget build(BuildContext context) {
-    final ph = widget.loadingPlaceholder ??
+    final ph =
+        widget.loadingPlaceholder ??
         SizedBox(
           width: widget.width,
           height: widget.height,
@@ -346,7 +358,10 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
             child: SizedBox(
               width: 22,
               height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.grey.shade500),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: Colors.grey.shade500,
+              ),
             ),
           ),
         );
@@ -359,12 +374,14 @@ class _StableChurchLogoState extends State<StableChurchLogo> {
           if (snap.hasError) {
             return _fallback();
           }
-          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          if (snap.connectionState == ConnectionState.waiting &&
+              !snap.hasData) {
             return ph;
           }
           final u = snap.data;
           final clean = u != null ? sanitizeImageUrl(u) : '';
-          final canDisplay = clean.isNotEmpty &&
+          final canDisplay =
+              clean.isNotEmpty &&
               (isValidImageUrl(clean) ||
                   clean.toLowerCase().startsWith('gs://') ||
                   firebaseStorageMediaUrlLooksLike(clean));
@@ -416,10 +433,12 @@ class ChurchTenantLogoCircleAvatar extends StatefulWidget {
   final int? memCacheSize;
 
   @override
-  State<ChurchTenantLogoCircleAvatar> createState() => _ChurchTenantLogoCircleAvatarState();
+  State<ChurchTenantLogoCircleAvatar> createState() =>
+      _ChurchTenantLogoCircleAvatarState();
 }
 
-class _ChurchTenantLogoCircleAvatarState extends State<ChurchTenantLogoCircleAvatar> {
+class _ChurchTenantLogoCircleAvatarState
+    extends State<ChurchTenantLogoCircleAvatar> {
   late Future<String?> _future;
 
   @override
@@ -458,15 +477,16 @@ class _ChurchTenantLogoCircleAvatarState extends State<ChurchTenantLogoCircleAva
     final fallback = CircleAvatar(
       radius: widget.radius,
       backgroundColor: bg,
-      child: Icon(widget.fallbackIcon, size: widget.radius * 1.1, color: iconColor),
+      child: Icon(
+        widget.fallbackIcon,
+        size: widget.radius * 1.1,
+        color: iconColor,
+      ),
     );
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    final cacheSize = widget.memCacheSize ??
-        memCacheExtentForLogicalSize(
-          widget.radius * 2,
-          dpr,
-          maxPx: 640,
-        );
+    final cacheSize =
+        widget.memCacheSize ??
+        memCacheExtentForLogicalSize(widget.radius * 2, dpr, maxPx: 640);
     return FutureBuilder<String?>(
       future: _future,
       builder: (context, snap) {
@@ -480,13 +500,17 @@ class _ChurchTenantLogoCircleAvatarState extends State<ChurchTenantLogoCircleAva
             child: SizedBox(
               width: widget.radius,
               height: widget.radius,
-              child: CircularProgressIndicator(strokeWidth: 2, color: iconColor.withValues(alpha: 0.7)),
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: iconColor.withValues(alpha: 0.7),
+              ),
             ),
           );
         }
         final u = snap.data;
         final clean = u != null ? sanitizeImageUrl(u) : '';
-        final canDisplay = clean.isNotEmpty &&
+        final canDisplay =
+            clean.isNotEmpty &&
             (isValidImageUrl(clean) ||
                 clean.toLowerCase().startsWith('gs://') ||
                 firebaseStorageMediaUrlLooksLike(clean));
@@ -536,11 +560,13 @@ class StableMemberAvatar extends StatelessWidget {
   final String memberId;
   final String? cpfDigits;
   final String? authUid;
+
   /// Dados do documento Firestore — necessário para resolver path/`gs://` sem URL https na UI.
   final Map<String, dynamic>? memberData;
   final double size;
   final int? memCacheWidth;
   final int? memCacheHeight;
+
   /// Listas/chat: miniatura Storage (`thumb_foto_perfil.jpg`) — carrega mais rápido.
   final bool preferListThumbnail;
 

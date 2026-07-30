@@ -35,11 +35,8 @@ class TdLibService {
 
   bool get isInitialized => _service != null;
   String get boundChurchId => _boundChurchId;
-  bool get isSupported => !kIsWeb && (Platform.isAndroid ||
-      Platform.isIOS ||
-      Platform.isWindows ||
-      Platform.isLinux ||
-      Platform.isMacOS);
+  bool get isSupported =>
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS);
   TdlibAuthSnapshot get currentAuth => _snapshot;
 
   Stream<TdlibAuthSnapshot> get authorizationStateStream =>
@@ -170,6 +167,13 @@ class TdLibService {
       }
       return;
     }
+    if (type == 'updateFile') {
+      final file = obj['file'];
+      if (file is Map) {
+        _applyFileUpdate(Map<String, dynamic>.from(file));
+      }
+      return;
+    }
     if (type == 'updateNewChat' || type == 'updateChatTitle') {
       _ingestChatObject(obj['chat'] is Map
           ? Map<String, dynamic>.from(obj['chat'] as Map)
@@ -241,7 +245,7 @@ class TdLibService {
         _emitAuth(TdlibAuthSnapshot(
           phase: TdlibAuthPhase.waitCode,
           rawType: raw,
-          message: 'Digite o código recebido por SMS',
+          message: 'Digite o código recebido no Telegram ou por SMS',
           codeInfoHint: hint,
         ));
         break;
@@ -521,6 +525,31 @@ class TdLibService {
     return items;
   }
 
+  /// Solicita o download pelo próprio motor Telegram e devolve o ficheiro
+  /// local somente quando o TDLib concluir a transferência.
+  Future<String?> ensureMediaDownloaded(
+    TdlibMessageItem message, {
+    int priority = 16,
+  }) async {
+    final current = (message.mediaLocalPath ?? '').trim();
+    if (current.isNotEmpty && await File(current).exists()) return current;
+    final fileId = message.mediaFileId;
+    if (fileId == null || fileId == 0) return null;
+    final result = await _requireService().sendSync({
+      '@type': 'downloadFile',
+      'file_id': fileId,
+      'priority': priority.clamp(1, 32),
+      'offset': 0,
+      'limit': 0,
+      'synchronous': true,
+    });
+    _applyFileUpdate(result);
+    final local = result['local'];
+    if (local is! Map || local['is_downloading_completed'] != true) return null;
+    final path = (local['path'] ?? '').toString().trim();
+    return path.isEmpty ? null : path;
+  }
+
   Future<void> sendTextMessage(int chatId, String text) async {
     final svc = _requireService();
     final trimmed = text.trim();
@@ -756,6 +785,26 @@ class TdLibService {
     }
   }
 
+  void _applyFileUpdate(Map<String, dynamic> file) {
+    final fileId = _asInt(file['id']);
+    final local = file['local'];
+    if (fileId == null || local is! Map) return;
+    final completed = local['is_downloading_completed'] == true;
+    final path = (local['path'] ?? '').toString().trim();
+    if (!completed || path.isEmpty) return;
+    for (final entry in _messagesByChat.entries) {
+      var changed = false;
+      final next = entry.value.map((message) {
+        if (message.mediaFileId != fileId) return message;
+        changed = true;
+        return message.copyWith(mediaLocalPath: path);
+      }).toList();
+      if (!changed) continue;
+      _messagesByChat[entry.key] = next;
+      if (_activeChatId == entry.key) _emitMessages(entry.key);
+    }
+  }
+
   TdlibMessageItem? _messageFromMap(Map<String, dynamic> msg) {
     final id = _asInt(msg['id']);
     final chatId = _asInt(msg['chat_id']);
@@ -778,6 +827,7 @@ class TdLibService {
 
     // Extract media info
     String? mediaKind;
+    int? mediaFileId;
     String? mediaLocalPath;
     String? mediaRemoteId;
     String? mediaCaption;
@@ -803,6 +853,7 @@ class TdLibService {
               if (last is Map) {
                 final p = last['photo'];
                 if (p is Map) {
+                  mediaFileId = _asInt(p['id']);
                   mediaLocalPath = p['local'] is Map
                       ? (p['local'] as Map)['path']?.toString()
                       : null;
@@ -825,6 +876,7 @@ class TdLibService {
             fileSize = _asInt(video['size']);
             if (video['video'] is Map) {
               final v = video['video'] as Map;
+              mediaFileId = _asInt(v['id']);
               mediaLocalPath = v['local'] is Map
                   ? (v['local'] as Map)['path']?.toString()
                   : null;
@@ -844,6 +896,7 @@ class TdLibService {
             fileSize = _asInt(vn['size']);
             if (vn['voice'] is Map) {
               final v = vn['voice'] as Map;
+              mediaFileId = _asInt(v['id']);
               mediaLocalPath = v['local'] is Map
                   ? (v['local'] as Map)['path']?.toString()
                   : null;
@@ -862,6 +915,7 @@ class TdLibService {
             fileSize = _asInt(doc['size']);
             if (doc['document'] is Map) {
               final d = doc['document'] as Map;
+              mediaFileId = _asInt(d['id']);
               mediaLocalPath = d['local'] is Map
                   ? (d['local'] as Map)['path']?.toString()
                   : null;
@@ -882,6 +936,7 @@ class TdLibService {
             fileSize = _asInt(audio['size']);
             if (audio['audio'] is Map) {
               final a = audio['audio'] as Map;
+              mediaFileId = _asInt(a['id']);
               mediaLocalPath = a['local'] is Map
                   ? (a['local'] as Map)['path']?.toString()
                   : null;
@@ -906,6 +961,7 @@ class TdLibService {
       senderId: senderId,
       text: text ?? '',
       mediaKind: mediaKind,
+      mediaFileId: mediaFileId,
       mediaLocalPath: mediaLocalPath,
       mediaRemoteId: mediaRemoteId,
       mediaCaption: mediaCaption,

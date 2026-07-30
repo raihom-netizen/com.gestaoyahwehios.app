@@ -23,8 +23,7 @@ abstract final class ChurchChatMediaOutboxService {
   static const _prefsKey = 'church_chat_media_outbox_v1';
   static bool _connectivityBound = false;
 
-  static Future<int> pendingJobCount() async =>
-      recoverablePendingJobCount();
+  static Future<int> pendingJobCount() async => recoverablePendingJobCount();
 
   /// Só jobs com ficheiro/bytes — evita banner «28 pendentes» fantasma.
   static Future<int> recoverablePendingJobCount({String? tenantId}) async {
@@ -80,8 +79,9 @@ abstract final class ChurchChatMediaOutboxService {
       return (jsonDecode(raw) as List).length;
     }
     final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
-    final kept =
-        list.where((e) => (e['tenantId'] ?? '').toString() != tid).toList();
+    final kept = list
+        .where((e) => (e['tenantId'] ?? '').toString() != tid)
+        .toList();
     final removed = list.length - kept.length;
     if (kept.isEmpty) {
       await prefs.remove(_prefsKey);
@@ -104,12 +104,12 @@ abstract final class ChurchChatMediaOutboxService {
     Uint8List? bytes,
     String? uploadDocId,
   }) async {
-    final pathOk = !kIsWeb &&
+    final pathOk =
+        !kIsWeb &&
         localPath != null &&
         localPath.trim().isNotEmpty &&
         File(localPath.trim()).existsSync();
-    final hasPayload =
-        (bytes != null && bytes.isNotEmpty) || pathOk;
+    final hasPayload = (bytes != null && bytes.isNotEmpty) || pathOk;
     if (!hasPayload) return;
 
     if (bytes != null && bytes.isNotEmpty) {
@@ -241,7 +241,8 @@ abstract final class ChurchChatMediaOutboxService {
     final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
     String? docId = uploadDocId;
     list.removeWhere((e) {
-      final match = (e['tenantId'] ?? '').toString() == tenantId &&
+      final match =
+          (e['tenantId'] ?? '').toString() == tenantId &&
           (e['threadId'] ?? '').toString() == threadId &&
           (e['localId'] ?? '').toString() == localId;
       if (match && docId == null) {
@@ -274,35 +275,25 @@ abstract final class ChurchChatMediaOutboxService {
     final tid = tenantId.trim();
     final th = threadId.trim();
     if (tid.isEmpty || th.isEmpty) return;
-    await runFirebaseBackgroundTask<void>(
-      () async {
-        await ensureFirebaseReadyForChatSend();
-        await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
-        final prefs = await SharedPreferences.getInstance();
-        final raw = prefs.getString(_prefsKey);
-        if (raw == null || raw.isEmpty) return;
-        final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
-        final jobs = list
-            .where(
-              (e) =>
-                  (e['tenantId'] ?? '').toString() == tid &&
-                  (e['threadId'] ?? '').toString() == th,
-            )
-            .take(_maxJobsPerResumeWave)
-            .toList();
-        for (var i = 0; i < jobs.length; i += 2) {
-          final batch = jobs.sublist(
-            i,
-            (i + 2 > jobs.length) ? jobs.length : i + 2,
-          );
-          await Future.wait(
-            batch.map(_retryFromJson),
-            eagerError: false,
-          );
-        }
-      },
-      debugLabel: 'chat_outbox_thread_resume',
-    ).catchError((e, st) {
+    await runFirebaseBackgroundTask<void>(() async {
+      await ensureFirebaseReadyForChatSend();
+      await FirestoreWebGuard.prepareForChatWrite().catchError((_) {});
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefsKey);
+      if (raw == null || raw.isEmpty) return;
+      final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+      final jobs = list
+          .where(
+            (e) =>
+                (e['tenantId'] ?? '').toString() == tid &&
+                (e['threadId'] ?? '').toString() == th,
+          )
+          .take(_maxJobsPerResumeWave)
+          .toList();
+      for (final job in jobs) {
+        await _retryFromJson(job);
+      }
+    }, debugLabel: 'chat_outbox_thread_resume').catchError((e, st) {
       if (kDebugMode) {
         debugPrint('ChurchChatMediaOutboxService.resumeForThread: $e\n$st');
       }
@@ -331,6 +322,7 @@ abstract final class ChurchChatMediaOutboxService {
   }
 
   static const int _maxJobsPerResumeWave = 4;
+  static const int _maxAutomaticAttempts = 3;
   static bool _resumeScheduled = false;
 
   /// Remove fila local do chat e apaga stubs no Firestore (botão Limpar).
@@ -348,9 +340,7 @@ abstract final class ChurchChatMediaOutboxService {
 
     final toRemove = tid.isEmpty
         ? List<Map<String, dynamic>>.from(list)
-        : list
-            .where((e) => (e['tenantId'] ?? '').toString() == tid)
-            .toList();
+        : list.where((e) => (e['tenantId'] ?? '').toString() == tid).toList();
 
     for (final m in toRemove) {
       final t = (m['tenantId'] ?? '').toString();
@@ -383,27 +373,17 @@ abstract final class ChurchChatMediaOutboxService {
   }
 
   static Future<void> _resumeAll() async {
-    await runFirebaseBackgroundTask<void>(
-      () async {
-        await ensureFirebaseReadyForChatSend();
-        final prefs = await SharedPreferences.getInstance();
-        final raw = prefs.getString(_prefsKey);
-        if (raw == null || raw.isEmpty) return;
-        final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
-        final wave = list.take(_maxJobsPerResumeWave).toList();
-        for (var i = 0; i < wave.length; i += 2) {
-          final batch = wave.sublist(
-            i,
-            (i + 2 > wave.length) ? wave.length : i + 2,
-          );
-          await Future.wait(
-            batch.map(_retryFromJson),
-            eagerError: false,
-          );
-        }
-      },
-      debugLabel: 'chat_outbox_resume',
-    ).catchError((e, st) {
+    await runFirebaseBackgroundTask<void>(() async {
+      await ensureFirebaseReadyForChatSend();
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefsKey);
+      if (raw == null || raw.isEmpty) return;
+      final list = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+      final wave = list.take(_maxJobsPerResumeWave).toList();
+      for (final job in wave) {
+        await _retryFromJson(job);
+      }
+    }, debugLabel: 'chat_outbox_resume').catchError((e, st) {
       if (kDebugMode) {
         debugPrint('ChurchChatMediaOutboxService._resumeAll: $e\n$st');
       }
@@ -482,6 +462,19 @@ abstract final class ChurchChatMediaOutboxService {
     final localPath = (json['localPath'] ?? '').toString();
     final hasBytes = json['hasBytes'] == true;
     final uploadDocId = (json['uploadDocId'] ?? '').toString();
+    final attempts = json['attempts'] is num
+        ? (json['attempts'] as num).toInt()
+        : int.tryParse('${json['attempts']}') ?? 0;
+    if (attempts >= _maxAutomaticAttempts) {
+      if (uploadDocId.isNotEmpty) {
+        await ChurchChatUploadsService.markFailed(
+          tenantId: tenantId,
+          uploadId: uploadDocId,
+          error: 'Reenvio automático pausado. Toque em «Tentar de novo».',
+        );
+      }
+      return;
+    }
 
     if (uploadDocId.isNotEmpty) {
       await ChurchChatUploadsService.markRetrying(
@@ -508,9 +501,8 @@ abstract final class ChurchChatMediaOutboxService {
       } catch (_) {}
     }
 
-    final pathOk = !kIsWeb &&
-        localPath.isNotEmpty &&
-        File(localPath).existsSync();
+    final pathOk =
+        !kIsWeb && localPath.isNotEmpty && File(localPath).existsSync();
     if (bytes == null && !pathOk) {
       await clearJob(
         tenantId: tenantId,
@@ -532,8 +524,8 @@ abstract final class ChurchChatMediaOutboxService {
     );
     pending.firestoreMessageId =
         (json['firestoreMessageId'] ?? '').toString().trim().isEmpty
-            ? null
-            : (json['firestoreMessageId'] ?? '').toString();
+        ? null
+        : (json['firestoreMessageId'] ?? '').toString();
     pending.storagePath = (json['storagePath'] ?? '').toString().trim().isEmpty
         ? null
         : (json['storagePath'] ?? '').toString();
@@ -563,12 +555,14 @@ abstract final class ChurchChatMediaOutboxService {
           // Re-enfileirado silenciosamente (offline/timeout) — o job acabou de
           // ser re-registado; clearJob aqui apagaria a fila e os bytes em cache.
           if (pending.offlineQueued) return;
-          unawaited(clearJob(
-            tenantId: tenantId,
-            threadId: threadId,
-            localId: localId,
-            uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
-          ));
+          unawaited(
+            clearJob(
+              tenantId: tenantId,
+              threadId: threadId,
+              localId: localId,
+              uploadDocId: uploadDocId.isEmpty ? null : uploadDocId,
+            ),
+          );
         },
         onError: (msg) => throw StateError(msg),
       );

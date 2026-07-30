@@ -762,12 +762,14 @@ class ChurchChatService {
   _chatThreadsWebCacheFirstStream(String tenantId, String uid) {
     return Stream<QuerySnapshot<Map<String, dynamic>>>.multi((ctrl) {
       unawaited(() async {
+        QuerySnapshot<Map<String, dynamic>>? lastNonEmpty;
         try {
           final cached = await ChurchChatThreadsListCache.loadSnapshot(
             tenantId,
             uid: uid,
           );
           if (!ctrl.isClosed && cached != null && cached.docs.isNotEmpty) {
+            lastNonEmpty = cached;
             ctrl.add(cached);
           }
         } catch (_) {}
@@ -781,14 +783,17 @@ class ChurchChatService {
             return loadDmThreadsSnapshotFallback(tenantId: tenantId, uid: uid);
           }).timeout(const Duration(seconds: 16));
           if (ctrl.isClosed) return;
-          ctrl.add(fb);
           if (fb.docs.isNotEmpty) {
+            lastNonEmpty = fb;
+            ctrl.add(fb);
             unawaited(
               ChurchChatThreadsListCache.saveFromSnapshot(tenantId, fb),
             );
+          } else if (lastNonEmpty == null) {
+            ctrl.add(fb);
           }
         } catch (_) {
-          if (!ctrl.isClosed) {
+          if (!ctrl.isClosed && lastNonEmpty == null) {
             ctrl.add(const MergedFirestoreQuerySnapshot([]));
           }
         }
@@ -812,7 +817,6 @@ class ChurchChatService {
     var fallbackInFlight = false;
     var fallbackAttempts = 0;
     QuerySnapshot<Map<String, dynamic>>? lastNonEmptyEmitted;
-    Timer? suppressEmptyTimer;
 
     Future<void> runFallbackMerge(
       QuerySnapshot<Map<String, dynamic>> current,
@@ -858,8 +862,6 @@ class ChurchChatService {
         lastParticipant,
       );
       if (merged.docs.isNotEmpty) {
-        suppressEmptyTimer?.cancel();
-        suppressEmptyTimer = null;
         lastNonEmptyEmitted = merged;
         controller.add(merged);
         unawaited(
@@ -867,21 +869,9 @@ class ChurchChatService {
         );
       } else if (lastNonEmptyEmitted != null &&
           lastNonEmptyEmitted!.docs.isNotEmpty) {
+        // Uma leitura vazia durante reconexão/upload não pode apagar a lista.
+        // Ocultar/limpar continua explícito pelas preferências do utilizador.
         controller.add(lastNonEmptyEmitted!);
-        suppressEmptyTimer ??= Timer(const Duration(seconds: 3), () {
-          suppressEmptyTimer = null;
-          if (controller.isClosed) return;
-          final again = _mergeThreadSnapshots(
-            uid,
-            lastIndexed,
-            lastFallbackSnap,
-            lastParticipant,
-          );
-          if (again.docs.isEmpty) {
-            lastNonEmptyEmitted = null;
-            controller.add(again);
-          }
-        });
       } else {
         controller.add(merged);
       }
@@ -1002,7 +992,6 @@ class ChurchChatService {
           },
           onCancel: () {
             if (!controller.hasListener) {
-              suppressEmptyTimer?.cancel();
               subIndexed?.cancel();
               subParticipant?.cancel();
               subIndexed = null;
@@ -1972,12 +1961,14 @@ class ChurchChatService {
       'deliveryStatus': deliverySent,
       'status': deliverySent,
     });
-    await threadRef(tenantId, threadId).set({
-      'lastMessageAt': FieldValue.serverTimestamp(),
-      'lastMessagePreview': preview,
-      'lastSenderUid': uid,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await threadRef(tenantId, threadId).set(
+      threadLastMessageIndexPatch(
+        preview: preview,
+        senderUid: uid,
+        messageType: 'sticker',
+      ),
+      SetOptions(merge: true),
+    );
   }
 
   static Future<bool> sendMediaMessage({
@@ -2029,12 +2020,14 @@ class ChurchChatService {
             ? label.substring(0, 100)
             : label,
     });
-    await threadRef(tenantId, threadId).set({
-      'lastMessageAt': FieldValue.serverTimestamp(),
-      'lastMessagePreview': preview,
-      'lastSenderUid': uid,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await threadRef(tenantId, threadId).set(
+      threadLastMessageIndexPatch(
+        preview: preview,
+        senderUid: uid,
+        messageType: kind,
+      ),
+      SetOptions(merge: true),
+    );
     return true;
   }
 
@@ -2077,12 +2070,14 @@ class ChurchChatService {
             : label,
       'deliveryStatus': deliverySent,
     });
-    await threadRef(tenantId, threadId).set({
-      'lastMessageAt': FieldValue.serverTimestamp(),
-      'lastMessagePreview': preview,
-      'lastSenderUid': uid,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await threadRef(tenantId, threadId).set(
+      threadLastMessageIndexPatch(
+        preview: preview,
+        senderUid: uid,
+        messageType: 'sticker',
+      ),
+      SetOptions(merge: true),
+    );
     return true;
   }
 
@@ -2956,12 +2951,16 @@ class ChurchChatService {
     } else if (ct.startsWith('image/')) {
       final chatJpegFast =
           ct.contains('jpeg') || ct == 'image/jpg' || ct == 'image/pjpeg';
-      url = await YahwehMediaUploadPipeline.uploadBytes(
-        storagePath: path,
+      final prepared = await YahwehMediaUploadPipeline.compressImageBytes(
+        module: YahwehUploadModule.chat,
         bytes: ubytes,
         contentType: contentType,
-        module: YahwehUploadModule.chat,
         chatJpegFast: chatJpegFast,
+      );
+      url = await ChurchMediaUploadFacade.uploadFromPipeline(
+        storagePath: path,
+        bytes: prepared,
+        module: YahwehUploadModule.chat,
         onProgress: onProgress,
         onUploadTaskCreated: onUploadTaskCreated,
       );

@@ -127,7 +127,8 @@ abstract final class YahwehMediaUploadPipeline {
     String? tenantId,
     String? localFilePathForRetry,
     bool chatJpegFast = false,
-    bool useOfflineQueue = false, // Controle Total: directo; fila só se caller pedir
+    bool useOfflineQueue =
+        false, // Controle Total: directo; fila só se caller pedir
     String? pendingUploadId,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
@@ -149,6 +150,7 @@ abstract final class YahwehMediaUploadPipeline {
           contentType: contentType,
           profile: profile,
           onProgress: progressBridge(onProgress),
+          onUploadTaskCreated: onUploadTaskCreated,
         );
       } finally {
         hideProgress();
@@ -172,7 +174,9 @@ abstract final class YahwehMediaUploadPipeline {
       chatJpegFast: chatJpegFast,
     );
 
-    if (!kIsWeb && localFilePathForRetry != null && localFilePathForRetry.isNotEmpty) {
+    if (!kIsWeb &&
+        localFilePathForRetry != null &&
+        localFilePathForRetry.isNotEmpty) {
       unawaited(
         StorageUploadPersistenceService.enqueueFileJob(
           storagePath: storagePath,
@@ -183,7 +187,10 @@ abstract final class YahwehMediaUploadPipeline {
     }
 
     unawaited(
-      AnalyticsService.logUploadPipeline(module: mod.name, phase: 'upload_start'),
+      AnalyticsService.logUploadPipeline(
+        module: mod.name,
+        phase: 'upload_start',
+      ),
     );
 
     final progressLabel = switch (mod) {
@@ -243,11 +250,18 @@ abstract final class YahwehMediaUploadPipeline {
         );
       }
       unawaited(
-        AnalyticsService.logUploadPipeline(module: mod.name, phase: 'upload_ok'),
+        AnalyticsService.logUploadPipeline(
+          module: mod.name,
+          phase: 'upload_ok',
+        ),
       );
       return url;
     } catch (e, st) {
-      logFirebaseDiagnostic(e, st, context: 'pipeline_${mod.name}:$storagePath');
+      logFirebaseDiagnostic(
+        e,
+        st,
+        context: 'pipeline_${mod.name}:$storagePath',
+      );
       unawaited(
         AnalyticsService.logUploadPipeline(
           module: mod.name,
@@ -326,6 +340,7 @@ abstract final class YahwehMediaUploadPipeline {
         contentType: contentType,
         profile: profile,
         onProgress: onProgress,
+        onUploadTaskCreated: onUploadTaskCreated,
       );
     }
     if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {

@@ -23,13 +23,17 @@ const int kMediaVideoHardMaxBytes = 120 * 1024 * 1024; // 120MB (padrão)
 
 /// Chat Igreja — vídeo até 200 MB (spec WhatsApp-like).
 const int kMediaChatVideoHardMaxBytes = 200 * 1024 * 1024;
-const Duration kMediaVideoMaxDuration = Duration(seconds: 60); // legado / outros módulos
+const Duration kMediaVideoMaxDuration = Duration(
+  seconds: 60,
+); // legado / outros módulos
 
 /// Chat igreja — vídeo até 90 s (estilo WhatsApp).
 const Duration kMediaChatVideoMaxDuration = Duration(seconds: 90);
 
-/// Uploads de mídia no chat em paralelo (fotos/vídeos do lote).
-const int kChatMaxConcurrentMediaUploads = 6;
+/// Uploads de mídia no chat em paralelo.
+/// Dois preservam banda para o envio aberto pelo utilizador e evitam que o
+/// outbox sature a ligação enquanto Avisos/Eventos também publicam.
+const int kChatMaxConcurrentMediaUploads = 2;
 
 /// Timeout para fotos **já compactadas** (≤ ~1 MB).
 /// 90s: redes 4G lentas ainda cabem; evita hang eterno de 3 min.
@@ -95,10 +99,9 @@ bool get kMediaTurboEnabled => kMediaTurboMobilePreset;
 int get mediaImagePreferredMaxBytesEffective =>
     kMediaTurboMobilePreset ? (700 * 1024) : kMediaImagePreferredMaxBytes;
 
-int get mediaVideoHardMaxBytesEffective =>
-    kMediaTurboMobilePreset
-        ? kMediaEventVideoHardMaxBytes
-        : kMediaVideoHardMaxBytes;
+int get mediaVideoHardMaxBytesEffective => kMediaTurboMobilePreset
+    ? kMediaEventVideoHardMaxBytes
+    : kMediaVideoHardMaxBytes;
 
 int get mediaEventVideoHardMaxBytesEffective => kMediaEventVideoHardMaxBytes;
 
@@ -111,8 +114,8 @@ int get mediaVideoSkipTranscodeMaxBytes =>
 
 /// Uploads em lote (avisos/eventos): paralelo limitado (turbo mobile = mais rápido em Wi‑Fi/4G).
 int get mediaFeedUploadMaxConcurrent {
-  if (kIsWeb) return 8;
-  return kMediaTurboMobilePreset ? 6 : 4;
+  if (kIsWeb) return 4;
+  return 2;
 }
 
 /// Lado máximo e qualidade padrão para fotos antes do Firebase Storage
@@ -142,11 +145,8 @@ const int kChatMaxAudioFilesPerPick = 5;
 /// PDF / Word / ZIP / RAR no chat (web envia bytes; mobile usa ficheiro no disco).
 const int kChatMaxDocumentBytes = 50 * 1024 * 1024;
 
-int get mediaPickerLogoQuality =>
-    kMediaTurboMobilePreset ? 68 : 70;
+int get mediaPickerLogoQuality => kMediaTurboMobilePreset ? 68 : 70;
 
-int get mediaPickerLogoMaxWidth =>
-    kMediaTurboMobilePreset ? 720 : 800;
+int get mediaPickerLogoMaxWidth => kMediaTurboMobilePreset ? 720 : 800;
 
-int get mediaPickerLogoMaxHeight =>
-    kMediaTurboMobilePreset ? 720 : 800;
+int get mediaPickerLogoMaxHeight => kMediaTurboMobilePreset ? 720 : 800;

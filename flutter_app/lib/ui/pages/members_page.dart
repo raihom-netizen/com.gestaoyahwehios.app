@@ -98,7 +98,6 @@ import '../../services/church_funcoes_controle_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
-import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'igreja_cadastro_page.dart';
 import 'member_card_cnh_nav.dart';
@@ -171,15 +170,16 @@ class _MemberDoc {
   final Map<String, dynamic> data;
   _MemberDoc(this.id, this.data);
   static _MemberDoc fromQueryDoc(
-          QueryDocumentSnapshot<Map<String, dynamic>> d) =>
-      _MemberDoc(d.id, d.data());
+    QueryDocumentSnapshot<Map<String, dynamic>> d,
+  ) => _MemberDoc(d.id, d.data());
   static _MemberDoc fromUserDoc(QueryDocumentSnapshot<Map<String, dynamic>> d) {
     final raw = d.data();
     final data = Map<String, dynamic>.from(raw);
     final active = raw['active'] ?? raw['ativo'];
     if (data['STATUS'] == null && data['status'] == null && active != null) {
-      data['status'] =
-          (active == true || active == 'true') ? 'ativo' : 'inativo';
+      data['status'] = (active == true || active == 'true')
+          ? 'ativo'
+          : 'inativo';
     }
     return _MemberDoc(d.id, data);
   }
@@ -219,10 +219,10 @@ class _MembersPageState extends State<MembersPage> {
   Map<String, String>? _tenantLinkageCache;
 
   String get _effectiveTenantId => ChurchPanelTenant.resolve(
-        (_resolvedTenantId ?? '').isNotEmpty
-            ? _resolvedTenantId
-            : _forceCanonicalTenantId(widget.tenantId),
-      );
+    (_resolvedTenantId ?? '').isNotEmpty
+        ? _resolvedTenantId
+        : _forceCanonicalTenantId(widget.tenantId),
+  );
 
   /// Doc operacional — `igrejas/{churchId}` directo (contexto + mapa BPC).
   Future<String> _resolveEffectiveTenantId() async {
@@ -262,8 +262,9 @@ class _MembersPageState extends State<MembersPage> {
     }
     final thumbUrl = sanitizeImageUrl(result.thumbDownloadUrl ?? '');
     if (thumbUrl.isNotEmpty) {
-      final bustedThumb =
-          rev > 0 ? YahwehMediaCacheBust.apply(thumbUrl, rev) : thumbUrl;
+      final bustedThumb = rev > 0
+          ? YahwehMediaCacheBust.apply(thumbUrl, rev)
+          : thumbUrl;
       patch['fotoThumbUrl'] = bustedThumb;
       patch['photoThumbUrl'] = bustedThumb;
     }
@@ -338,8 +339,10 @@ class _MembersPageState extends State<MembersPage> {
       'photoVariants',
     ];
     final patch = <String, dynamic>{
+      for (final key in photoKeys) key: null,
       'fotoUrlCacheRevision': result.cacheRevision,
       'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+      'profilePhotoRemoved': true,
     };
     final merged = Map<String, dynamic>.from(memberData);
     for (final k in photoKeys) {
@@ -359,6 +362,26 @@ class _MembersPageState extends State<MembersPage> {
       memberDocId: memberDocId,
       authUid: (memberData['authUid'] ?? '').toString().trim(),
     );
+  }
+
+  Future<void> _removeMemberProfilePhotoStrict({
+    required String tenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+  }) async {
+    GlobalUploadProgress.instance.start('A remover foto de perfil…');
+    try {
+      final result = await MemberProfilePhotoUpdateService.removeProfilePhoto(
+        tenantId: tenantId,
+        memberDocId: memberDocId,
+        memberData: memberData,
+        onPhase: (phase) => GlobalUploadProgress.instance.updateLabel(phase),
+      );
+      if (!mounted) return;
+      _applyMemberPhotoRemovedLocally(memberDocId, memberData, result);
+    } finally {
+      GlobalUploadProgress.instance.end();
+    }
   }
 
   /// Storage canónico + Firestore + sync chat (mesmo pipeline do editor).
@@ -399,52 +422,53 @@ class _MembersPageState extends State<MembersPage> {
       memberId: m,
       authUid: au.isEmpty ? null : au,
     );
-    AppStorageImageService.instance
-        .invalidateStoragePrefix('igrejas/$t/membros/$m');
+    AppStorageImageService.instance.invalidateStoragePrefix(
+      'igrejas/$t/membros/$m',
+    );
     final d = memberData;
     if (d != null) {
-      final nome =
-          (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? '').toString();
+      final nome = (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? '')
+          .toString();
       final auth = (d['authUid'] ?? '').toString().trim();
       final stem = MemberPhotoStorageNaming.profileFolderStem(
         nomeCompleto: nome,
         memberDocId: m,
         authUid: auth.isEmpty ? null : auth,
       );
-      AppStorageImageService.instance
-          .invalidateStoragePrefix('igrejas/$t/membros/$stem');
+      AppStorageImageService.instance.invalidateStoragePrefix(
+        'igrejas/$t/membros/$stem',
+      );
     }
   }
 
   /// Retorna alias e slug da igreja para amarrar o membro ao tenant (segurança entre igrejas).
   Future<Map<String, String>> _getTenantLinkage() async {
     if (_tenantLinkageCache != null) return _tenantLinkageCache!;
-    final snap = await         ChurchUiCollections.churchDoc(_effectiveTenantId)
-        .get();
+    final snap = await ChurchUiCollections.churchDoc(_effectiveTenantId).get();
     final d = snap.data();
     final id = snap.id;
     final alias = (d?['alias'] ?? d?['slug'] ?? id).toString().trim();
     final slug = (d?['slug'] ?? d?['alias'] ?? id).toString().trim();
     _tenantLinkageCache = {
       'alias': alias.isEmpty ? id : alias,
-      'slug': slug.isEmpty ? id : slug
+      'slug': slug.isEmpty ? id : slug,
     };
     return _tenantLinkageCache!;
   }
 
   /// Retorna alias e slug de um tenant qualquer (ex.: ao mover membro para outra igreja).
   static Future<Map<String, String>> _getLinkageForTenant(
-      String tenantId) async {
+    String tenantId,
+  ) async {
     final op = ChurchRepository.churchId(tenantId.trim());
-    final snap = await         ChurchUiCollections.churchDoc(op)
-        .get();
+    final snap = await ChurchUiCollections.churchDoc(op).get();
     final d = snap.data();
     final id = snap.id;
     final alias = (d?['alias'] ?? d?['slug'] ?? id).toString().trim();
     final slug = (d?['slug'] ?? d?['alias'] ?? id).toString().trim();
     return {
       'alias': alias.isEmpty ? id : alias,
-      'slug': slug.isEmpty ? id : slug
+      'slug': slug.isEmpty ? id : slug,
     };
   }
 
@@ -493,6 +517,7 @@ class _MembersPageState extends State<MembersPage> {
   Set<String> _selectedPendingIds = {};
   List<_DeptItem> _departamentos = [];
   final MembersLimitService _limitService = MembersLimitService();
+
   /// Nunca `late` — FutureBuilder pode montar antes/depois de reassign (crash iOS).
   Future<MembersLimitResult> _limitFuture = Future.value(
     const MembersLimitResult(
@@ -526,8 +551,10 @@ class _MembersPageState extends State<MembersPage> {
   /// Bytes JPEG/WebP já comprimidos — mostra a foto na lista antes do upload concluir.
   final Map<String, Uint8List> _optimisticProfilePhotoBytes = {};
   static const int _membersPageSize = YahwehPerformanceV4.defaultPageSize;
+
   /// Primeiro paint — no máx. 2 páginas; resto via «Carregar mais».
   static const int _membersListInstantCap = 40;
+
   /// Leitura Firestore inicial — evita baixar 500 docs pesados na abertura.
   static const int _membersFirestoreInitialLimit =
       YahwehPerformanceV4.blindListPageSize;
@@ -563,12 +590,30 @@ class _MembersPageState extends State<MembersPage> {
     var s = raw.trim().toLowerCase();
     if (s.isEmpty) return s;
     const pairs = <(String, String)>[
-      ('á', 'a'), ('à', 'a'), ('â', 'a'), ('ã', 'a'), ('ä', 'a'),
-      ('é', 'e'), ('è', 'e'), ('ê', 'e'), ('ë', 'e'),
-      ('í', 'i'), ('ì', 'i'), ('î', 'i'), ('ï', 'i'),
-      ('ó', 'o'), ('ò', 'o'), ('ô', 'o'), ('õ', 'o'), ('ö', 'o'),
-      ('ú', 'u'), ('ù', 'u'), ('û', 'u'), ('ü', 'u'),
-      ('ç', 'c'), ('ñ', 'n'),
+      ('á', 'a'),
+      ('à', 'a'),
+      ('â', 'a'),
+      ('ã', 'a'),
+      ('ä', 'a'),
+      ('é', 'e'),
+      ('è', 'e'),
+      ('ê', 'e'),
+      ('ë', 'e'),
+      ('í', 'i'),
+      ('ì', 'i'),
+      ('î', 'i'),
+      ('ï', 'i'),
+      ('ó', 'o'),
+      ('ò', 'o'),
+      ('ô', 'o'),
+      ('õ', 'o'),
+      ('ö', 'o'),
+      ('ú', 'u'),
+      ('ù', 'u'),
+      ('û', 'u'),
+      ('ü', 'u'),
+      ('ç', 'c'),
+      ('ñ', 'n'),
     ];
     for (final p in pairs) {
       s = s.replaceAll(p.$1, p.$2);
@@ -584,8 +629,10 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   /// [applySearch] false = painel estatístico ignora a caixa de busca (lista continua a usar).
-  List<_MemberDoc> _aplicarFiltros(List<_MemberDoc> docs,
-      {bool applySearch = true}) {
+  List<_MemberDoc> _aplicarFiltros(
+    List<_MemberDoc> docs, {
+    bool applySearch = true,
+  }) {
     var out = docs.where((d) => memberDataHasValidName(d.data)).toList();
     if (applySearch && _q.isNotEmpty) {
       final qFold = _foldSearchText(_q);
@@ -596,12 +643,13 @@ class _MembersPageState extends State<MembersPage> {
             .toString();
         final email = (m['EMAIL'] ?? m['email'] ?? '').toString();
         final cpf = (m['CPF'] ?? m['cpf'] ?? '').toString();
-        final phoneRaw = (m['TELEFONES'] ??
-                m['TELEFONE'] ??
-                m['telefone'] ??
-                m['phone'] ??
-                '')
-            .toString();
+        final phoneRaw =
+            (m['TELEFONES'] ??
+                    m['TELEFONE'] ??
+                    m['telefone'] ??
+                    m['phone'] ??
+                    '')
+                .toString();
         final phone = phoneRaw.toLowerCase().replaceAll(RegExp(r'\D'), '');
         if (_searchFieldMatches(name, qFold, _q) ||
             _searchFieldMatches(email, qFold, _q) ||
@@ -610,12 +658,13 @@ class _MembersPageState extends State<MembersPage> {
         }
         if (phoneRaw.toLowerCase().contains(_q)) return true;
         if (qDigits.length >= 3 && phone.contains(qDigits)) return true;
-        final cargo = (m['CARGO'] ??
-                m['FUNCAO'] ??
-                m['role'] ??
-                m['FUNCAO_PERMISSOES'] ??
-                '')
-            .toString();
+        final cargo =
+            (m['CARGO'] ??
+                    m['FUNCAO'] ??
+                    m['role'] ??
+                    m['FUNCAO_PERMISSOES'] ??
+                    '')
+                .toString();
         if (_searchFieldMatches(cargo, qFold, _q)) return true;
         final funcoes = m['FUNCOES'] ?? m['funcoes'];
         if (funcoes is List) {
@@ -657,11 +706,12 @@ class _MembersPageState extends State<MembersPage> {
         if (depts is List) {
           return depts.any((x) => x.toString() == _filtroDepartamento);
         }
-        final d =
-            (m.data['departamento'] ?? m.data['DEPARTAMENTO'] ?? '').toString();
+        final d = (m.data['departamento'] ?? m.data['DEPARTAMENTO'] ?? '')
+            .toString();
         return d == _filtroDepartamento ||
-            _departamentos
-                .any((e) => e.id == _filtroDepartamento && e.name == d);
+            _departamentos.any(
+              (e) => e.id == _filtroDepartamento && e.name == d,
+            );
       }).toList();
     }
     if (_filtroFaixaEtaria != 'todas') {
@@ -703,10 +753,13 @@ class _MembersPageState extends State<MembersPage> {
     }
     if (_filtroAniversarioMes != null) {
       out = out.where((m) {
-        final dt = birthDateFromMemberData(m.data) ??
-            _parseDate(m.data['DATA_NASCIMENTO'] ??
-                m.data['dataNascimento'] ??
-                m.data['birthDate']);
+        final dt =
+            birthDateFromMemberData(m.data) ??
+            _parseDate(
+              m.data['DATA_NASCIMENTO'] ??
+                  m.data['dataNascimento'] ??
+                  m.data['birthDate'],
+            );
         return dt != null && dt.month == _filtroAniversarioMes;
       }).toList();
     }
@@ -763,8 +816,8 @@ class _MembersPageState extends State<MembersPage> {
       _forceCanonicalTenantId(widget.tenantId),
       planIdOverride:
           (widget.subscription?['planId'] ?? '').toString().trim().isEmpty
-              ? null
-              : (widget.subscription?['planId'] ?? '').toString().trim(),
+          ? null
+          : (widget.subscription?['planId'] ?? '').toString().trim(),
     );
     _warmMembrosCacheFirst(_forceCanonicalTenantId(widget.tenantId));
     final tidBootstrap = _forceCanonicalTenantId(widget.tenantId);
@@ -773,8 +826,10 @@ class _MembersPageState extends State<MembersPage> {
       final memPeek = MembersDirectorySnapshotService.peekMemory(tidBootstrap);
       if (memPeek != null && memPeek.hasEntries) {
         _directoryCache = memPeek;
-        _membersVisibleCount = memPeek.entries.length
-            .clamp(_membersPageSize, _membersListInstantCap);
+        _membersVisibleCount = memPeek.entries.length.clamp(
+          _membersPageSize,
+          _membersListInstantCap,
+        );
       }
     } else {
       _directoryCache = const MembersDirectorySnapshot();
@@ -820,8 +875,8 @@ class _MembersPageState extends State<MembersPage> {
         _forceCanonicalTenantId(widget.tenantId),
         planIdOverride:
             (widget.subscription?['planId'] ?? '').toString().trim().isEmpty
-                ? null
-                : (widget.subscription?['planId'] ?? '').toString().trim(),
+            ? null
+            : (widget.subscription?['planId'] ?? '').toString().trim(),
       );
       _membersDataFuture = _loadMembersDataWithCap();
       _deptsFuture = _loadDeptsForFilter();
@@ -866,11 +921,39 @@ class _MembersPageState extends State<MembersPage> {
     if (!mounted || tid.isEmpty || uid.isEmpty) return;
     if (tid != _effectiveTenantId.trim()) return;
     final rev = n.lastCacheRevision;
+    final removed = n.lastRemoved;
     final patch = <String, dynamic>{
       if (rev > 0) 'fotoUrlCacheRevision': rev,
+      if (removed) ...{
+        for (final key in const [
+          'fotoUrl',
+          'foto_url',
+          'FOTO_URL_OU_ID',
+          'FOTO',
+          'foto',
+          'photoURL',
+          'photoUrl',
+          'avatarUrl',
+          'photoStoragePath',
+          'fotoStoragePath',
+          'fotoPath',
+          'photoThumbStoragePath',
+          'photoThumbUrl',
+          'fotoThumbUrl',
+          'profileThumbUrl',
+          'profile_thumb_url',
+          'photoVariants',
+        ])
+          key: null,
+        'profilePhotoRemoved': true,
+      },
     };
     // Atualiza overlay do doc id = authUid e de fichas com o mesmo authUid.
     _applyMemberSavedLocally(uid, patch);
+    final memberDocId = (n.lastMemberDocId ?? '').trim();
+    if (memberDocId.isNotEmpty && memberDocId != uid) {
+      _applyMemberSavedLocally(memberDocId, patch);
+    }
     for (final e in _directoryCache.entries) {
       final au = (e.authUid ?? '').trim();
       if (au == uid || e.memberDocId == uid) {
@@ -890,8 +973,7 @@ class _MembersPageState extends State<MembersPage> {
 
   MemberDirectoryEntry _directoryEntryFromFirestoreDoc(
     DocumentSnapshot<Map<String, dynamic>> d,
-  ) =>
-      MemberDirectoryEntry.fromFirestoreDoc(d);
+  ) => MemberDirectoryEntry.fromFirestoreDoc(d);
 
   Future<void> _applyMembrosRealtimeSnapshot(
     QuerySnapshot<Map<String, dynamic>> snap,
@@ -917,9 +999,10 @@ class _MembersPageState extends State<MembersPage> {
     if (!touched) return;
 
     final sorted = byId.values.toList()
-      ..sort((a, b) => a.displayName
-          .toLowerCase()
-          .compareTo(b.displayName.toLowerCase()));
+      ..sort(
+        (a, b) =>
+            a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
+      );
     if (_directoryCache.totalCount > 0 &&
         sorted.length > _directoryCache.totalCount + 20) {
       sorted.removeRange(_directoryCache.totalCount, sorted.length);
@@ -962,12 +1045,12 @@ class _MembersPageState extends State<MembersPage> {
           .limit(12)
           .watchSafe()
           .listen((snap) {
-        if (_membrosRealtimeSkipInitial) {
-          _membrosRealtimeSkipInitial = false;
-          return;
-        }
-        unawaited(_applyMembrosRealtimeSnapshot(snap));
-      }),
+            if (_membrosRealtimeSkipInitial) {
+              _membrosRealtimeSkipInitial = false;
+              return;
+            }
+            unawaited(_applyMembrosRealtimeSnapshot(snap));
+          }),
     );
   }
 
@@ -991,7 +1074,9 @@ class _MembersPageState extends State<MembersPage> {
     // Uma só chamada — IfStale já chama warmFromCallable quando necessário
     // (antes: 2 callables/leituras na abertura = custo Crashlytics + Firebase).
     unawaited(
-      MembersDirectorySnapshotService.warmFromCallableIfStale(tid).then((warmed) {
+      MembersDirectorySnapshotService.warmFromCallableIfStale(tid).then((
+        warmed,
+      ) {
         if (!mounted || !warmed.hasEntries) return;
         _applyDirectoryCacheState(warmed);
       }),
@@ -1007,8 +1092,9 @@ class _MembersPageState extends State<MembersPage> {
         : _forceCanonicalTenantId(widget.tenantId);
     if (tid.isEmpty) return;
     await _directoryCacheSub?.cancel();
-    _directoryCacheSub =
-        MembersDirectorySnapshotService.watch(tid).listen((snap) {
+    _directoryCacheSub = MembersDirectorySnapshotService.watch(tid).listen((
+      snap,
+    ) {
       if (!mounted || !snap.hasEntries) return;
       if (_selfOnlyMemberList) return;
       _applyDirectoryCacheState(snap);
@@ -1027,7 +1113,10 @@ class _MembersPageState extends State<MembersPage> {
       _directoryCache = cache;
       if (cache.hasEntries) {
         final n = cache.entries.length;
-        _membersVisibleCount = n.clamp(_membersPageSize, _membersListInstantCap);
+        _membersVisibleCount = n.clamp(
+          _membersPageSize,
+          _membersListInstantCap,
+        );
       }
     });
     if (!cache.hasEntries || !mounted) return;
@@ -1059,7 +1148,9 @@ class _MembersPageState extends State<MembersPage> {
 
   /// Cache `_panel_cache/members_directory` (completo) + docs Firestore (fotos/campos frescos).
   /// Membro comum: NUNCA mesclar o diretório — devolve só o que veio da query self-only.
-  List<_MemberDoc> _mergeMembersListWithDirectoryCache(List<_MemberDoc> fromQuery) {
+  List<_MemberDoc> _mergeMembersListWithDirectoryCache(
+    List<_MemberDoc> fromQuery,
+  ) {
     if (_selfOnlyMemberList) {
       return fromQuery.where(_isSelfMember).toList();
     }
@@ -1094,7 +1185,9 @@ class _MembersPageState extends State<MembersPage> {
         ? cache.entries.length >= cache.totalCount
         : cache.entries.length >= 20;
     if (!cache.hasEntries || !complete) {
-      cache = await MembersDirectorySnapshotService.warmFromCallableIfStale(tid);
+      cache = await MembersDirectorySnapshotService.warmFromCallableIfStale(
+        tid,
+      );
       if (cache.hasEntries && mounted) {
         _applyDirectoryCacheState(cache);
       }
@@ -1104,9 +1197,9 @@ class _MembersPageState extends State<MembersPage> {
     }
 
     final op = ChurchRepository.churchId(tid.trim());
-    final snap = await         ChurchUiCollections.membros(op)
-        .limit(YahwehPerformanceV4.adminExportBatchLimit)
-        .get();
+    final snap = await ChurchUiCollections.membros(
+      op,
+    ).limit(YahwehPerformanceV4.adminExportBatchLimit).get();
     final docs = snap.docs.map(_MemberDoc.fromQueryDoc).toList();
     return _aplicarFiltros(docs);
   }
@@ -1122,15 +1215,14 @@ class _MembersPageState extends State<MembersPage> {
 
   /// Painel & números: directory completo + merge com query Firestore.
   List<_MemberDoc> _docsForMembersStatsPanel(List<_MemberDoc> mergedFromQuery) {
-    final fromCache =
-        _aplicarFiltros(_memberDocsFromDirectoryCache(), applySearch: false);
-    final fromQuery =
-        _aplicarFiltros(mergedFromQuery, applySearch: false);
+    final fromCache = _aplicarFiltros(
+      _memberDocsFromDirectoryCache(),
+      applySearch: false,
+    );
+    final fromQuery = _aplicarFiltros(mergedFromQuery, applySearch: false);
     if (fromCache.isEmpty) return fromQuery;
     if (fromQuery.isEmpty) return fromCache;
-    final byId = <String, _MemberDoc>{
-      for (final m in fromCache) m.id: m,
-    };
+    final byId = <String, _MemberDoc>{for (final m in fromCache) m.id: m};
     for (final m in fromQuery) {
       byId[m.id] = m;
     }
@@ -1190,8 +1282,7 @@ class _MembersPageState extends State<MembersPage> {
     if (!_membersListFiltersActive()) {
       final summary = _directoryCache.summary;
       if (summary != null && summary.hasCounts) {
-        final rollTotal =
-            summary.ativos + summary.inativos + summary.pendentes;
+        final rollTotal = summary.ativos + summary.inativos + summary.pendentes;
         if (rollTotal > 0) return rollTotal;
         if (summary.total > 0) {
           return summary.total + summary.pendentes;
@@ -1214,7 +1305,9 @@ class _MembersPageState extends State<MembersPage> {
     if (total > 0 && entries >= total && summaryOk) return;
     if (entries >= 500 && summaryOk) return;
     unawaited(
-      MembersDirectorySnapshotService.warmFromCallable(tenantId: tid).then((warmed) {
+      MembersDirectorySnapshotService.warmFromCallable(tenantId: tid).then((
+        warmed,
+      ) {
         if (!mounted || !warmed.hasEntries) return;
         if (warmed.entries.length > _directoryCache.entries.length ||
             warmed.totalCount > _directoryCache.totalCount ||
@@ -1226,8 +1319,9 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   static const int _membersLoadLimit = YahwehPerformanceV4.blindListPageSize;
-  int get _membersQueryLimit =>
-      _directoryCache.hasEntries ? _membersFirestoreInitialLimit : _membersLoadLimit;
+  int get _membersQueryLimit => _directoryCache.hasEntries
+      ? _membersFirestoreInitialLimit
+      : _membersLoadLimit;
   static const int _maxRelatedTenantMemberQueries = 3;
 
   /// Lista a partir do cache `_panel_cache/members_directory` quando o Firestore falha.
@@ -1236,8 +1330,7 @@ class _MembersPageState extends State<MembersPage> {
     required bool selfOnlyMemberList,
   }) {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    final cpfDigits =
-        (widget.linkedCpf ?? '').replaceAll(RegExp(r'\D'), '');
+    final cpfDigits = (widget.linkedCpf ?? '').replaceAll(RegExp(r'\D'), '');
     Iterable<MemberDirectoryEntry> entries = cache.entries;
     if (selfOnlyMemberList) {
       // Sem uid: falhar fechado (lista vazia), nunca devolver o diretório inteiro.
@@ -1314,19 +1407,18 @@ class _MembersPageState extends State<MembersPage> {
       if (cpfDigits.length == 11) {
         final idDigits = d.id.replaceAll(RegExp(r'\D'), '');
         if (idDigits == cpfDigits) return true;
-        final cpfDoc = (data['CPF'] ?? data['cpf'] ?? '')
-            .toString()
-            .replaceAll(RegExp(r'\D'), '');
+        final cpfDoc = (data['CPF'] ?? data['cpf'] ?? '').toString().replaceAll(
+          RegExp(r'\D'),
+          '',
+        );
         if (cpfDoc.length == 11 && cpfDoc == cpfDigits) return true;
       }
       if (email.isNotEmpty) {
-        final memberEmail = (data['email'] ??
-                data['EMAIL'] ??
-                data['eMail'] ??
-                '')
-            .toString()
-            .trim()
-            .toLowerCase();
+        final memberEmail =
+            (data['email'] ?? data['EMAIL'] ?? data['eMail'] ?? '')
+                .toString()
+                .trim()
+                .toLowerCase();
         if (memberEmail.isNotEmpty && memberEmail == email) return true;
       }
       return false;
@@ -1354,7 +1446,8 @@ class _MembersPageState extends State<MembersPage> {
     );
   }
 
-  Future<List<QuerySnapshot<Map<String, dynamic>>>> _initialMembersLoad() async {
+  Future<List<QuerySnapshot<Map<String, dynamic>>>>
+  _initialMembersLoad() async {
     final tid = _forceCanonicalTenantId(widget.tenantId);
     final instant = await _tryInstantMembersSnapshots(tid);
     if (instant != null) {
@@ -1370,7 +1463,7 @@ class _MembersPageState extends State<MembersPage> {
       AppPermissions.isSelfOnlyMemberAccess(widget.role, widget.permissions);
 
   Future<List<QuerySnapshot<Map<String, dynamic>>>?>
-      _tryInstantMembersSnapshots(String tid) async {
+  _tryInstantMembersSnapshots(String tid) async {
     if (tid.isEmpty) return null;
 
     final memPeek = MembersDirectorySnapshotService.peekMemory(tid);
@@ -1385,10 +1478,9 @@ class _MembersPageState extends State<MembersPage> {
       );
     }
 
-    await YahwehModuleCaches.membros.warmUp(tid).timeout(
-      const Duration(milliseconds: 400),
-      onTimeout: () {},
-    );
+    await YahwehModuleCaches.membros
+        .warmUp(tid)
+        .timeout(const Duration(milliseconds: 400), onTimeout: () {});
     final moduleDocs = YahwehModuleCaches.membros.docs;
     if (moduleDocs.isNotEmpty) {
       final docs = _selfOnlyMemberList
@@ -1398,8 +1490,9 @@ class _MembersPageState extends State<MembersPage> {
     }
 
     try {
-      final directory = await MembersDirectorySnapshotService.readOnce(tid)
-          .timeout(const Duration(milliseconds: 500));
+      final directory = await MembersDirectorySnapshotService.readOnce(
+        tid,
+      ).timeout(const Duration(milliseconds: 500));
       if (directory.hasEntries) {
         if (!_selfOnlyMemberList && mounted) {
           _applyDirectoryCacheState(directory);
@@ -1422,10 +1515,7 @@ class _MembersPageState extends State<MembersPage> {
     try {
       await ChurchPanelAccessBootstrap.ensureFirestoreAccess(
         churchIdHint: tid,
-      ).timeout(
-        Duration(seconds: kIsWeb ? 38 : 46),
-        onTimeout: () {},
-      );
+      ).timeout(Duration(seconds: kIsWeb ? 38 : 46), onTimeout: () {});
     } catch (_) {}
     if (!mounted) return;
     unawaited(YahwehModuleCaches.membros.ensureLoaded(tid));
@@ -1489,17 +1579,23 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   /// [forceServer] true ao recarregar após salvar/upload — evita cache e garante foto atualizada na lista.
-  Future<List<QuerySnapshot<Map<String, dynamic>>>> _loadMembersData(
-      {bool forceServer = false}) async {
+  Future<List<QuerySnapshot<Map<String, dynamic>>>> _loadMembersData({
+    bool forceServer = false,
+  }) async {
     await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: forceServer);
     final resolved = await _resolveEffectiveTenantId();
     if (mounted) setState(() => _resolvedTenantId = resolved);
-    final tenantId =
-        resolved.isNotEmpty ? resolved : _forceCanonicalTenantId(widget.tenantId);
+    final tenantId = resolved.isNotEmpty
+        ? resolved
+        : _forceCanonicalTenantId(widget.tenantId);
     final originalId = _forceCanonicalTenantId(widget.tenantId);
     if (tenantId.isEmpty && originalId.isEmpty) {
-      return Future.value(List<QuerySnapshot<Map<String, dynamic>>>.filled(
-          7, _EmptyQuerySnapshot()));
+      return Future.value(
+        List<QuerySnapshot<Map<String, dynamic>>>.filled(
+          7,
+          _EmptyQuerySnapshot(),
+        ),
+      );
     }
     final effectiveId = tenantId.isNotEmpty ? tenantId : originalId;
 
@@ -1533,10 +1629,7 @@ class _MembersPageState extends State<MembersPage> {
         );
       }
       if (cache.hasEntries) {
-        return _snapshotsFromDirectoryCache(
-          cache,
-          selfOnlyMemberList: false,
-        );
+        return _snapshotsFromDirectoryCache(cache, selfOnlyMemberList: false);
       }
       throw StateError(
         result.softError?.trim().isNotEmpty == true
@@ -1547,10 +1640,12 @@ class _MembersPageState extends State<MembersPage> {
 
     if (!forceServer && result.fromCache) {
       unawaited(
-        _loadMembersData(forceServer: true).then((serverSnaps) {
-          if (!mounted) return;
-          setState(() => _membersDataFuture = Future.value(serverSnaps));
-        }).catchError((_) {}),
+        _loadMembersData(forceServer: true)
+            .then((serverSnaps) {
+              if (!mounted) return;
+              setState(() => _membersDataFuture = Future.value(serverSnaps));
+            })
+            .catchError((_) {}),
       );
     }
 
@@ -1559,7 +1654,7 @@ class _MembersPageState extends State<MembersPage> {
 
   /// Carrega apenas a ficha do utilizador autenticado (membro comum).
   Future<List<QuerySnapshot<Map<String, dynamic>>>>
-      _loadSelfOnlyMemberSnapshots(
+  _loadSelfOnlyMemberSnapshots(
     String churchId, {
     bool forceServer = false,
   }) async {
@@ -1572,10 +1667,12 @@ class _MembersPageState extends State<MembersPage> {
       final instant = await _tryInstantMembersSnapshots(churchId);
       if (instant != null) {
         unawaited(
-          _loadSelfOnlyMemberSnapshots(churchId, forceServer: true).then((s) {
-            if (!mounted) return;
-            setState(() => _membersDataFuture = Future.value(s));
-          }).catchError((_) {}),
+          _loadSelfOnlyMemberSnapshots(churchId, forceServer: true)
+              .then((s) {
+                if (!mounted) return;
+                setState(() => _membersDataFuture = Future.value(s));
+              })
+              .catchError((_) {}),
         );
         return instant;
       }
@@ -1585,9 +1682,7 @@ class _MembersPageState extends State<MembersPage> {
       final binding = await AuthGatePanelAccessService.findMemberForUser(
         igrejaId: churchId,
         user: user,
-        userData: {
-          'cpf': widget.linkedCpf ?? '',
-        },
+        userData: {'cpf': widget.linkedCpf ?? ''},
       );
       final docId = (binding.memberDocId ?? '').trim();
       final data = binding.memberData;
@@ -1628,17 +1723,16 @@ class _MembersPageState extends State<MembersPage> {
 
     final cache = await MembersDirectorySnapshotService.readOnce(churchId);
     if (cache.hasEntries) {
-      return _snapshotsFromDirectoryCache(
-        cache,
-        selfOnlyMemberList: true,
-      );
+      return _snapshotsFromDirectoryCache(cache, selfOnlyMemberList: true);
     }
     return _snapshotsFromMemberDocs(const []);
   }
 
   /// Abre a lista em rota fullscreen (root) com botão Voltar aos filtros — melhor no telemóvel.
   void _recolherFiltrosMembros(
-      MembersLimitResult? limitResult, bool addBlocked) {
+    MembersLimitResult? limitResult,
+    bool addBlocked,
+  ) {
     _openMembersFullscreenList(limitResult, addBlocked);
   }
 
@@ -1671,8 +1765,11 @@ class _MembersPageState extends State<MembersPage> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.tune_rounded,
-                          color: ThemeCleanPremium.primary, size: 26),
+                      Icon(
+                        Icons.tune_rounded,
+                        color: ThemeCleanPremium.primary,
+                        size: 26,
+                      ),
                       const SizedBox(width: 10),
                       const Expanded(
                         child: Text(
@@ -1772,15 +1869,17 @@ class _MembersPageState extends State<MembersPage> {
                 final row = Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Expanded(
-                      child: _buildPremiumSearchField(EdgeInsets.zero),
-                    ),
+                    Expanded(child: _buildPremiumSearchField(EdgeInsets.zero)),
                     const SizedBox(width: 6),
                     Badge(
                       isLabelVisible: adv > 0,
-                      label: Text('$adv',
-                          style: const TextStyle(
-                              fontSize: 11, fontWeight: FontWeight.w800)),
+                      label: Text(
+                        '$adv',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                       child: IconButton.filledTonal(
                         onPressed: () =>
                             unawaited(_showAdvancedFiltersSheet(padding)),
@@ -1804,20 +1903,24 @@ class _MembersPageState extends State<MembersPage> {
                     ),
                     PopupMenuButton<String>(
                       tooltip: 'Mais opções',
-                      icon: Icon(Icons.more_vert_rounded,
-                          color: ThemeCleanPremium.onSurfaceVariant),
+                      icon: Icon(
+                        Icons.more_vert_rounded,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
                       onSelected: (v) {
                         if (v == 'link') unawaited(_showLinkCadastroSheet());
                         if (v == 'funcoes') {
-                          unawaited(Navigator.push(
-                            context,
-                            MaterialPageRoute<void>(
-                              builder: (_) => FuncoesPermissoesPage(
-                                tenantId: _effectiveTenantId,
-                                role: widget.role,
+                          unawaited(
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute<void>(
+                                builder: (_) => FuncoesPermissoesPage(
+                                  tenantId: _effectiveTenantId,
+                                  role: widget.role,
+                                ),
                               ),
                             ),
-                          ));
+                          );
                         }
                       },
                       itemBuilder: (ctx) => [
@@ -1867,19 +1970,22 @@ class _MembersPageState extends State<MembersPage> {
 
   bool _onMembersScrollNotification(ScrollNotification n, int totalDocs) {
     if (n.metrics.axis != Axis.vertical) return false;
-    final nearBottom =
-        (n.metrics.maxScrollExtent - n.metrics.pixels) < 420;
+    final nearBottom = (n.metrics.maxScrollExtent - n.metrics.pixels) < 420;
     if (nearBottom && _membersVisibleCount < totalDocs) {
       setState(() {
-        _membersVisibleCount =
-            (_membersVisibleCount + _membersPageSize).clamp(0, totalDocs);
+        _membersVisibleCount = (_membersVisibleCount + _membersPageSize).clamp(
+          0,
+          totalDocs,
+        );
       });
     }
     return false;
   }
 
   void _openMembersFullscreenList(
-      MembersLimitResult? limitResult, bool addBlocked) {
+    MembersLimitResult? limitResult,
+    bool addBlocked,
+  ) {
     Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
@@ -1911,8 +2017,10 @@ class _MembersPageState extends State<MembersPage> {
                   ),
                 if (_canManage)
                   IconButton(
-                    icon: Icon(Icons.person_add_rounded,
-                        color: addBlocked ? Colors.white54 : null),
+                    icon: Icon(
+                      Icons.person_add_rounded,
+                      color: addBlocked ? Colors.white54 : null,
+                    ),
                     tooltip: addBlocked ? 'Limite atingido' : 'Novo membro',
                     onPressed: addBlocked ? null : () => _onAddMember(ctx),
                   ),
@@ -1958,10 +2066,7 @@ class _MembersPageState extends State<MembersPage> {
     });
   }
 
-  void _applyMemberSavedLocally(
-    String memberId,
-    Map<String, dynamic> updates,
-  ) {
+  void _applyMemberSavedLocally(String memberId, Map<String, dynamic> updates) {
     final overlay = <String, dynamic>{};
     for (final e in updates.entries) {
       final v = e.value;
@@ -1984,8 +2089,9 @@ class _MembersPageState extends State<MembersPage> {
     Map<String, dynamic> updates,
   ) {
     if (!_directoryCache.hasEntries) return;
-    final idx =
-        _directoryCache.entries.indexWhere((e) => e.memberDocId == memberId);
+    final idx = _directoryCache.entries.indexWhere(
+      (e) => e.memberDocId == memberId,
+    );
     if (idx < 0) return;
     final entries = List<MemberDirectoryEntry>.from(_directoryCache.entries);
     entries[idx] = entries[idx].mergeFirestoreFields(updates);
@@ -2022,9 +2128,9 @@ class _MembersPageState extends State<MembersPage> {
         required Source source,
       }) {
         Future<DocumentSnapshot<Map<String, dynamic>>> go() =>
-            ChurchUiCollections.membros(churchId)
-                .doc(id)
-                .get(GetOptions(source: source));
+            ChurchUiCollections.membros(
+              churchId,
+            ).doc(id).get(GetOptions(source: source));
         if (kIsWeb && source != Source.cache) {
           return FirestoreWebGuard.runWithWebRecovery(go, maxAttempts: 3);
         }
@@ -2032,9 +2138,10 @@ class _MembersPageState extends State<MembersPage> {
       }
 
       Future<_MemberDoc?> tryMerge(String docId, Source source) async {
-        final snap = await readDoc(docId, source: source).timeout(
-          Duration(milliseconds: source == Source.cache ? 900 : 8000),
-        );
+        final snap = await readDoc(
+          docId,
+          source: source,
+        ).timeout(Duration(milliseconds: source == Source.cache ? 900 : 8000));
         if (!snap.exists) return null;
         final fresh = snap.data();
         if (fresh == null || fresh.isEmpty) return null;
@@ -2063,7 +2170,9 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   void _applyOptimisticMemberEditOverlay(
-      String memberId, Map<String, dynamic> r) {
+    String memberId,
+    Map<String, dynamic> r,
+  ) {
     final patch = <String, dynamic>{};
     void put(List<String> keys, String v) {
       if (v.isEmpty) return;
@@ -2072,15 +2181,9 @@ class _MembersPageState extends State<MembersPage> {
       }
     }
 
-    put(
-      ['NOME_COMPLETO', 'nome', 'name'],
-      (r['name'] ?? '').toString().trim(),
-    );
+    put(['NOME_COMPLETO', 'nome', 'name'], (r['name'] ?? '').toString().trim());
     put(['EMAIL', 'email'], (r['email'] ?? '').toString().trim());
-    put(
-      ['TELEFONES', 'telefone'],
-      (r['phone'] ?? '').toString().trim(),
-    );
+    put(['TELEFONES', 'telefone'], (r['phone'] ?? '').toString().trim());
     final st = (r['status'] ?? '').toString().trim();
     if (st.isNotEmpty) {
       patch['STATUS'] = st;
@@ -2091,34 +2194,28 @@ class _MembersPageState extends State<MembersPage> {
     put(['CIDADE', 'cidade'], (r['cidade'] ?? '').toString().trim());
     put(['CEP', 'cep'], (r['cep'] ?? '').toString().trim());
     put(['ESTADO', 'estado', 'uf'], (r['estado'] ?? '').toString().trim());
-    put(
-      [
-        'QUADRA_LOTE_NUMERO',
-        'quadraLoteNumero',
-        'quadra_lote_numero',
-      ],
-      (r['quadraLoteNumero'] ?? '').toString().trim(),
-    );
-    put(
-      ['ESCOLARIDADE', 'escolaridade'],
-      (r['escolaridade'] ?? '').toString().trim(),
-    );
-    put(
-      ['PROFISSAO', 'profissao'],
-      (r['profissao'] ?? '').toString().trim(),
-    );
-    put(
-      ['NOME_CONJUGE', 'nomeConjuge'],
-      (r['conjuge'] ?? '').toString().trim(),
-    );
-    put(
-      ['FILIACAO_PAI', 'filiacaoPai'],
-      (r['filiacaoPai'] ?? '').toString().trim(),
-    );
-    put(
-      ['FILIACAO_MAE', 'filiacaoMae'],
-      (r['filiacaoMae'] ?? '').toString().trim(),
-    );
+    put([
+      'QUADRA_LOTE_NUMERO',
+      'quadraLoteNumero',
+      'quadra_lote_numero',
+    ], (r['quadraLoteNumero'] ?? '').toString().trim());
+    put([
+      'ESCOLARIDADE',
+      'escolaridade',
+    ], (r['escolaridade'] ?? '').toString().trim());
+    put(['PROFISSAO', 'profissao'], (r['profissao'] ?? '').toString().trim());
+    put([
+      'NOME_CONJUGE',
+      'nomeConjuge',
+    ], (r['conjuge'] ?? '').toString().trim());
+    put([
+      'FILIACAO_PAI',
+      'filiacaoPai',
+    ], (r['filiacaoPai'] ?? '').toString().trim());
+    put([
+      'FILIACAO_MAE',
+      'filiacaoMae',
+    ], (r['filiacaoMae'] ?? '').toString().trim());
     put(['SEXO', 'sexo'], (r['sexo'] ?? '').toString().trim());
     final funcoesRaw = r['funcoesSelecionadas'];
     if (funcoesRaw is List) {
@@ -2143,10 +2240,10 @@ class _MembersPageState extends State<MembersPage> {
       patch['DATA_NASCIMENTO'] = Timestamp.fromDate(nasc);
       patch['dataNascimento'] = Timestamp.fromDate(nasc);
     }
-    put(
-      ['CPF', 'cpf'],
-      (r['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), ''),
-    );
+    put([
+      'CPF',
+      'cpf',
+    ], (r['cpf'] ?? '').toString().replaceAll(RegExp(r'\D'), ''));
     if (patch.isEmpty) return;
     setState(() {
       _optimisticMemberOverlays[memberId] = {
@@ -2173,7 +2270,7 @@ class _MembersPageState extends State<MembersPage> {
       'igrejaId',
       'tenant',
       'churchId',
-      'igrejad'
+      'igrejad',
     ]) {
       final v = (data[k] ?? '').toString().trim();
       if (v.isNotEmpty) return v;
@@ -2193,10 +2290,10 @@ class _MembersPageState extends State<MembersPage> {
     try {
       final fromPainel =
           await ChurchFuncoesControleService.loadOptionsForMemberPicker(
-        _effectiveTenantId,
-        _funcoesList,
-        _funcaoLabel,
-      );
+            _effectiveTenantId,
+            _funcoesList,
+            _funcaoLabel,
+          );
       if (fromPainel.isNotEmpty) {
         final merged = <String, String>{
           for (final e in fromPainel) e.key: e.label,
@@ -2208,7 +2305,8 @@ class _MembersPageState extends State<MembersPage> {
             .map((e) => (key: e.key, label: e.value))
             .toList();
         list.sort(
-            (a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+          (a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()),
+        );
         return list;
       }
     } catch (_) {}
@@ -2229,7 +2327,8 @@ class _MembersPageState extends State<MembersPage> {
         }
       }
       list.sort(
-          (a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+        (a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()),
+      );
       return list.isEmpty
           ? _funcoesList.map((k) => (key: k, label: _funcaoLabel(k))).toList()
           : list;
@@ -2242,16 +2341,16 @@ class _MembersPageState extends State<MembersPage> {
   bool get _canManage =>
       AppPermissions.canEditMembersDirectory(widget.role, widget.permissions);
 
-  bool get _canDeleteMembers =>
-      AppPermissions.canDeleteAnyChurchRecords(
-        widget.role,
-        permissions: widget.permissions,
-      );
+  bool get _canDeleteMembers => AppPermissions.canDeleteAnyChurchRecords(
+    widget.role,
+    permissions: widget.permissions,
+  );
 
   Future<void> _purgeNamelessMembersIfAllowed() async {
     if (!_canDeleteMembers) return;
     final tid = _effectiveTenantId;
-    if (tid.isEmpty || MemberNamelessPurgeService.alreadyPurgedThisSession(tid)) {
+    if (tid.isEmpty ||
+        MemberNamelessPurgeService.alreadyPurgedThisSession(tid)) {
       return;
     }
     final removed = await MemberNamelessPurgeService.purgeNamelessMembersOnce(
@@ -2286,13 +2385,14 @@ class _MembersPageState extends State<MembersPage> {
     }
     final email = (user?.email ?? '').trim().toLowerCase();
     if (email.isNotEmpty) {
-      final memberEmail = (member.data['email'] ??
-              member.data['EMAIL'] ??
-              member.data['eMail'] ??
-              '')
-          .toString()
-          .trim()
-          .toLowerCase();
+      final memberEmail =
+          (member.data['email'] ??
+                  member.data['EMAIL'] ??
+                  member.data['eMail'] ??
+                  '')
+              .toString()
+              .trim()
+              .toLowerCase();
       if (memberEmail.isNotEmpty && memberEmail == email) return true;
     }
     return false;
@@ -2334,9 +2434,9 @@ class _MembersPageState extends State<MembersPage> {
     } else {
       _applyMemberPhotoUpdateLocally(member.id, member.data, result);
     }
-    unawaited(Future<void>.microtask(
-      () => _refreshMembers(forceServer: !kIsWeb),
-    ));
+    unawaited(
+      Future<void>.microtask(() => _refreshMembers(forceServer: !kIsWeb)),
+    );
   }
 
   /// Carteirinha digital: gestão vê todos; membro/visitante só a própria ficha.
@@ -2344,20 +2444,24 @@ class _MembersPageState extends State<MembersPage> {
       _canManage || _isSelfMember(member);
 
   String _memberCpfDigitsForCarteira(Map<String, dynamic> data) =>
-      (data['CPF'] ?? data['cpf'] ?? '')
-          .toString()
-          .replaceAll(RegExp(r'\D'), '');
+      (data['CPF'] ?? data['cpf'] ?? '').toString().replaceAll(
+        RegExp(r'\D'),
+        '',
+      );
 
   bool _memberHasLogin(_MemberDoc member) =>
       (member.data['authUid'] ?? '').toString().trim().isNotEmpty;
 
   Future<void> _abrirAtualizarSenhaProprio(
-      BuildContext context, _MemberDoc member) async {
+    BuildContext context,
+    _MemberDoc member,
+  ) async {
     if (!_isSelfMember(member) || !_memberHasLogin(member)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-              'Conta de login não encontrada para este cadastro.'),
+            'Conta de login não encontrada para este cadastro.',
+          ),
         );
       }
       return;
@@ -2366,8 +2470,9 @@ class _MembersPageState extends State<MembersPage> {
         (member.data['CPF'] ?? member.data['cpf'] ?? widget.linkedCpf ?? '')
             .toString()
             .replaceAll(RegExp(r'\D'), '');
-    final cpfLabel =
-        raw.length == 11 ? _formatCpf(raw) : (raw.isNotEmpty ? raw : '—');
+    final cpfLabel = raw.length == 11
+        ? _formatCpf(raw)
+        : (raw.isNotEmpty ? raw : '—');
     await Navigator.push<void>(
       context,
       MaterialPageRoute<void>(
@@ -2413,37 +2518,40 @@ class _MembersPageState extends State<MembersPage> {
       setState(() => _selectedPendingIds.removeWhere(ids.contains));
       if (okCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            '$okCount membro(s) aprovado(s).',
-          ),
+          ThemeCleanPremium.successSnackBar('$okCount membro(s) aprovado(s).'),
         );
       } else if (lastErr != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Falha ao aprovar: $lastErr')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Falha ao aprovar: $lastErr')));
       }
       _refreshMembers();
     }
   }
 
   Future<void> _confirmAprovarTodosFiltrados(
-      List<_MemberDoc> pendentesNaLista) async {
+    List<_MemberDoc> pendentesNaLista,
+  ) async {
     if (pendentesNaLista.isEmpty || !mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
         title: const Text('Aprovar todos filtrados'),
         content: Text(
-            'Aprovar ${pendentesNaLista.length} cadastro(s) pendente(s) exibido(s) na lista?'),
+          'Aprovar ${pendentesNaLista.length} cadastro(s) pendente(s) exibido(s) na lista?',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Aprovar todos')),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Aprovar todos'),
+          ),
         ],
       ),
     );
@@ -2453,23 +2561,23 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _members =>
-                ChurchUiCollections.membros(_effectiveTenantId);
+      ChurchUiCollections.membros(_effectiveTenantId);
 
   CollectionReference<Map<String, dynamic>> get _cargosCol =>
-                ChurchUiCollections.cargos(_effectiveTenantId);
+      ChurchUiCollections.cargos(_effectiveTenantId);
 
   CollectionReference<Map<String, dynamic>> get _membros =>
-                ChurchUiCollections.membros(_effectiveTenantId);
+      ChurchUiCollections.membros(_effectiveTenantId);
 
   /// Igrejas: mesma estrutura para igrejas que usam collection igrejas (ex.: Brasil para Cristo)
   CollectionReference<Map<String, dynamic>> get _membersIgrejas =>
-                ChurchUiCollections.membros(_effectiveTenantId);
+      ChurchUiCollections.membros(_effectiveTenantId);
 
   CollectionReference<Map<String, dynamic>> get _membrosIgrejas =>
-                ChurchUiCollections.membros(_effectiveTenantId);
+      ChurchUiCollections.membros(_effectiveTenantId);
 
   CollectionReference<Map<String, dynamic>> get _departments =>
-                ChurchUiCollections.departamentos(_effectiveTenantId);
+      ChurchUiCollections.departamentos(_effectiveTenantId);
 
   // Usados apenas via _loadMembersData() (leitura pontual).
 
@@ -2478,10 +2586,7 @@ class _MembersPageState extends State<MembersPage> {
     // Sem orderBy('name'): documentos só com id (ex.: ens_professores) não têm [name] e sumiam da query.
     final snap = await _departments.limit(150).get();
     final list = snap.docs
-        .map((d) => _DeptItem(
-              id: d.id,
-              name: churchDepartmentNameFromDoc(d),
-            ))
+        .map((d) => _DeptItem(id: d.id, name: churchDepartmentNameFromDoc(d)))
         .where((d) => d.name.isNotEmpty)
         .toList();
     list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
@@ -2501,7 +2606,8 @@ class _MembersPageState extends State<MembersPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
         title: const Text('Vincular departamentos'),
         content: SizedBox(
           width: 420,
@@ -2528,14 +2634,16 @@ class _MembersPageState extends State<MembersPage> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
           FilledButton(
-              onPressed: () {
-                ThemeCleanPremium.hapticAction();
-                Navigator.pop(ctx, true);
-              },
-              child: const Text('Salvar')),
+            onPressed: () {
+              ThemeCleanPremium.hapticAction();
+              Navigator.pop(ctx, true);
+            },
+            child: const Text('Salvar'),
+          ),
         ],
       ),
     );
@@ -2592,7 +2700,9 @@ class _MembersPageState extends State<MembersPage> {
   bool _canOpenChatWithMember(_MemberDoc member) => false;
 
   Future<void> _openChatWithMember(
-      BuildContext context, _MemberDoc member) async {
+    BuildContext context,
+    _MemberDoc member,
+  ) async {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -2603,7 +2713,10 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   // ─── Ver Detalhes do Membro ───────────────────────────────────────────────
-  Future<void> _showMemberDetails(BuildContext context, _MemberDoc member) async {
+  Future<void> _showMemberDetails(
+    BuildContext context,
+    _MemberDoc member,
+  ) async {
     member = await _hydrateMemberDocFull(member);
     if (!context.mounted) return;
     unawaited(
@@ -2621,8 +2734,12 @@ class _MembersPageState extends State<MembersPage> {
     final sexo = _str(d, 'SEXO', 'sexo');
     final estadoCivil = _str(d, 'ESTADO_CIVIL', 'estadoCivil');
     final endereco = _str(d, 'ENDERECO', 'endereco');
-    final quadraLoteNumero =
-        _str(d, 'QUADRA_LOTE_NUMERO', 'quadraLoteNumero', 'quadra_lote_numero');
+    final quadraLoteNumero = _str(
+      d,
+      'QUADRA_LOTE_NUMERO',
+      'quadraLoteNumero',
+      'quadra_lote_numero',
+    );
     final cep = _str(d, 'CEP', 'cep');
     final estado = _str(d, 'ESTADO', 'estado', 'uf');
     final cidade = _str(d, 'CIDADE', 'cidade');
@@ -2637,19 +2754,23 @@ class _MembersPageState extends State<MembersPage> {
         : _str(d, 'STATUS', 'status');
     final photo = _photoUrlForMember(member.id, d);
     final nascimento = _parseDate(
-        d['DATA_NASCIMENTO'] ?? d['dataNascimento'] ?? d['birthDate']);
+      d['DATA_NASCIMENTO'] ?? d['dataNascimento'] ?? d['birthDate'],
+    );
     final criadoEm = _parseDate(d['CRIADO_EM'] ?? d['createdAt']);
     final isInativo = status.toLowerCase().contains('inativ');
     final isPending = _memberDocIsPending(d);
-    final avatarColor = _avatarColor(
-            d,
-            photo.isNotEmpty ||
-                _optimisticProfilePhotoBytes.containsKey(member.id)) ??
+    final avatarColor =
+        _avatarColor(
+          d,
+          photo.isNotEmpty ||
+              _optimisticProfilePhotoBytes.containsKey(member.id),
+        ) ??
         ThemeCleanPremium.primary.withValues(alpha: 0.1);
     final photoTenantId = _storageTenantIdForMemberPhotos(d);
     final profissao = _str(d, 'PROFISSAO', 'profissao');
-    final dataBatismo =
-        _parseDate(d['DATA_BATISMO'] ?? d['dataBatismo'] ?? d['data_batismo']);
+    final dataBatismo = _parseDate(
+      d['DATA_BATISMO'] ?? d['dataBatismo'] ?? d['data_batismo'],
+    );
     double? geoLat;
     double? geoLng;
     final rawLat = d['GEO_LAT'] ?? d['latitude'];
@@ -2664,8 +2785,9 @@ class _MembersPageState extends State<MembersPage> {
     } else {
       geoLng = double.tryParse('${rawLng ?? ''}'.trim().replaceAll(',', '.'));
     }
-    final coverRaw =
-        (d['FOTO_CAPA_URL'] ?? d['fotoCapaUrl'] ?? '').toString().trim();
+    final coverRaw = (d['FOTO_CAPA_URL'] ?? d['fotoCapaUrl'] ?? '')
+        .toString()
+        .trim();
     final coverUrl = sanitizeImageUrl(coverRaw);
     final coverOk = isValidImageUrl(coverUrl);
     final canSensitive = widget.role.canViewMemberSensitiveFields;
@@ -2674,8 +2796,9 @@ class _MembersPageState extends State<MembersPage> {
     final authUidSys = _str(d, 'authUid', 'auth_uid').trim();
     final docIdIsUidShape =
         member.id.length >= 20 && RegExp(r'^[A-Za-z0-9]+$').hasMatch(member.id);
-    final sistemaFirebaseUid =
-        authUidSys.isNotEmpty ? authUidSys : (docIdIsUidShape ? member.id : '');
+    final sistemaFirebaseUid = authUidSys.isNotEmpty
+        ? authUidSys
+        : (docIdIsUidShape ? member.id : '');
 
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
@@ -2693,7 +2816,11 @@ class _MembersPageState extends State<MembersPage> {
                   gradient: LinearGradient(
                     colors: [
                       ThemeCleanPremium.primary,
-                      Color.lerp(ThemeCleanPremium.primary, Colors.white, 0.22)!,
+                      Color.lerp(
+                        ThemeCleanPremium.primary,
+                        Colors.white,
+                        0.22,
+                      )!,
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -2735,489 +2862,608 @@ class _MembersPageState extends State<MembersPage> {
                 padding: pagePad.copyWith(top: 16, bottom: 28),
                 child: Column(
                   children: [
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                  boxShadow: ThemeCleanPremium.softUiCardShadow,
-                  border: Border.all(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
-                  ),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  children: [
-              SizedBox(
-                height: coverH + avRadius,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.topCenter,
-                  children: [
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      height: coverH,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: coverOk
-                            ? ResilientNetworkImage(
-                                imageUrl: coverUrl,
-                                fit: BoxFit.cover,
-                                width: 720,
-                                height: coverH,
-                                memCacheWidth: 900,
-                                memCacheHeight: 450,
-                                errorWidget: Container(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.5),
-                                        ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.15),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              )
-                            : Container(
-                                width: double.infinity,
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.5),
-                                      ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.14),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                      ),
-                    ),
-                    Positioned(
-                      top: coverH - avRadius,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 3),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x14000000),
-                              blurRadius: 24,
-                              offset: Offset(0, 10),
-                            ),
-                          ],
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(
+                          ThemeCleanPremium.radiusLg,
                         ),
-                        child: Hero(
-                          tag: 'member_profile_photo_${member.id}',
-                          child: _MemberAvatar(
-                            photoUrl: photo.isNotEmpty ? photo : null,
-                            memoryPreviewBytes:
-                                _optimisticProfilePhotoBytes[member.id],
-                            memberData: d,
-                            name: name,
-                            radius: avRadius,
-                            backgroundColor: avatarColor,
-                            tenantId: photoTenantId,
-                            memberId: member.id,
-                            cpfDigits: _str(d, 'CPF', 'cpf'),
-                            authUid: _memberAuthUidFromData(d),
-                            memCacheMaxPx: 1400,
+                        boxShadow: ThemeCleanPremium.softUiCardShadow,
+                        border: Border.all(
+                          color: ThemeCleanPremium.primary.withValues(
+                            alpha: 0.08,
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: Column(
-                  children: [
-              Text(name,
-                  style: const TextStyle(
-                      fontSize: 24, fontWeight: FontWeight.w800),
-                  textAlign: TextAlign.center),
-              const SizedBox(height: 6),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isPending
-                      ? const Color(0xFFFFFBEB)
-                      : (isInativo
-                          ? const Color(0xFFFFEBEE)
-                          : const Color(0xFFECFDF5)),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  status,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                    color: isPending
-                        ? const Color(0xFFB45309)
-                        : (isInativo
-                            ? const Color(0xFFB91C1C)
-                            : const Color(0xFF047857)),
-                  ),
-                ),
-              ),
-              if (!_memberDocIsPending(member.data) &&
-                  !_isSelfMember(member)) ...[
-                const SizedBox(height: 14),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    _ActionChip(
-                      icon: Icons.forum_rounded,
-                      label: YahwehContactButtonLabels.yahwehChat,
-                      color: const Color(0xFF0D9488),
-                      onTap: () {
-                        closeDetail();
-                        ChurchMemberContactChat.tapYahwehChat(
-                          context: context,
-                          tenantId: _effectiveTenantId,
-                          memberRole: widget.role,
-                          viewerCpfDigits:
-                              widget.linkedCpf?.replaceAll(RegExp(r'\D'), '') ??
-                                  '',
-                          memberData: member.data,
-                          memberDocId: member.id,
-                          displayName: name,
-                          popSheetBeforeNavigate: false,
-                        );
-                      },
-                    ),
-                    _ActionChip(
-                      iconWidget: const WhatsappBrandIcon(size: 18),
-                      label: 'WhatsApp',
-                      color: const Color(0xFF25D366),
-                      onTap: () {
-                        closeDetail();
-                        ChurchMemberContactChat.tapWhatsApp(
-                          context: context,
-                          memberData: member.data,
-                          tenantId: _effectiveTenantId,
-                          memberDocId: member.id,
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ],
-              if (phone.isNotEmpty || email.isNotEmpty) ...[
-                const SizedBox(height: 14),
-                Wrap(
-                  alignment: WrapAlignment.center,
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    if (email.isNotEmpty)
-                      _ActionChip(
-                        icon: Icons.mail_outline_rounded,
-                        label: 'E-mail',
-                        color: const Color(0xFF2563EB),
-                        onTap: () {
-                          unawaited(_launchExternalUri(Uri(
-                            scheme: 'mailto',
-                            path: email,
-                            queryParameters: {'subject': 'Contato — $name'},
-                          )));
-                        },
+                      clipBehavior: Clip.antiAlias,
+                      child: Column(
+                        children: [
+                          SizedBox(
+                            height: coverH + avRadius,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              alignment: Alignment.topCenter,
+                              children: [
+                                Positioned(
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  height: coverH,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: coverOk
+                                        ? ResilientNetworkImage(
+                                            imageUrl: coverUrl,
+                                            fit: BoxFit.cover,
+                                            width: 720,
+                                            height: coverH,
+                                            memCacheWidth: 900,
+                                            memCacheHeight: 450,
+                                            errorWidget: Container(
+                                              decoration: BoxDecoration(
+                                                gradient: LinearGradient(
+                                                  colors: [
+                                                    ThemeCleanPremium.primary
+                                                        .withValues(alpha: 0.5),
+                                                    ThemeCleanPremium.primary
+                                                        .withValues(
+                                                          alpha: 0.15,
+                                                        ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                        : Container(
+                                            width: double.infinity,
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                                colors: [
+                                                  ThemeCleanPremium.primary
+                                                      .withValues(alpha: 0.5),
+                                                  ThemeCleanPremium.primary
+                                                      .withValues(alpha: 0.14),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                                Positioned(
+                                  top: coverH - avRadius,
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 3,
+                                      ),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                          color: Color(0x14000000),
+                                          blurRadius: 24,
+                                          offset: Offset(0, 10),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Hero(
+                                      tag: 'member_profile_photo_${member.id}',
+                                      child: _MemberAvatar(
+                                        photoUrl: photo.isNotEmpty
+                                            ? photo
+                                            : null,
+                                        memoryPreviewBytes:
+                                            _optimisticProfilePhotoBytes[member
+                                                .id],
+                                        memberData: d,
+                                        name: name,
+                                        radius: avRadius,
+                                        backgroundColor: avatarColor,
+                                        tenantId: photoTenantId,
+                                        memberId: member.id,
+                                        cpfDigits: _str(d, 'CPF', 'cpf'),
+                                        authUid: _memberAuthUidFromData(d),
+                                        memCacheMaxPx: 1400,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                            child: Column(
+                              children: [
+                                Text(
+                                  name,
+                                  style: const TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isPending
+                                        ? const Color(0xFFFFFBEB)
+                                        : (isInativo
+                                              ? const Color(0xFFFFEBEE)
+                                              : const Color(0xFFECFDF5)),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    status,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                      color: isPending
+                                          ? const Color(0xFFB45309)
+                                          : (isInativo
+                                                ? const Color(0xFFB91C1C)
+                                                : const Color(0xFF047857)),
+                                    ),
+                                  ),
+                                ),
+                                if (!_memberDocIsPending(member.data) &&
+                                    !_isSelfMember(member)) ...[
+                                  const SizedBox(height: 14),
+                                  Wrap(
+                                    alignment: WrapAlignment.center,
+                                    spacing: 10,
+                                    runSpacing: 10,
+                                    children: [
+                                      _ActionChip(
+                                        icon: Icons.forum_rounded,
+                                        label: YahwehContactButtonLabels
+                                            .yahwehChat,
+                                        color: const Color(0xFF0D9488),
+                                        onTap: () {
+                                          closeDetail();
+                                          ChurchMemberContactChat.tapYahwehChat(
+                                            context: context,
+                                            tenantId: _effectiveTenantId,
+                                            memberRole: widget.role,
+                                            viewerCpfDigits:
+                                                widget.linkedCpf?.replaceAll(
+                                                  RegExp(r'\D'),
+                                                  '',
+                                                ) ??
+                                                '',
+                                            memberData: member.data,
+                                            memberDocId: member.id,
+                                            displayName: name,
+                                            popSheetBeforeNavigate: false,
+                                          );
+                                        },
+                                      ),
+                                      _ActionChip(
+                                        iconWidget: const WhatsappBrandIcon(
+                                          size: 18,
+                                        ),
+                                        label: 'WhatsApp',
+                                        color: const Color(0xFF25D366),
+                                        onTap: () {
+                                          closeDetail();
+                                          ChurchMemberContactChat.tapWhatsApp(
+                                            context: context,
+                                            memberData: member.data,
+                                            tenantId: _effectiveTenantId,
+                                            memberDocId: member.id,
+                                          );
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                                if (phone.isNotEmpty || email.isNotEmpty) ...[
+                                  const SizedBox(height: 14),
+                                  Wrap(
+                                    alignment: WrapAlignment.center,
+                                    spacing: 10,
+                                    runSpacing: 10,
+                                    children: [
+                                      if (email.isNotEmpty)
+                                        _ActionChip(
+                                          icon: Icons.mail_outline_rounded,
+                                          label: 'E-mail',
+                                          color: const Color(0xFF2563EB),
+                                          onTap: () {
+                                            unawaited(
+                                              _launchExternalUri(
+                                                Uri(
+                                                  scheme: 'mailto',
+                                                  path: email,
+                                                  queryParameters: {
+                                                    'subject':
+                                                        'Contato — $name',
+                                                  },
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      if (geoLat != null &&
+                                          geoLng != null &&
+                                          geoLat.abs() <= 90 &&
+                                          geoLng.abs() <= 180)
+                                        _ActionChip(
+                                          icon: Icons.map_rounded,
+                                          label: 'Mapa',
+                                          color: const Color(0xFFEA4335),
+                                          onTap: () {
+                                            unawaited(
+                                              _launchExternalUri(
+                                                Uri.parse(
+                                                  'https://www.google.com/maps/search/?api=1&query=${geoLat!},${geoLng!}',
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        )
+                                      else if (canSensitive &&
+                                          (endereco.isNotEmpty ||
+                                              cidade.isNotEmpty))
+                                        _ActionChip(
+                                          icon: Icons.map_rounded,
+                                          label: 'Mapa',
+                                          color: const Color(0xFFEA4335),
+                                          onTap: () {
+                                            final q = Uri.encodeComponent(
+                                              [
+                                                    endereco,
+                                                    bairro,
+                                                    cidade,
+                                                    estado,
+                                                    cep,
+                                                  ]
+                                                  .where(
+                                                    (e) => e.trim().isNotEmpty,
+                                                  )
+                                                  .join(', '),
+                                            );
+                                            if (q.isNotEmpty) {
+                                              unawaited(
+                                                _launchExternalUri(
+                                                  Uri.parse(
+                                                    'https://www.google.com/maps/search/?api=1&query=$q',
+                                                  ),
+                                                ),
+                                              );
+                                            }
+                                          },
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                                const SizedBox(height: 20),
+                                // Ações (aprovar pendente: secretariado/pastor; demais: gestor/adm)
+                                Wrap(
+                                  alignment: WrapAlignment.center,
+                                  spacing: 12,
+                                  runSpacing: 12,
+                                  children: [
+                                    if (_canApprovePending && isPending)
+                                      _ActionChip(
+                                        icon: Icons.how_to_reg_rounded,
+                                        label: 'Aprovar cadastro',
+                                        color: const Color(0xFF059669),
+                                        onTap: () async {
+                                          closeDetail();
+                                          await _aprovarMembrosPorIds({
+                                            member.id,
+                                          });
+                                        },
+                                      ),
+                                    if (_canChangeMemberPhoto(member))
+                                      _ActionChip(
+                                        icon: Icons.photo_camera_rounded,
+                                        label: 'Alterar foto',
+                                        color: const Color(0xFF0284C7),
+                                        onTap: () {
+                                          closeDetail();
+                                          unawaited(
+                                            _openMemberProfilePhotoEditor(
+                                              context,
+                                              member,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    if (_canEditMemberRecord(member))
+                                      _ActionChip(
+                                        icon: Icons.edit_rounded,
+                                        label: 'Editar',
+                                        color: ThemeCleanPremium.primary,
+                                        onTap: () {
+                                          closeDetail();
+                                          _editMember(context, member);
+                                        },
+                                      ),
+                                    if (_canOpenCarteirinhaFor(member))
+                                      _ActionChip(
+                                        icon: Icons.badge_rounded,
+                                        label: 'Carteirinha',
+                                        color: const Color(0xFF7C3AED),
+                                        onTap: () {
+                                          closeDetail();
+                                          openMemberCardCnhFullscreen(
+                                            context,
+                                            tenantId: _effectiveTenantId,
+                                            role: widget.role,
+                                            memberId: member.id,
+                                            cpf: _memberCpfDigitsForCarteira(
+                                              member.data,
+                                            ),
+                                            memberSeedData:
+                                                Map<String, dynamic>.from(
+                                                  member.data,
+                                                ),
+                                          );
+                                        },
+                                      ),
+                                    if (_isSelfMember(member) &&
+                                        _memberHasLogin(member))
+                                      _ActionChip(
+                                        icon: Icons.vpn_key_rounded,
+                                        label: 'Atualizar senha',
+                                        color: const Color(0xFFEA580C),
+                                        onTap: () {
+                                          closeDetail();
+                                          unawaited(
+                                            _abrirAtualizarSenhaProprio(
+                                              context,
+                                              member,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    if (_canDeleteMembers)
+                                      _ActionChip(
+                                        icon: Icons.delete_outline_rounded,
+                                        label: 'Excluir',
+                                        color: const Color(0xFFDC2626),
+                                        onTap: () {
+                                          closeDetail();
+                                          _deleteMember(context, member);
+                                        },
+                                      ),
+                                    if (_canManage) ...[
+                                      if (member.data['authUid'] == null &&
+                                          ((member.data['EMAIL'] ?? '')
+                                                  .toString()
+                                                  .trim()
+                                                  .isNotEmpty ||
+                                              (member.data['CPF'] ?? '')
+                                                      .toString()
+                                                      .replaceAll(
+                                                        RegExp(r'[^0-9]'),
+                                                        '',
+                                                      )
+                                                      .length ==
+                                                  11))
+                                        _ActionChip(
+                                          icon: Icons.login_rounded,
+                                          label: 'Gerar senha / login',
+                                          color: const Color(0xFF059669),
+                                          onTap: () {
+                                            closeDetail();
+                                            _criarLoginMembro(context, member);
+                                          },
+                                        ),
+                                      if (_memberHasLogin(member) &&
+                                          !_isSelfMember(member))
+                                        _ActionChip(
+                                          icon: Icons.lock_reset_rounded,
+                                          label: 'Redefinir senha',
+                                          color: Colors.orange.shade700,
+                                          onTap: () {
+                                            closeDetail();
+                                            _redefinirSenhaMembro(
+                                              context,
+                                              member,
+                                            );
+                                          },
+                                        ),
+                                    ],
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    if (geoLat != null &&
-                        geoLng != null &&
-                        geoLat.abs() <= 90 &&
-                        geoLng.abs() <= 180)
-                      _ActionChip(
-                        icon: Icons.map_rounded,
-                        label: 'Mapa',
-                        color: const Color(0xFFEA4335),
-                        onTap: () {
-                          unawaited(_launchExternalUri(Uri.parse(
-                              'https://www.google.com/maps/search/?api=1&query=${geoLat!},${geoLng!}')));
-                        },
-                      )
-                    else if (canSensitive &&
-                        (endereco.isNotEmpty || cidade.isNotEmpty))
-                      _ActionChip(
-                        icon: Icons.map_rounded,
-                        label: 'Mapa',
-                        color: const Color(0xFFEA4335),
-                        onTap: () {
-                          final q = Uri.encodeComponent([
-                            endereco,
-                            bairro,
-                            cidade,
-                            estado,
-                            cep,
-                          ].where((e) => e.trim().isNotEmpty).join(', '));
-                          if (q.isNotEmpty) {
-                            unawaited(_launchExternalUri(Uri.parse(
-                                'https://www.google.com/maps/search/?api=1&query=$q')));
-                          }
-                        },
+                    ),
+                    const SizedBox(height: 16),
+                    // Dados
+                    _DetailSection(
+                      title: 'Informações Pessoais',
+                      items: [
+                        if (filiacaoMae.isNotEmpty)
+                          _DetailRow(
+                            icon: Icons.family_restroom_rounded,
+                            label: 'Filiação (mãe)',
+                            value: filiacaoMae,
+                          ),
+                        if (filiacaoPai.isNotEmpty)
+                          _DetailRow(
+                            icon: Icons.family_restroom_rounded,
+                            label: 'Filiação (pai)',
+                            value: filiacaoPai,
+                          ),
+                        if (filiacaoPai.isEmpty &&
+                            filiacaoMae.isEmpty &&
+                            filiacao.isNotEmpty)
+                          _DetailRow(
+                            icon: Icons.family_restroom_rounded,
+                            label: 'Filiação',
+                            value: filiacao,
+                          ),
+                        if (codigoMembro.isNotEmpty)
+                          _DetailRow(
+                            icon: Icons.pin_rounded,
+                            label: 'Cód. membro',
+                            value: codigoMembro,
+                          ),
+                        if (cpf.isNotEmpty)
+                          _DetailRow(
+                            icon: Icons.badge_rounded,
+                            label: 'CPF',
+                            value: canSensitive
+                                ? _formatCpf(cpf)
+                                : '•••.•••.•••-••',
+                          ),
+                        if (nascimento != null)
+                          _DetailRow(
+                            icon: Icons.cake_rounded,
+                            label: 'Nascimento',
+                            value: _fmtDate(nascimento),
+                          ),
+                        if (dataBatismo != null)
+                          _DetailRow(
+                            icon: Icons.water_drop_rounded,
+                            label: 'Batismo',
+                            value: _fmtDate(dataBatismo),
+                          ),
+                        if (profissao.isNotEmpty)
+                          _DetailRow(
+                            icon: Icons.work_outline_rounded,
+                            label: 'Profissão',
+                            value: profissao,
+                          ),
+                        if (sexo.isNotEmpty)
+                          _DetailRow(
+                            icon: Icons.person_rounded,
+                            label: 'Sexo',
+                            value: sexo,
+                          ),
+                        if (phone.isNotEmpty)
+                          _DetailRow(
+                            icon: Icons.phone_rounded,
+                            label: 'Telefone',
+                            value: brPhoneMaskLive(phone),
+                          ),
+                        if (email.isNotEmpty)
+                          _DetailRow(
+                            icon: Icons.email_rounded,
+                            label: 'E-mail',
+                            value: email,
+                          ),
+                        if (estadoCivil.isNotEmpty)
+                          _DetailRow(
+                            icon: Icons.favorite_rounded,
+                            label: 'Estado Civil',
+                            value: estadoCivil,
+                          ),
+                        if (escolaridade.isNotEmpty)
+                          _DetailRow(
+                            icon: Icons.school_rounded,
+                            label: 'Escolaridade',
+                            value: escolaridade,
+                          ),
+                        if (conjuge.isNotEmpty)
+                          _DetailRow(
+                            icon: Icons.people_rounded,
+                            label: 'Cônjuge',
+                            value: conjuge,
+                          ),
+                      ],
+                    ),
+                    if (cep.isNotEmpty ||
+                        endereco.isNotEmpty ||
+                        quadraLoteNumero.isNotEmpty ||
+                        bairro.isNotEmpty ||
+                        cidade.isNotEmpty ||
+                        estado.isNotEmpty)
+                      _DetailSection(
+                        title: 'Endereço',
+                        items: [
+                          if (canSensitive && cep.isNotEmpty)
+                            _DetailRow(
+                              icon: Icons.pin_drop_rounded,
+                              label: 'CEP',
+                              value: cep,
+                            ),
+                          if (canSensitive && endereco.isNotEmpty)
+                            _DetailRow(
+                              icon: Icons.home_rounded,
+                              label: 'Endereço',
+                              value: endereco,
+                            ),
+                          if (canSensitive && quadraLoteNumero.isNotEmpty)
+                            _DetailRow(
+                              icon: Icons.apartment_rounded,
+                              label: 'Quadra, Lote e Número',
+                              value: quadraLoteNumero,
+                            ),
+                          if (canSensitive && bairro.isNotEmpty)
+                            _DetailRow(
+                              icon: Icons.location_city_rounded,
+                              label: 'Bairro',
+                              value: bairro,
+                            ),
+                          if (cidade.isNotEmpty)
+                            _DetailRow(
+                              icon: Icons.map_rounded,
+                              label: 'Cidade',
+                              value: cidade,
+                            ),
+                          if (estado.isNotEmpty)
+                            _DetailRow(
+                              icon: Icons.flag_rounded,
+                              label: 'Estado',
+                              value: estado,
+                            ),
+                          if (!canSensitive &&
+                              (cidade.isNotEmpty || estado.isNotEmpty))
+                            _DetailRow(
+                              icon: Icons.lock_outline_rounded,
+                              label: 'Localização',
+                              value:
+                                  'Endereço completo visível só para pastoral/secretariado.',
+                              softWrapValue: true,
+                            ),
+                        ],
                       ),
+                    _DetailSection(
+                      title: 'Sistema',
+                      items: [
+                        _DetailRow(
+                          icon: Icons.fingerprint_rounded,
+                          label: 'UID (Firebase)',
+                          value: sistemaFirebaseUid.isNotEmpty
+                              ? sistemaFirebaseUid
+                              : '— vincule login ou aprove o cadastro',
+                        ),
+                        if (member.id.isNotEmpty &&
+                            member.id != sistemaFirebaseUid)
+                          _DetailRow(
+                            icon: Icons.description_outlined,
+                            label: 'ID do documento (legado)',
+                            value: member.id,
+                          ),
+                        if (criadoEm != null)
+                          _DetailRow(
+                            icon: Icons.calendar_today_rounded,
+                            label: 'Cadastrado em',
+                            value: _fmtDate(criadoEm),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
                   ],
                 ),
-              ],
-              const SizedBox(height: 20),
-              // Ações (aprovar pendente: secretariado/pastor; demais: gestor/adm)
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  if (_canApprovePending && isPending)
-                    _ActionChip(
-                      icon: Icons.how_to_reg_rounded,
-                      label: 'Aprovar cadastro',
-                      color: const Color(0xFF059669),
-                      onTap: () async {
-                        closeDetail();
-                        await _aprovarMembrosPorIds({member.id});
-                      },
-                    ),
-                  if (_canChangeMemberPhoto(member))
-                    _ActionChip(
-                      icon: Icons.photo_camera_rounded,
-                      label: 'Alterar foto',
-                      color: const Color(0xFF0284C7),
-                      onTap: () {
-                        closeDetail();
-                        unawaited(_openMemberProfilePhotoEditor(context, member));
-                      },
-                    ),
-                  if (_canEditMemberRecord(member))
-                    _ActionChip(
-                        icon: Icons.edit_rounded,
-                        label: 'Editar',
-                        color: ThemeCleanPremium.primary,
-                        onTap: () {
-                          closeDetail();
-                          _editMember(context, member);
-                        }),
-                  if (_canOpenCarteirinhaFor(member))
-                    _ActionChip(
-                        icon: Icons.badge_rounded,
-                        label: 'Carteirinha',
-                        color: const Color(0xFF7C3AED),
-                        onTap: () {
-                          closeDetail();
-                          openMemberCardCnhFullscreen(
-                            context,
-                            tenantId: _effectiveTenantId,
-                            role: widget.role,
-                            memberId: member.id,
-                            cpf: _memberCpfDigitsForCarteira(member.data),
-                            memberSeedData:
-                                Map<String, dynamic>.from(member.data),
-                          );
-                        }),
-                  if (_isSelfMember(member) && _memberHasLogin(member))
-                    _ActionChip(
-                        icon: Icons.vpn_key_rounded,
-                        label: 'Atualizar senha',
-                        color: const Color(0xFFEA580C),
-                        onTap: () {
-                          closeDetail();
-                          unawaited(
-                              _abrirAtualizarSenhaProprio(context, member));
-                        }),
-                  if (_canDeleteMembers)
-                    _ActionChip(
-                        icon: Icons.delete_outline_rounded,
-                        label: 'Excluir',
-                        color: const Color(0xFFDC2626),
-                        onTap: () {
-                          closeDetail();
-                          _deleteMember(context, member);
-                        }),
-                  if (_canManage) ...[
-                    if (member.data['authUid'] == null &&
-                        ((member.data['EMAIL'] ?? '')
-                                .toString()
-                                .trim()
-                                .isNotEmpty ||
-                            (member.data['CPF'] ?? '')
-                                    .toString()
-                                    .replaceAll(RegExp(r'[^0-9]'), '')
-                                    .length ==
-                                11))
-                      _ActionChip(
-                          icon: Icons.login_rounded,
-                          label: 'Gerar senha / login',
-                          color: const Color(0xFF059669),
-                          onTap: () {
-                            closeDetail();
-                            _criarLoginMembro(context, member);
-                          }),
-                    if (_memberHasLogin(member) && !_isSelfMember(member))
-                      _ActionChip(
-                          icon: Icons.lock_reset_rounded,
-                          label: 'Redefinir senha',
-                          color: Colors.orange.shade700,
-                          onTap: () {
-                            closeDetail();
-                            _redefinirSenhaMembro(context, member);
-                          }),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 16),
-                  ],
-                ),
-              ),
-                ],
               ),
             ),
-              const SizedBox(height: 16),
-              // Dados
-              _DetailSection(title: 'Informações Pessoais', items: [
-                if (filiacaoMae.isNotEmpty)
-                  _DetailRow(
-                      icon: Icons.family_restroom_rounded,
-                      label: 'Filiação (mãe)',
-                      value: filiacaoMae),
-                if (filiacaoPai.isNotEmpty)
-                  _DetailRow(
-                      icon: Icons.family_restroom_rounded,
-                      label: 'Filiação (pai)',
-                      value: filiacaoPai),
-                if (filiacaoPai.isEmpty &&
-                    filiacaoMae.isEmpty &&
-                    filiacao.isNotEmpty)
-                  _DetailRow(
-                      icon: Icons.family_restroom_rounded,
-                      label: 'Filiação',
-                      value: filiacao),
-                if (codigoMembro.isNotEmpty)
-                  _DetailRow(
-                      icon: Icons.pin_rounded,
-                      label: 'Cód. membro',
-                      value: codigoMembro),
-                if (cpf.isNotEmpty)
-                  _DetailRow(
-                      icon: Icons.badge_rounded,
-                      label: 'CPF',
-                      value: canSensitive ? _formatCpf(cpf) : '•••.•••.•••-••'),
-                if (nascimento != null)
-                  _DetailRow(
-                      icon: Icons.cake_rounded,
-                      label: 'Nascimento',
-                      value: _fmtDate(nascimento)),
-                if (dataBatismo != null)
-                  _DetailRow(
-                      icon: Icons.water_drop_rounded,
-                      label: 'Batismo',
-                      value: _fmtDate(dataBatismo)),
-                if (profissao.isNotEmpty)
-                  _DetailRow(
-                      icon: Icons.work_outline_rounded,
-                      label: 'Profissão',
-                      value: profissao),
-                if (sexo.isNotEmpty)
-                  _DetailRow(
-                      icon: Icons.person_rounded, label: 'Sexo', value: sexo),
-                if (phone.isNotEmpty)
-                  _DetailRow(
-                      icon: Icons.phone_rounded,
-                      label: 'Telefone',
-                      value: brPhoneMaskLive(phone)),
-                if (email.isNotEmpty)
-                  _DetailRow(
-                      icon: Icons.email_rounded, label: 'E-mail', value: email),
-                if (estadoCivil.isNotEmpty)
-                  _DetailRow(
-                      icon: Icons.favorite_rounded,
-                      label: 'Estado Civil',
-                      value: estadoCivil),
-                if (escolaridade.isNotEmpty)
-                  _DetailRow(
-                      icon: Icons.school_rounded,
-                      label: 'Escolaridade',
-                      value: escolaridade),
-                if (conjuge.isNotEmpty)
-                  _DetailRow(
-                      icon: Icons.people_rounded,
-                      label: 'Cônjuge',
-                      value: conjuge),
-              ]),
-              if (cep.isNotEmpty ||
-                  endereco.isNotEmpty ||
-                  quadraLoteNumero.isNotEmpty ||
-                  bairro.isNotEmpty ||
-                  cidade.isNotEmpty ||
-                  estado.isNotEmpty)
-                _DetailSection(title: 'Endereço', items: [
-                  if (canSensitive && cep.isNotEmpty)
-                    _DetailRow(
-                        icon: Icons.pin_drop_rounded, label: 'CEP', value: cep),
-                  if (canSensitive && endereco.isNotEmpty)
-                    _DetailRow(
-                        icon: Icons.home_rounded,
-                        label: 'Endereço',
-                        value: endereco),
-                  if (canSensitive && quadraLoteNumero.isNotEmpty)
-                    _DetailRow(
-                        icon: Icons.apartment_rounded,
-                        label: 'Quadra, Lote e Número',
-                        value: quadraLoteNumero),
-                  if (canSensitive && bairro.isNotEmpty)
-                    _DetailRow(
-                        icon: Icons.location_city_rounded,
-                        label: 'Bairro',
-                        value: bairro),
-                  if (cidade.isNotEmpty)
-                    _DetailRow(
-                        icon: Icons.map_rounded,
-                        label: 'Cidade',
-                        value: cidade),
-                  if (estado.isNotEmpty)
-                    _DetailRow(
-                        icon: Icons.flag_rounded,
-                        label: 'Estado',
-                        value: estado),
-                  if (!canSensitive && (cidade.isNotEmpty || estado.isNotEmpty))
-                    _DetailRow(
-                        icon: Icons.lock_outline_rounded,
-                        label: 'Localização',
-                        value:
-                            'Endereço completo visível só para pastoral/secretariado.',
-                        softWrapValue: true),
-                ]),
-              _DetailSection(title: 'Sistema', items: [
-                _DetailRow(
-                    icon: Icons.fingerprint_rounded,
-                    label: 'UID (Firebase)',
-                    value: sistemaFirebaseUid.isNotEmpty
-                        ? sistemaFirebaseUid
-                        : '— vincule login ou aprove o cadastro'),
-                if (member.id.isNotEmpty && member.id != sistemaFirebaseUid)
-                  _DetailRow(
-                      icon: Icons.description_outlined,
-                      label: 'ID do documento (legado)',
-                      value: member.id),
-                if (criadoEm != null)
-                  _DetailRow(
-                      icon: Icons.calendar_today_rounded,
-                      label: 'Cadastrado em',
-                      value: _fmtDate(criadoEm)),
-              ]),
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
-      ),
-    );
+          );
         },
       ),
     );
@@ -3226,49 +3472,60 @@ class _MembersPageState extends State<MembersPage> {
   // ─── Editar Membro ────────────────────────────────────────────────────────
   Future<void> _editMember(BuildContext context, _MemberDoc member) async {
     final staffEdit = AppPermissions.canEditMembersDirectory(
-        widget.role, widget.permissions);
+      widget.role,
+      widget.permissions,
+    );
     if (!staffEdit && !_isSelfMember(member)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-              'Você só pode alterar o seu próprio cadastro.'),
+            'Você só pode alterar o seu próprio cadastro.',
+          ),
         );
       }
       return;
     }
     member = _memberWithOptimisticOverlay(member);
     try {
-      member = await _hydrateMemberDocFull(member).timeout(
-        const Duration(milliseconds: 1200),
-        onTimeout: () => member,
-      );
+      member = await _hydrateMemberDocFull(
+        member,
+      ).timeout(const Duration(milliseconds: 1200), onTimeout: () => member);
     } catch (_) {}
     if (!mounted) return;
     final selfOnly = !staffEdit;
     final d = member.data;
     String selectedTenantIdForEdit = _tenantIdForMemberData(
-        d); // painel master: permite mudar igreja do membro
-    final nameCtrl =
-        TextEditingController(text: _str(d, 'NOME_COMPLETO', 'nome', 'name'));
+      d,
+    ); // painel master: permite mudar igreja do membro
+    final nameCtrl = TextEditingController(
+      text: _str(d, 'NOME_COMPLETO', 'nome', 'name'),
+    );
     final emailCtrl = TextEditingController(text: _str(d, 'EMAIL', 'email'));
     final phoneCtrl = TextEditingController(
       text: brPhoneMaskLive(_str(d, 'TELEFONES', 'telefone')),
     );
     final cpfCtrl = TextEditingController(text: _str(d, 'CPF', 'cpf'));
     final codigoMembroInicial = MemberCodigoService.readFromMember(d);
-    final enderecoCtrl =
-        TextEditingController(text: _str(d, 'ENDERECO', 'endereco'));
+    final enderecoCtrl = TextEditingController(
+      text: _str(d, 'ENDERECO', 'endereco'),
+    );
     final quadraLoteNumeroCtrl = TextEditingController(
       text: _str(
-          d, 'QUADRA_LOTE_NUMERO', 'quadraLoteNumero', 'quadra_lote_numero'),
+        d,
+        'QUADRA_LOTE_NUMERO',
+        'quadraLoteNumero',
+        'quadra_lote_numero',
+      ),
     );
     final cepCtrl = TextEditingController(text: _str(d, 'CEP', 'cep'));
-    final estadoCtrl =
-        TextEditingController(text: _str(d, 'ESTADO', 'estado', 'uf'));
+    final estadoCtrl = TextEditingController(
+      text: _str(d, 'ESTADO', 'estado', 'uf'),
+    );
     final cidadeCtrl = TextEditingController(text: _str(d, 'CIDADE', 'cidade'));
     final bairroCtrl = TextEditingController(text: _str(d, 'BAIRRO', 'bairro'));
-    final estadoCivilInitial =
-        _normalizeEstadoCivilValue(_str(d, 'ESTADO_CIVIL', 'estadoCivil'));
+    final estadoCivilInitial = _normalizeEstadoCivilValue(
+      _str(d, 'ESTADO_CIVIL', 'estadoCivil'),
+    );
     const estadoCivilOptions = <String>[
       'Casado(a)',
       'Divorciado(a)',
@@ -3278,15 +3535,18 @@ class _MembersPageState extends State<MembersPage> {
     String estadoCivilSelected = estadoCivilOptions.contains(estadoCivilInitial)
         ? estadoCivilInitial
         : estadoCivilOptions.first;
-    final escolaridadeCtrl =
-        TextEditingController(text: _str(d, 'ESCOLARIDADE', 'escolaridade'));
-    final conjugeCtrl =
-        TextEditingController(text: _str(d, 'NOME_CONJUGE', 'nomeConjuge'));
+    final escolaridadeCtrl = TextEditingController(
+      text: _str(d, 'ESCOLARIDADE', 'escolaridade'),
+    );
+    final conjugeCtrl = TextEditingController(
+      text: _str(d, 'NOME_CONJUGE', 'nomeConjuge'),
+    );
     final filiacaoPaiVal = _str(d, 'FILIACAO_PAI', 'filiacaoPai');
     final filiacaoMaeVal = _str(d, 'FILIACAO_MAE', 'filiacaoMae');
     final filiacaoLegado = _str(d, 'FILIACAO', 'filiacao');
     final filiacaoPaiCtrl = TextEditingController(
-        text: filiacaoPaiVal.isNotEmpty ? filiacaoPaiVal : filiacaoLegado);
+      text: filiacaoPaiVal.isNotEmpty ? filiacaoPaiVal : filiacaoLegado,
+    );
     final filiacaoMaeCtrl = TextEditingController(text: filiacaoMaeVal);
     final passwordCtrl = TextEditingController();
     String sexo = _str(d, 'SEXO', 'sexo');
@@ -3311,17 +3571,22 @@ class _MembersPageState extends State<MembersPage> {
       }
     }
     if (funcoesSelecionadas.isEmpty) funcoesSelecionadas = ['membro'];
-    final funcoesNotifier =
-        ValueNotifier<List<String>>(List<String>.from(funcoesSelecionadas));
-    DateTime? dataConsagracao =
-        _parseDate(d['DATA_CONSAGRACAO'] ?? d['dataConsagracao']);
+    final funcoesNotifier = ValueNotifier<List<String>>(
+      List<String>.from(funcoesSelecionadas),
+    );
+    DateTime? dataConsagracao = _parseDate(
+      d['DATA_CONSAGRACAO'] ?? d['dataConsagracao'],
+    );
     var removeConsagracao = false;
     DateTime? nascimento = _parseDate(
-        d['DATA_NASCIMENTO'] ?? d['dataNascimento'] ?? d['birthDate']);
-    DateTime? dataBatismo =
-        _parseDate(d['DATA_BATISMO'] ?? d['dataBatismo'] ?? d['data_batismo']);
-    final profissaoCtrl =
-        TextEditingController(text: _str(d, 'PROFISSAO', 'profissao'));
+      d['DATA_NASCIMENTO'] ?? d['dataNascimento'] ?? d['birthDate'],
+    );
+    DateTime? dataBatismo = _parseDate(
+      d['DATA_BATISMO'] ?? d['dataBatismo'] ?? d['data_batismo'],
+    );
+    final profissaoCtrl = TextEditingController(
+      text: _str(d, 'PROFISSAO', 'profissao'),
+    );
     XFile? newPhoto;
     Uint8List? newPhotoBytes;
     final profilePhotoPreview = ValueNotifier<Uint8List?>(null);
@@ -3355,20 +3620,22 @@ class _MembersPageState extends State<MembersPage> {
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlg) {
           final isMob = MediaQuery.of(ctx).size.width < 600;
-          final avatarBg = _avatarColor(d, currentPhoto.isNotEmpty) ??
+          final avatarBg =
+              _avatarColor(d, currentPhoto.isNotEmpty) ??
               ThemeCleanPremium.primary.withValues(alpha: 0.1);
           return Dialog(
             insetPadding: isMob
                 ? const EdgeInsets.symmetric(horizontal: 8, vertical: 24)
                 : const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
             shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            ),
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                  maxWidth: 520,
-                  maxHeight:
-                      MediaQuery.of(ctx).size.height * (isMob ? 0.9 : 0.85)),
+                maxWidth: 520,
+                maxHeight:
+                    MediaQuery.of(ctx).size.height * (isMob ? 0.9 : 0.85),
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.max,
                 children: [
@@ -3377,8 +3644,9 @@ class _MembersPageState extends State<MembersPage> {
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
-                      borderRadius:
-                          const BorderRadius.vertical(top: Radius.circular(20)),
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(20),
+                      ),
                     ),
                     child: Row(
                       children: [
@@ -3388,19 +3656,24 @@ class _MembersPageState extends State<MembersPage> {
                           label: const Text('Voltar'),
                         ),
                         const SizedBox(width: 8),
-                        const Icon(Icons.edit_rounded,
-                            color: ThemeCleanPremium.primary),
+                        const Icon(
+                          Icons.edit_rounded,
+                          color: ThemeCleanPremium.primary,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             selfOnly ? 'Meu cadastro' : 'Editar Membro',
                             style: const TextStyle(
-                                fontSize: 18, fontWeight: FontWeight.w800),
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
                         IconButton(
-                            icon: const Icon(Icons.close_rounded),
-                            onPressed: () => Navigator.pop(ctx, null)),
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.pop(ctx, null),
+                        ),
                       ],
                     ),
                   ),
@@ -3428,17 +3701,16 @@ class _MembersPageState extends State<MembersPage> {
                               setDlg(() => pickingProfilePhoto = true);
                               try {
                                 final picked =
-                                    await MemberProfilePhotoPickService
-                                        .pickForMemberEdit(ctx);
-                                if (picked != null &&
-                                    picked.bytes.isNotEmpty) {
+                                    await MemberProfilePhotoPickService.pickForMemberEdit(
+                                      ctx,
+                                    );
+                                if (picked != null && picked.bytes.isNotEmpty) {
                                   newPhotoBytes = picked.bytes;
                                   profilePhotoPreview.value = picked.bytes;
                                   newPhoto = null;
                                   removeProfilePhoto = false;
                                   if (ctx.mounted) {
-                                    ImmediateMediaAttachFeedback
-                                        .showArquivoAnexado(
+                                    ImmediateMediaAttachFeedback.showArquivoAnexado(
                                       ctx,
                                       picked.displayName,
                                     );
@@ -3464,15 +3736,15 @@ class _MembersPageState extends State<MembersPage> {
                                 ValueListenableBuilder<Uint8List?>(
                                   valueListenable: profilePhotoPreview,
                                   builder: (_, preview, _) {
-                                    final localBytes =
-                                        preview ?? newPhotoBytes;
+                                    final localBytes = preview ?? newPhotoBytes;
                                     if (localBytes != null &&
                                         localBytes.isNotEmpty) {
                                       return CircleAvatar(
                                         radius: 45,
                                         backgroundColor: avatarBg,
-                                        backgroundImage:
-                                            MemoryImage(localBytes),
+                                        backgroundImage: MemoryImage(
+                                          localBytes,
+                                        ),
                                       );
                                     }
                                     if (removeProfilePhoto) {
@@ -3506,12 +3778,18 @@ class _MembersPageState extends State<MembersPage> {
                                 Container(
                                   padding: const EdgeInsets.all(6),
                                   decoration: BoxDecoration(
-                                      color: ThemeCleanPremium.primary,
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                          color: Colors.white, width: 2)),
-                                  child: const Icon(Icons.camera_alt_rounded,
-                                      color: Colors.white, size: 16),
+                                    color: ThemeCleanPremium.primary,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.camera_alt_rounded,
+                                    color: Colors.white,
+                                    size: 16,
+                                  ),
                                 ),
                               ],
                             ),
@@ -3556,17 +3834,20 @@ class _MembersPageState extends State<MembersPage> {
                             ),
                           const SizedBox(height: 16),
                           _EditField(
-                              controller: nameCtrl,
-                              label: 'Nome Completo',
-                              icon: Icons.person_rounded),
+                            controller: nameCtrl,
+                            label: 'Nome Completo',
+                            icon: Icons.person_rounded,
+                          ),
                           _EditField(
-                              controller: filiacaoMaeCtrl,
-                              label: 'Filiação (mãe)',
-                              icon: Icons.family_restroom_rounded),
+                            controller: filiacaoMaeCtrl,
+                            label: 'Filiação (mãe)',
+                            icon: Icons.family_restroom_rounded,
+                          ),
                           _EditField(
-                              controller: filiacaoPaiCtrl,
-                              label: 'Filiação (pai)',
-                              icon: Icons.family_restroom_rounded),
+                            controller: filiacaoPaiCtrl,
+                            label: 'Filiação (pai)',
+                            icon: Icons.family_restroom_rounded,
+                          ),
                           if (selfOnly)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 12),
@@ -3574,24 +3855,28 @@ class _MembersPageState extends State<MembersPage> {
                                 decoration: InputDecoration(
                                   labelText: 'CPF',
                                   border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusSm)),
+                                    borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusSm,
+                                    ),
+                                  ),
                                   prefixIcon: const Icon(Icons.badge_rounded),
                                 ),
                                 child: Text(
                                   _formatCpf(cpfCtrl.text),
                                   style: TextStyle(
-                                      color: Colors.grey.shade800,
-                                      fontWeight: FontWeight.w600),
+                                    color: Colors.grey.shade800,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ),
                             )
                           else
                             _EditField(
-                                controller: cpfCtrl,
-                                label: 'CPF',
-                                icon: Icons.badge_rounded,
-                                type: TextInputType.number),
+                              controller: cpfCtrl,
+                              label: 'CPF',
+                              icon: Icons.badge_rounded,
+                              type: TextInputType.number,
+                            ),
                           if (staffEdit)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 12),
@@ -3605,8 +3890,7 @@ class _MembersPageState extends State<MembersPage> {
                                       ThemeCleanPremium.radiusSm,
                                     ),
                                   ),
-                                  prefixIcon:
-                                      const Icon(Icons.pin_outlined),
+                                  prefixIcon: const Icon(Icons.pin_outlined),
                                 ),
                                 child: Text(
                                   codigoMembroInicial.isNotEmpty
@@ -3626,7 +3910,8 @@ class _MembersPageState extends State<MembersPage> {
                             padding: const EdgeInsets.only(bottom: 12),
                             child: InkWell(
                               borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm),
+                                ThemeCleanPremium.radiusSm,
+                              ),
                               onTap: () async {
                                 final picked = await showDatePicker(
                                   context: ctx,
@@ -3642,18 +3927,22 @@ class _MembersPageState extends State<MembersPage> {
                                 decoration: InputDecoration(
                                   labelText: 'Data de Nascimento',
                                   border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusSm)),
+                                    borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusSm,
+                                    ),
+                                  ),
                                   prefixIcon: const Icon(Icons.cake_rounded),
                                 ),
                                 child: Text(
-                                    nascimento != null
-                                        ? _fmtDate(nascimento!)
-                                        : 'Selecionar...',
-                                    style: TextStyle(
-                                        color: nascimento != null
-                                            ? null
-                                            : Colors.grey.shade500)),
+                                  nascimento != null
+                                      ? _fmtDate(nascimento!)
+                                      : 'Selecionar...',
+                                  style: TextStyle(
+                                    color: nascimento != null
+                                        ? null
+                                        : Colors.grey.shade500,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -3665,32 +3954,39 @@ class _MembersPageState extends State<MembersPage> {
                               decoration: InputDecoration(
                                 labelText: 'Sexo',
                                 border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        ThemeCleanPremium.radiusSm)),
+                                  borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusSm,
+                                  ),
+                                ),
                                 prefixIcon: const Icon(Icons.wc_rounded),
                               ),
                               items: const [
                                 DropdownMenuItem(
-                                    value: 'Masculino',
-                                    child: Text('Masculino')),
+                                  value: 'Masculino',
+                                  child: Text('Masculino'),
+                                ),
                                 DropdownMenuItem(
-                                    value: 'Feminino', child: Text('Feminino')),
+                                  value: 'Feminino',
+                                  child: Text('Feminino'),
+                                ),
                               ],
                               onChanged: (v) => setDlg(() => sexo = v ?? ''),
                             ),
                           ),
                           _EditField(
-                              controller: phoneCtrl,
-                              label: 'Telefone',
-                              icon: Icons.phone_rounded,
-                              type: TextInputType.phone,
-                              inputFormatters: const [BrPhoneInputFormatter()],
-                              hint: '62 9.9170-5247'),
+                            controller: phoneCtrl,
+                            label: 'Telefone',
+                            icon: Icons.phone_rounded,
+                            type: TextInputType.phone,
+                            inputFormatters: const [BrPhoneInputFormatter()],
+                            hint: '62 9.9170-5247',
+                          ),
                           _EditField(
-                              controller: emailCtrl,
-                              label: 'E-mail',
-                              icon: Icons.email_rounded,
-                              type: TextInputType.emailAddress),
+                            controller: emailCtrl,
+                            label: 'E-mail',
+                            icon: Icons.email_rounded,
+                            type: TextInputType.emailAddress,
+                          ),
                           // Ativo/Inativo — só equipe (arquiva sem apagar histórico)
                           if (staffEdit)
                             Padding(
@@ -3702,10 +3998,12 @@ class _MembersPageState extends State<MembersPage> {
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(16),
                                     side: const BorderSide(
-                                        color: Color(0xFFE2E8F0)),
+                                      color: Color(0xFFE2E8F0),
+                                    ),
                                   ),
-                                  value:
-                                      !status.toLowerCase().contains('inativ'),
+                                  value: !status.toLowerCase().contains(
+                                    'inativ',
+                                  ),
                                   title: const Text('Membro ativo'),
                                   subtitle: const Text(
                                     'Desligue para inativar sem excluir dados.',
@@ -3730,30 +4028,39 @@ class _MembersPageState extends State<MembersPage> {
                                 }
                                 final tenants = snap.data!;
                                 final hasCurrent = tenants.any(
-                                    (e) => e.key == selectedTenantIdForEdit);
+                                  (e) => e.key == selectedTenantIdForEdit,
+                                );
                                 final list = hasCurrent
                                     ? tenants
                                     : [
-                                        MapEntry(selectedTenantIdForEdit,
-                                            'Igreja atual'),
-                                        ...tenants
+                                        MapEntry(
+                                          selectedTenantIdForEdit,
+                                          'Igreja atual',
+                                        ),
+                                        ...tenants,
                                       ];
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 12),
                                   child: DropdownButtonFormField<String>(
                                     isExpanded: true,
-                                    initialValue: list.any((e) =>
-                                            e.key == selectedTenantIdForEdit)
+                                    initialValue:
+                                        list.any(
+                                          (e) =>
+                                              e.key == selectedTenantIdForEdit,
+                                        )
                                         ? selectedTenantIdForEdit
                                         : null,
                                     decoration: InputDecoration(
                                       labelText: 'Igreja (transferir membro)',
                                       hintText: 'Selecione a igreja do membro',
                                       border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
-                                              ThemeCleanPremium.radiusSm)),
-                                      prefixIcon:
-                                          const Icon(Icons.church_rounded),
+                                        borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm,
+                                        ),
+                                      ),
+                                      prefixIcon: const Icon(
+                                        Icons.church_rounded,
+                                      ),
                                     ),
                                     selectedItemBuilder: (context) => list
                                         .map(
@@ -3765,8 +4072,9 @@ class _MembersPageState extends State<MembersPage> {
                                               maxLines: 2,
                                               overflow: TextOverflow.ellipsis,
                                               style: const TextStyle(
-                                                  fontSize: 14,
-                                                  fontWeight: FontWeight.w600),
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                             ),
                                           ),
                                         )
@@ -3800,42 +4108,54 @@ class _MembersPageState extends State<MembersPage> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('Funções (cargos)',
-                                      style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w600,
-                                          color: ThemeCleanPremium.onSurface)),
+                                  Text(
+                                    'Funções (cargos)',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                      color: ThemeCleanPremium.onSurface,
+                                    ),
+                                  ),
                                   const SizedBox(height: 6),
                                   Text(
-                                      'O membro pode ter várias funções. A primeira define o nível de acesso no sistema. Cargos cadastrados em Pessoas > Cargos.',
-                                      style: TextStyle(
-                                          fontSize: 12,
-                                          color: ThemeCleanPremium
-                                              .onSurfaceVariant)),
+                                    'O membro pode ter várias funções. A primeira define o nível de acesso no sistema. Cargos cadastrados em Pessoas > Cargos.',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: ThemeCleanPremium.onSurfaceVariant,
+                                    ),
+                                  ),
                                   const SizedBox(height: 8),
                                   FutureBuilder<
-                                      List<({String key, String label})>>(
+                                    List<({String key, String label})>
+                                  >(
                                     future: _loadCargosForMember(),
                                     builder: (ctx, snap) {
-                                      final cargos = snap.data ??
+                                      final cargos =
+                                          snap.data ??
                                           _funcoesList
-                                              .map((k) => (
-                                                    key: k,
-                                                    label: _funcaoLabel(k)
-                                                  ))
+                                              .map(
+                                                (k) => (
+                                                  key: k,
+                                                  label: _funcaoLabel(k),
+                                                ),
+                                              )
                                               .toList();
                                       return ValueListenableBuilder<
-                                          List<String>>(
+                                        List<String>
+                                      >(
                                         valueListenable: funcoesNotifier,
                                         builder: (_, selList, _) => Wrap(
                                           spacing: 8,
                                           runSpacing: 6,
                                           children: cargos.map((c) {
-                                            final selected =
-                                                selList.contains(c.key);
+                                            final selected = selList.contains(
+                                              c.key,
+                                            );
                                             final col = Color(
-                                                ChurchRolePermissions
-                                                    .badgeColorForKey(c.key));
+                                              ChurchRolePermissions.badgeColorForKey(
+                                                c.key,
+                                              ),
+                                            );
                                             return FilterChip(
                                               label: Text(c.label),
                                               selected: selected,
@@ -3844,24 +4164,27 @@ class _MembersPageState extends State<MembersPage> {
                                                 color: selected
                                                     ? Colors.white
                                                     : ThemeCleanPremium
-                                                        .onSurface,
+                                                          .onSurface,
                                                 fontWeight: selected
                                                     ? FontWeight.w700
                                                     : FontWeight.w500,
                                                 fontSize: 13,
                                               ),
                                               selectedColor: col,
-                                              backgroundColor:
-                                                  col.withValues(alpha: 0.12),
+                                              backgroundColor: col.withValues(
+                                                alpha: 0.12,
+                                              ),
                                               side: BorderSide(
-                                                  color: col.withValues(
-                                                      alpha: 0.35)),
+                                                color: col.withValues(
+                                                  alpha: 0.35,
+                                                ),
+                                              ),
                                               onSelected: (sel) {
                                                 setDlg(() {
                                                   final list =
                                                       List<String>.from(
-                                                          funcoesNotifier
-                                                              .value);
+                                                        funcoesNotifier.value,
+                                                      );
                                                   if (sel) {
                                                     if (!list.contains(c.key)) {
                                                       list.add(c.key);
@@ -3894,21 +4217,26 @@ class _MembersPageState extends State<MembersPage> {
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(16),
                                     side: BorderSide(
-                                        color: const Color(0xFFE2E8F0)),
+                                      color: const Color(0xFFE2E8F0),
+                                    ),
                                   ),
-                                  leading: Icon(Icons.church_rounded,
-                                      color: ThemeCleanPremium.primary),
+                                  leading: Icon(
+                                    Icons.church_rounded,
+                                    color: ThemeCleanPremium.primary,
+                                  ),
                                   title: const Text('Data de consagração'),
                                   subtitle: Text(
                                     removeConsagracao
                                         ? 'Será removida ao salvar'
                                         : (dataConsagracao == null
-                                            ? 'Opcional — pastores, diáconos, presbíteros…'
-                                            : DateFormat('dd/MM/yyyy')
-                                                .format(dataConsagracao!)),
+                                              ? 'Opcional — pastores, diáconos, presbíteros…'
+                                              : DateFormat(
+                                                  'dd/MM/yyyy',
+                                                ).format(dataConsagracao!)),
                                     style: TextStyle(
-                                        fontSize: 13,
-                                        color: Colors.grey.shade700),
+                                      fontSize: 13,
+                                      color: Colors.grey.shade700,
+                                    ),
                                   ),
                                   trailing: Wrap(
                                     spacing: 4,
@@ -3919,8 +4247,10 @@ class _MembersPageState extends State<MembersPage> {
                                             context: ctx,
                                             firstDate: DateTime(1940),
                                             lastDate: DateTime.now().add(
-                                                const Duration(days: 365 * 3)),
-                                            initialDate: dataConsagracao ??
+                                              const Duration(days: 365 * 3),
+                                            ),
+                                            initialDate:
+                                                dataConsagracao ??
                                                 DateTime.now(),
                                           );
                                           if (p != null) {
@@ -3930,9 +4260,11 @@ class _MembersPageState extends State<MembersPage> {
                                             });
                                           }
                                         },
-                                        child: Text(dataConsagracao == null
-                                            ? 'Definir'
-                                            : 'Alterar'),
+                                        child: Text(
+                                          dataConsagracao == null
+                                              ? 'Definir'
+                                              : 'Alterar',
+                                        ),
                                       ),
                                       if (dataConsagracao != null ||
                                           removeConsagracao)
@@ -3963,13 +4295,16 @@ class _MembersPageState extends State<MembersPage> {
                                       hintText:
                                           'Deixe em branco para não alterar',
                                       border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
-                                              ThemeCleanPremium.radiusSm)),
+                                        borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm,
+                                        ),
+                                      ),
                                       prefixIcon: const Icon(
-                                          Icons.lock_outline_rounded),
+                                        Icons.lock_outline_rounded,
+                                      ),
                                     ),
                                     autofillHints: const [
-                                      AutofillHints.newPassword
+                                      AutofillHints.newPassword,
                                     ],
                                   ),
                                   if (d['authUid'] != null &&
@@ -3979,76 +4314,89 @@ class _MembersPageState extends State<MembersPage> {
                                       padding: const EdgeInsets.only(top: 8),
                                       child: TextButton.icon(
                                         onPressed: () async {
-                                          final confirm =
-                                              await showDialog<bool>(
+                                          final confirm = await showDialog<bool>(
                                             context: ctx,
                                             builder: (c) => AlertDialog(
                                               shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                          ThemeCleanPremium
-                                                              .radiusLg)),
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                      ThemeCleanPremium
+                                                          .radiusLg,
+                                                    ),
+                                              ),
                                               title: const Text('Limpar senha'),
                                               content: const Text(
                                                 'Será definida uma nova senha temporária. O membro poderá usar "Esqueci minha senha" no login para criar uma nova. Deseja continuar?',
                                               ),
                                               actions: [
                                                 TextButton(
-                                                    onPressed: () =>
-                                                        Navigator.pop(c, false),
-                                                    child:
-                                                        const Text('Cancelar')),
+                                                  onPressed: () =>
+                                                      Navigator.pop(c, false),
+                                                  child: const Text('Cancelar'),
+                                                ),
                                                 FilledButton(
-                                                    onPressed: () =>
-                                                        Navigator.pop(c, true),
-                                                    child: const Text(
-                                                        'Gerar senha temporária')),
+                                                  onPressed: () =>
+                                                      Navigator.pop(c, true),
+                                                  child: const Text(
+                                                    'Gerar senha temporária',
+                                                  ),
+                                                ),
                                               ],
                                             ),
                                           );
                                           if (confirm != true) return;
                                           final tempPassword = List.generate(
-                                              10,
-                                              (_) =>
-                                                  'abcdefghijklmnopqrstuvwxyz0123456789'[
-                                                      Random()
-                                                          .nextInt(36)]).join();
+                                            10,
+                                            (_) =>
+                                                'abcdefghijklmnopqrstuvwxyz0123456789'[Random()
+                                                    .nextInt(36)],
+                                          ).join();
                                           try {
-                                            await FirestoreStreamUtils
-                                                .refreshAuthTokenIfNeeded(
-                                                    force: true);
+                                            await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
+                                              force: true,
+                                            );
                                             final functions =
                                                 FirebaseFunctions.instanceFor(
-                                                    region: 'us-central1');
+                                                  region: 'us-central1',
+                                                );
                                             await functions
                                                 .httpsCallable(
-                                                    'setMemberPassword')
+                                                  'setMemberPassword',
+                                                )
                                                 .call({
-                                              'tenantId': _effectiveTenantId,
-                                              'memberId': member.id,
-                                              'newPassword': tempPassword,
-                                            });
+                                                  'tenantId':
+                                                      _effectiveTenantId,
+                                                  'memberId': member.id,
+                                                  'newPassword': tempPassword,
+                                                });
                                             if (!ctx.mounted) return;
                                             setDlg(() => passwordCtrl.clear());
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(ThemeCleanPremium
-                                                    .successSnackBar(
-                                                        'Senha redefinida. Senha temporária: $tempPassword — avise o membro ou peça que use "Esqueci minha senha".'));
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              ThemeCleanPremium.successSnackBar(
+                                                'Senha redefinida. Senha temporária: $tempPassword — avise o membro ou peça que use "Esqueci minha senha".',
+                                              ),
+                                            );
                                           } catch (e) {
                                             if (ctx.mounted) {
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(
-                                                      ThemeCleanPremium
-                                                          .feedbackSnackBar(
-                                                              'Erro: $e'));
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                ThemeCleanPremium.feedbackSnackBar(
+                                                  'Erro: $e',
+                                                ),
+                                              );
                                             }
                                           }
                                         },
                                         icon: const Icon(
-                                            Icons.lock_reset_rounded,
-                                            size: 18),
+                                          Icons.lock_reset_rounded,
+                                          size: 18,
+                                        ),
                                         label: const Text(
-                                            'Limpar senha (gerar temporária)'),
+                                          'Limpar senha (gerar temporária)',
+                                        ),
                                       ),
                                     ),
                                 ],
@@ -4059,7 +4407,8 @@ class _MembersPageState extends State<MembersPage> {
                               valueListenable: funcoesNotifier,
                               builder: (_, funcList, _) {
                                 if (!memberNeedsAssinaturaFieldFromFuncoes(
-                                    funcList)) {
+                                  funcList,
+                                )) {
                                   return const SizedBox.shrink();
                                 }
                                 return Column(
@@ -4075,7 +4424,8 @@ class _MembersPageState extends State<MembersPage> {
                                         boxShadow:
                                             ThemeCleanPremium.softUiCardShadow,
                                         border: Border.all(
-                                            color: const Color(0xFFF1F5F9)),
+                                          color: const Color(0xFFF1F5F9),
+                                        ),
                                       ),
                                       child: Column(
                                         crossAxisAlignment:
@@ -4084,8 +4434,9 @@ class _MembersPageState extends State<MembersPage> {
                                           Row(
                                             children: [
                                               Container(
-                                                padding:
-                                                    const EdgeInsets.all(8),
+                                                padding: const EdgeInsets.all(
+                                                  8,
+                                                ),
                                                 decoration: BoxDecoration(
                                                   color: ThemeCleanPremium
                                                       .primary
@@ -4093,10 +4444,12 @@ class _MembersPageState extends State<MembersPage> {
                                                   borderRadius:
                                                       BorderRadius.circular(12),
                                                 ),
-                                                child: Icon(Icons.draw_rounded,
-                                                    size: 20,
-                                                    color: ThemeCleanPremium
-                                                        .primary),
+                                                child: Icon(
+                                                  Icons.draw_rounded,
+                                                  size: 20,
+                                                  color:
+                                                      ThemeCleanPremium.primary,
+                                                ),
                                               ),
                                               const SizedBox(width: 10),
                                               Expanded(
@@ -4107,21 +4460,23 @@ class _MembersPageState extends State<MembersPage> {
                                                     Text(
                                                       'Assinatura (carteirinha e documentos)',
                                                       style: TextStyle(
-                                                          fontSize: 14,
-                                                          fontWeight:
-                                                              FontWeight.w800,
-                                                          color:
-                                                              ThemeCleanPremium
-                                                                  .onSurface),
+                                                        fontSize: 14,
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                        color: ThemeCleanPremium
+                                                            .onSurface,
+                                                      ),
                                                     ),
                                                     const SizedBox(height: 2),
                                                     Text(
                                                       'Obrigatório para quem tem cargo além de membro: envie uma imagem ou gere assinatura digital.',
                                                       style: TextStyle(
-                                                          fontSize: 12,
-                                                          color: Colors
-                                                              .grey.shade600,
-                                                          height: 1.3),
+                                                        fontSize: 12,
+                                                        color: Colors
+                                                            .grey
+                                                            .shade600,
+                                                        height: 1.3,
+                                                      ),
                                                     ),
                                                   ],
                                                 ),
@@ -4134,38 +4489,44 @@ class _MembersPageState extends State<MembersPage> {
                                               newAssinaturaBytes == null)
                                             Padding(
                                               padding: const EdgeInsets.only(
-                                                  bottom: 10),
+                                                bottom: 10,
+                                              ),
                                               child: Row(
                                                 children: [
                                                   ClipRRect(
                                                     borderRadius:
                                                         BorderRadius.circular(
-                                                            12),
+                                                          12,
+                                                        ),
                                                     child: SizedBox(
                                                       height: 56,
                                                       width: 140,
-                                                      child:
-                                                          ResilientNetworkImage(
+                                                      child: ResilientNetworkImage(
                                                         imageUrl: sanitizeImageUrl(
-                                                            currentAssinaturaUrl),
+                                                          currentAssinaturaUrl,
+                                                        ),
                                                         fit: BoxFit.contain,
                                                         height: 56,
                                                         width: 140,
                                                         errorWidget: const Icon(
-                                                            Icons
-                                                                .broken_image_rounded,
-                                                            size: 40),
+                                                          Icons
+                                                              .broken_image_rounded,
+                                                          size: 40,
+                                                        ),
                                                       ),
                                                     ),
                                                   ),
                                                   const SizedBox(width: 12),
                                                   Expanded(
                                                     child: Text(
-                                                        'Assinatura cadastrada',
-                                                        style: TextStyle(
-                                                            fontSize: 13,
-                                                            color: Colors.grey
-                                                                .shade600)),
+                                                      'Assinatura cadastrada',
+                                                      style: TextStyle(
+                                                        fontSize: 13,
+                                                        color: Colors
+                                                            .grey
+                                                            .shade600,
+                                                      ),
+                                                    ),
                                                   ),
                                                 ],
                                               ),
@@ -4173,31 +4534,34 @@ class _MembersPageState extends State<MembersPage> {
                                           if (newAssinaturaBytes != null)
                                             Padding(
                                               padding: const EdgeInsets.only(
-                                                  bottom: 10),
+                                                bottom: 10,
+                                              ),
                                               child: Row(
                                                 children: [
                                                   ClipRRect(
                                                     borderRadius:
                                                         BorderRadius.circular(
-                                                            12),
+                                                          12,
+                                                        ),
                                                     child: Image.memory(
-                                                        newAssinaturaBytes!,
-                                                        height: 56,
-                                                        width: 140,
-                                                        fit: BoxFit.contain),
+                                                      newAssinaturaBytes!,
+                                                      height: 56,
+                                                      width: 140,
+                                                      fit: BoxFit.contain,
+                                                    ),
                                                   ),
                                                   const SizedBox(width: 12),
                                                   Expanded(
                                                     child: Text(
-                                                        'Nova assinatura (salve para aplicar)',
-                                                        style: TextStyle(
-                                                            fontSize: 13,
-                                                            color:
-                                                                ThemeCleanPremium
-                                                                    .primary,
-                                                            fontWeight:
-                                                                FontWeight
-                                                                    .w600)),
+                                                      'Nova assinatura (salve para aplicar)',
+                                                      style: TextStyle(
+                                                        fontSize: 13,
+                                                        color: ThemeCleanPremium
+                                                            .primary,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
                                                   ),
                                                 ],
                                               ),
@@ -4209,34 +4573,37 @@ class _MembersPageState extends State<MembersPage> {
                                               OutlinedButton.icon(
                                                 onPressed: () async {
                                                   final picker = ImagePicker();
-                                                  final file =
-                                                      await picker.pickImage(
-                                                          source: ImageSource
-                                                              .gallery,
-                                                          maxWidth: 600,
-                                                          imageQuality: 90);
+                                                  final file = await picker
+                                                      .pickImage(
+                                                        source:
+                                                            ImageSource.gallery,
+                                                        maxWidth: 600,
+                                                        imageQuality: 90,
+                                                      );
                                                   if (file == null ||
                                                       !ctx.mounted) {
                                                     return;
                                                   }
-                                                  final bytes =
-                                                      await file.readAsBytes();
+                                                  final bytes = await file
+                                                      .readAsBytes();
                                                   setDlg(() {
                                                     newAssinaturaBytes = bytes;
                                                     removeAssinatura = false;
                                                   });
                                                 },
                                                 icon: const Icon(
-                                                    Icons.upload_file_rounded,
-                                                    size: 18),
+                                                  Icons.upload_file_rounded,
+                                                  size: 18,
+                                                ),
                                                 label: const Text(
-                                                    'Imagem da assinatura'),
+                                                  'Imagem da assinatura',
+                                                ),
                                               ),
                                               OutlinedButton.icon(
                                                 onPressed: () async {
-                                                  WidgetsBinding.instance
-                                                      .addPostFrameCallback(
-                                                          (_) async {
+                                                  WidgetsBinding.instance.addPostFrameCallback((
+                                                    _,
+                                                  ) async {
                                                     final boundary =
                                                         keyAssinaturaPreview
                                                                 .currentContext
@@ -4245,22 +4612,25 @@ class _MembersPageState extends State<MembersPage> {
                                                     if (boundary == null) {
                                                       if (ctx.mounted) {
                                                         ScaffoldMessenger.of(
-                                                                context)
-                                                            .showSnackBar(
-                                                                ThemeCleanPremium
-                                                                    .successSnackBar(
-                                                                        'Aguarde o preview e tente novamente.'));
+                                                          context,
+                                                        ).showSnackBar(
+                                                          ThemeCleanPremium.successSnackBar(
+                                                            'Aguarde o preview e tente novamente.',
+                                                          ),
+                                                        );
                                                       }
                                                       return;
                                                     }
-                                                    final image =
-                                                        await boundary.toImage(
-                                                            pixelRatio: 2.0);
-                                                    final byteData =
-                                                        await image.toByteData(
-                                                            format:
-                                                                ImageByteFormat
-                                                                    .png);
+                                                    final image = await boundary
+                                                        .toImage(
+                                                          pixelRatio: 2.0,
+                                                        );
+                                                    final byteData = await image
+                                                        .toByteData(
+                                                          format:
+                                                              ImageByteFormat
+                                                                  .png,
+                                                        );
                                                     if (byteData != null &&
                                                         ctx.mounted) {
                                                       setDlg(() {
@@ -4274,10 +4644,12 @@ class _MembersPageState extends State<MembersPage> {
                                                   });
                                                 },
                                                 icon: const Icon(
-                                                    Icons.auto_fix_high_rounded,
-                                                    size: 18),
+                                                  Icons.auto_fix_high_rounded,
+                                                  size: 18,
+                                                ),
                                                 label: const Text(
-                                                    'Assinatura digital'),
+                                                  'Assinatura digital',
+                                                ),
                                               ),
                                               if ((currentAssinaturaUrl
                                                           .isNotEmpty ||
@@ -4290,9 +4662,10 @@ class _MembersPageState extends State<MembersPage> {
                                                     removeAssinatura = true;
                                                   }),
                                                   icon: const Icon(
-                                                      Icons
-                                                          .delete_outline_rounded,
-                                                      size: 18),
+                                                    Icons
+                                                        .delete_outline_rounded,
+                                                    size: 18,
+                                                  ),
                                                   label: const Text('Remover'),
                                                 ),
                                             ],
@@ -4301,56 +4674,67 @@ class _MembersPageState extends State<MembersPage> {
                                             key: keyAssinaturaPreview,
                                             child: Container(
                                               margin: const EdgeInsets.only(
-                                                  top: 14),
+                                                top: 14,
+                                              ),
                                               padding: const EdgeInsets.all(14),
                                               decoration: BoxDecoration(
                                                 color: const Color(0xFFF8FAFC),
                                                 borderRadius:
                                                     BorderRadius.circular(16),
                                                 border: Border.all(
-                                                    color:
-                                                        Colors.grey.shade200),
+                                                  color: Colors.grey.shade200,
+                                                ),
                                               ),
                                               child: Column(
                                                 crossAxisAlignment:
                                                     CrossAxisAlignment.start,
                                                 children: [
                                                   Text(
-                                                      'Preview (assinatura digital)',
-                                                      style: TextStyle(
-                                                          fontSize: 11,
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                          color: Colors
-                                                              .grey.shade600)),
+                                                    'Preview (assinatura digital)',
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color:
+                                                          Colors.grey.shade600,
+                                                    ),
+                                                  ),
                                                   const SizedBox(height: 8),
-                                                  Text(memberName,
-                                                      style: const TextStyle(
-                                                          fontSize: 14,
-                                                          fontWeight:
-                                                              FontWeight.w800)),
                                                   Text(
-                                                      'CPF: ${_formatCpf(cpfCtrl.text)}',
-                                                      style: TextStyle(
-                                                          fontSize: 12,
-                                                          color: Colors
-                                                              .grey.shade700)),
+                                                    memberName,
+                                                    style: const TextStyle(
+                                                      fontSize: 14,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    'CPF: ${_formatCpf(cpfCtrl.text)}',
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      color:
+                                                          Colors.grey.shade700,
+                                                    ),
+                                                  ),
                                                   Text(
                                                     _funcaoLabel(
-                                                        funcList.isNotEmpty
-                                                            ? funcList.first
-                                                            : 'membro'),
+                                                      funcList.isNotEmpty
+                                                          ? funcList.first
+                                                          : 'membro',
+                                                    ),
                                                     style: TextStyle(
-                                                        fontSize: 12,
-                                                        color: Colors
-                                                            .grey.shade700),
+                                                      fontSize: 12,
+                                                      color:
+                                                          Colors.grey.shade700,
+                                                    ),
                                                   ),
                                                   Text(
                                                     'Data/hora: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
                                                     style: TextStyle(
-                                                        fontSize: 11,
-                                                        color: Colors
-                                                            .grey.shade500),
+                                                      fontSize: 11,
+                                                      color:
+                                                          Colors.grey.shade500,
+                                                    ),
                                                   ),
                                                 ],
                                               ),
@@ -4371,32 +4755,42 @@ class _MembersPageState extends State<MembersPage> {
                               decoration: InputDecoration(
                                 labelText: 'Estado Civil',
                                 border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                        ThemeCleanPremium.radiusSm)),
+                                  borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusSm,
+                                  ),
+                                ),
                                 prefixIcon: const Icon(Icons.favorite_rounded),
                               ),
                               items: estadoCivilOptions
-                                  .map((s) => DropdownMenuItem(
-                                      value: s, child: Text(s)))
+                                  .map(
+                                    (s) => DropdownMenuItem(
+                                      value: s,
+                                      child: Text(s),
+                                    ),
+                                  )
                                   .toList(),
-                              onChanged: (v) => setDlg(() =>
-                                  estadoCivilSelected =
-                                      (v ?? estadoCivilSelected)),
+                              onChanged: (v) => setDlg(
+                                () => estadoCivilSelected =
+                                    (v ?? estadoCivilSelected),
+                              ),
                             ),
                           ),
                           _EditField(
-                              controller: escolaridadeCtrl,
-                              label: 'Escolaridade',
-                              icon: Icons.school_rounded),
+                            controller: escolaridadeCtrl,
+                            label: 'Escolaridade',
+                            icon: Icons.school_rounded,
+                          ),
                           _EditField(
-                              controller: profissaoCtrl,
-                              label: 'Profissão',
-                              icon: Icons.work_outline_rounded),
+                            controller: profissaoCtrl,
+                            label: 'Profissão',
+                            icon: Icons.work_outline_rounded,
+                          ),
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: InkWell(
                               borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm),
+                                ThemeCleanPremium.radiusSm,
+                              ),
                               onTap: () async {
                                 final picked = await showDatePicker(
                                   context: ctx,
@@ -4412,10 +4806,13 @@ class _MembersPageState extends State<MembersPage> {
                                 decoration: InputDecoration(
                                   labelText: 'Data de batismo (opcional)',
                                   border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusSm)),
-                                  prefixIcon:
-                                      const Icon(Icons.water_drop_rounded),
+                                    borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusSm,
+                                    ),
+                                  ),
+                                  prefixIcon: const Icon(
+                                    Icons.water_drop_rounded,
+                                  ),
                                 ),
                                 child: Text(
                                   dataBatismo != null
@@ -4440,9 +4837,10 @@ class _MembersPageState extends State<MembersPage> {
                               ),
                             ),
                           _EditField(
-                              controller: conjugeCtrl,
-                              label: 'Cônjuge',
-                              icon: Icons.people_rounded),
+                            controller: conjugeCtrl,
+                            label: 'Cônjuge',
+                            icon: Icons.people_rounded,
+                          ),
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: Row(
@@ -4455,10 +4853,13 @@ class _MembersPageState extends State<MembersPage> {
                                     decoration: InputDecoration(
                                       labelText: 'CEP',
                                       border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(
-                                              ThemeCleanPremium.radiusSm)),
-                                      prefixIcon:
-                                          const Icon(Icons.pin_drop_rounded),
+                                        borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm,
+                                        ),
+                                      ),
+                                      prefixIcon: const Icon(
+                                        Icons.pin_drop_rounded,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -4473,42 +4874,50 @@ class _MembersPageState extends State<MembersPage> {
                                             final cepDigits = cepCtrl.text
                                                 .trim()
                                                 .replaceAll(
-                                                    RegExp(r'[^0-9]'), '');
+                                                  RegExp(r'[^0-9]'),
+                                                  '',
+                                                );
                                             if (cepDigits.length != 8) {
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
                                                 SnackBar(
                                                   content: const Text(
                                                     'Informe um CEP válido (8 dígitos).',
                                                     style: TextStyle(
-                                                        color: Colors.white,
-                                                        fontWeight:
-                                                            FontWeight.w600),
+                                                      color: Colors.white,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
                                                   ),
                                                   backgroundColor:
                                                       ThemeCleanPremium.error,
                                                   behavior:
                                                       SnackBarBehavior.floating,
                                                   shape: RoundedRectangleBorder(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              ThemeCleanPremium
-                                                                  .radiusSm)),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          ThemeCleanPremium
+                                                              .radiusSm,
+                                                        ),
+                                                  ),
                                                 ),
                                               );
                                               return;
                                             }
                                             setDlg(() => loadingCep = true);
                                             try {
-                                              final resultCep =
-                                                  await fetchCep(cepDigits);
+                                              final resultCep = await fetchCep(
+                                                cepDigits,
+                                              );
                                               if (!mounted) return;
                                               if (!resultCep.ok) {
-                                                ScaffoldMessenger.of(context)
-                                                    .showSnackBar(
-                                                  ThemeCleanPremium
-                                                      .feedbackSnackBar(
-                                                          'CEP não encontrado. Verifique e tente novamente.'),
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  ThemeCleanPremium.feedbackSnackBar(
+                                                    'CEP não encontrado. Verifique e tente novamente.',
+                                                  ),
                                                 );
                                                 return;
                                               }
@@ -4527,48 +4936,59 @@ class _MembersPageState extends State<MembersPage> {
                                                     resultCep.uf ?? '';
                                               });
                                               if (mounted) {
-                                                ScaffoldMessenger.of(context)
-                                                    .showSnackBar(
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
                                                   ThemeCleanPremium.successSnackBar(
-                                                      'Endereço preenchido automaticamente pelo CEP.'),
+                                                    'Endereço preenchido automaticamente pelo CEP.',
+                                                  ),
                                                 );
                                               }
                                             } catch (e) {
                                               if (mounted) {
-                                                ScaffoldMessenger.of(context)
-                                                    .showSnackBar(
-                                                  ThemeCleanPremium
-                                                      .feedbackSnackBar(
-                                                          'Erro ao buscar CEP: $e'),
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  ThemeCleanPremium.feedbackSnackBar(
+                                                    'Erro ao buscar CEP: $e',
+                                                  ),
                                                 );
                                               }
                                             } finally {
                                               if (mounted) {
                                                 setDlg(
-                                                    () => loadingCep = false);
+                                                  () => loadingCep = false,
+                                                );
                                               }
                                             }
                                           },
-                                    icon: const Icon(Icons.my_location_rounded,
-                                        size: 18),
+                                    icon: const Icon(
+                                      Icons.my_location_rounded,
+                                      size: 18,
+                                    ),
                                     label: Text(
                                       loadingCep ? 'Buscando...' : 'Localizar',
                                       overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
-                                          fontWeight: FontWeight.w600),
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                     style: OutlinedButton.styleFrom(
                                       backgroundColor: Colors.white,
                                       foregroundColor:
                                           ThemeCleanPremium.primary,
                                       side: BorderSide(
-                                          color: ThemeCleanPremium.primary
-                                              .withValues(alpha: 0.25)),
+                                        color: ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.25),
+                                      ),
                                       shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                              ThemeCleanPremium.radiusSm)),
+                                        borderRadius: BorderRadius.circular(
+                                          ThemeCleanPremium.radiusSm,
+                                        ),
+                                      ),
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 12),
+                                        horizontal: 12,
+                                      ),
                                       minimumSize: const Size(120, 48),
                                     ),
                                   ),
@@ -4577,25 +4997,30 @@ class _MembersPageState extends State<MembersPage> {
                             ),
                           ),
                           _EditField(
-                              controller: enderecoCtrl,
-                              label: 'Endereço',
-                              icon: Icons.home_rounded),
+                            controller: enderecoCtrl,
+                            label: 'Endereço',
+                            icon: Icons.home_rounded,
+                          ),
                           _EditField(
-                              controller: quadraLoteNumeroCtrl,
-                              label: 'Quadra, Lote e Número',
-                              icon: Icons.apartment_rounded),
+                            controller: quadraLoteNumeroCtrl,
+                            label: 'Quadra, Lote e Número',
+                            icon: Icons.apartment_rounded,
+                          ),
                           _EditField(
-                              controller: bairroCtrl,
-                              label: 'Bairro',
-                              icon: Icons.location_city_rounded),
+                            controller: bairroCtrl,
+                            label: 'Bairro',
+                            icon: Icons.location_city_rounded,
+                          ),
                           _EditField(
-                              controller: cidadeCtrl,
-                              label: 'Cidade',
-                              icon: Icons.map_rounded),
+                            controller: cidadeCtrl,
+                            label: 'Cidade',
+                            icon: Icons.map_rounded,
+                          ),
                           _EditField(
-                              controller: estadoCtrl,
-                              label: 'Estado',
-                              icon: Icons.flag_rounded),
+                            controller: estadoCtrl,
+                            label: 'Estado',
+                            icon: Icons.flag_rounded,
+                          ),
                           if (staffEdit &&
                               funcoesNotifier.value
                                   .map((e) => e.toString().toLowerCase())
@@ -4606,24 +5031,28 @@ class _MembersPageState extends State<MembersPage> {
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF8FAFC),
                                 borderRadius: BorderRadius.circular(16),
-                                border:
-                                    Border.all(color: const Color(0xFFE2E8F0)),
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                ),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                                   Row(
                                     children: [
-                                      Icon(Icons.admin_panel_settings_rounded,
-                                          size: 20,
-                                          color: ThemeCleanPremium.primary),
+                                      Icon(
+                                        Icons.admin_panel_settings_rounded,
+                                        size: 20,
+                                        color: ThemeCleanPremium.primary,
+                                      ),
                                       const SizedBox(width: 8),
                                       Text(
                                         'Módulos extras (só papel membro)',
                                         style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w800,
-                                            color: ThemeCleanPremium.onSurface),
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w800,
+                                          color: ThemeCleanPremium.onSurface,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -4631,9 +5060,10 @@ class _MembersPageState extends State<MembersPage> {
                                   Text(
                                     'Por padrão o membro não vê lista de membros, financeiro, patrimônio nem fornecedores. Libere abaixo se fizer sentido para este cadastro.',
                                     style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade600,
-                                        height: 1.35),
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                      height: 1.35,
+                                    ),
                                   ),
                                   const SizedBox(height: 10),
                                   CheckboxListTile(
@@ -4641,13 +5071,17 @@ class _MembersPageState extends State<MembersPage> {
                                     onChanged: (v) => setDlg(() {
                                       podeVerFinanceiro = v ?? false;
                                     }),
-                                    title: Text('Liberar Financeiro',
-                                        style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600)),
+                                    title: Text(
+                                      'Liberar Financeiro',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                     subtitle: const Text(
-                                        'Módulo Financeiro e relatórios financeiros.',
-                                        style: TextStyle(fontSize: 12)),
+                                      'Módulo Financeiro e relatórios financeiros.',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
                                     controlAffinity:
                                         ListTileControlAffinity.leading,
                                     contentPadding: EdgeInsets.zero,
@@ -4658,13 +5092,17 @@ class _MembersPageState extends State<MembersPage> {
                                     onChanged: (v) => setDlg(() {
                                       podeVerPatrimonio = v ?? false;
                                     }),
-                                    title: Text('Liberar Patrimônio',
-                                        style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600)),
+                                    title: Text(
+                                      'Liberar Patrimônio',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                     subtitle: const Text(
-                                        'Inventário e bens da igreja.',
-                                        style: TextStyle(fontSize: 12)),
+                                      'Inventário e bens da igreja.',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
                                     controlAffinity:
                                         ListTileControlAffinity.leading,
                                     contentPadding: EdgeInsets.zero,
@@ -4675,13 +5113,17 @@ class _MembersPageState extends State<MembersPage> {
                                     onChanged: (v) => setDlg(() {
                                       podeVerFornecedores = v ?? false;
                                     }),
-                                    title: Text('Liberar Fornecedores',
-                                        style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600)),
+                                    title: Text(
+                                      'Liberar Fornecedores',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                     subtitle: const Text(
-                                        'Cadastro de fornecedores/prestadores e hub vinculado ao financeiro.',
-                                        style: TextStyle(fontSize: 12)),
+                                      'Cadastro de fornecedores/prestadores e hub vinculado ao financeiro.',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
                                     controlAffinity:
                                         ListTileControlAffinity.leading,
                                     contentPadding: EdgeInsets.zero,
@@ -4693,13 +5135,17 @@ class _MembersPageState extends State<MembersPage> {
                                       podeEmitirRelatoriosCompletos =
                                           v ?? false;
                                     }),
-                                    title: Text('Relatórios completos (PDF)',
-                                        style: TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600)),
+                                    title: Text(
+                                      'Relatórios completos (PDF)',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                     subtitle: const Text(
-                                        'Membros, aniversariantes e outros PDFs no módulo Relatórios. Sem isto, só Relatório de Eventos.',
-                                        style: TextStyle(fontSize: 12)),
+                                      'Membros, aniversariantes e outros PDFs no módulo Relatórios. Sem isto, só Relatório de Eventos.',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
                                     controlAffinity:
                                         ListTileControlAffinity.leading,
                                     contentPadding: EdgeInsets.zero,
@@ -4720,25 +5166,29 @@ class _MembersPageState extends State<MembersPage> {
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                              onPressed: () => Navigator.pop(ctx, null),
-                              child: const Text('Cancelar')),
+                            onPressed: () => Navigator.pop(ctx, null),
+                            child: const Text('Cancelar'),
+                          ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: FilledButton.icon(
                             onPressed: () {
-                              final nameMsg =
-                                  memberNameValidationMessage(nameCtrl.text);
+                              final nameMsg = memberNameValidationMessage(
+                                nameCtrl.text,
+                              );
                               if (nameMsg != null) {
                                 ScaffoldMessenger.of(ctx).showSnackBar(
                                   ThemeCleanPremium.feedbackSnackBar(nameMsg),
                                 );
                                 return;
                               }
-                              final sel =
-                                  List<String>.from(funcoesNotifier.value);
-                              final funcaoSalvar =
-                                  sel.isNotEmpty ? sel.first : 'membro';
+                              final sel = List<String>.from(
+                                funcoesNotifier.value,
+                              );
+                              final funcaoSalvar = sel.isNotEmpty
+                                  ? sel.first
+                                  : 'membro';
                               Navigator.pop(ctx, {
                                 'saved': true,
                                 'selfOnly': selfOnly,
@@ -4750,8 +5200,10 @@ class _MembersPageState extends State<MembersPage> {
                                 'name': nameCtrl.text.trim(),
                                 'email': emailCtrl.text.trim(),
                                 'phone': phoneCtrl.text.trim(),
-                                'cpf':
-                                    cpfCtrl.text.replaceAll(RegExp(r'\D'), ''),
+                                'cpf': cpfCtrl.text.replaceAll(
+                                  RegExp(r'\D'),
+                                  '',
+                                ),
                                 'sexo': sexo,
                                 'status': status,
                                 'estadoCivil': estadoCivilSelected.trim(),
@@ -4765,8 +5217,8 @@ class _MembersPageState extends State<MembersPage> {
                                 'bairro': bairroCtrl.text.trim(),
                                 'cidade': cidadeCtrl.text.trim(),
                                 'cep': cepCtrl.text.trim(),
-                                'quadraLoteNumero':
-                                    quadraLoteNumeroCtrl.text.trim(),
+                                'quadraLoteNumero': quadraLoteNumeroCtrl.text
+                                    .trim(),
                                 'estado': estadoCtrl.text.trim(),
                                 'nascimento': nascimento,
                                 'password': passwordCtrl.text.trim(),
@@ -4781,7 +5233,8 @@ class _MembersPageState extends State<MembersPage> {
                             icon: const Icon(Icons.save_rounded),
                             label: const Text('Salvar'),
                             style: FilledButton.styleFrom(
-                                backgroundColor: ThemeCleanPremium.primary),
+                              backgroundColor: ThemeCleanPremium.primary,
+                            ),
                           ),
                         ),
                       ],
@@ -4801,20 +5254,21 @@ class _MembersPageState extends State<MembersPage> {
     final result = Map<String, dynamic>.from(dialogResult);
     if (result['saved'] != true) return;
 
-    final nameToSave =
-        (result['name'] ?? '').toString().trim();
+    final nameToSave = (result['name'] ?? '').toString().trim();
     final nameErr = memberNameValidationMessage(nameToSave);
     if (nameErr != null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(nameErr),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(ThemeCleanPremium.feedbackSnackBar(nameErr));
       }
       return;
     }
 
     _applyOptimisticMemberEditOverlay(
-        member.id, Map<String, dynamic>.from(result));
+      member.id,
+      Map<String, dynamic>.from(result),
+    );
 
     /// Membro editando só a si: não altera cargo, status, CPF, senha de terceiros nem `users.role`.
     final selfOnlySave = result['selfOnly'] == true;
@@ -4827,7 +5281,9 @@ class _MembersPageState extends State<MembersPage> {
         if (newPhotoBytes != null && newPhotoBytes!.isNotEmpty) {
           try {
             final compressedBytes =
-                await ImageHelper.compressMemberProfileForUpload(newPhotoBytes!);
+                await ImageHelper.compressMemberProfileForUpload(
+                  newPhotoBytes!,
+                );
             pendingProfilePhotoBytes = compressedBytes;
             if (mounted) {
               setState(() {
@@ -4837,8 +5293,8 @@ class _MembersPageState extends State<MembersPage> {
           } catch (e) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                  ThemeCleanPremium.feedbackSnackBar(
-                      'Erro ao preparar foto: $e'));
+                ThemeCleanPremium.feedbackSnackBar('Erro ao preparar foto: $e'),
+              );
             }
           }
         }
@@ -4863,7 +5319,8 @@ class _MembersPageState extends State<MembersPage> {
           'TELEFONES': (result['phone'] ?? '').toString().trim(),
           'SEXO': (result['sexo'] ?? '').toString().trim(),
           'ESTADO_CIVIL': _normalizeEstadoCivilValue(
-              (result['estadoCivil'] ?? '').toString().trim()),
+            (result['estadoCivil'] ?? '').toString().trim(),
+          ),
           'NOME_CONJUGE': (result['conjuge'] ?? '').toString().trim(),
           'ESCOLARIDADE': (result['escolaridade'] ?? '').toString().trim(),
           'PROFISSAO': (result['profissao'] ?? '').toString().trim(),
@@ -4874,8 +5331,9 @@ class _MembersPageState extends State<MembersPage> {
             (result['filiacaoMae'] ?? '').toString().trim(),
           ),
           'ENDERECO': (result['endereco'] ?? '').toString().trim(),
-          'QUADRA_LOTE_NUMERO':
-              (result['quadraLoteNumero'] ?? '').toString().trim(),
+          'QUADRA_LOTE_NUMERO': (result['quadraLoteNumero'] ?? '')
+              .toString()
+              .trim(),
           'BAIRRO': (result['bairro'] ?? '').toString().trim(),
           'CIDADE': (result['cidade'] ?? '').toString().trim(),
           'CEP': (result['cep'] ?? '').toString().trim(),
@@ -4888,8 +5346,9 @@ class _MembersPageState extends State<MembersPage> {
           updates['FAIXA_ETARIA'] = faixa;
         }
         if (result['dataBatismo'] is DateTime) {
-          updates['DATA_BATISMO'] =
-              Timestamp.fromDate(result['dataBatismo'] as DateTime);
+          updates['DATA_BATISMO'] = Timestamp.fromDate(
+            result['dataBatismo'] as DateTime,
+          );
         }
         final linkage = await _getTenantLinkage();
         updates['alias'] = linkage['alias'];
@@ -4906,17 +5365,11 @@ class _MembersPageState extends State<MembersPage> {
 
         if (result['removeProfilePhoto'] == true &&
             pendingProfilePhotoBytes == null) {
-          final churchId = ChurchRepository.churchId(targetTenantId);
-          ChurchCanonicalMediaDeleteService.scheduleMemberProfilePhotoRemoved(
-            tenantId: churchId,
-            memberId: member.id,
+          await _removeMemberProfilePhotoStrict(
+            tenantId: targetTenantId,
+            memberDocId: member.id,
             memberData: member.data,
-            memberDocRef:
-                ChurchUiCollections.membros(churchId).doc(member.id),
           );
-          if (mounted) {
-            setState(() => _optimisticProfilePhotoBytes.remove(member.id));
-          }
         }
 
         var authUidSelf = member.data['authUid']?.toString().trim();
@@ -4946,19 +5399,19 @@ class _MembersPageState extends State<MembersPage> {
                 .collection('users')
                 .doc(authUidSelf)
                 .set({
-              'nome': updates['NOME_COMPLETO'],
-              'displayName': updates['NOME_COMPLETO'],
-              'email': updates['EMAIL'],
-              'updatedAt': FieldValue.serverTimestamp(),
-            }, SetOptions(merge: true));
+                  'nome': updates['NOME_COMPLETO'],
+                  'displayName': updates['NOME_COMPLETO'],
+                  'email': updates['EMAIL'],
+                  'updatedAt': FieldValue.serverTimestamp(),
+                }, SetOptions(merge: true));
           } catch (_) {}
           final cpfKey = (widget.linkedCpf ?? _str(member.data, 'CPF', 'cpf'))
               .replaceAll(RegExp(r'\D'), '');
           if (cpfKey.length == 11) {
             try {
-              await ChurchUiCollections.usersIndex(targetTenantId)
-                  .doc(cpfKey)
-                  .set({
+              await ChurchUiCollections.usersIndex(
+                targetTenantId,
+              ).doc(cpfKey).set({
                 'name': updates['NOME_COMPLETO'],
                 'nome': updates['NOME_COMPLETO'],
                 'email': updates['EMAIL'],
@@ -4971,8 +5424,8 @@ class _MembersPageState extends State<MembersPage> {
         if (mounted) {
           if (!signedOutAfterEmail) {
             ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.successSnackBar(
-                    'Seu cadastro foi atualizado.'));
+              ThemeCleanPremium.successSnackBar('Seu cadastro foi atualizado.'),
+            );
           }
           if (pendingProfilePhotoBytes != null) {
             final bytes = pendingProfilePhotoBytes;
@@ -4999,9 +5452,7 @@ class _MembersPageState extends State<MembersPage> {
               }
             } catch (e) {
               if (mounted) {
-                setState(
-                  () => _optimisticProfilePhotoBytes.remove(member.id),
-                );
+                setState(() => _optimisticProfilePhotoBytes.remove(member.id));
                 ScaffoldMessenger.of(context).showSnackBar(
                   ThemeCleanPremium.feedbackSnackBar(
                     'Cadastro salvo, mas foto falhou: $e',
@@ -5017,7 +5468,8 @@ class _MembersPageState extends State<MembersPage> {
         setState(() => _optimisticMemberOverlays.remove(member.id));
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.feedbackSnackBar('Erro ao salvar: $e'));
+            ThemeCleanPremium.feedbackSnackBar('Erro ao salvar: $e'),
+          );
         }
         return;
       }
@@ -5027,22 +5479,23 @@ class _MembersPageState extends State<MembersPage> {
     final savedFuncoes = result['funcoesSelecionadas'] as List<dynamic>?;
     List<String> funcoesSelecionadasFinal = savedFuncoes != null
         ? savedFuncoes
-            .map((e) => (e ?? '').toString().trim())
-            .where((s) => s.isNotEmpty)
-            .toList()
+              .map((e) => (e ?? '').toString().trim())
+              .where((s) => s.isNotEmpty)
+              .toList()
         : <String>['membro'];
     if (funcoesSelecionadasFinal.isEmpty) funcoesSelecionadasFinal = ['membro'];
     final savedFuncao = (result['funcao'] ?? '').toString().trim();
     final funcaoFinal = savedFuncao.isNotEmpty
         ? savedFuncao
         : (funcoesSelecionadasFinal.isNotEmpty
-            ? funcoesSelecionadasFinal.first
-            : 'membro');
+              ? funcoesSelecionadasFinal.first
+              : 'membro');
 
     final newTenantIdRaw = (result['newTenantId'] ?? '').toString().trim();
     final previousTenantId = _tenantIdForMemberData(member.data).trim();
     // Quem vê o dropdown de igreja (_canTransferMember) grava a troca de tenant.
-    final isMoveToOtherChurch = _canTransferMember &&
+    final isMoveToOtherChurch =
+        _canTransferMember &&
         newTenantIdRaw.isNotEmpty &&
         newTenantIdRaw != previousTenantId;
     final targetTenantId = isMoveToOtherChurch
@@ -5054,7 +5507,9 @@ class _MembersPageState extends State<MembersPage> {
     var permBaseFinal = funcaoFinal.toLowerCase();
     try {
       permBaseFinal = await ChurchFuncoesControleService.resolvePermissionBase(
-          targetTenantId, funcaoFinal);
+        targetTenantId,
+        funcaoFinal,
+      );
     } catch (_) {}
 
     Uint8List? pendingProfilePhotoBytesGestor;
@@ -5074,8 +5529,8 @@ class _MembersPageState extends State<MembersPage> {
             _optimisticProfilePhotoBytes.remove(member.id);
           });
           ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.feedbackSnackBar(
-                  'Erro ao preparar foto: $e'));
+            ThemeCleanPremium.feedbackSnackBar('Erro ao preparar foto: $e'),
+          );
         }
       }
     }
@@ -5084,9 +5539,10 @@ class _MembersPageState extends State<MembersPage> {
       'NOME_COMPLETO': result['name'] ?? nameCtrl.text.trim(),
       'EMAIL': result['email'] ?? emailCtrl.text.trim(),
       'TELEFONES': result['phone'] ?? phoneCtrl.text.trim(),
-      'CPF': (result['cpf'] ?? cpfCtrl.text)
-          .toString()
-          .replaceAll(RegExp(r'\D'), ''),
+      'CPF': (result['cpf'] ?? cpfCtrl.text).toString().replaceAll(
+        RegExp(r'\D'),
+        '',
+      ),
       'SEXO': result['sexo'] ?? sexo,
       'STATUS': result['status'] ?? status,
       'ativo': status != 'inativo',
@@ -5099,15 +5555,19 @@ class _MembersPageState extends State<MembersPage> {
       if (result['removeConsagracao'] == true)
         'DATA_CONSAGRACAO': FieldValue.delete()
       else if (result['dataConsagracao'] is DateTime)
-        'DATA_CONSAGRACAO':
-            Timestamp.fromDate(result['dataConsagracao'] as DateTime),
+        'DATA_CONSAGRACAO': Timestamp.fromDate(
+          result['dataConsagracao'] as DateTime,
+        ),
       'ESTADO_CIVIL': _normalizeEstadoCivilValue(
-          (result['estadoCivil'] ?? estadoCivilSelected).toString().trim()),
+        (result['estadoCivil'] ?? estadoCivilSelected).toString().trim(),
+      ),
       'NOME_CONJUGE': (result['conjuge'] ?? conjugeCtrl.text).toString().trim(),
-      'ESCOLARIDADE':
-          (result['escolaridade'] ?? escolaridadeCtrl.text).toString().trim(),
-      'PROFISSAO':
-          (result['profissao'] ?? profissaoCtrl.text).toString().trim(),
+      'ESCOLARIDADE': (result['escolaridade'] ?? escolaridadeCtrl.text)
+          .toString()
+          .trim(),
+      'PROFISSAO': (result['profissao'] ?? profissaoCtrl.text)
+          .toString()
+          .trim(),
       'FILIACAO_PAI': (result['filiacaoPai'] ?? '').toString().trim(),
       'FILIACAO_MAE': (result['filiacaoMae'] ?? '').toString().trim(),
       'filiacaoPai': (result['filiacaoPai'] ?? '').toString().trim(),
@@ -5128,8 +5588,9 @@ class _MembersPageState extends State<MembersPage> {
       'ATUALIZADO_EM': FieldValue.serverTimestamp(),
     };
     if (result['dataBatismo'] is DateTime) {
-      updates['DATA_BATISMO'] =
-          Timestamp.fromDate(result['dataBatismo'] as DateTime);
+      updates['DATA_BATISMO'] = Timestamp.fromDate(
+        result['dataBatismo'] as DateTime,
+      );
     }
     if (permBaseFinal == 'membro') {
       if (result['podeVerFinanceiro'] != null) {
@@ -5157,16 +5618,19 @@ class _MembersPageState extends State<MembersPage> {
     if (newAssinaturaBytes != null) {
       try {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar('Enviando assinatura...'));
-        final oldPath =
-            (member.data['assinaturaStoragePath'] ?? '').toString().trim();
+          ThemeCleanPremium.successSnackBar('Enviando assinatura...'),
+        );
+        final oldPath = (member.data['assinaturaStoragePath'] ?? '')
+            .toString()
+            .trim();
         if (oldPath.isNotEmpty) {
           try {
             await firebaseDefaultStorage.ref(oldPath).delete();
           } catch (_) {}
         }
         final oldAss = sanitizeImageUrl(
-            (member.data['assinaturaUrl'] ?? '').toString().trim());
+          (member.data['assinaturaUrl'] ?? '').toString().trim(),
+        );
         if (oldAss.isNotEmpty) {
           await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(oldAss);
         }
@@ -5184,26 +5648,31 @@ class _MembersPageState extends State<MembersPage> {
         updates['assinaturaUrl'] = uploaded.downloadUrl;
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.successSnackBar('Assinatura enviada.'));
+            ThemeCleanPremium.successSnackBar('Assinatura enviada.'),
+          );
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.feedbackSnackBar(
-                  'Erro ao enviar assinatura: ${ChurchMediaUploadFacade.mensagemAmigavel(e)}'));
+            ThemeCleanPremium.feedbackSnackBar(
+              'Erro ao enviar assinatura: ${ChurchMediaUploadFacade.mensagemAmigavel(e)}',
+            ),
+          );
         }
       }
     }
     if (removeAssinatura) {
-      final oldPath =
-          (member.data['assinaturaStoragePath'] ?? '').toString().trim();
+      final oldPath = (member.data['assinaturaStoragePath'] ?? '')
+          .toString()
+          .trim();
       if (oldPath.isNotEmpty) {
         try {
           await firebaseDefaultStorage.ref(oldPath).delete();
         } catch (_) {}
       }
       final uAss = sanitizeImageUrl(
-          (member.data['assinaturaUrl'] ?? '').toString().trim());
+        (member.data['assinaturaUrl'] ?? '').toString().trim(),
+      );
       if (uAss.isNotEmpty) {
         await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(uAss);
       }
@@ -5255,16 +5724,11 @@ class _MembersPageState extends State<MembersPage> {
 
       if (result['removeProfilePhoto'] == true &&
           pendingProfilePhotoBytesGestor == null) {
-        final churchId = ChurchRepository.churchId(targetTenantId);
-        ChurchCanonicalMediaDeleteService.scheduleMemberProfilePhotoRemoved(
-          tenantId: churchId,
-          memberId: member.id,
+        await _removeMemberProfilePhotoStrict(
+          tenantId: targetTenantId,
+          memberDocId: member.id,
           memberData: member.data,
-          memberDocRef: ChurchUiCollections.membros(churchId).doc(member.id),
         );
-        if (mounted) {
-          setState(() => _optimisticProfilePhotoBytes.remove(member.id));
-        }
       }
 
       var authUid = member.data['authUid']?.toString().trim();
@@ -5291,10 +5755,7 @@ class _MembersPageState extends State<MembersPage> {
       if (rolesList.isEmpty) rolesList.add('membro');
       if (authUid != null && authUid.isNotEmpty) {
         try {
-          await firebaseDefaultFirestore
-              .collection('users')
-              .doc(authUid)
-              .set({
+          await firebaseDefaultFirestore.collection('users').doc(authUid).set({
             'role': permBaseFinal,
             'roles': rolesList,
             'nome': updates['NOME_COMPLETO'],
@@ -5311,7 +5772,9 @@ class _MembersPageState extends State<MembersPage> {
           }, SetOptions(merge: true));
         } catch (_) {}
         try {
-          final tenantUsersCol = ChurchUiCollections.tenantUsers(targetTenantId);
+          final tenantUsersCol = ChurchUiCollections.tenantUsers(
+            targetTenantId,
+          );
           await tenantUsersCol.doc(authUid).set({
             'role': permBaseFinal,
             'roles': rolesList,
@@ -5327,10 +5790,7 @@ class _MembersPageState extends State<MembersPage> {
         try {
           await FirebaseFunctions.instanceFor(region: 'us-central1')
               .httpsCallable('syncMemberRoleClaims')
-              .call({
-            'tenantId': targetTenantId,
-            'memberId': member.id,
-          });
+              .call({'tenantId': targetTenantId, 'memberId': member.id});
         } catch (_) {}
         final curUid = FirebaseAuth.instance.currentUser?.uid;
         if (curUid != null && curUid == authUid) {
@@ -5341,53 +5801,59 @@ class _MembersPageState extends State<MembersPage> {
       }
       if (isMoveToOtherChurch) {
         final newResolved = await _resolvedFirestoreTenantIds(targetTenantId);
-        final oldFromMember =
-            await _resolvedFirestoreTenantIds(previousTenantId);
-        final oldFromPanel =
-            await _resolvedFirestoreTenantIds(_effectiveTenantId);
-        final idsToRemove =
-            {...oldFromMember, ...oldFromPanel}.difference(newResolved);
+        final oldFromMember = await _resolvedFirestoreTenantIds(
+          previousTenantId,
+        );
+        final oldFromPanel = await _resolvedFirestoreTenantIds(
+          _effectiveTenantId,
+        );
+        final idsToRemove = {
+          ...oldFromMember,
+          ...oldFromPanel,
+        }.difference(newResolved);
         for (final tid in idsToRemove) {
           try {
-            await                 ChurchUiCollections.membros(tid)
-                .doc(member.id)
-                .delete();
+            await ChurchUiCollections.membros(tid).doc(member.id).delete();
           } catch (_) {}
           if (authUid != null && authUid.isNotEmpty) {
             try {
-              await ChurchUiCollections.tenantUsers(tid)
-                  .doc(authUid)
-                  .delete();
+              await ChurchUiCollections.tenantUsers(tid).doc(authUid).delete();
             } catch (_) {}
           }
         }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-              ThemeCleanPremium.successSnackBar(
-                  'Membro transferido para a nova igreja. Atualize a lista.'));
+            ThemeCleanPremium.successSnackBar(
+              'Membro transferido para a nova igreja. Atualize a lista.',
+            ),
+          );
         }
       }
-      final newPassword =
-          (result['password'] ?? passwordCtrl.text).toString().trim();
+      final newPassword = (result['password'] ?? passwordCtrl.text)
+          .toString()
+          .trim();
       if (newPassword.length >= 6) {
         try {
-          final functions =
-              FirebaseFunctions.instanceFor(region: 'us-central1');
+          final functions = FirebaseFunctions.instanceFor(
+            region: 'us-central1',
+          );
           final res = await functions.httpsCallable('setMemberPassword').call({
             'tenantId': targetTenantId,
-            'memberId':
-                (authUid != null && authUid.isNotEmpty) ? authUid : member.id,
+            'memberId': (authUid != null && authUid.isNotEmpty)
+                ? authUid
+                : member.id,
             'newPassword': newPassword,
           });
           final map = res.data as Map?;
           final recreated = map?['recreated'] == true;
           if (mounted) {
-            ScaffoldMessenger.of(context)
-                .showSnackBar(ThemeCleanPremium.successSnackBar(
-              recreated
-                  ? 'Membro salvo. Conta de login recriada e senha definida.'
-                  : 'Membro e senha atualizados!',
-            ));
+            ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.successSnackBar(
+                recreated
+                    ? 'Membro salvo. Conta de login recriada e senha definida.'
+                    : 'Membro e senha atualizados!',
+              ),
+            );
           }
         } on FirebaseFunctionsException catch (e) {
           if (mounted) {
@@ -5396,19 +5862,24 @@ class _MembersPageState extends State<MembersPage> {
                 ? detail
                 : 'Não foi possível alterar a senha (${e.code}).';
             ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.feedbackSnackBar(
-                    'Membro salvo, mas falha ao alterar senha: $short'));
+              ThemeCleanPremium.feedbackSnackBar(
+                'Membro salvo, mas falha ao alterar senha: $short',
+              ),
+            );
           }
         } catch (_) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.feedbackSnackBar(
-                    'Membro salvo, mas não foi possível alterar a senha.'));
+              ThemeCleanPremium.feedbackSnackBar(
+                'Membro salvo, mas não foi possível alterar a senha.',
+              ),
+            );
           }
         }
       } else if (mounted && !isMoveToOtherChurch) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar('Membro atualizado!'));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(ThemeCleanPremium.successSnackBar('Membro atualizado!'));
       }
       if (pendingProfilePhotoBytesGestor != null && mounted) {
         final bytes = pendingProfilePhotoBytesGestor;
@@ -5447,7 +5918,8 @@ class _MembersPageState extends State<MembersPage> {
       if (mounted) {
         setState(() => _optimisticMemberOverlays.remove(member.id));
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar('Erro ao salvar: $e'));
+          ThemeCleanPremium.feedbackSnackBar('Erro ao salvar: $e'),
+        );
       }
     }
   }
@@ -5455,7 +5927,7 @@ class _MembersPageState extends State<MembersPage> {
   /// Após gravar novo e-mail em [membros]: recria utilizador Auth (Cloud Function).
   /// [newAuthUid] quando a conta foi recriada (gestor deve usar ao atualizar `users/`).
   Future<({bool signedOut, String? newAuthUid})>
-      _syncAuthAfterEmailChangeIfNeeded({
+  _syncAuthAfterEmailChangeIfNeeded({
     required String tenantId,
     required String memberDocId,
     required String previousEmail,
@@ -5470,10 +5942,7 @@ class _MembersPageState extends State<MembersPage> {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
       final res = await FirebaseFunctions.instanceFor(region: 'us-central1')
           .httpsCallable('recreateMemberAuthForNewEmail')
-          .call({
-        'tenantId': tenantId,
-        'memberDocId': memberDocId,
-      });
+          .call({'tenantId': tenantId, 'memberDocId': memberDocId});
       final map = Map<String, dynamic>.from(res.data as Map? ?? {});
       if (map['skipped'] == true || map['unchanged'] == true) {
         return (signedOut: false, newAuthUid: null);
@@ -5529,7 +5998,8 @@ class _MembersPageState extends State<MembersPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-              'Apenas a equipe (gestores, pastores, secretários, tesoureiros…) pode excluir cadastros.'),
+            'Apenas a equipe (gestores, pastores, secretários, tesoureiros…) pode excluir cadastros.',
+          ),
         );
       }
       return;
@@ -5539,27 +6009,36 @@ class _MembersPageState extends State<MembersPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
         title: const Row(
           children: [
-            Icon(Icons.delete_outline_rounded,
-                color: Color(0xFFDC2626), size: 28),
+            Icon(
+              Icons.delete_outline_rounded,
+              color: Color(0xFFDC2626),
+              size: 28,
+            ),
             SizedBox(width: 10),
-            Text('Excluir Membro',
-                style: TextStyle(fontWeight: FontWeight.w800)),
+            Text(
+              'Excluir Membro',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
           ],
         ),
         content: Text(
-            'Excluir "$name" do cadastro, apagar ficheiros da ficha, remover o documento de login (Firebase) e o acesso com e-mail/senha? '
-            'Para voltar a ter acesso, será necessário um novo cadastro. Esta ação não pode ser desfeita.'),
+          'Excluir "$name" do cadastro, apagar ficheiros da ficha, remover o documento de login (Firebase) e o acesso com e-mail/senha? '
+          'Para voltar a ter acesso, será necessário um novo cadastro. Esta ação não pode ser desfeita.',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFDC2626)),
+              backgroundColor: const Color(0xFFDC2626),
+            ),
             child: const Text('Excluir'),
           ),
         ],
@@ -5570,9 +6049,9 @@ class _MembersPageState extends State<MembersPage> {
     setState(() => _optimisticRemovedMemberIds.add(mid));
 
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      ThemeCleanPremium.successSnackBar('Excluindo "$name"…'),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(ThemeCleanPremium.successSnackBar('Excluindo "$name"…'));
 
     try {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
@@ -5594,10 +6073,7 @@ class _MembersPageState extends State<MembersPage> {
           '"$name" excluído do banco de dados e do Storage.',
         ),
       );
-      _refreshMembers(
-        forceServer: true,
-        clearOptimisticRemovedMemberId: mid,
-      );
+      _refreshMembers(forceServer: true, clearOptimisticRemovedMemberId: mid);
     } catch (e) {
       if (mounted) {
         setState(() => _optimisticRemovedMemberIds.remove(mid));
@@ -5611,28 +6087,31 @@ class _MembersPageState extends State<MembersPage> {
 
   // ─── Criar login para membro (cadastro público sem authUid) ─────────────────
   Future<void> _criarLoginMembro(
-      BuildContext context, _MemberDoc member) async {
+    BuildContext context,
+    _MemberDoc member,
+  ) async {
     if (!_canManage) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-              'Apenas a equipe pode criar login para outros membros.'),
+            'Apenas a equipe pode criar login para outros membros.',
+          ),
         );
       }
       return;
     }
     try {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(ThemeCleanPremium.successSnackBar('Criando login...'));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(ThemeCleanPremium.successSnackBar('Criando login...'));
       final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
-      final res =
-          await functions.httpsCallable('createMemberLoginFromPublic').call({
-        'tenantId': _effectiveTenantId,
-        'memberId': member.id,
-      });
+      final res = await functions
+          .httpsCallable('createMemberLoginFromPublic')
+          .call({'tenantId': _effectiveTenantId, 'memberId': member.id});
       final resMap = Map<String, dynamic>.from(res.data as Map? ?? {});
-      final membroDocId =
-          (resMap['membroFirestoreId'] ?? member.id).toString().trim();
+      final membroDocId = (resMap['membroFirestoreId'] ?? member.id)
+          .toString()
+          .trim();
       try {
         await functions.httpsCallable('setMemberPassword').call({
           'tenantId': _effectiveTenantId,
@@ -5641,46 +6120,56 @@ class _MembersPageState extends State<MembersPage> {
         });
       } catch (_) {}
       final data = res.data as Map<dynamic, dynamic>?;
-      final msg = (data?['message'] ??
-              'Login criado. O membro pode acessar com o e-mail cadastrado e a senha padrão: 123456 (até aprovação do gestor). Se não lembrar a senha, use "Esqueci a senha" na tela de login para receber um link no e-mail.')
-          .toString();
+      final msg =
+          (data?['message'] ??
+                  'Login criado. O membro pode acessar com o e-mail cadastrado e a senha padrão: 123456 (até aprovação do gestor). Se não lembrar a senha, use "Esqueci a senha" na tela de login para receber um link no e-mail.')
+              .toString();
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(ThemeCleanPremium.successSnackBar(msg));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(ThemeCleanPremium.successSnackBar(msg));
         _refreshMembers(forceServer: true);
       }
     } on FirebaseFunctionsException catch (e) {
       if (mounted) {
         final msg = e.code == 'failed-precondition'
             ? (e.message ??
-                'Este cadastro não é de formulário público. Use "Redefinir senha" se o membro já tiver login.')
+                  'Este cadastro não é de formulário público. Use "Redefinir senha" se o membro já tiver login.')
             : 'Erro: ${e.message ?? e.code}';
-        ScaffoldMessenger.of(context)
-            .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar('Erro ao criar login: $e'));
+          ThemeCleanPremium.feedbackSnackBar('Erro ao criar login: $e'),
+        );
       }
     }
   }
 
   // ─── Redefinir senha (gestor) ───────────────────────────────────────────────
   Future<void> _redefinirSenhaMembro(
-      BuildContext context, _MemberDoc member) async {
+    BuildContext context,
+    _MemberDoc member,
+  ) async {
     if (!_canManage) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-              'Para alterar a própria senha, use Configurações > Meu cadastro.'),
+            'Para alterar a própria senha, use Configurações > Meu cadastro.',
+          ),
         );
       }
       return;
     }
     if ((member.data['authUid'] ?? '').toString().trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(
-          'Este membro ainda não tem login. Use "Gerar senha / login" primeiro.'));
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Este membro ainda não tem login. Use "Gerar senha / login" primeiro.',
+        ),
+      );
       return;
     }
     final newPasswordCtrl = TextEditingController();
@@ -5688,35 +6177,46 @@ class _MembersPageState extends State<MembersPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Row(children: [
-          Icon(Icons.lock_reset_rounded, color: Colors.orange, size: 28),
-          SizedBox(width: 10),
-          Text('Redefinir senha', style: TextStyle(fontWeight: FontWeight.w800))
-        ]),
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.lock_reset_rounded, color: Colors.orange, size: 28),
+            SizedBox(width: 10),
+            Text(
+              'Redefinir senha',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-                'Nova senha para ${_str(member.data, 'NOME_COMPLETO', 'nome', 'name')} (mín. 6 caracteres):'),
+              'Nova senha para ${_str(member.data, 'NOME_COMPLETO', 'nome', 'name')} (mín. 6 caracteres):',
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: newPasswordCtrl,
               obscureText: true,
               decoration: const InputDecoration(
-                  labelText: 'Nova senha', border: OutlineInputBorder()),
+                labelText: 'Nova senha',
+                border: OutlineInputBorder(),
+              ),
               autofillHints: const [AutofillHints.newPassword],
             ),
           ],
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Alterar senha')),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Alterar senha'),
+          ),
         ],
       ),
     );
@@ -5724,8 +6224,10 @@ class _MembersPageState extends State<MembersPage> {
     final newPassword = newPasswordCtrl.text.trim();
     if (newPassword.length < 6) {
       ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-              'A senha deve ter no mínimo 6 caracteres.'));
+        ThemeCleanPremium.successSnackBar(
+          'A senha deve ter no mínimo 6 caracteres.',
+        ),
+      );
       return;
     }
     try {
@@ -5739,12 +6241,13 @@ class _MembersPageState extends State<MembersPage> {
       final map = res.data as Map?;
       final recreated = map?['recreated'] == true;
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(ThemeCleanPremium.successSnackBar(
-          recreated
-              ? 'Conta de login recriada e senha definida. Avise o membro.'
-              : 'Senha alterada. Avise o membro.',
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            recreated
+                ? 'Conta de login recriada e senha definida. Avise o membro.'
+                : 'Senha alterada. Avise o membro.',
+          ),
+        );
       }
     } on FirebaseFunctionsException catch (e) {
       if (mounted) {
@@ -5752,13 +6255,15 @@ class _MembersPageState extends State<MembersPage> {
         final msg = (detail != null && detail.isNotEmpty)
             ? detail
             : 'Não foi possível redefinir a senha (código: ${e.code}).';
-        ScaffoldMessenger.of(context)
-            .showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar('Erro ao redefinir senha: $e'));
+          ThemeCleanPremium.feedbackSnackBar('Erro ao redefinir senha: $e'),
+        );
       }
     }
   }
@@ -5773,23 +6278,30 @@ class _MembersPageState extends State<MembersPage> {
         context: context,
         builder: (ctx) => SimpleDialog(
           shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+          ),
           title: const Text('Selecionar foto'),
           children: [
             SimpleDialogOption(
-                onPressed: () => Navigator.pop(ctx, ImageSource.camera),
-                child: const Row(children: [
+              onPressed: () => Navigator.pop(ctx, ImageSource.camera),
+              child: const Row(
+                children: [
                   Icon(Icons.camera_alt_rounded),
                   SizedBox(width: 12),
-                  Text('Câmera')
-                ])),
+                  Text('Câmera'),
+                ],
+              ),
+            ),
             SimpleDialogOption(
-                onPressed: () => Navigator.pop(ctx, ImageSource.gallery),
-                child: const Row(children: [
+              onPressed: () => Navigator.pop(ctx, ImageSource.gallery),
+              child: const Row(
+                children: [
                   Icon(Icons.photo_library_rounded),
                   SizedBox(width: 12),
-                  Text('Galeria')
-                ])),
+                  Text('Galeria'),
+                ],
+              ),
+            ),
           ],
         ),
       );
@@ -5836,9 +6348,7 @@ class _MembersPageState extends State<MembersPage> {
             addBlocked: addBlocked,
           ),
         ),
-      const SliverToBoxAdapter(
-        child: LinearProgressIndicator(minHeight: 2),
-      ),
+      const SliverToBoxAdapter(child: LinearProgressIndicator(minHeight: 2)),
       _buildMembersListSliver(docs),
     ];
     return NotificationListener<ScrollNotification>(
@@ -5887,19 +6397,25 @@ class _MembersPageState extends State<MembersPage> {
       );
     });
     return SliverPadding(
-      padding: const EdgeInsets.fromLTRB(ThemeCleanPremium.spaceMd, 0,
-          ThemeCleanPremium.spaceMd, ThemeCleanPremium.spaceMd),
+      padding: const EdgeInsets.fromLTRB(
+        ThemeCleanPremium.spaceMd,
+        0,
+        ThemeCleanPremium.spaceMd,
+        ThemeCleanPremium.spaceMd,
+      ),
       sliver: SliverList(
-        delegate: SliverChildBuilderDelegate(
-          (context, i) {
+        delegate: SliverChildBuilderDelegate((context, i) {
           if (!instantList && i >= visibleCount) {
             return LazyLoadMoreFooter(
               visible: visibleCount < docs.length,
               label: 'Carregar mais membros',
               onLoadMore: () {
                 setState(() {
-                  _membersVisibleCount = (_membersVisibleCount + _membersPageSize)
-                      .clamp(0, docs.length);
+                  _membersVisibleCount =
+                      (_membersVisibleCount + _membersPageSize).clamp(
+                        0,
+                        docs.length,
+                      );
                 });
               },
             );
@@ -5917,12 +6433,15 @@ class _MembersPageState extends State<MembersPage> {
           final optimisticBytes = _optimisticProfilePhotoBytes[docs[i].id];
           final isInativo = status.toLowerCase().contains('inativ');
           final isPendingRow = _memberDocIsPending(data);
-          final avatarColor =
-              _avatarColor(data, photo.isNotEmpty || optimisticBytes != null);
+          final avatarColor = _avatarColor(
+            data,
+            photo.isNotEmpty || optimisticBytes != null,
+          );
           final photoTenantId = _storageTenantIdForMemberPhotos(data);
           final cpfDigits = _str(data, 'CPF', 'cpf');
           const double avatarOuter = 56; // radius 28 * 2
-          final showPendingCheckbox = _filtroStatus == 'pendentes' &&
+          final showPendingCheckbox =
+              _filtroStatus == 'pendentes' &&
               _canApprovePending &&
               isPendingRow;
 
@@ -5947,7 +6466,8 @@ class _MembersPageState extends State<MembersPage> {
                         value: _selectedPendingIds.contains(docs[i].id),
                         activeColor: ThemeCleanPremium.primary,
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(6)),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
                         onChanged: (v) => setState(() {
                           if (v == true) {
                             _selectedPendingIds.add(docs[i].id);
@@ -5966,8 +6486,9 @@ class _MembersPageState extends State<MembersPage> {
                       borderRadius: BorderRadius.circular(16),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: ThemeCleanPremium.spaceMd,
-                            vertical: ThemeCleanPremium.spaceSm),
+                          horizontal: ThemeCleanPremium.spaceMd,
+                          vertical: ThemeCleanPremium.spaceSm,
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -5982,9 +6503,11 @@ class _MembersPageState extends State<MembersPage> {
                                     memberData: data,
                                     name: name,
                                     radius: 28,
-                                    backgroundColor: avatarColor ??
-                                        ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.1),
+                                    backgroundColor:
+                                        avatarColor ??
+                                        ThemeCleanPremium.primary.withValues(
+                                          alpha: 0.1,
+                                        ),
                                     tenantId: photoTenantId,
                                     memberId: docs[i].id,
                                     cpfDigits: cpfDigits,
@@ -6003,65 +6526,78 @@ class _MembersPageState extends State<MembersPage> {
                                       Text(
                                         name,
                                         style: const TextStyle(
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 16,
-                                            color: ThemeCleanPremium.onSurface,
-                                            height: 1.2),
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 16,
+                                          color: ThemeCleanPremium.onSurface,
+                                          height: 1.2,
+                                        ),
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                      Builder(builder: (context) {
-                                        final parts =
-                                            _memberCargoBadgeParts(data);
-                                        if (parts.$1.isEmpty) {
-                                          return const SizedBox.shrink();
-                                        }
-                                        final col = Color(ChurchRolePermissions
-                                            .badgeColorForKey(parts.$2));
-                                        return Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 6),
-                                          child: Align(
-                                            alignment: Alignment.centerLeft,
-                                            child: Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
+                                      Builder(
+                                        builder: (context) {
+                                          final parts = _memberCargoBadgeParts(
+                                            data,
+                                          );
+                                          if (parts.$1.isEmpty) {
+                                            return const SizedBox.shrink();
+                                          }
+                                          final col = Color(
+                                            ChurchRolePermissions.badgeColorForKey(
+                                              parts.$2,
+                                            ),
+                                          );
+                                          return Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 6,
+                                            ),
+                                            child: Align(
+                                              alignment: Alignment.centerLeft,
+                                              child: Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
                                                       horizontal: 10,
-                                                      vertical: 4),
-                                              decoration: BoxDecoration(
-                                                color:
-                                                    col.withValues(alpha: 0.12),
-                                                borderRadius:
-                                                    BorderRadius.circular(20),
-                                                border: Border.all(
+                                                      vertical: 4,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: col.withValues(
+                                                    alpha: 0.12,
+                                                  ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(20),
+                                                  border: Border.all(
                                                     color: col.withValues(
-                                                        alpha: 0.28)),
-                                              ),
-                                              child: Text(
-                                                parts.$1,
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: col,
+                                                      alpha: 0.28,
+                                                    ),
+                                                  ),
+                                                ),
+                                                child: Text(
+                                                  parts.$1,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: col,
+                                                  ),
                                                 ),
                                               ),
                                             ),
-                                          ),
-                                        );
-                                      }),
+                                          );
+                                        },
+                                      ),
                                       if (email.isNotEmpty ||
                                           phone.isNotEmpty) ...[
                                         const SizedBox(height: 4),
                                         Text(
                                           [
                                             if (email.isNotEmpty) email,
-                                            if (phone.isNotEmpty) phone
+                                            if (phone.isNotEmpty) phone,
                                           ].join(' • '),
                                           style: const TextStyle(
-                                              fontSize: 13,
-                                              color: ThemeCleanPremium
-                                                  .onSurfaceVariant,
-                                              height: 1.2),
+                                            fontSize: 13,
+                                            color: ThemeCleanPremium
+                                                .onSurfaceVariant,
+                                            height: 1.2,
+                                          ),
                                           maxLines: 2,
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -6073,21 +6609,28 @@ class _MembersPageState extends State<MembersPage> {
                                     _canChangeMemberPhoto(docs[i]) ||
                                     (_canApprovePending && isPendingRow))
                                   PopupMenuButton<String>(
-                                    icon: const Icon(Icons.more_vert_rounded,
-                                        size: 22),
+                                    icon: const Icon(
+                                      Icons.more_vert_rounded,
+                                      size: 22,
+                                    ),
                                     padding: EdgeInsets.zero,
                                     constraints: const BoxConstraints(
-                                        minWidth:
-                                            ThemeCleanPremium.minTouchTarget,
-                                        minHeight:
-                                            ThemeCleanPremium.minTouchTarget),
+                                      minWidth:
+                                          ThemeCleanPremium.minTouchTarget,
+                                      minHeight:
+                                          ThemeCleanPremium.minTouchTarget,
+                                    ),
                                     shape: RoundedRectangleBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(12)),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
                                     onSelected: (v) {
                                       if (v == 'photo') {
-                                        unawaited(_openMemberProfilePhotoEditor(
-                                            context, docs[i]));
+                                        unawaited(
+                                          _openMemberProfilePhotoEditor(
+                                            context,
+                                            docs[i],
+                                          ),
+                                        );
                                       }
                                       if (v == 'edit') {
                                         _editMember(context, docs[i]);
@@ -6104,28 +6647,35 @@ class _MembersPageState extends State<MembersPage> {
                                           tenantId: _effectiveTenantId,
                                           role: widget.role,
                                           memberId: docs[i].id,
-                                          cpf: _memberCpfDigitsForCarteira(data),
+                                          cpf: _memberCpfDigitsForCarteira(
+                                            data,
+                                          ),
                                           memberSeedData:
                                               Map<String, dynamic>.from(data),
                                         );
                                       }
                                       if (v == 'password_self') {
-                                        unawaited(_abrirAtualizarSenhaProprio(
-                                            context, docs[i]));
+                                        unawaited(
+                                          _abrirAtualizarSenhaProprio(
+                                            context,
+                                            docs[i],
+                                          ),
+                                        );
                                       }
                                       if (v == 'dept') {
                                         final deptIds =
                                             (data['DEPARTAMENTOS'] as List?)
-                                                    ?.map((e) => e.toString())
-                                                    .toList() ??
-                                                <String>[];
+                                                ?.map((e) => e.toString())
+                                                .toList() ??
+                                            <String>[];
                                         _editDepartments(
-                                            context: context,
-                                            memberId: docs[i].id,
-                                            current: deptIds,
-                                            memberData:
-                                                Map<String, dynamic>.from(
-                                                    data));
+                                          context: context,
+                                          memberId: docs[i].id,
+                                          current: deptIds,
+                                          memberData: Map<String, dynamic>.from(
+                                            data,
+                                          ),
+                                        );
                                       }
                                       if (v == 'password') {
                                         _redefinirSenhaMembro(context, docs[i]);
@@ -6135,95 +6685,142 @@ class _MembersPageState extends State<MembersPage> {
                                       if (_canApprovePending && isPendingRow)
                                         const PopupMenuItem(
                                           value: 'approve',
-                                          child: Row(children: [
-                                            Icon(Icons.how_to_reg_rounded,
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.how_to_reg_rounded,
                                                 size: 18,
-                                                color: Color(0xFF059669)),
-                                            SizedBox(width: 8),
-                                            Text('Aprovar cadastro',
+                                                color: Color(0xFF059669),
+                                              ),
+                                              SizedBox(width: 8),
+                                              Text(
+                                                'Aprovar cadastro',
                                                 style: TextStyle(
-                                                    color: Color(0xFF059669),
-                                                    fontWeight:
-                                                        FontWeight.w600))
-                                          ]),
+                                                  color: Color(0xFF059669),
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       if (_canChangeMemberPhoto(docs[i]))
                                         const PopupMenuItem(
                                           value: 'photo',
-                                          child: Row(children: [
-                                            Icon(Icons.photo_camera_rounded,
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.photo_camera_rounded,
                                                 size: 18,
-                                                color: Color(0xFF0284C7)),
-                                            SizedBox(width: 8),
-                                            Text('Alterar foto',
+                                                color: Color(0xFF0284C7),
+                                              ),
+                                              SizedBox(width: 8),
+                                              Text(
+                                                'Alterar foto',
                                                 style: TextStyle(
-                                                    color: Color(0xFF0284C7),
-                                                    fontWeight:
-                                                        FontWeight.w600))
-                                          ]),
+                                                  color: Color(0xFF0284C7),
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
                                         ),
                                       if (_canEditMemberRecord(docs[i]))
                                         const PopupMenuItem(
-                                            value: 'edit',
-                                            child: Row(children: [
-                                              Icon(Icons.edit_rounded,
-                                                  size: 18),
+                                          value: 'edit',
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.edit_rounded,
+                                                size: 18,
+                                              ),
                                               SizedBox(width: 8),
-                                              Text('Editar')
-                                            ])),
+                                              Text('Editar'),
+                                            ],
+                                          ),
+                                        ),
                                       if (_canOpenCarteirinhaFor(docs[i]))
                                         const PopupMenuItem(
-                                            value: 'card',
-                                            child: Row(children: [
-                                              Icon(Icons.badge_rounded,
-                                                  size: 18),
+                                          value: 'card',
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.badge_rounded,
+                                                size: 18,
+                                              ),
                                               SizedBox(width: 8),
-                                              Text('Carteirinha')
-                                            ])),
+                                              Text('Carteirinha'),
+                                            ],
+                                          ),
+                                        ),
                                       if (_isSelfMember(docs[i]) &&
                                           _memberHasLogin(docs[i]))
                                         const PopupMenuItem(
-                                            value: 'password_self',
-                                            child: Row(children: [
-                                              Icon(Icons.vpn_key_rounded,
-                                                  size: 18,
-                                                  color: Color(0xFFEA580C)),
+                                          value: 'password_self',
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.vpn_key_rounded,
+                                                size: 18,
+                                                color: Color(0xFFEA580C),
+                                              ),
                                               SizedBox(width: 8),
-                                              Text('Atualizar senha',
-                                                  style: TextStyle(
-                                                      fontWeight:
-                                                          FontWeight.w600))
-                                            ])),
+                                              Text(
+                                                'Atualizar senha',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                       if (_canDeleteMembers) ...[
                                         const PopupMenuItem(
-                                            value: 'delete',
-                                            child: Row(children: [
-                                              Icon(Icons.delete_outline_rounded,
-                                                  size: 18,
-                                                  color: Color(0xFFDC2626)),
+                                          value: 'delete',
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.delete_outline_rounded,
+                                                size: 18,
+                                                color: Color(0xFFDC2626),
+                                              ),
                                               SizedBox(width: 8),
-                                              Text('Excluir',
-                                                  style: TextStyle(
-                                                      color: Color(0xFFDC2626)))
-                                            ])),
+                                              Text(
+                                                'Excluir',
+                                                style: TextStyle(
+                                                  color: Color(0xFFDC2626),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                         const PopupMenuItem(
-                                            value: 'dept',
-                                            child: Row(children: [
-                                              Icon(Icons.groups_rounded,
-                                                  size: 18),
+                                          value: 'dept',
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                Icons.groups_rounded,
+                                                size: 18,
+                                              ),
                                               SizedBox(width: 8),
-                                              Text('Departamentos')
-                                            ])),
+                                              Text('Departamentos'),
+                                            ],
+                                          ),
+                                        ),
                                         if (data['authUid'] != null &&
                                             !_isSelfMember(docs[i]))
                                           const PopupMenuItem(
-                                              value: 'password',
-                                              child: Row(children: [
-                                                Icon(Icons.lock_reset_rounded,
-                                                    size: 18),
+                                            value: 'password',
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.lock_reset_rounded,
+                                                  size: 18,
+                                                ),
                                                 SizedBox(width: 8),
-                                                Text('Redefinir senha')
-                                              ])),
+                                                Text('Redefinir senha'),
+                                              ],
+                                            ),
+                                          ),
                                       ],
                                     ],
                                   ),
@@ -6231,17 +6828,20 @@ class _MembersPageState extends State<MembersPage> {
                             ),
                             const SizedBox(height: 8),
                             Padding(
-                              padding:
-                                  const EdgeInsets.only(left: avatarOuter + 12),
+                              padding: const EdgeInsets.only(
+                                left: avatarOuter + 12,
+                              ),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 6),
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
                                 decoration: BoxDecoration(
                                   color: isPendingRow
                                       ? const Color(0xFFFFFBEB)
                                       : (isInativo
-                                          ? const Color(0xFFFFEBEE)
-                                          : const Color(0xFFECFDF5)),
+                                            ? const Color(0xFFFFEBEE)
+                                            : const Color(0xFFECFDF5)),
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Text(
@@ -6252,8 +6852,8 @@ class _MembersPageState extends State<MembersPage> {
                                     color: isPendingRow
                                         ? const Color(0xFFB45309)
                                         : (isInativo
-                                            ? const Color(0xFFB91C1C)
-                                            : const Color(0xFF047857)),
+                                              ? const Color(0xFFB91C1C)
+                                              : const Color(0xFF047857)),
                                   ),
                                 ),
                               ),
@@ -6267,9 +6867,7 @@ class _MembersPageState extends State<MembersPage> {
               ],
             ),
           );
-          },
-          childCount: itemCount,
-        ),
+        }, childCount: itemCount),
       ),
     );
   }
@@ -6289,8 +6887,10 @@ class _MembersPageState extends State<MembersPage> {
     final optimisticBytes = _optimisticProfilePhotoBytes[member.id];
     final isInativo = status.toLowerCase().contains('inativ');
     final isPendingRow = _memberDocIsPending(data);
-    final avatarColor =
-        _avatarColor(data, photo.isNotEmpty || optimisticBytes != null);
+    final avatarColor = _avatarColor(
+      data,
+      photo.isNotEmpty || optimisticBytes != null,
+    );
     final photoTenantId = _storageTenantIdForMemberPhotos(data);
     final cpfDigits = _str(data, 'CPF', 'cpf');
     const double avatarOuter = 56;
@@ -6314,8 +6914,9 @@ class _MembersPageState extends State<MembersPage> {
                 borderRadius: BorderRadius.circular(16),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: ThemeCleanPremium.spaceMd,
-                      vertical: ThemeCleanPremium.spaceSm),
+                    horizontal: ThemeCleanPremium.spaceMd,
+                    vertical: ThemeCleanPremium.spaceSm,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -6330,8 +6931,11 @@ class _MembersPageState extends State<MembersPage> {
                               memberData: data,
                               name: name,
                               radius: 28,
-                              backgroundColor: avatarColor ??
-                                  ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                              backgroundColor:
+                                  avatarColor ??
+                                  ThemeCleanPremium.primary.withValues(
+                                    alpha: 0.1,
+                                  ),
                               tenantId: photoTenantId,
                               memberId: member.id,
                               cpfDigits: cpfDigits,
@@ -6348,60 +6952,70 @@ class _MembersPageState extends State<MembersPage> {
                                 Text(
                                   name,
                                   style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      fontSize: 16,
-                                      color: ThemeCleanPremium.onSurface,
-                                      height: 1.2),
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 16,
+                                    color: ThemeCleanPremium.onSurface,
+                                    height: 1.2,
+                                  ),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                                Builder(builder: (context) {
-                                  final parts = _memberCargoBadgeParts(data);
-                                  if (parts.$1.isEmpty) {
-                                    return const SizedBox.shrink();
-                                  }
-                                  final col = Color(
+                                Builder(
+                                  builder: (context) {
+                                    final parts = _memberCargoBadgeParts(data);
+                                    if (parts.$1.isEmpty) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final col = Color(
                                       ChurchRolePermissions.badgeColorForKey(
-                                          parts.$2));
-                                  return Padding(
-                                    padding: const EdgeInsets.only(top: 6),
-                                    child: Align(
-                                      alignment: Alignment.centerLeft,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: col.withValues(alpha: 0.12),
-                                          borderRadius:
-                                              BorderRadius.circular(20),
-                                          border: Border.all(
-                                              color:
-                                                  col.withValues(alpha: 0.28)),
-                                        ),
-                                        child: Text(
-                                          parts.$1,
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
-                                            color: col,
+                                        parts.$2,
+                                      ),
+                                    );
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 10,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: col.withValues(alpha: 0.12),
+                                            borderRadius: BorderRadius.circular(
+                                              20,
+                                            ),
+                                            border: Border.all(
+                                              color: col.withValues(
+                                                alpha: 0.28,
+                                              ),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            parts.$1,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w700,
+                                              color: col,
+                                            ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                  );
-                                }),
+                                    );
+                                  },
+                                ),
                                 if (email.isNotEmpty || phone.isNotEmpty) ...[
                                   const SizedBox(height: 4),
                                   Text(
                                     [
                                       if (email.isNotEmpty) email,
-                                      if (phone.isNotEmpty) phone
+                                      if (phone.isNotEmpty) phone,
                                     ].join(' • '),
                                     style: const TextStyle(
-                                        fontSize: 13,
-                                        color:
-                                            ThemeCleanPremium.onSurfaceVariant,
-                                        height: 1.2),
+                                      fontSize: 13,
+                                      color: ThemeCleanPremium.onSurfaceVariant,
+                                      height: 1.2,
+                                    ),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -6413,18 +7027,26 @@ class _MembersPageState extends State<MembersPage> {
                               _canChangeMemberPhoto(member) ||
                               (_canApprovePending && isPendingRow))
                             PopupMenuButton<String>(
-                              icon:
-                                  const Icon(Icons.more_vert_rounded, size: 22),
+                              icon: const Icon(
+                                Icons.more_vert_rounded,
+                                size: 22,
+                              ),
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(
-                                  minWidth: ThemeCleanPremium.minTouchTarget,
-                                  minHeight: ThemeCleanPremium.minTouchTarget),
+                                minWidth: ThemeCleanPremium.minTouchTarget,
+                                minHeight: ThemeCleanPremium.minTouchTarget,
+                              ),
                               shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                               onSelected: (v) {
                                 if (v == 'photo') {
-                                  unawaited(_openMemberProfilePhotoEditor(
-                                      context, member));
+                                  unawaited(
+                                    _openMemberProfilePhotoEditor(
+                                      context,
+                                      member,
+                                    ),
+                                  );
                                 }
                                 if (v == 'edit') _editMember(context, member);
                                 if (v == 'delete') {
@@ -6439,27 +7061,34 @@ class _MembersPageState extends State<MembersPage> {
                                     tenantId: _effectiveTenantId,
                                     role: widget.role,
                                     memberId: member.id,
-                                    cpf: _memberCpfDigitsForCarteira(member.data),
-                                    memberSeedData:
-                                        Map<String, dynamic>.from(member.data),
+                                    cpf: _memberCpfDigitsForCarteira(
+                                      member.data,
+                                    ),
+                                    memberSeedData: Map<String, dynamic>.from(
+                                      member.data,
+                                    ),
                                   );
                                 }
                                 if (v == 'password_self') {
-                                  unawaited(_abrirAtualizarSenhaProprio(
-                                      context, member));
+                                  unawaited(
+                                    _abrirAtualizarSenhaProprio(
+                                      context,
+                                      member,
+                                    ),
+                                  );
                                 }
                                 if (v == 'dept') {
                                   final deptIds =
                                       (data['DEPARTAMENTOS'] as List?)
-                                              ?.map((e) => e.toString())
-                                              .toList() ??
-                                          <String>[];
+                                          ?.map((e) => e.toString())
+                                          .toList() ??
+                                      <String>[];
                                   _editDepartments(
-                                      context: context,
-                                      memberId: member.id,
-                                      current: deptIds,
-                                      memberData:
-                                          Map<String, dynamic>.from(data));
+                                    context: context,
+                                    memberId: member.id,
+                                    current: deptIds,
+                                    memberData: Map<String, dynamic>.from(data),
+                                  );
                                 }
                                 if (v == 'password') {
                                   _redefinirSenhaMembro(context, member);
@@ -6469,85 +7098,133 @@ class _MembersPageState extends State<MembersPage> {
                                 if (_canApprovePending && isPendingRow)
                                   const PopupMenuItem(
                                     value: 'approve',
-                                    child: Row(children: [
-                                      Icon(Icons.how_to_reg_rounded,
-                                          size: 18, color: Color(0xFF059669)),
-                                      SizedBox(width: 8),
-                                      Text('Aprovar cadastro',
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.how_to_reg_rounded,
+                                          size: 18,
+                                          color: Color(0xFF059669),
+                                        ),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'Aprovar cadastro',
                                           style: TextStyle(
-                                              color: Color(0xFF059669),
-                                              fontWeight: FontWeight.w600))
-                                    ]),
+                                            color: Color(0xFF059669),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 if (_canChangeMemberPhoto(member))
                                   const PopupMenuItem(
                                     value: 'photo',
-                                    child: Row(children: [
-                                      Icon(Icons.photo_camera_rounded,
-                                          size: 18, color: Color(0xFF0284C7)),
-                                      SizedBox(width: 8),
-                                      Text('Alterar foto',
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.photo_camera_rounded,
+                                          size: 18,
+                                          color: Color(0xFF0284C7),
+                                        ),
+                                        SizedBox(width: 8),
+                                        Text(
+                                          'Alterar foto',
                                           style: TextStyle(
-                                              color: Color(0xFF0284C7),
-                                              fontWeight: FontWeight.w600))
-                                    ]),
+                                            color: Color(0xFF0284C7),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 if (_canEditMemberRecord(member))
                                   const PopupMenuItem(
-                                      value: 'edit',
-                                      child: Row(children: [
+                                    value: 'edit',
+                                    child: Row(
+                                      children: [
                                         Icon(Icons.edit_rounded, size: 18),
                                         SizedBox(width: 8),
-                                        Text('Editar')
-                                      ])),
+                                        Text('Editar'),
+                                      ],
+                                    ),
+                                  ),
                                 if (_canOpenCarteirinhaFor(member))
                                   const PopupMenuItem(
-                                      value: 'card',
-                                      child: Row(children: [
+                                    value: 'card',
+                                    child: Row(
+                                      children: [
                                         Icon(Icons.badge_rounded, size: 18),
                                         SizedBox(width: 8),
-                                        Text('Carteirinha')
-                                      ])),
+                                        Text('Carteirinha'),
+                                      ],
+                                    ),
+                                  ),
                                 if (_isSelfMember(member) &&
                                     _memberHasLogin(member))
                                   const PopupMenuItem(
-                                      value: 'password_self',
-                                      child: Row(children: [
-                                        Icon(Icons.vpn_key_rounded,
-                                            size: 18, color: Color(0xFFEA580C)),
+                                    value: 'password_self',
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.vpn_key_rounded,
+                                          size: 18,
+                                          color: Color(0xFFEA580C),
+                                        ),
                                         SizedBox(width: 8),
-                                        Text('Atualizar senha',
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.w600))
-                                      ])),
+                                        Text(
+                                          'Atualizar senha',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 if (_canDeleteMembers) ...[
                                   const PopupMenuItem(
-                                      value: 'delete',
-                                      child: Row(children: [
-                                        Icon(Icons.delete_outline_rounded,
-                                            size: 18, color: Color(0xFFDC2626)),
+                                    value: 'delete',
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.delete_outline_rounded,
+                                          size: 18,
+                                          color: Color(0xFFDC2626),
+                                        ),
                                         SizedBox(width: 8),
-                                        Text('Excluir',
-                                            style: TextStyle(
-                                                color: Color(0xFFDC2626)))
-                                      ])),
+                                        Text(
+                                          'Excluir',
+                                          style: TextStyle(
+                                            color: Color(0xFFDC2626),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                   const PopupMenuItem(
-                                      value: 'dept',
-                                      child: Row(children: [
+                                    value: 'dept',
+                                    child: Row(
+                                      children: [
                                         Icon(Icons.groups_rounded, size: 18),
                                         SizedBox(width: 8),
-                                        Text('Departamentos')
-                                      ])),
+                                        Text('Departamentos'),
+                                      ],
+                                    ),
+                                  ),
                                   if (data['authUid'] != null &&
                                       !_isSelfMember(member))
                                     const PopupMenuItem(
-                                        value: 'password',
-                                        child: Row(children: [
-                                          Icon(Icons.lock_reset_rounded,
-                                              size: 18),
+                                      value: 'password',
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            Icons.lock_reset_rounded,
+                                            size: 18,
+                                          ),
                                           SizedBox(width: 8),
-                                          Text('Redefinir senha')
-                                        ])),
+                                          Text('Redefinir senha'),
+                                        ],
+                                      ),
+                                    ),
                                 ],
                               ],
                             ),
@@ -6558,13 +7235,15 @@ class _MembersPageState extends State<MembersPage> {
                         padding: const EdgeInsets.only(left: avatarOuter + 12),
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
                             color: isPendingRow
                                 ? const Color(0xFFFFFBEB)
                                 : (isInativo
-                                    ? const Color(0xFFFFEBEE)
-                                    : const Color(0xFFECFDF5)),
+                                      ? const Color(0xFFFFEBEE)
+                                      : const Color(0xFFECFDF5)),
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
@@ -6575,8 +7254,8 @@ class _MembersPageState extends State<MembersPage> {
                               color: isPendingRow
                                   ? const Color(0xFFB45309)
                                   : (isInativo
-                                      ? const Color(0xFFB91C1C)
-                                      : const Color(0xFF047857)),
+                                        ? const Color(0xFFB91C1C)
+                                        : const Color(0xFF047857)),
                             ),
                           ),
                         ),
@@ -6599,8 +7278,8 @@ class _MembersPageState extends State<MembersPage> {
         _effectiveTenantId,
         planIdOverride:
             (widget.subscription?['planId'] ?? '').toString().trim().isEmpty
-                ? null
-                : (widget.subscription?['planId'] ?? '').toString().trim(),
+            ? null
+            : (widget.subscription?['planId'] ?? '').toString().trim(),
       );
       if (result.isBlocked && context.mounted) {
         // iOS Reader: só «Entendi» — sem CTA de plano (Apple 3.1.1).
@@ -6608,23 +7287,31 @@ class _MembersPageState extends State<MembersPage> {
         await showDialog(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Row(children: [
-              Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
-              SizedBox(width: 10),
-              Text('Limite do plano')
-            ]),
+            title: const Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.orange,
+                  size: 28,
+                ),
+                SizedBox(width: 10),
+                Text('Limite do plano'),
+              ],
+            ),
             content: Text(result.blockedDialogMessage),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Entendi')),
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Entendi'),
+              ),
               if (!iosReader)
                 FilledButton(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      IosPaymentsGate.navigateToUpgradePlans(context);
-                    },
-                    child: const Text('Ver planos')),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    IosPaymentsGate.navigateToUpgradePlans(context);
+                  },
+                  child: const Text('Ver planos'),
+                ),
             ],
           ),
         );
@@ -6645,8 +7332,9 @@ class _MembersPageState extends State<MembersPage> {
 
   Future<String?> _loadTenantSlug() async {
     try {
-      final snap = await           ChurchUiCollections.churchDoc(_effectiveTenantId)
-          .get();
+      final snap = await ChurchUiCollections.churchDoc(
+        _effectiveTenantId,
+      ).get();
       return (snap.data()?['slug'] ?? snap.data()?['slugId'] ?? '')
           .toString()
           .trim();
@@ -6667,25 +7355,32 @@ class _MembersPageState extends State<MembersPage> {
         return;
       }
       const sep = ';';
-      final sb =
-          StringBuffer('Nome${sep}E-mail${sep}Telefone${sep}CPF${sep}Status\n');
+      final sb = StringBuffer(
+        'Nome${sep}E-mail${sep}Telefone${sep}CPF${sep}Status\n',
+      );
       for (final d in docs) {
         final m = d.data;
         sb.writeln(
-            '${(m['NOME_COMPLETO'] ?? m['nome'] ?? '').toString().replaceAll(sep, ',')}$sep${(m['EMAIL'] ?? m['email'] ?? '').toString().replaceAll(sep, ',')}$sep${(m['TELEFONES'] ?? m['telefone'] ?? '').toString().replaceAll(sep, ',')}$sep${(m['CPF'] ?? m['cpf'] ?? '')}$sep${(m['STATUS'] ?? m['status'] ?? '')}');
+          '${(m['NOME_COMPLETO'] ?? m['nome'] ?? '').toString().replaceAll(sep, ',')}$sep${(m['EMAIL'] ?? m['email'] ?? '').toString().replaceAll(sep, ',')}$sep${(m['TELEFONES'] ?? m['telefone'] ?? '').toString().replaceAll(sep, ',')}$sep${(m['CPF'] ?? m['cpf'] ?? '')}$sep${(m['STATUS'] ?? m['status'] ?? '')}',
+        );
       }
-      await Share.share(sb.toString(),
-          subject: 'Membros - Gestão YAHWEH',
-          sharePositionOrigin: const Rect.fromLTWH(0, 0, 1, 1));
+      await Share.share(
+        sb.toString(),
+        subject: 'Membros - Gestão YAHWEH',
+        sharePositionOrigin: const Rect.fromLTWH(0, 0, 1, 1),
+      );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-                'Exportados ${docs.length} membros (CSV).'));
+          ThemeCleanPremium.successSnackBar(
+            'Exportados ${docs.length} membros (CSV).',
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar('Erro ao exportar: $e'));
+          ThemeCleanPremium.feedbackSnackBar('Erro ao exportar: $e'),
+        );
       }
     }
   }
@@ -6721,16 +7416,19 @@ class _MembersPageState extends State<MembersPage> {
         final statusPdf = st.isEmpty
             ? ''
             : st
-                .split(RegExp(r'\s+'))
-                .where((w) => w.isNotEmpty)
-                .map((w) =>
-                    '${w[0].toUpperCase()}${w.length > 1 ? w.substring(1).toLowerCase() : ''}')
-                .join(' ');
+                  .split(RegExp(r'\s+'))
+                  .where((w) => w.isNotEmpty)
+                  .map(
+                    (w) =>
+                        '${w[0].toUpperCase()}${w.length > 1 ? w.substring(1).toLowerCase() : ''}',
+                  )
+                  .join(' ');
         return [
           '${e.key + 1}',
           (m['NOME_COMPLETO'] ?? m['nome'] ?? '').toString(),
           pdfEmailBreakOpportunities(
-              (m['EMAIL'] ?? m['email'] ?? '').toString()),
+            (m['EMAIL'] ?? m['email'] ?? '').toString(),
+          ),
           (m['TELEFONES'] ?? m['telefone'] ?? '').toString(),
           (m['CPF'] ?? m['cpf'] ?? '').toString(),
           statusPdf,
@@ -6749,10 +7447,8 @@ class _MembersPageState extends State<MembersPage> {
               extraLines: ['Total de membros: ${docs.length}'],
             ),
           ),
-          footer: (ctx) => PdfSuperPremiumTheme.footer(
-            ctx,
-            churchName: branding.churchName,
-          ),
+          footer: (ctx) =>
+              PdfSuperPremiumTheme.footer(ctx, churchName: branding.churchName),
           build: (ctx) => [
             PdfSuperPremiumTheme.fromTextArray(
               headers: const [
@@ -6761,7 +7457,7 @@ class _MembersPageState extends State<MembersPage> {
                 'E-mail',
                 'Telefone',
                 'CPF',
-                'Status'
+                'Status',
               ],
               data: data,
               accent: branding.accent,
@@ -6774,13 +7470,17 @@ class _MembersPageState extends State<MembersPage> {
       );
       final bytes = Uint8List.fromList(await pdf.save());
       if (context.mounted) {
-        await showPdfActions(context,
-            bytes: bytes, filename: 'membros_relatorio.pdf');
+        await showPdfActions(
+          context,
+          bytes: bytes,
+          filename: 'membros_relatorio.pdf',
+        );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar('Erro ao exportar PDF: $e'));
+          ThemeCleanPremium.feedbackSnackBar('Erro ao exportar PDF: $e'),
+        );
       }
     }
   }
@@ -6810,8 +7510,9 @@ class _MembersPageState extends State<MembersPage> {
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
         borderSide: BorderSide(
-            color: ThemeCleanPremium.primary.withValues(alpha: 0.55),
-            width: 1.4),
+          color: ThemeCleanPremium.primary.withValues(alpha: 0.55),
+          width: 1.4,
+        ),
       ),
       filled: true,
       fillColor: Colors.white,
@@ -6837,34 +7538,41 @@ class _MembersPageState extends State<MembersPage> {
                 Text('Gênero', style: labelStyle.copyWith(letterSpacing: 0.4)),
                 const SizedBox(height: 8),
                 _filterChip(
-                    _filtroGenero,
-                    ['todos', 'masculino', 'feminino'],
-                    ['Todos', 'Masculino', 'Feminino'],
-                    (v) => setState(() => _filtroGenero = v)),
+                  _filtroGenero,
+                  ['todos', 'masculino', 'feminino'],
+                  ['Todos', 'Masculino', 'Feminino'],
+                  (v) => setState(() => _filtroGenero = v),
+                ),
                 const SizedBox(height: 14),
-                Text('Faixa etária',
-                    style: labelStyle.copyWith(letterSpacing: 0.4)),
+                Text(
+                  'Faixa etária',
+                  style: labelStyle.copyWith(letterSpacing: 0.4),
+                ),
                 const SizedBox(height: 8),
                 _filterChip(
-                    _filtroFaixaEtaria,
-                    ['todas', 'criancas', 'adolescentes', 'adultos', 'idosos'],
-                    [
-                      'Todas',
-                      'Crianças (<13)',
-                      'Adol. (13-17)',
-                      'Adultos (18-59)',
-                      'Idosos (60+)'
-                    ],
-                    (v) => setState(() => _filtroFaixaEtaria = v)),
+                  _filtroFaixaEtaria,
+                  ['todas', 'criancas', 'adolescentes', 'adultos', 'idosos'],
+                  [
+                    'Todas',
+                    'Crianças (<13)',
+                    'Adol. (13-17)',
+                    'Adultos (18-59)',
+                    'Idosos (60+)',
+                  ],
+                  (v) => setState(() => _filtroFaixaEtaria = v),
+                ),
                 const SizedBox(height: 14),
-                Text('Cadastro',
-                    style: labelStyle.copyWith(letterSpacing: 0.4)),
+                Text(
+                  'Cadastro',
+                  style: labelStyle.copyWith(letterSpacing: 0.4),
+                ),
                 const SizedBox(height: 8),
                 _filterChip(
-                    _filtroDiaCadastro,
-                    ['todos', 'hoje', 'semana', 'mes'],
-                    ['Todos', 'Hoje', 'Semana', 'Mês'],
-                    (v) => setState(() => _filtroDiaCadastro = v)),
+                  _filtroDiaCadastro,
+                  ['todos', 'hoje', 'semana', 'mes'],
+                  ['Todos', 'Hoje', 'Semana', 'Mês'],
+                  (v) => setState(() => _filtroDiaCadastro = v),
+                ),
               ],
             ),
           ),
@@ -6890,20 +7598,29 @@ class _MembersPageState extends State<MembersPage> {
                             prefixIcon: Icon(
                               Icons.groups_2_rounded,
                               size: 20,
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.75),
+                              color: ThemeCleanPremium.primary.withValues(
+                                alpha: 0.75,
+                              ),
                             ),
                           ),
                           items: [
                             const DropdownMenuItem(
-                                value: 'todos', child: Text('Todos')),
-                            ..._departamentos.map((d) => DropdownMenuItem(
+                              value: 'todos',
+                              child: Text('Todos'),
+                            ),
+                            ..._departamentos.map(
+                              (d) => DropdownMenuItem(
                                 value: d.id,
-                                child: Text(d.name,
-                                    overflow: TextOverflow.ellipsis))),
+                                child: Text(
+                                  d.name,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
                           ],
                           onChanged: (v) => setState(
-                              () => _filtroDepartamento = v ?? 'todos'),
+                            () => _filtroDepartamento = v ?? 'todos',
+                          ),
                         ),
                       ),
                       SizedBox(
@@ -6915,31 +7632,38 @@ class _MembersPageState extends State<MembersPage> {
                             prefixIcon: Icon(
                               Icons.cake_rounded,
                               size: 20,
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.75),
+                              color: ThemeCleanPremium.primary.withValues(
+                                alpha: 0.75,
+                              ),
                             ),
                           ),
                           items: [
                             const DropdownMenuItem(
-                                value: null, child: Text('Qualquer mês')),
+                              value: null,
+                              child: Text('Qualquer mês'),
+                            ),
                             ...List.generate(
-                                12,
-                                (i) => DropdownMenuItem(
-                                    value: i + 1,
-                                    child: Text([
-                                      'Janeiro',
-                                      'Fevereiro',
-                                      'Março',
-                                      'Abril',
-                                      'Maio',
-                                      'Junho',
-                                      'Julho',
-                                      'Agosto',
-                                      'Setembro',
-                                      'Outubro',
-                                      'Novembro',
-                                      'Dezembro'
-                                    ][i]))),
+                              12,
+                              (i) => DropdownMenuItem(
+                                value: i + 1,
+                                child: Text(
+                                  [
+                                    'Janeiro',
+                                    'Fevereiro',
+                                    'Março',
+                                    'Abril',
+                                    'Maio',
+                                    'Junho',
+                                    'Julho',
+                                    'Agosto',
+                                    'Setembro',
+                                    'Outubro',
+                                    'Novembro',
+                                    'Dezembro',
+                                  ][i],
+                                ),
+                              ),
+                            ),
                           ],
                           onChanged: (v) =>
                               setState(() => _filtroAniversarioMes = v),
@@ -6985,8 +7709,12 @@ class _MembersPageState extends State<MembersPage> {
     );
   }
 
-  Widget _filterChip(String value, List<String> keys, List<String> labels,
-      ValueChanged<String> onSelected) {
+  Widget _filterChip(
+    String value,
+    List<String> keys,
+    List<String> labels,
+    ValueChanged<String> onSelected,
+  ) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -7075,8 +7803,9 @@ class _MembersPageState extends State<MembersPage> {
                   child: Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: ThemeCleanPremium.primaryLighter
-                          .withValues(alpha: 0.14),
+                      color: ThemeCleanPremium.primaryLighter.withValues(
+                        alpha: 0.14,
+                      ),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
@@ -7093,8 +7822,9 @@ class _MembersPageState extends State<MembersPage> {
                       border: InputBorder.none,
                       hintText: 'Buscar por nome, e-mail, CPF ou telefone…',
                       hintStyle: TextStyle(
-                        color: ThemeCleanPremium.onSurfaceVariant
-                            .withValues(alpha: 0.55),
+                        color: ThemeCleanPremium.onSurfaceVariant.withValues(
+                          alpha: 0.55,
+                        ),
                         fontSize: 15,
                         fontWeight: FontWeight.w500,
                       ),
@@ -7113,7 +7843,9 @@ class _MembersPageState extends State<MembersPage> {
                               ),
                             ),
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 16),
+                        horizontal: 8,
+                        vertical: 16,
+                      ),
                     ),
                     style: const TextStyle(
                       fontSize: 15,
@@ -7123,13 +7855,16 @@ class _MembersPageState extends State<MembersPage> {
                     ),
                     onChanged: (_) {
                       _searchDebounce?.cancel();
-                      _searchDebounce =
-                          Timer(const Duration(milliseconds: 500), () {
-                        if (mounted) {
-                          setState(
-                              () => _q = _searchCtrl.text.trim().toLowerCase());
-                        }
-                      });
+                      _searchDebounce = Timer(
+                        const Duration(milliseconds: 500),
+                        () {
+                          if (mounted) {
+                            setState(
+                              () => _q = _searchCtrl.text.trim().toLowerCase(),
+                            );
+                          }
+                        },
+                      );
                     },
                   ),
                 ),
@@ -7306,7 +8041,8 @@ class _MembersPageState extends State<MembersPage> {
                         tooltip: 'Exportar membros (PDF)',
                         onPressed: () => _exportPdf(context),
                         style: IconButton.styleFrom(
-                            minimumSize: const Size(48, 48)),
+                          minimumSize: const Size(48, 48),
+                        ),
                       ),
                     if (_canManage)
                       IconButton(
@@ -7314,17 +8050,22 @@ class _MembersPageState extends State<MembersPage> {
                         tooltip: 'Exportar membros (CSV)',
                         onPressed: () => _exportCsv(context),
                         style: IconButton.styleFrom(
-                            minimumSize: const Size(48, 48)),
+                          minimumSize: const Size(48, 48),
+                        ),
                       ),
                     if (_canManage)
                       IconButton(
-                        icon: Icon(Icons.person_add_rounded,
-                            color: addBlocked ? Colors.white54 : null),
+                        icon: Icon(
+                          Icons.person_add_rounded,
+                          color: addBlocked ? Colors.white54 : null,
+                        ),
                         tooltip: addBlocked ? 'Limite atingido' : 'Novo membro',
-                        onPressed:
-                            addBlocked ? null : () => _onAddMember(context),
+                        onPressed: addBlocked
+                            ? null
+                            : () => _onAddMember(context),
                         style: IconButton.styleFrom(
-                            minimumSize: const Size(48, 48)),
+                          minimumSize: const Size(48, 48),
+                        ),
                       ),
                   ],
                 ),
@@ -7343,27 +8084,34 @@ class _MembersPageState extends State<MembersPage> {
                     actions: [
                       if (_canManage)
                         IconButton(
-                          icon: const Icon(Icons.picture_as_pdf_rounded,
-                              color: Colors.white, size: 22),
+                          icon: const Icon(
+                            Icons.picture_as_pdf_rounded,
+                            color: Colors.white,
+                            size: 22,
+                          ),
                           tooltip: 'Exportar PDF',
                           onPressed: () => _exportPdf(context),
                         ),
                       if (_canManage)
                         IconButton(
-                          icon: const Icon(Icons.download_rounded,
-                              color: Colors.white, size: 22),
+                          icon: const Icon(
+                            Icons.download_rounded,
+                            color: Colors.white,
+                            size: 22,
+                          ),
                           tooltip: 'Exportar CSV',
                           onPressed: () => _exportCsv(context),
                         ),
                       if (_canManage)
                         IconButton(
-                          icon: Icon(Icons.person_add_rounded,
-                              color: addBlocked
-                                  ? Colors.white54
-                                  : Colors.white,
-                              size: 22),
-                          tooltip:
-                              addBlocked ? 'Limite atingido' : 'Novo membro',
+                          icon: Icon(
+                            Icons.person_add_rounded,
+                            color: addBlocked ? Colors.white54 : Colors.white,
+                            size: 22,
+                          ),
+                          tooltip: addBlocked
+                              ? 'Limite atingido'
+                              : 'Novo membro',
                           onPressed: addBlocked
                               ? null
                               : () => _onAddMember(context),
@@ -7376,36 +8124,49 @@ class _MembersPageState extends State<MembersPage> {
                     !_canManage &&
                     _selfOnlyMemberList)
                   Padding(
-                    padding:
-                        EdgeInsets.fromLTRB(padding.left, 8, padding.right, 4),
+                    padding: EdgeInsets.fromLTRB(
+                      padding.left,
+                      8,
+                      padding.right,
+                      4,
+                    ),
                     child: Material(
                       color: const Color(0xFFEFF6FF),
                       borderRadius: BorderRadius.circular(12),
                       child: ListTile(
                         dense: true,
-                        leading: Icon(Icons.person_rounded,
-                            color: ThemeCleanPremium.primary, size: 22),
+                        leading: Icon(
+                          Icons.person_rounded,
+                          color: ThemeCleanPremium.primary,
+                          size: 22,
+                        ),
                         title: Text(
                           'Seu cadastro',
                           style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: Colors.grey.shade900,
-                              fontSize: 14),
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey.shade900,
+                            fontSize: 14,
+                          ),
                         ),
                         subtitle: Text(
                           'Pode editar os seus dados, trocar a foto e abrir a sua carteirinha. A lista de outros membros fica só para a equipe.',
                           style: TextStyle(
-                              fontSize: 12,
-                              height: 1.3,
-                              color: Colors.grey.shade700),
+                            fontSize: 12,
+                            height: 1.3,
+                            color: Colors.grey.shade700,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 if (widget.embeddedInShell && _canManage)
                   Padding(
-                    padding:
-                        EdgeInsets.fromLTRB(padding.left, 4, padding.right, 2),
+                    padding: EdgeInsets.fromLTRB(
+                      padding.left,
+                      4,
+                      padding.right,
+                      2,
+                    ),
                     child: Align(
                       alignment: Alignment.centerRight,
                       child: Material(
@@ -7423,27 +8184,35 @@ class _MembersPageState extends State<MembersPage> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                icon: const Icon(Icons.picture_as_pdf_rounded,
-                                    size: 22),
+                                icon: const Icon(
+                                  Icons.picture_as_pdf_rounded,
+                                  size: 22,
+                                ),
                                 tooltip: 'Exportar membros (PDF)',
                                 onPressed: () => _exportPdf(context),
                                 style: IconButton.styleFrom(
-                                    minimumSize: const Size(44, 44)),
+                                  minimumSize: const Size(44, 44),
+                                ),
                               ),
                               IconButton(
-                                icon: const Icon(Icons.download_rounded,
-                                    size: 22),
+                                icon: const Icon(
+                                  Icons.download_rounded,
+                                  size: 22,
+                                ),
                                 tooltip: 'Exportar membros (CSV)',
                                 onPressed: () => _exportCsv(context),
                                 style: IconButton.styleFrom(
-                                    minimumSize: const Size(44, 44)),
+                                  minimumSize: const Size(44, 44),
+                                ),
                               ),
                               IconButton(
-                                icon: Icon(Icons.person_add_rounded,
-                                    size: 22,
-                                    color: addBlocked
-                                        ? ThemeCleanPremium.onSurfaceVariant
-                                        : null),
+                                icon: Icon(
+                                  Icons.person_add_rounded,
+                                  size: 22,
+                                  color: addBlocked
+                                      ? ThemeCleanPremium.onSurfaceVariant
+                                      : null,
+                                ),
                                 tooltip: addBlocked
                                     ? 'Limite atingido'
                                     : 'Novo membro',
@@ -7451,7 +8220,8 @@ class _MembersPageState extends State<MembersPage> {
                                     ? null
                                     : () => _onAddMember(context),
                                 style: IconButton.styleFrom(
-                                    minimumSize: const Size(44, 44)),
+                                  minimumSize: const Size(44, 44),
+                                ),
                               ),
                             ],
                           ),
@@ -7467,7 +8237,11 @@ class _MembersPageState extends State<MembersPage> {
                       if (!_selfOnlyMemberList)
                         Padding(
                           padding: EdgeInsets.fromLTRB(
-                              padding.left, 0, padding.right, 6),
+                            padding.left,
+                            0,
+                            padding.right,
+                            6,
+                          ),
                           child: _MembersPremiumTabSwitcher(
                             index: _membersMainTabIndex,
                             onChanged: (i) => setState(() {
@@ -7597,8 +8371,11 @@ class _MembersPageState extends State<MembersPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.warning_amber_rounded,
-                      size: 48, color: Colors.amber.shade700),
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    size: 48,
+                    color: Colors.amber.shade700,
+                  ),
                   const SizedBox(height: ThemeCleanPremium.spaceMd),
                   Text(
                     'Resposta incompleta ao carregar membros (${list.length}/7).',
@@ -7607,9 +8384,10 @@ class _MembersPageState extends State<MembersPage> {
                   ),
                   const SizedBox(height: 12),
                   FilledButton.icon(
-                      onPressed: _refreshMembers,
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: const Text('Recarregar')),
+                    onPressed: _refreshMembers,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('Recarregar'),
+                  ),
                 ],
               ),
             ),
@@ -7618,9 +8396,9 @@ class _MembersPageState extends State<MembersPage> {
         final pendCount = list[6].docs.length;
         final combined = <String, _MemberDoc>{};
         void putOrMerge(
-            QueryDocumentSnapshot<Map<String, dynamic>> d,
-            _MemberDoc Function(QueryDocumentSnapshot<Map<String, dynamic>>)
-                map) {
+          QueryDocumentSnapshot<Map<String, dynamic>> d,
+          _MemberDoc Function(QueryDocumentSnapshot<Map<String, dynamic>>) map,
+        ) {
           final doc = map(d);
           final cur = combined[doc.id];
           if (cur == null) {
@@ -7682,16 +8460,19 @@ class _MembersPageState extends State<MembersPage> {
             }
           });
         }
-        final pendentesNaLista =
-            docs.where((d) => _memberDocIsPending(d.data)).toList();
+        final pendentesNaLista = docs
+            .where((d) => _memberDocIsPending(d.data))
+            .toList();
         Widget? emptyListBody;
         if (docs.isEmpty) {
           final filteredOut = allDocs.isNotEmpty;
           if (_q.isNotEmpty) {
             emptyListBody = Center(
-                child: Text('Nenhum membro encontrado para "$_q".',
-                    style:
-                        TextStyle(color: ThemeCleanPremium.onSurfaceVariant)));
+              child: Text(
+                'Nenhum membro encontrado para "$_q".',
+                style: TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
+              ),
+            );
           } else if (filteredOut) {
             emptyListBody = Center(
               child: Padding(
@@ -7699,25 +8480,30 @@ class _MembersPageState extends State<MembersPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.filter_alt_off_rounded,
-                        size: 64, color: Colors.grey.shade400),
+                    Icon(
+                      Icons.filter_alt_off_rounded,
+                      size: 64,
+                      color: Colors.grey.shade400,
+                    ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     Text(
                       'Nenhum membro corresponde aos filtros ativos.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: ThemeCleanPremium.onSurface),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Há ${allDocs.length} na lista bruta. Ajuste a aba Todos/Ativos/Inativos ou os filtros avançados.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                          fontSize: 13,
-                          height: 1.35,
-                          color: ThemeCleanPremium.onSurfaceVariant),
+                        fontSize: 13,
+                        height: 1.35,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
                     ),
                     const SizedBox(height: 20),
                     FilledButton.icon(
@@ -7736,34 +8522,37 @@ class _MembersPageState extends State<MembersPage> {
                 ),
               ),
             );
-          } else if (!_canManage &&
-              _selfOnlyMemberList &&
-              allDocs.isEmpty) {
+          } else if (!_canManage && _selfOnlyMemberList && allDocs.isEmpty) {
             emptyListBody = Center(
               child: Padding(
                 padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.badge_outlined,
-                        size: 64, color: Colors.grey.shade400),
+                    Icon(
+                      Icons.badge_outlined,
+                      size: 64,
+                      color: Colors.grey.shade400,
+                    ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     Text(
                       'Cadastro não encontrado para este login.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: ThemeCleanPremium.onSurface),
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'O CPF do login deve coincidir com o cadastro ou a ficha precisa estar vinculada ao seu usuário. Em caso de dúvida, fale com o secretariado.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                          fontSize: 13,
-                          height: 1.35,
-                          color: ThemeCleanPremium.onSurfaceVariant),
+                        fontSize: 13,
+                        height: 1.35,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ),
@@ -7776,22 +8565,31 @@ class _MembersPageState extends State<MembersPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.people_outline_rounded,
-                        size: 64, color: Colors.grey.shade400),
+                    Icon(
+                      Icons.people_outline_rounded,
+                      size: 64,
+                      color: Colors.grey.shade400,
+                    ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
-                    Text('Nenhum membro cadastrado.',
-                        style: TextStyle(
-                            fontSize: 16,
-                            color: ThemeCleanPremium.onSurfaceVariant)),
+                    Text(
+                      'Nenhum membro cadastrado.',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: ThemeCleanPremium.onSurfaceVariant,
+                      ),
+                    ),
                     if (_canManage) ...[
                       const SizedBox(height: 16),
                       FilledButton.icon(
-                        onPressed:
-                            addBlocked ? null : () => _onAddMember(context),
+                        onPressed: addBlocked
+                            ? null
+                            : () => _onAddMember(context),
                         icon: const Icon(Icons.person_add_rounded, size: 20),
-                        label: Text(addBlocked
-                            ? 'Limite do plano'
-                            : 'Cadastrar novo membro'),
+                        label: Text(
+                          addBlocked
+                              ? 'Limite do plano'
+                              : 'Cadastrar novo membro',
+                        ),
                       ),
                     ],
                   ],
@@ -7801,7 +8599,8 @@ class _MembersPageState extends State<MembersPage> {
           }
         }
         final allPendIds = pendentesNaLista.map((e) => e.id).toSet();
-        final allPendingSelected = allPendIds.isNotEmpty &&
+        final allPendingSelected =
+            allPendIds.isNotEmpty &&
             allPendIds.every(_selectedPendingIds.contains);
         final slivers = <Widget>[
           if (includeInlineFilters)
@@ -7818,7 +8617,11 @@ class _MembersPageState extends State<MembersPage> {
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(
-                    padding.horizontal, 0, padding.horizontal, 10),
+                  padding.horizontal,
+                  0,
+                  padding.horizontal,
+                  10,
+                ),
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -7838,8 +8641,11 @@ class _MembersPageState extends State<MembersPage> {
                               color: const Color(0xFFFFFBEB),
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: Icon(Icons.pending_actions_rounded,
-                                color: Colors.amber.shade800, size: 22),
+                            child: Icon(
+                              Icons.pending_actions_rounded,
+                              color: Colors.amber.shade800,
+                              size: 22,
+                            ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -7849,16 +8655,18 @@ class _MembersPageState extends State<MembersPage> {
                                 Text(
                                   '${pendentesNaLista.length} pendente(s) na lista',
                                   style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 15,
-                                      letterSpacing: -0.2),
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                    letterSpacing: -0.2,
+                                  ),
                                 ),
                                 Text(
                                   'Aprove um por um no menu ⋮, selecione vários ou todos de uma vez.',
                                   style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                      height: 1.3),
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                    height: 1.3,
+                                  ),
                                 ),
                               ],
                             ),
@@ -7873,46 +8681,63 @@ class _MembersPageState extends State<MembersPage> {
                           OutlinedButton.icon(
                             onPressed: () => setState(() {
                               if (allPendingSelected) {
-                                _selectedPendingIds
-                                    .removeWhere(allPendIds.contains);
+                                _selectedPendingIds.removeWhere(
+                                  allPendIds.contains,
+                                );
                               } else {
                                 _selectedPendingIds = {
                                   ..._selectedPendingIds,
-                                  ...allPendIds
+                                  ...allPendIds,
                                 };
                               }
                             }),
                             icon: Icon(
-                                allPendingSelected
-                                    ? Icons.deselect_rounded
-                                    : Icons.select_all_rounded,
-                                size: 18),
-                            label: Text(allPendingSelected
-                                ? 'Limpar seleção'
-                                : 'Selecionar todos'),
+                              allPendingSelected
+                                  ? Icons.deselect_rounded
+                                  : Icons.select_all_rounded,
+                              size: 18,
+                            ),
+                            label: Text(
+                              allPendingSelected
+                                  ? 'Limpar seleção'
+                                  : 'Selecionar todos',
+                            ),
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 12),
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
                               shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
                           ),
                           FilledButton.icon(
                             onPressed: _selectedPendingIds.isEmpty
                                 ? null
-                                : () => _aprovarMembrosPorIds(Set<String>.from(
-                                    _selectedPendingIds
-                                        .intersection(allPendIds))),
-                            icon: const Icon(Icons.check_circle_rounded,
-                                size: 18),
+                                : () => _aprovarMembrosPorIds(
+                                    Set<String>.from(
+                                      _selectedPendingIds.intersection(
+                                        allPendIds,
+                                      ),
+                                    ),
+                                  ),
+                            icon: const Icon(
+                              Icons.check_circle_rounded,
+                              size: 18,
+                            ),
                             label: Text(
-                                'Aprovar selecionados (${_selectedPendingIds.intersection(allPendIds).length})'),
+                              'Aprovar selecionados (${_selectedPendingIds.intersection(allPendIds).length})',
+                            ),
                             style: FilledButton.styleFrom(
                               backgroundColor: const Color(0xFF059669),
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 12),
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
                               shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
                           ),
                           FilledButton.tonalIcon(
@@ -7922,9 +8747,12 @@ class _MembersPageState extends State<MembersPage> {
                             label: const Text('Aprovar todos filtrados'),
                             style: FilledButton.styleFrom(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 12),
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
                               shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
                           ),
                         ],
@@ -7938,51 +8766,70 @@ class _MembersPageState extends State<MembersPage> {
             SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(
-                    padding.horizontal, 0, padding.horizontal, 8),
+                  padding.horizontal,
+                  0,
+                  padding.horizontal,
+                  8,
+                ),
                 child: Material(
                   color: Colors.amber.shade50,
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusSm,
+                  ),
                   child: InkWell(
                     onTap: () async {
                       await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (_) => AprovarMembrosPendentesPage(
-                                  tenantId: _effectiveTenantId,
-                                  gestorRole: widget.role,
-                                  permissions: widget.permissions)));
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => AprovarMembrosPendentesPage(
+                            tenantId: _effectiveTenantId,
+                            gestorRole: widget.role,
+                            permissions: widget.permissions,
+                          ),
+                        ),
+                      );
                       if (mounted) _refreshMembers();
                     },
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                    borderRadius: BorderRadius.circular(
+                      ThemeCleanPremium.radiusSm,
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
-                      child: Row(children: [
-                        Icon(Icons.person_add_rounded,
-                            color: Colors.amber.shade800, size: 22),
-                        const SizedBox(width: 10),
-                        Expanded(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.person_add_rounded,
+                            color: Colors.amber.shade800,
+                            size: 22,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
                             child: Text(
-                                '$pendCount cadastro(s) pendente(s) de aprovação',
-                                style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 13,
-                                    color: Colors.amber.shade900))),
-                        Icon(Icons.arrow_forward_rounded,
-                            color: Colors.amber.shade800, size: 20),
-                      ]),
+                              '$pendCount cadastro(s) pendente(s) de aprovação',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                                color: Colors.amber.shade900,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_forward_rounded,
+                            color: Colors.amber.shade800,
+                            size: 20,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           if (docs.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: emptyListBody!,
-            )
+            SliverFillRemaining(hasScrollBody: false, child: emptyListBody!)
           else
             _buildMembersListSliver(docs),
         ];
@@ -8042,10 +8889,10 @@ class _MembersPageState extends State<MembersPage> {
                 onExportCsv: () => _exportCsv(context),
                 onRelatorioAvancado: _canManage
                     ? () => openRelatorioMembrosAvancado(
-                          context,
-                          tenantId: _effectiveTenantId,
-                          role: widget.role,
-                        )
+                        context,
+                        tenantId: _effectiveTenantId,
+                        role: widget.role,
+                      )
                     : null,
                 onOpenAprovar: null,
               );
@@ -8053,7 +8900,10 @@ class _MembersPageState extends State<MembersPage> {
           }
           return Padding(
             padding: EdgeInsets.symmetric(horizontal: padding.horizontal),
-            child: YahwehSkeletonLoading.membrosList(itemCount: 4, itemHeight: 64),
+            child: YahwehSkeletonLoading.membrosList(
+              itemCount: 4,
+              itemHeight: 64,
+            ),
           );
         }
         if (snap.hasError) {
@@ -8081,15 +8931,16 @@ class _MembersPageState extends State<MembersPage> {
                     canManage: _canManage,
                     canApprovePending: _canApprovePending,
                     pendQueryCount: 0,
-                    buildMemberTile: (ctx, m) => _buildMemberDrillListTile(ctx, m),
+                    buildMemberTile: (ctx, m) =>
+                        _buildMemberDrillListTile(ctx, m),
                     onExportPdf: () => _exportPdf(context),
                     onExportCsv: () => _exportCsv(context),
                     onRelatorioAvancado: _canManage
                         ? () => openRelatorioMembrosAvancado(
-                              context,
-                              tenantId: _effectiveTenantId,
-                              role: widget.role,
-                            )
+                            context,
+                            tenantId: _effectiveTenantId,
+                            role: widget.role,
+                          )
                         : null,
                     onOpenAprovar: null,
                   ),
@@ -8116,8 +8967,11 @@ class _MembersPageState extends State<MembersPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.warning_amber_rounded,
-                      size: 48, color: Colors.amber.shade700),
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    size: 48,
+                    color: Colors.amber.shade700,
+                  ),
                   const SizedBox(height: 12),
                   Text(
                     'Resposta incompleta (${list.length}/7).',
@@ -8155,10 +9009,10 @@ class _MembersPageState extends State<MembersPage> {
           onExportCsv: () => _exportCsv(context),
           onRelatorioAvancado: _canManage
               ? () => openRelatorioMembrosAvancado(
-                    context,
-                    tenantId: _effectiveTenantId,
-                    role: widget.role,
-                  )
+                  context,
+                  tenantId: _effectiveTenantId,
+                  role: widget.role,
+                )
               : null,
           onOpenAprovar: _canApprovePending && list[6].docs.isNotEmpty
               ? () async {
@@ -8166,9 +9020,10 @@ class _MembersPageState extends State<MembersPage> {
                     context,
                     MaterialPageRoute<void>(
                       builder: (_) => AprovarMembrosPendentesPage(
-                          tenantId: _effectiveTenantId,
-                          gestorRole: widget.role,
-                          permissions: widget.permissions),
+                        tenantId: _effectiveTenantId,
+                        gestorRole: widget.role,
+                        permissions: widget.permissions,
+                      ),
                     ),
                   );
                   if (mounted) _refreshMembers();
@@ -8180,7 +9035,8 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   List<_MemberDoc> _mergedMemberDocsFromSnapshots(
-      List<QuerySnapshot<Map<String, dynamic>>> list) {
+    List<QuerySnapshot<Map<String, dynamic>>> list,
+  ) {
     if (list.length < 7) return [];
     final combined = <String, _MemberDoc>{};
     void putOrMerge(
@@ -8192,11 +9048,10 @@ class _MembersPageState extends State<MembersPage> {
       if (cur == null) {
         combined[doc.id] = doc;
       } else {
-        combined[doc.id] =
-            _MemberDoc(
-              doc.id,
-              _mergeMemberCacheWithFirestore(cur.data, doc.data),
-            );
+        combined[doc.id] = _MemberDoc(
+          doc.id,
+          _mergeMemberCacheWithFirestore(cur.data, doc.data),
+        );
       }
     }
 
@@ -8288,10 +9143,7 @@ class _MembersPremiumTabSwitcher extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             gradient: selected
                 ? LinearGradient(
-                    colors: [
-                      primary,
-                      Color.lerp(primary, Colors.black, 0.12)!,
-                    ],
+                    colors: [primary, Color.lerp(primary, Colors.black, 0.12)!],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   )
@@ -8438,7 +9290,7 @@ class _MembersPremiumStatsPanel extends StatefulWidget {
 
   /// Linha de membro (lista drill) — mesmas ações da aba Lista.
   final Widget Function(BuildContext context, _MemberDoc member)
-      buildMemberTile;
+  buildMemberTile;
   final VoidCallback onExportPdf;
   final VoidCallback onExportCsv;
   final VoidCallback? onRelatorioAvancado;
@@ -8485,9 +9337,8 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
     var ativos = 0, inativos = 0, pendentes = 0;
 
     final summary = widget.directorySummary;
-    final useSummaryCounts = summary != null &&
-        summary.hasCounts &&
-        widget.useDirectorySummary;
+    final useSummaryCounts =
+        summary != null && summary.hasCounts && widget.useDirectorySummary;
 
     if (useSummaryCounts) {
       ativos = summary.ativos;
@@ -8547,7 +9398,11 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
           children: [
             Padding(
               padding: EdgeInsets.fromLTRB(
-                  widget.padding.left, 4, widget.padding.right, 0),
+                widget.padding.left,
+                4,
+                widget.padding.right,
+                0,
+              ),
               child: _buildDrillHeader(primary, filtered.length),
             ),
             Expanded(
@@ -8558,8 +9413,11 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.people_outline_rounded,
-                                size: 52, color: Colors.grey.shade400),
+                            Icon(
+                              Icons.people_outline_rounded,
+                              size: 52,
+                              color: Colors.grey.shade400,
+                            ),
                             const SizedBox(height: 14),
                             Text(
                               'Nenhum membro neste grupo\ncom os filtros atuais da lista.',
@@ -8574,8 +9432,10 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                             const SizedBox(height: 18),
                             OutlinedButton.icon(
                               onPressed: _backToOverview,
-                              icon:
-                                  const Icon(Icons.bar_chart_rounded, size: 20),
+                              icon: const Icon(
+                                Icons.bar_chart_rounded,
+                                size: 20,
+                              ),
                               label: const Text('Voltar ao painel'),
                             ),
                           ],
@@ -8603,8 +9463,12 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
     return Container(
       color: ThemeCleanPremium.surfaceVariant,
       child: ListView(
-        padding: EdgeInsets.fromLTRB(widget.padding.left, 4,
-            widget.padding.right, 24 + widget.padding.bottom),
+        padding: EdgeInsets.fromLTRB(
+          widget.padding.left,
+          4,
+          widget.padding.right,
+          24 + widget.padding.bottom,
+        ),
         children: [
           Text(
             'Visão geral (filtros da lista, exceto busca por texto)',
@@ -8636,8 +9500,11 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.info_outline_rounded,
-                      size: 20, color: ThemeCleanPremium.primary),
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 20,
+                    color: ThemeCleanPremium.primary,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -8674,12 +9541,16 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                 onTap: widget.onOpenAprovar,
                 borderRadius: BorderRadius.circular(14),
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
                   child: Row(
                     children: [
-                      Icon(Icons.pending_actions_rounded,
-                          color: Colors.amber.shade900),
+                      Icon(
+                        Icons.pending_actions_rounded,
+                        color: Colors.amber.shade900,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -8691,8 +9562,10 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                           ),
                         ),
                       ),
-                      Icon(Icons.chevron_right_rounded,
-                          color: Colors.amber.shade900),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: Colors.amber.shade900,
+                      ),
                     ],
                   ),
                 ),
@@ -8832,7 +9705,9 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                   style: FilledButton.styleFrom(
                     backgroundColor: primary,
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                   ),
                 ),
                 OutlinedButton.icon(
@@ -8841,7 +9716,9 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                   label: const Text('CSV — exportar'),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     side: BorderSide(color: primary.withValues(alpha: 0.5)),
                   ),
                 ),
@@ -8853,7 +9730,9 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                     style: FilledButton.styleFrom(
                       foregroundColor: primary,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 12),
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
                     ),
                   ),
               ],
@@ -9022,10 +9901,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
           Container(
             width: 8,
             height: 8,
-            decoration: BoxDecoration(
-              color: c,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: c, shape: BoxShape.circle),
           ),
           const SizedBox(width: 8),
           Text(
@@ -9126,7 +10002,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
       'Adolesc.',
       'Adultos',
       'Idosos',
-      'Sem idade'
+      'Sem idade',
     ];
     const colors = [
       Color(0xFF38BDF8),
@@ -9157,10 +10033,8 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
             show: true,
             drawVerticalLine: false,
             horizontalInterval: maxY > 5 ? maxY / 5 : 1,
-            getDrawingHorizontalLine: (_) => FlLine(
-              color: const Color(0xFFE2E8F0),
-              strokeWidth: 1,
-            ),
+            getDrawingHorizontalLine: (_) =>
+                FlLine(color: const Color(0xFFE2E8F0), strokeWidth: 1),
           ),
           titlesData: FlTitlesData(
             bottomTitles: AxisTitles(
@@ -9198,10 +10072,12 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                 ),
               ),
             ),
-            topTitles:
-                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles:
-                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            rightTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
           ),
           borderData: FlBorderData(show: false),
           barGroups: [
@@ -9265,7 +10141,10 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
             color: Colors.white,
             shadows: const [
               Shadow(
-                  offset: Offset(0, 1), blurRadius: 4, color: Colors.black54),
+                offset: Offset(0, 1),
+                blurRadius: 4,
+                color: Colors.black54,
+              ),
             ],
           ),
           borderSide: const BorderSide(color: Color(0xFFF8FAFC), width: 2),
@@ -9274,11 +10153,20 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
     }
 
     addSlice(
-        homens.toDouble(), const Color(0xFF2563EB), _StatsDrillKind.genderMale);
-    addSlice(mulheres.toDouble(), const Color(0xFFDB2777),
-        _StatsDrillKind.genderFemale);
-    addSlice(outros.toDouble(), const Color(0xFF64748B),
-        _StatsDrillKind.genderUnknown);
+      homens.toDouble(),
+      const Color(0xFF2563EB),
+      _StatsDrillKind.genderMale,
+    );
+    addSlice(
+      mulheres.toDouble(),
+      const Color(0xFFDB2777),
+      _StatsDrillKind.genderFemale,
+    );
+    addSlice(
+      outros.toDouble(),
+      const Color(0xFF64748B),
+      _StatsDrillKind.genderUnknown,
+    );
 
     final chart = AspectRatio(
       aspectRatio: 1,
@@ -9303,7 +10191,8 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                           if (!event.isInterestedForInteractions) return;
                           if (event is! FlTapUpEvent) return;
                           final idx = pieTouchResponse
-                              ?.touchedSection?.touchedSectionIndex;
+                              ?.touchedSection
+                              ?.touchedSectionIndex;
                           if (idx == null ||
                               idx < 0 ||
                               idx >= sliceDrills.length) {
@@ -9347,7 +10236,11 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
     );
 
     Widget legendTile(
-        String label, int count, Color color, _StatsDrillKind drill) {
+      String label,
+      int count,
+      Color color,
+      _StatsDrillKind drill,
+    ) {
       final pct = total > 0 ? count / total * 100 : 0.0;
       return Padding(
         padding: const EdgeInsets.only(bottom: 10),
@@ -9413,8 +10306,11 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                       ),
                     ),
                   ),
-                  Icon(Icons.chevron_right_rounded,
-                      size: 18, color: Colors.grey.shade400),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 18,
+                    color: Colors.grey.shade400,
+                  ),
                 ],
               ),
             ),
@@ -9427,25 +10323,33 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (homens > 0)
-          legendTile('Homens', homens, const Color(0xFF2563EB),
-              _StatsDrillKind.genderMale),
+          legendTile(
+            'Homens',
+            homens,
+            const Color(0xFF2563EB),
+            _StatsDrillKind.genderMale,
+          ),
         if (mulheres > 0)
-          legendTile('Mulheres', mulheres, const Color(0xFFDB2777),
-              _StatsDrillKind.genderFemale),
+          legendTile(
+            'Mulheres',
+            mulheres,
+            const Color(0xFFDB2777),
+            _StatsDrillKind.genderFemale,
+          ),
         if (outros > 0)
-          legendTile('Sexo não informado', outros, const Color(0xFF64748B),
-              _StatsDrillKind.genderUnknown),
+          legendTile(
+            'Sexo não informado',
+            outros,
+            const Color(0xFF64748B),
+            _StatsDrillKind.genderUnknown,
+          ),
       ],
     );
 
     if (narrow) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          chart,
-          const SizedBox(height: 14),
-          legend,
-        ],
+        children: [chart, const SizedBox(height: 14), legend],
       );
     }
     return SizedBox(
@@ -9453,10 +10357,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Expanded(
-            flex: 11,
-            child: SingleChildScrollView(child: legend),
-          ),
+          Expanded(flex: 11, child: SingleChildScrollView(child: legend)),
           Expanded(flex: 10, child: chart),
         ],
       ),
@@ -9480,7 +10381,8 @@ class _CollapsibleSection extends StatelessWidget {
     required this.expanded,
     required this.onToggle,
     required this.child,
-  }) : subtitle = null, badgeCount = 0;
+  }) : subtitle = null,
+       badgeCount = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -9511,13 +10413,16 @@ class _CollapsibleSection extends StatelessWidget {
                     Container(
                       padding: EdgeInsets.all(expanded ? 10 : 8),
                       decoration: BoxDecoration(
-                        color:
-                            ThemeCleanPremium.primary.withValues(alpha: 0.08),
+                        color: ThemeCleanPremium.primary.withValues(
+                          alpha: 0.08,
+                        ),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Icon(icon,
-                          color: ThemeCleanPremium.primary,
-                          size: expanded ? 22 : 20),
+                      child: Icon(
+                        icon,
+                        color: ThemeCleanPremium.primary,
+                        size: expanded ? 22 : 20,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -9540,10 +10445,13 @@ class _CollapsibleSection extends StatelessWidget {
                                 const SizedBox(width: 8),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 2),
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: ThemeCleanPremium.primary
-                                        .withValues(alpha: 0.12),
+                                    color: ThemeCleanPremium.primary.withValues(
+                                      alpha: 0.12,
+                                    ),
                                     borderRadius: BorderRadius.circular(999),
                                   ),
                                   child: Text(
@@ -9577,11 +10485,12 @@ class _CollapsibleSection extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     Icon(
-                        expanded
-                            ? Icons.expand_less_rounded
-                            : Icons.expand_more_rounded,
-                        color: Colors.grey.shade600,
-                        size: 24),
+                      expanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      color: Colors.grey.shade600,
+                      size: 24,
+                    ),
                   ],
                 ),
               ),
@@ -9618,34 +10527,39 @@ class _ActionChip extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.09),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withValues(alpha: 0.22)),
-          boxShadow: [
-            BoxShadow(
-              color: color.withValues(alpha: 0.08),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            iconWidget ?? Icon(icon!, size: 20, color: color),
-            const SizedBox(width: 8),
-            Text(label,
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.09),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: color.withValues(alpha: 0.22)),
+            boxShadow: [
+              BoxShadow(
+                color: color.withValues(alpha: 0.08),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              iconWidget ?? Icon(icon!, size: 20, color: color),
+              const SizedBox(width: 8),
+              Text(
+                label,
                 style: TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w700, color: color)),
-          ],
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
     );
   }
 }
@@ -9664,12 +10578,15 @@ class _DetailSection extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.only(top: 16, bottom: 8),
-          child: Text(title,
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.grey.shade600,
-                  letterSpacing: 0.5)),
+          child: Text(
+            title,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: Colors.grey.shade600,
+              letterSpacing: 0.5,
+            ),
+          ),
         ),
         Container(
           decoration: BoxDecoration(
@@ -9712,16 +10629,22 @@ class _DetailRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon,
-              size: 18, color: ThemeCleanPremium.primary.withValues(alpha: 0.7)),
+          Icon(
+            icon,
+            size: 18,
+            color: ThemeCleanPremium.primary.withValues(alpha: 0.7),
+          ),
           const SizedBox(width: 12),
           SizedBox(
             width: 100,
-            child: Text(label,
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade600)),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade600,
+              ),
+            ),
           ),
           Expanded(
             child: Text(
@@ -9729,8 +10652,9 @@ class _DetailRow extends StatelessWidget {
               style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
               softWrap: true,
               maxLines: softWrapValue ? 8 : 4,
-              overflow:
-                  softWrapValue ? TextOverflow.clip : TextOverflow.ellipsis,
+              overflow: softWrapValue
+                  ? TextOverflow.clip
+                  : TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -9747,13 +10671,14 @@ class _EditField extends StatelessWidget {
   final List<TextInputFormatter>? inputFormatters;
   final String? hint;
 
-  const _EditField(
-      {required this.controller,
-      required this.label,
-      required this.icon,
-      this.type = TextInputType.text,
-      this.inputFormatters,
-      this.hint});
+  const _EditField({
+    required this.controller,
+    required this.label,
+    required this.icon,
+    this.type = TextInputType.text,
+    this.inputFormatters,
+    this.hint,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -9767,7 +10692,8 @@ class _EditField extends StatelessWidget {
           labelText: label,
           hintText: hint,
           border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+          ),
           prefixIcon: Icon(icon),
         ),
       ),
@@ -9784,8 +10710,7 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
   Future<String?> _loadSlug() async {
     try {
       final op = ChurchRepository.churchId(tenantId.trim());
-      final snap = await           ChurchUiCollections.churchDoc(op)
-          .get();
+      final snap = await ChurchUiCollections.churchDoc(op).get();
       return (snap.data()?['slug'] ?? snap.data()?['slugId'] ?? '')
           .toString()
           .trim();
@@ -9806,8 +10731,12 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
         String url = '';
         if (hasSlug) url = AppConstants.publicChurchMemberSignupUrl(slug);
         return Padding(
-          padding:
-              EdgeInsets.fromLTRB(padding.horizontal, 8, padding.horizontal, 0),
+          padding: EdgeInsets.fromLTRB(
+            padding.horizontal,
+            8,
+            padding.horizontal,
+            0,
+          ),
           child: Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -9815,23 +10744,31 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
               boxShadow: ThemeCleanPremium.softUiCardShadow,
               border: Border.all(
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.15)),
+                color: ThemeCleanPremium.primary.withValues(alpha: 0.15),
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(children: [
-                  Icon(Icons.link_rounded,
-                      color: ThemeCleanPremium.primary, size: 20),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Link para cadastro público',
-                      style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.link_rounded,
+                      color: ThemeCleanPremium.primary,
+                      size: 20,
                     ),
-                  ),
-                ]),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Link para cadastro público',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 8),
                 if (loading)
                   Padding(
@@ -9867,15 +10804,20 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
                   Text(
                     'Membros podem se cadastrar sozinhos por um link. Defina um "slug" (ex: minha-igreja) no Cadastro da Igreja e o link será gerado aqui.',
                     style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade700, height: 1.4),
+                      fontSize: 12,
+                      color: Colors.grey.shade700,
+                      height: 1.4,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   FilledButton.icon(
                     onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => IgrejaCadastroPage(
-                                tenantId: tenantId, role: role))),
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            IgrejaCadastroPage(tenantId: tenantId, role: role),
+                      ),
+                    ),
                     icon: const Icon(Icons.settings_rounded, size: 18),
                     label: const Text('Ir para Cadastro da Igreja'),
                     style: FilledButton.styleFrom(
@@ -9885,14 +10827,18 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
                   ),
                 ] else ...[
                   Text(
-                      'Compartilhe este link para novos membros se cadastrarem:',
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                    'Compartilhe este link para novos membros se cadastrarem:',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                  ),
                   const SizedBox(height: 6),
-                  SelectableText(url,
-                      style: const TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w600),
-                      maxLines: 2),
+                  SelectableText(
+                    url,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 2,
+                  ),
                   const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
@@ -9903,36 +10849,46 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
                           if (url.isEmpty) return;
                           Clipboard.setData(ClipboardData(text: url));
                           ScaffoldMessenger.of(context).showSnackBar(
-                              ThemeCleanPremium.successSnackBar(
-                                  'Link copiado!'));
+                            ThemeCleanPremium.successSnackBar('Link copiado!'),
+                          );
                         },
                         icon: const Icon(Icons.copy_rounded, size: 18),
                         label: const Text('Copiar link'),
                         style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(48, 36)),
+                          minimumSize: const Size(48, 36),
+                        ),
                       ),
                       OutlinedButton.icon(
                         onPressed: () {
                           if (url.isEmpty) return;
                           Share.share(
-                              'Cadastro de membro — preencha por este link:\n$url',
-                              subject: 'Cadastro de membro',
-                              sharePositionOrigin:
-                                  const Rect.fromLTWH(0, 0, 1, 1));
+                            'Cadastro de membro — preencha por este link:\n$url',
+                            subject: 'Cadastro de membro',
+                            sharePositionOrigin: const Rect.fromLTWH(
+                              0,
+                              0,
+                              1,
+                              1,
+                            ),
+                          );
                         },
                         icon: const Icon(Icons.share_rounded, size: 18),
                         label: const Text('Compartilhar'),
                         style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(48, 36)),
+                          minimumSize: const Size(48, 36),
+                        ),
                       ),
                       FilledButton.icon(
                         onPressed: () => PublicMemberSignupNavigation.open(
-                            context, slug: slug),
+                          context,
+                          slug: slug,
+                        ),
                         icon: const Icon(Icons.open_in_new_rounded, size: 18),
                         label: const Text('Abrir formulário'),
                         style: FilledButton.styleFrom(
-                            backgroundColor: ThemeCleanPremium.primary,
-                            minimumSize: const Size(48, 36)),
+                          backgroundColor: ThemeCleanPremium.primary,
+                          minimumSize: const Size(48, 36),
+                        ),
                       ),
                     ],
                   ),
@@ -9972,55 +10928,69 @@ class _MembersLimitBanner extends StatelessWidget {
       child: InkWell(
         onTap: () {
           if (isBlocked || isWarning) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(result.shortMessage,
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  result.shortMessage,
                   style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w600)),
-              backgroundColor: ThemeCleanPremium.success,
-              behavior: SnackBarBehavior.floating,
-              action: isBlocked && !IosPaymentsGate.shouldHidePayments
-                  ? SnackBarAction(
-                      label: 'Ver planos',
-                      textColor: Colors.white,
-                      onPressed: () {
-                        IosPaymentsGate.navigateToUpgradePlans(context);
-                      })
-                  : null,
-            ));
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                backgroundColor: ThemeCleanPremium.success,
+                behavior: SnackBarBehavior.floating,
+                action: isBlocked && !IosPaymentsGate.shouldHidePayments
+                    ? SnackBarAction(
+                        label: 'Ver planos',
+                        textColor: Colors.white,
+                        onPressed: () {
+                          IosPaymentsGate.navigateToUpgradePlans(context);
+                        },
+                      )
+                    : null,
+              ),
+            );
           }
         },
         child: Padding(
           padding: const EdgeInsets.symmetric(
-              horizontal: ThemeCleanPremium.spaceMd, vertical: 10),
+            horizontal: ThemeCleanPremium.spaceMd,
+            vertical: 10,
+          ),
           child: Row(
             children: [
-              Icon(icon,
-                  size: 22,
-                  color: isBlocked
-                      ? ThemeCleanPremium.error
-                      : (isWarning
+              Icon(
+                icon,
+                size: 22,
+                color: isBlocked
+                    ? ThemeCleanPremium.error
+                    : (isWarning
                           ? Colors.orange.shade800
-                          : ThemeCleanPremium.primary)),
+                          : ThemeCleanPremium.primary),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   result.shortMessage,
                   style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: isBlocked
-                          ? ThemeCleanPremium.error
-                          : (isWarning
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: isBlocked
+                        ? ThemeCleanPremium.error
+                        : (isWarning
                               ? Colors.orange.shade900
-                              : ThemeCleanPremium.onSurfaceVariant)),
+                              : ThemeCleanPremium.onSurfaceVariant),
+                  ),
                 ),
               ),
               if (isBlocked || isWarning)
-                Icon(Icons.arrow_forward_ios_rounded,
-                    size: 14,
-                    color: isBlocked
-                        ? ThemeCleanPremium.error
-                        : Colors.orange.shade800),
+                Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 14,
+                  color: isBlocked
+                      ? ThemeCleanPremium.error
+                      : Colors.orange.shade800,
+                ),
             ],
           ),
         ),
@@ -10102,16 +11072,17 @@ String _normalizeFuncao(String v) {
 Map<String, dynamic> _mergeMemberCacheWithFirestore(
   Map<String, dynamic> cacheData,
   Map<String, dynamic> firestoreData,
-) =>
-    _mergeMemberPhotoFields(
-      <String, dynamic>{...cacheData, ...firestoreData},
-      firestoreData,
-    );
+) => _mergeMemberPhotoFields(<String, dynamic>{
+  ...cacheData,
+  ...firestoreData,
+}, firestoreData);
 
 /// **Importante:** não retornar [a] só porque já tem URL "válida" (ex. avatar Google em `photoURL`):
 /// senão a [FOTO_URL_OU_ID] nova do Storage em [b] (membros) nunca entra na lista após salvar.
 Map<String, dynamic> _mergeMemberPhotoFields(
-    Map<String, dynamic> a, Map<String, dynamic> b) {
+  Map<String, dynamic> a,
+  Map<String, dynamic> b,
+) {
   bool hasFirebaseStorageMemberPhoto(Map<String, dynamic> m) {
     for (final k in [
       'photoStoragePath',
@@ -10216,15 +11187,15 @@ Map<String, dynamic> _mergeMemberPhotoFields(
   return out2;
 }
 
-String _str(Map<String, dynamic> d, String key1,
-    [String? key2, String? key3, String? key4, String? key5]) {
-  final keys = [
-    key1,
-    ?key2,
-    ?key3,
-    ?key4,
-    ?key5,
-  ];
+String _str(
+  Map<String, dynamic> d,
+  String key1, [
+  String? key2,
+  String? key3,
+  String? key4,
+  String? key5,
+]) {
+  final keys = [key1, ?key2, ?key3, ?key4, ?key5];
   return FirestoreMapFields.pickString(d, keys);
 }
 
@@ -10341,9 +11312,10 @@ class _MemberAvatar extends StatelessWidget {
       child: Text(
         initial,
         style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w800,
-            fontSize: radius * 0.9),
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: radius * 0.9,
+        ),
       ),
     );
   }
@@ -10421,7 +11393,8 @@ class _MemberAvatar extends StatelessWidget {
 
     final memberWidget = FotoMembroWidget(
       key: ValueKey<String>(
-          'mav_${tid}_${mid}_${urlKey}_${rev}_${memoryPreviewBytes?.length ?? 0}'),
+        'mav_${tid}_${mid}_${urlKey}_${rev}_${memoryPreviewBytes?.length ?? 0}',
+      ),
       imageUrl: urlKey.isNotEmpty ? urlKey : photoUrl,
       memoryPreviewBytes: memoryPreviewBytes,
       size: size,

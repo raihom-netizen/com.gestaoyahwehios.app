@@ -34,6 +34,7 @@ abstract final class PatrimonioStrictPublishService {
         existingUrls: existingUrls,
         userUid: userUid,
         onUploadProgress: onUploadProgress,
+        queueOnTransientFailure: false,
       );
 
   static Future<void> publishMetadataOnly({

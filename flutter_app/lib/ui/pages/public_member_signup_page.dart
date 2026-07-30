@@ -65,7 +65,7 @@ class PublicMemberSignupPage extends StatefulWidget {
   /// ID do tenant (para abrir a partir do painel quando a igreja não tem slug).
   final String? tenantId;
   const PublicMemberSignupPage({super.key, this.slug, this.tenantId})
-      : assert(slug != null || tenantId != null, 'Informe slug ou tenantId');
+    : assert(slug != null || tenantId != null, 'Informe slug ou tenantId');
 
   @override
   State<PublicMemberSignupPage> createState() => _PublicMemberSignupPageState();
@@ -94,8 +94,10 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   String? _tenantId;
   String _tenantName = 'Igreja';
   String? _tenantLogoUrl;
+
   /// Snapshot do doc `igrejas/{id}` para resolver logo via path/Storage (igual ao site público).
   Map<String, dynamic>? _tenantChurchData;
+
   /// URL já resolvida em [_loadTenant] — evita segundo [resolveChurchTenantLogoUrl] no [StableChurchLogo].
   String? _resolvedChurchLogoUrl;
   String _tenantEndereco = '';
@@ -126,11 +128,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   int _signupStep = 0;
 
   Color get _signupStepAccent {
-    const colors = [
-      Color(0xFF6366F1),
-      Color(0xFF10B981),
-      Color(0xFFF97316),
-    ];
+    const colors = [Color(0xFF6366F1), Color(0xFF10B981), Color(0xFFF97316)];
     return colors[_signupStep.clamp(0, 2)];
   }
 
@@ -141,16 +139,15 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     Widget? suffixIcon,
     String? counterText,
     bool required = false,
-  }) =>
-      memberSignupInputDecoration(
-        label: label,
-        hint: hint,
-        icon: icon,
-        suffixIcon: suffixIcon,
-        counterText: counterText,
-        accentColor: _signupStepAccent,
-        required: required,
-      );
+  }) => memberSignupInputDecoration(
+    label: label,
+    hint: hint,
+    icon: icon,
+    suffixIcon: suffixIcon,
+    counterText: counterText,
+    accentColor: _signupStepAccent,
+    required: required,
+  );
 
   String? _reqEmail(String? v) {
     final base = _req(v);
@@ -193,9 +190,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   @override
   void initState() {
     super.initState();
-    unawaited(YahwehModuleMediaGate.ensureReadyForPublicMedia(
-      module: YahwehMediaModule.membros,
-    ));
+    unawaited(
+      YahwehModuleMediaGate.ensureReadyForPublicMedia(
+        module: YahwehMediaModule.membros,
+      ),
+    );
     final slugPeek = (widget.slug ?? '').trim();
     if (slugPeek.isNotEmpty) {
       final instant = PublicChurchSlugResolver.peek(slugPeek);
@@ -214,10 +213,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   bool _tryApplySessionChurchInstant() {
     final ctxData = ChurchContextService.currentChurchData;
     final ctxId = ChurchContextService.currentChurchId;
-    if (ctxData == null ||
-        ctxData.isEmpty ||
-        ctxId == null ||
-        ctxId.isEmpty) {
+    if (ctxData == null || ctxData.isEmpty || ctxId == null || ctxId.isEmpty) {
       return false;
     }
     final hint = (widget.tenantId ?? widget.slug ?? '').trim();
@@ -314,10 +310,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     if (tid == null || tid.isEmpty) return fallback;
 
     final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
-    final cacheW =
-        memCacheExtentForLogicalSize(maxWidth, dpr, maxPx: 512);
-    final cacheH =
-        memCacheExtentForLogicalSize(maxHeight, dpr, maxPx: 512);
+    final cacheW = memCacheExtentForLogicalSize(maxWidth, dpr, maxPx: 512);
+    final cacheH = memCacheExtentForLogicalSize(maxHeight, dpr, maxPx: 512);
 
     final pre = _resolvedChurchLogoUrl?.trim();
     if (pre != null && pre.isNotEmpty) {
@@ -359,8 +353,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     }
 
     final preferRaw = _tenantLogoUrl?.trim();
-    final prefer =
-        (preferRaw != null && preferRaw.isNotEmpty) ? preferRaw : null;
+    final prefer = (preferRaw != null && preferRaw.isNotEmpty)
+        ? preferRaw
+        : null;
     final sp = ChurchImageFields.logoStoragePath(tenantMap, churchIdHint: tid);
 
     return SizedBox(
@@ -371,8 +366,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         tenantId: tid,
         tenantData: tenantMap,
         imageUrl: prefer,
-        storagePath: sp ??
-            (tid.isNotEmpty ? ChurchStorageLayout.churchIdentityLogoPath(tid) : null),
+        storagePath:
+            sp ??
+            (tid.isNotEmpty
+                ? ChurchStorageLayout.churchIdentityLogoPath(tid)
+                : null),
         width: maxWidth,
         height: maxHeight,
         fit: BoxFit.contain,
@@ -399,7 +397,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         tenantId: tid,
         tenantData: churchWithId,
         preferImageUrl: ChurchImageFields.logoHttpsUrlFromDoc(churchWithId),
-        preferStoragePath: ChurchImageFields.logoStoragePath(
+        preferStoragePath:
+            ChurchImageFields.logoStoragePath(
               churchWithId,
               churchIdHint: tid,
             ) ??
@@ -421,8 +420,10 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       if (!result.ok) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text(
-                  'CEP não encontrado. Preencha os campos manualmente ou tente outro CEP.')),
+            content: Text(
+              'CEP não encontrado. Preencha os campos manualmente ou tente outro CEP.',
+            ),
+          ),
         );
         setState(() => _loadingCep = false);
         return;
@@ -445,14 +446,15 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Endereço preenchido automaticamente pelo CEP.')),
+            content: Text('Endereço preenchido automaticamente pelo CEP.'),
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao buscar CEP: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao buscar CEP: $e')));
       }
     } finally {
       if (mounted) setState(() => _loadingCep = false);
@@ -521,15 +523,17 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     _tenantLogoUrl = logoFromDoc;
     _resolvedChurchLogoUrl = logoFromDoc;
     _tenantEndereco = enderecoCompleto;
-    _tenantAlias =
-        (data['alias'] ?? data['slug'] ?? op).toString().trim();
+    _tenantAlias = (data['alias'] ?? data['slug'] ?? op).toString().trim();
     _tenantSlug = (data['slug'] ?? data['alias'] ?? op).toString().trim();
     if (_tenantAlias.isEmpty) _tenantAlias = op;
     if (_tenantSlug.isEmpty) _tenantSlug = op;
     _loading = false;
   }
 
-  void _refreshTenantLogoInBackground(String operational, Map<String, dynamic> data) {
+  void _refreshTenantLogoInBackground(
+    String operational,
+    Map<String, dynamic> data,
+  ) {
     final churchWithId = Map<String, dynamic>.from(data)..['id'] = operational;
     unawaited(() async {
       final resolved = await _prefetchChurchLogoUrl(
@@ -574,7 +578,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       final tid = (_tenantId ?? widget.tenantId ?? '').trim();
       if (tid.isEmpty) return;
       try {
-        final hit = await IgrejaDirectFirestoreReads.readIgrejaPublicProfile(tid);
+        final hit = await IgrejaDirectFirestoreReads.readIgrejaPublicProfile(
+          tid,
+        );
         if (hit != null && hit.data.isNotEmpty && mounted) {
           await _applyTenantFromChurchData(hit.docId, hit.data);
         }
@@ -587,10 +593,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         tenantIdHint: widget.tenantId,
       );
       if (resolved != null) {
-        await _applyTenantFromChurchData(
-          resolved.churchId,
-          resolved.profile,
-        );
+        await _applyTenantFromChurchData(resolved.churchId, resolved.profile);
         final slugTrim = widget.slug?.trim() ?? '';
         if (slugTrim.isNotEmpty) {
           unawaited(_enrichTenantProfile(slugTrim, resolved));
@@ -616,7 +619,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     if (birth == null) return null;
     final now = DateTime.now();
     int age = now.year - birth.year;
-    final hasHadBirthday = (now.month > birth.month) ||
+    final hasHadBirthday =
+        (now.month > birth.month) ||
         (now.month == birth.month && now.day >= birth.day);
     if (!hasHadBirthday) age -= 1;
     return age;
@@ -649,8 +653,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   /// URL completa para copiar/partilhar (respeita domínio público da igreja quando configurado).
   String _fullTrackingUrl(String protocol) {
     final path = _statusTrackPath(protocol);
-    final base =
-        AppConstants.publicWebBaseUrlForChurch(_tenantChurchData).trim();
+    final base = AppConstants.publicWebBaseUrlForChurch(
+      _tenantChurchData,
+    ).trim();
     if (path.startsWith('http')) return path;
     return '$base$path';
   }
@@ -687,8 +692,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                 ),
                                 decoration: BoxDecoration(
                                   color: Colors.white,
-                                  borderRadius:
-                                      BorderRadius.circular(22),
+                                  borderRadius: BorderRadius.circular(22),
                                   border: Border.all(
                                     color: const Color(0xFFE2E8F0),
                                   ),
@@ -765,19 +769,29 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                           if (_emailCtrl.text.trim().isNotEmpty) ...[
                             const SizedBox(height: 12),
                             Container(
-                              padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                              padding: const EdgeInsets.fromLTRB(
+                                14,
+                                12,
+                                14,
+                                12,
+                              ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF0FDF4),
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
-                                  color: const Color(0xFF86EFAC).withValues(alpha: 0.7),
+                                  color: const Color(
+                                    0xFF86EFAC,
+                                  ).withValues(alpha: 0.7),
                                 ),
                               ),
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Icon(Icons.mark_email_read_outlined,
-                                      size: 22, color: Colors.green.shade700),
+                                  Icon(
+                                    Icons.mark_email_read_outlined,
+                                    size: 22,
+                                    color: Colors.green.shade700,
+                                  ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Text(
@@ -800,14 +814,16 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusLg),
+                                  ThemeCleanPremium.radiusLg,
+                                ),
                                 border: Border.all(
                                   color: const Color(0xFFBFDBFE),
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: const Color(0xFF2563EB)
-                                        .withValues(alpha: 0.08),
+                                    color: const Color(
+                                      0xFF2563EB,
+                                    ).withValues(alpha: 0.08),
                                     blurRadius: 24,
                                     offset: const Offset(0, 10),
                                   ),
@@ -818,8 +834,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                 children: [
                                   Row(
                                     children: [
-                                      Icon(Icons.track_changes_rounded,
-                                          color: Colors.blue.shade700, size: 22),
+                                      Icon(
+                                        Icons.track_changes_rounded,
+                                        color: Colors.blue.shade700,
+                                        size: 22,
+                                      ),
                                       const SizedBox(width: 8),
                                       const Text(
                                         'Acompanhamento do cadastro',
@@ -853,23 +872,23 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                           ),
                                         ),
                                         onPressed: () {
-                                          final protocol =
-                                              _lastSubmittedDocId!;
+                                          final protocol = _lastSubmittedDocId!;
                                           Navigator.of(context).push(
                                             MaterialPageRoute(
                                               builder: (_) =>
                                                   PublicSignupStatusPage(
-                                                slug: _tenantSlug.isNotEmpty
-                                                    ? _tenantSlug
-                                                    : (_tenantId ?? ''),
-                                                protocolo: protocol,
-                                              ),
+                                                    slug: _tenantSlug.isNotEmpty
+                                                        ? _tenantSlug
+                                                        : (_tenantId ?? ''),
+                                                    protocolo: protocol,
+                                                  ),
                                             ),
                                           );
                                         },
                                         icon: const Icon(
-                                            Icons.visibility_rounded,
-                                            size: 20),
+                                          Icons.visibility_rounded,
+                                          size: 20,
+                                        ),
                                         label: const Text('Acompanhar agora'),
                                       ),
                                       OutlinedButton.icon(
@@ -880,16 +899,17 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                           ),
                                         ),
                                         onPressed: () async {
-                                          final protocol =
-                                              _lastSubmittedDocId!;
-                                          final full =
-                                              _fullTrackingUrl(protocol);
+                                          final protocol = _lastSubmittedDocId!;
+                                          final full = _fullTrackingUrl(
+                                            protocol,
+                                          );
                                           await Clipboard.setData(
                                             ClipboardData(text: full),
                                           );
                                           if (mounted) {
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
                                               const SnackBar(
                                                 content: Text(
                                                   'Link completo copiado.',
@@ -898,8 +918,10 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                             );
                                           }
                                         },
-                                        icon: const Icon(Icons.copy_rounded,
-                                            size: 20),
+                                        icon: const Icon(
+                                          Icons.copy_rounded,
+                                          size: 20,
+                                        ),
                                         label: const Text('Copiar link'),
                                       ),
                                     ],
@@ -942,8 +964,10 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                     _photoBytes = null;
                                   });
                                 },
-                                icon: const Icon(Icons.person_add_rounded,
-                                    size: 20),
+                                icon: const Icon(
+                                  Icons.person_add_rounded,
+                                  size: 20,
+                                ),
                                 label: const Text('Voltar ao início'),
                               ),
                               OutlinedButton.icon(
@@ -954,17 +978,19 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                     Navigator.maybePop(context);
                                   }
                                 },
-                                icon: const Icon(Icons.refresh_rounded,
-                                    size: 20),
+                                icon: const Icon(
+                                  Icons.refresh_rounded,
+                                  size: 20,
+                                ),
                                 label: const Text('Recarregar'),
                               ),
                               FilledButton.tonalIcon(
                                 onPressed: () =>
                                     Navigator.pushNamedAndRemoveUntil(
-                                  context,
-                                  '/igreja/login',
-                                  (_) => false,
-                                ),
+                                      context,
+                                      '/igreja/login',
+                                      (_) => false,
+                                    ),
                                 icon: const Icon(Icons.login_rounded, size: 20),
                                 label: const Text('Ir para login da igreja'),
                               ),
@@ -984,7 +1010,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   }
 
   Future<void> _pickBirthDate() async {
-    final initial = _birthDate ??
+    final initial =
+        _birthDate ??
         memberSignupParseBirthDateBr(_birthDateCtrl.text.trim()) ??
         DateTime(2000, 1, 1);
     final picked = await showDatePicker(
@@ -1018,8 +1045,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       _photoFile = XFile.fromData(hit.bytes, name: hit.displayName);
       _photoBytes = hit.bytes;
     });
-    final resolution =
-        await ImmediateMediaAttachFeedback.readResolution(hit.bytes);
+    final resolution = await ImmediateMediaAttachFeedback.readResolution(
+      hit.bytes,
+    );
     if (!mounted) return;
     ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
       context,
@@ -1062,21 +1090,26 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   }
 
   /// `igrejas/{tenant}/membros/{memberDocId}/foto_perfil.jpg` — path fixo (1 foto).
-  Future<({String url, String storagePath})> _uploadPhoto({
+  Future<({String url, String storagePath, String thumbStoragePath})>
+  _uploadPhoto({
     required String tenantId,
     required String memberDocId,
     XFile? file,
     Uint8List? rawBytes,
   }) async {
-    final raw = rawBytes ??
-        (file != null ? await file.readAsBytes() : Uint8List.fromList(const []));
+    final raw =
+        rawBytes ??
+        (file != null
+            ? await file.readAsBytes()
+            : Uint8List.fromList(const []));
     if (raw.isEmpty) {
       throw Exception('Foto vazia — selecione outra imagem.');
     }
     final mid = memberDocId.trim().isEmpty
         ? 'membro_${DateTime.now().millisecondsSinceEpoch}'
         : memberDocId.trim();
-    final isPublicVisitor = FirebaseAuth.instance.currentUser == null ||
+    final isPublicVisitor =
+        FirebaseAuth.instance.currentUser == null ||
         FirebaseAuth.instance.currentUser!.isAnonymous;
     return MemberProfilePhotoSaveService.uploadStorageOnlyControleTotal(
       tenantId: tenantId.trim(),
@@ -1088,8 +1121,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
 
   /// Avatar automático quando o membro não envia foto.
   String _buildAutoAvatarUrl(String memberDocId) {
-    final name =
-        _nameCtrl.text.trim().isEmpty ? 'Membro' : _nameCtrl.text.trim();
+    final name = _nameCtrl.text.trim().isEmpty
+        ? 'Membro'
+        : _nameCtrl.text.trim();
     final seed = _onlyDigits(_cpfCtrl.text).isNotEmpty
         ? _onlyDigits(_cpfCtrl.text)
         : memberDocId;
@@ -1100,26 +1134,28 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     if (_saving) return;
     if (!_validatePhotoRequired()) return;
     if (!_formKey.currentState!.validate()) return;
-    final birthParsed = memberSignupParseBirthDateBr(_birthDateCtrl.text.trim());
+    final birthParsed = memberSignupParseBirthDateBr(
+      _birthDateCtrl.text.trim(),
+    );
     if (birthParsed == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Informe a data de nascimento (DD/MM/AAAA).')),
+          content: Text('Informe a data de nascimento (DD/MM/AAAA).'),
+        ),
       );
       return;
     }
     final today = DateTime.now();
-    if (birthParsed
-        .isAfter(DateTime(today.year, today.month, today.day))) {
+    if (birthParsed.isAfter(DateTime(today.year, today.month, today.day))) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Data de nascimento inválida.')),
       );
       return;
     }
     if (_tenantId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Igreja nao encontrada.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Igreja nao encontrada.')));
       return;
     }
     if (_tenantBlocked) {
@@ -1151,14 +1187,17 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
             content: Text(limitResult.blockedDialogMessage),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Entendi')),
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Entendi'),
+              ),
               if (!IosPaymentsGate.shouldHidePayments)
                 FilledButton(
                   onPressed: () {
                     Navigator.pop(ctx);
-                    Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const RenewPlanPage()));
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const RenewPlanPage()),
+                    );
                   },
                   child: const Text('Ver planos'),
                 ),
@@ -1173,8 +1212,10 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text(
-                  'Igreja não identificada. Recarregue a página ou use o link correto da igreja.')),
+            content: Text(
+              'Igreja não identificada. Recarregue a página ou use o link correto da igreja.',
+            ),
+          ),
         );
       }
       return;
@@ -1183,8 +1224,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content:
-                Text('Cadastro temporariamente indisponível para esta igreja.'),
+            content: Text(
+              'Cadastro temporariamente indisponível para esta igreja.',
+            ),
           ),
         );
       }
@@ -1193,42 +1235,53 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     final cpfDigits = _onlyDigits(_cpfCtrl.text);
     final emailNorm = _emailCtrl.text.trim().toLowerCase();
     final op = ChurchRepository.churchId(_tenantId!);
-    final col =         ChurchUiCollections.membros(op);
+    final col = ChurchUiCollections.membros(op);
     final editingDocId = _editModeAfterSubmit ? _lastSubmittedDocId : null;
 
     // Duplicado: precisa de leitura em `membros` (regras só para tenant). Visitantes não têm — evitar permission-denied.
     if (!isPublicVisitor) {
       if (cpfDigits.length == 11) {
-        final byCpf = await col.where('CPF', isEqualTo: cpfDigits).limit(2).get();
-        final byCpfLower =
-            await col.where('cpf', isEqualTo: cpfDigits).limit(2).get();
+        final byCpf = await col
+            .where('CPF', isEqualTo: cpfDigits)
+            .limit(2)
+            .get();
+        final byCpfLower = await col
+            .where('cpf', isEqualTo: cpfDigits)
+            .limit(2)
+            .get();
         final conflictCpf =
             byCpf.docs.where((d) => d.id != editingDocId).isNotEmpty ||
-                byCpfLower.docs.where((d) => d.id != editingDocId).isNotEmpty;
+            byCpfLower.docs.where((d) => d.id != editingDocId).isNotEmpty;
         if (conflictCpf) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-                content:
-                    Text('Já existe um cadastro com este CPF nesta igreja.')),
+              content: Text('Já existe um cadastro com este CPF nesta igreja.'),
+            ),
           );
           return;
         }
       }
       if (emailNorm.isNotEmpty) {
-        final byEmail =
-            await col.where('EMAIL', isEqualTo: emailNorm).limit(2).get();
-        final byEmailLower =
-            await col.where('email', isEqualTo: emailNorm).limit(2).get();
+        final byEmail = await col
+            .where('EMAIL', isEqualTo: emailNorm)
+            .limit(2)
+            .get();
+        final byEmailLower = await col
+            .where('email', isEqualTo: emailNorm)
+            .limit(2)
+            .get();
         final conflictEmail =
             byEmail.docs.where((d) => d.id != editingDocId).isNotEmpty ||
-                byEmailLower.docs.where((d) => d.id != editingDocId).isNotEmpty;
+            byEmailLower.docs.where((d) => d.id != editingDocId).isNotEmpty;
         if (conflictEmail) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-                content:
-                    Text('Já existe um cadastro com este e-mail nesta igreja.')),
+              content: Text(
+                'Já existe um cadastro com este e-mail nesta igreja.',
+              ),
+            ),
           );
           return;
         }
@@ -1242,16 +1295,19 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         await PublicSiteMediaAuth.ensurePublicVisitorMediaAccess();
       }
       if (_photoBytes != null && _photoBytes!.isNotEmpty) {
-        await ChurchMediaUploadFacade.ensureReady(requireAuth: !isPublicVisitor);
+        await ChurchMediaUploadFacade.ensureReady(
+          requireAuth: !isPublicVisitor,
+        );
       }
       // Cadastro público usa ID aleatório: não sobrescreve a foto/documento de
       // outro membro com o mesmo CPF antes da validação server-side.
       final ref = editingDocId != null
           ? col.doc(editingDocId)
           : (isPublicVisitor
-              ? col.doc()
-              : (cpfDigits.length == 11 ? col.doc(cpfDigits) : col.doc()));
+                ? col.doc()
+                : (cpfDigits.length == 11 ? col.doc(cpfDigits) : col.doc()));
       String? photoStoragePathField;
+      String? photoThumbStoragePathField;
       String? photoUrlField;
       if (_photoBytes != null && _photoBytes!.isNotEmpty) {
         GlobalUploadProgress.instance.start('Enviando foto…');
@@ -1264,6 +1320,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
               rawBytes: _photoBytes,
             );
             photoStoragePathField = uploaded.storagePath;
+            photoThumbStoragePathField = uploaded.thumbStoragePath;
             photoUrlField = sanitizeImageUrl(uploaded.url);
           } on MemberProfilePhotoQueuedLocally {
             // Cadastro segue; foto sincroniza depois.
@@ -1307,7 +1364,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
           ...ChurchCanonicalMediaPublish.memberProfileFields(
             downloadUrl: photoUrlField ?? '',
             storagePath: photoStoragePathField,
-            thumbStoragePath: photoStoragePathField,
+            thumbStoragePath:
+                photoThumbStoragePathField ?? photoStoragePathField,
           ),
         'PUBLIC_SIGNUP': true,
         'publicSignup': true,
@@ -1321,7 +1379,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         'FILIACAO_PAI': _filiacaoPaiCtrl.text.trim(),
         'FILIACAO_MAE': _filiacaoMaeCtrl.text.trim(),
         'FILIACAO': _buildFiliacaoLegado(
-            _filiacaoPaiCtrl.text.trim(), _filiacaoMaeCtrl.text.trim()),
+          _filiacaoPaiCtrl.text.trim(),
+          _filiacaoMaeCtrl.text.trim(),
+        ),
       };
       if (isPublicVisitor) {
         // Callable pública (sem Auth anónimo): Admin SDK valida igreja,
@@ -1344,8 +1404,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         updateData.remove('CRIADO_EM');
         await ref.update(updateData);
       } else {
-        final codigoMembro =
-            await MemberCodigoService.allocateNext(_tenantId!);
+        final codigoMembro = await MemberCodigoService.allocateNext(_tenantId!);
         data.addAll(MemberCodigoService.fieldsForFirestore(codigoMembro));
         if (kIsWeb) {
           await AdminFeedFirestoreBridge.upsertTenantDoc(
@@ -1361,8 +1420,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         }
         if (_tenantId != null && _tenantId!.trim().isNotEmpty) {
           unawaited(
-            DashboardStatsCounterService.onMemberCreated(_tenantId!.trim())
-                .catchError((_) {}),
+            DashboardStatsCounterService.onMemberCreated(
+              _tenantId!.trim(),
+            ).catchError((_) {}),
           );
         }
       }
@@ -1383,12 +1443,14 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     } catch (e) {
       await YahwehModuleMediaGate.recoverNoAppAfterPublishError(
         e,
-        requireAuth: !(FirebaseAuth.instance.currentUser == null ||
-            FirebaseAuth.instance.currentUser!.isAnonymous),
+        requireAuth:
+            !(FirebaseAuth.instance.currentUser == null ||
+                FirebaseAuth.instance.currentUser!.isAnonymous),
       );
       if (!mounted) return;
       final u = FirebaseAuth.instance.currentUser;
-      final msg = e.toString().contains('permission-denied') &&
+      final msg =
+          e.toString().contains('permission-denied') &&
               (u == null || u.isAnonymous)
           ? 'Não foi possível gravar. Verifique os dados e tente novamente, ou entre em contato com a igreja.'
           : formatUploadErrorForUser(e);
@@ -1400,8 +1462,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
 
   void _snackWizard(String m) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(m), behavior: SnackBarBehavior.floating));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(m), behavior: SnackBarBehavior.floating),
+    );
   }
 
   bool _validateWizardStep0() {
@@ -1413,14 +1476,15 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       _snackWizard('CPF deve ter 11 dígitos.');
       return false;
     }
-    final birthParsed = memberSignupParseBirthDateBr(_birthDateCtrl.text.trim());
+    final birthParsed = memberSignupParseBirthDateBr(
+      _birthDateCtrl.text.trim(),
+    );
     if (birthParsed == null) {
       _snackWizard('Informe a data de nascimento (DD/MM/AAAA).');
       return false;
     }
     final today = DateTime.now();
-    if (birthParsed
-        .isAfter(DateTime(today.year, today.month, today.day))) {
+    if (birthParsed.isAfter(DateTime(today.year, today.month, today.day))) {
       _snackWizard('Data de nascimento inválida.');
       return false;
     }
@@ -1468,9 +1532,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
             ),
           )
         : churchNotFound
-            ? Icon(Icons.church_rounded,
-                size: 30, color: Colors.grey.shade400)
-            : _publicSignupChurchLogo(maxWidth: 40, maxHeight: 40);
+        ? Icon(Icons.church_rounded, size: 30, color: Colors.grey.shade400)
+        : _publicSignupChurchLogo(maxWidth: 40, maxHeight: 40);
     return PublicMemberSignupCompactHeader(
       loading: loading,
       churchNotFound: churchNotFound,
@@ -1488,29 +1551,23 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         backgroundColor: Colors.transparent,
         body: ChurchPublicSiteScaffoldBackground(
           child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _buildPublicChurchHeader(
-              loading: false,
-              churchNotFound: true,
-            ),
-            const Expanded(
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'Verifique o link ou fale com a igreja.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: Colors.black54,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildPublicChurchHeader(loading: false, churchNotFound: true),
+              const Expanded(
+                child: Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'Verifique o link ou fale com a igreja.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 15, color: Colors.black54),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
         ),
       );
     }
@@ -1523,538 +1580,690 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       backgroundColor: Colors.transparent,
       body: ChurchPublicSiteScaffoldBackground(
         child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildPublicChurchHeader(loading: _loading),
-          Expanded(
-            child: Padding(
-              padding: ThemeCleanPremium.pagePadding(context),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 500),
-                  child: AbsorbPointer(
-                    absorbing: _loading || _saving,
-                    child: Opacity(
-                      opacity: _loading ? 0.72 : 1,
-                      child: Form(
-                    key: _formKey,
-                    child: ListView(
-                      children: [
-                    if (_loading) ...[
-                    const LinearProgressIndicator(
-                      minHeight: 3,
-                      color: Color(0xFF0D9488),
-                      backgroundColor: Color(0x220D9488),
-                    ),
-                    const SizedBox(height: 12),
-                    ],
-                    MemberSignupWizardProgress(step: _signupStep),
-                    const SizedBox(height: 14),
-                    const MemberSignupRequiredFieldsAlert(),
-                    const SizedBox(height: 16),
-                    YahwehWisdomSectionCard(
-                      margin: EdgeInsets.zero,
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                    if (_signupStep == 0) ...[
-                    Text(
-                      'Preencha os campos obrigatórios (*) para entrar no cadastro da igreja.',
-                      style: TextStyle(
-                        color: Colors.grey.shade700,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        height: 1.35,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    MemberSignupSectionTitle(
-                      title: 'Dados pessoais',
-                      accentColor: _signupStepAccent,
-                    ),
-                    const SizedBox(height: 10),
-                    TextFormField(
-                      controller: _nameCtrl,
-                      decoration: _signInput(
-                          label: 'Nome completo',
-                          icon: Icons.person_rounded,
-                          required: true),
-                      validator: _reqName,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _filiacaoMaeCtrl,
-                      decoration: _signInput(
-                          label: 'Filiação (mãe)',
-                          icon: Icons.family_restroom_rounded),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _filiacaoPaiCtrl,
-                      decoration: _signInput(
-                          label: 'Filiação (pai)',
-                          icon: Icons.family_restroom_rounded),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _cpfCtrl,
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                              LengthLimitingTextInputFormatter(11),
-                              TextInputFormatter.withFunction(
-                                  (oldValue, newValue) {
-                                final masked = memberSignupFormatCpfMask(newValue.text);
-                                return TextEditingValue(
-                                  text: masked,
-                                  selection: TextSelection.collapsed(
-                                      offset: masked.length),
-                                );
-                              }),
-                            ],
-                            decoration: _signInput(
-                                label: 'CPF',
-                                icon: Icons.badge_rounded,
-                                required: true),
-                            validator: (v) {
-                              final msg = _req(v);
-                              if (msg != null) return msg;
-                              final digits = _onlyDigits(v!);
-                              if (digits.length != 11) return 'CPF invalido';
-                              return null;
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _birthDateCtrl,
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [
-                              MemberSignupBirthDateInputFormatter(),
-                              LengthLimitingTextInputFormatter(10),
-                            ],
-                            decoration: _signInput(
-                              label: 'Data de nascimento',
-                              icon: Icons.cake_rounded,
-                              hint: 'DD/MM/AAAA',
-                              required: true,
-                              suffixIcon: IconButton(
-                                icon: Icon(Icons.calendar_month_rounded,
-                                    color: ThemeCleanPremium.primary),
-                                tooltip: 'Calendário',
-                                onPressed: _pickBirthDate,
-                              ),
-                            ),
-                            validator: (v) {
-                              final t = (v ?? '').trim();
-                              if (t.isEmpty) return 'Campo obrigatório';
-                              final p = memberSignupParseBirthDateBr(t);
-                              if (p == null) return 'Use DD/MM/AAAA';
-                              final now = DateTime.now();
-                              if (p.isAfter(
-                                  DateTime(now.year, now.month, now.day))) {
-                                return 'Data inválida';
-                              }
-                              return null;
-                            },
-                            onChanged: (v) {
-                              final p = memberSignupParseBirthDateBr(v);
-                              if (p != null) {
-                                setState(() => _birthDate = p);
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _sexo,
-                            decoration: _signInput(
-                                label: 'Sexo', icon: Icons.wc_rounded),
-                            items: const [
-                              DropdownMenuItem(
-                                  value: 'Masculino', child: Text('Masculino')),
-                              DropdownMenuItem(
-                                  value: 'Feminino', child: Text('Feminino')),
-                              DropdownMenuItem(
-                                  value: 'Outro', child: Text('Outro')),
-                            ],
-                            onChanged: (v) =>
-                                setState(() => _sexo = v ?? 'Masculino'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _phoneCtrl,
-                            keyboardType: TextInputType.phone,
-                            inputFormatters: const [
-                              BrPhoneInputFormatter(),
-                            ],
-                            decoration: _signInput(
-                                label: 'Telefone',
-                                icon: Icons.phone_rounded,
-                                hint: '62 9.9170-5247'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _emailCtrl,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: _signInput(
-                          label: 'E-mail',
-                          icon: Icons.alternate_email_rounded,
-                          required: true),
-                      validator: _reqEmail,
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: MemberSignupPremiumUi.escolaridadeOptions
-                              .contains(_escolaridadeCtrl.text.trim())
-                          ? _escolaridadeCtrl.text.trim()
-                          : null,
-                      decoration: _signInput(
-                          label: 'Escolaridade',
-                          icon: Icons.school_rounded),
-                      hint: const Text('Opcional'),
-                      isExpanded: true,
-                      items: MemberSignupPremiumUi.escolaridadeOptions
-                          .map((e) => DropdownMenuItem<String>(
-                              value: e, child: Text(e)))
-                          .toList(),
-                      onChanged: (v) => setState(
-                          () => _escolaridadeCtrl.text = (v ?? '').trim()),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _profissaoCtrl,
-                      decoration: _signInput(
-                          label: 'Profissão',
-                          icon: Icons.work_outline_rounded),
-                    ),
-                    ],
-                    if (_signupStep == 1) ...[
-                    MemberSignupSectionTitle(
-                      title: 'Endereço (opcional)',
-                      accentColor: _signupStepAccent,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Digite o CEP e saia do campo para preencher os dados automaticamente.',
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _cepCtrl,
-                      keyboardType: TextInputType.number,
-                      maxLength: 9,
-                      decoration: _signInput(
-                        label: 'CEP',
-                        icon: Icons.pin_drop_rounded,
-                        hint: '00000-000',
-                        counterText: '',
-                        suffixIcon: _loadingCep
-                            ? const Padding(
-                                padding: EdgeInsets.all(12),
-                                child: SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildPublicChurchHeader(loading: _loading),
+            Expanded(
+              child: Padding(
+                padding: ThemeCleanPremium.pagePadding(context),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 500),
+                    child: AbsorbPointer(
+                      absorbing: _loading || _saving,
+                      child: Opacity(
+                        opacity: _loading ? 0.72 : 1,
+                        child: Form(
+                          key: _formKey,
+                          child: ListView(
+                            children: [
+                              if (_loading) ...[
+                                const LinearProgressIndicator(
+                                  minHeight: 3,
+                                  color: Color(0xFF0D9488),
+                                  backgroundColor: Color(0x220D9488),
                                 ),
-                              )
-                            : null,
-                      ),
-                      onChanged: (v) {
-                        if (_onlyDigits(v).length == 8) _buscarCep();
-                      },
-                      onEditingComplete: _buscarCep,
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _enderecoCtrl,
-                      decoration: _signInput(
-                        label: 'Logradouro (rua, avenida)',
-                        icon: Icons.home_rounded,
-                        hint: 'Opcional',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _quadraLoteNumeroCtrl,
-                      decoration: _signInput(
-                        label: 'Quadra, Lote e Número',
-                        icon: Icons.tag_rounded,
-                        hint: 'Qd 1, Lt 5, Nº 123',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _bairroCtrl,
-                      decoration: _signInput(
-                          label: 'Bairro',
-                          icon: Icons.location_city_rounded,
-                          hint: 'Opcional'),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _cityCtrl,
-                      decoration: _signInput(
-                          label: 'Cidade', icon: Icons.apartment_rounded),
-                      onChanged: _searchCitySuggestions,
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String>(
-                      initialValue: _ufs.contains(_estadoCtrl.text.trim())
-                          ? _estadoCtrl.text.trim()
-                          : null,
-                      decoration: _signInput(
-                          label: 'Estado (UF)', icon: Icons.map_rounded),
-                      isExpanded: true,
-                      items: _ufs
-                          .map((uf) => DropdownMenuItem(
-                              value: uf, child: Text(uf)))
-                          .toList(),
-                      onChanged: (v) {
-                        if (v != null) _estadoCtrl.text = v;
-                        setState(() {});
-                      },
-                      onSaved: (v) {
-                        if (v != null) _estadoCtrl.text = v;
-                      },
-                    ),
-                    if (_loadingCitySuggestions ||
-                        _citySuggestions.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: _loadingCitySuggestions
-                            ? const Padding(
-                                padding: EdgeInsets.all(12),
-                                child: Row(
+                                const SizedBox(height: 12),
+                              ],
+                              MemberSignupWizardProgress(step: _signupStep),
+                              const SizedBox(height: 14),
+                              const MemberSignupRequiredFieldsAlert(),
+                              const SizedBox(height: 16),
+                              YahwehWisdomSectionCard(
+                                margin: EdgeInsets.zero,
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
                                   children: [
-                                    SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                            strokeWidth: 2)),
-                                    SizedBox(width: 10),
-                                    Text('Buscando cidades...'),
+                                    if (_signupStep == 0) ...[
+                                      Text(
+                                        'Preencha os campos obrigatórios (*) para entrar no cadastro da igreja.',
+                                        style: TextStyle(
+                                          color: Colors.grey.shade700,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                          height: 1.35,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      MemberSignupSectionTitle(
+                                        title: 'Dados pessoais',
+                                        accentColor: _signupStepAccent,
+                                      ),
+                                      const SizedBox(height: 10),
+                                      TextFormField(
+                                        controller: _nameCtrl,
+                                        decoration: _signInput(
+                                          label: 'Nome completo',
+                                          icon: Icons.person_rounded,
+                                          required: true,
+                                        ),
+                                        validator: _reqName,
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextFormField(
+                                        controller: _filiacaoMaeCtrl,
+                                        decoration: _signInput(
+                                          label: 'Filiação (mãe)',
+                                          icon: Icons.family_restroom_rounded,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextFormField(
+                                        controller: _filiacaoPaiCtrl,
+                                        decoration: _signInput(
+                                          label: 'Filiação (pai)',
+                                          icon: Icons.family_restroom_rounded,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: TextFormField(
+                                              controller: _cpfCtrl,
+                                              keyboardType:
+                                                  TextInputType.number,
+                                              inputFormatters: [
+                                                FilteringTextInputFormatter
+                                                    .digitsOnly,
+                                                LengthLimitingTextInputFormatter(
+                                                  11,
+                                                ),
+                                                TextInputFormatter.withFunction((
+                                                  oldValue,
+                                                  newValue,
+                                                ) {
+                                                  final masked =
+                                                      memberSignupFormatCpfMask(
+                                                        newValue.text,
+                                                      );
+                                                  return TextEditingValue(
+                                                    text: masked,
+                                                    selection:
+                                                        TextSelection.collapsed(
+                                                          offset: masked.length,
+                                                        ),
+                                                  );
+                                                }),
+                                              ],
+                                              decoration: _signInput(
+                                                label: 'CPF',
+                                                icon: Icons.badge_rounded,
+                                                required: true,
+                                              ),
+                                              validator: (v) {
+                                                final msg = _req(v);
+                                                if (msg != null) return msg;
+                                                final digits = _onlyDigits(v!);
+                                                if (digits.length != 11)
+                                                  return 'CPF invalido';
+                                                return null;
+                                              },
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: TextFormField(
+                                              controller: _birthDateCtrl,
+                                              keyboardType:
+                                                  TextInputType.number,
+                                              inputFormatters: [
+                                                MemberSignupBirthDateInputFormatter(),
+                                                LengthLimitingTextInputFormatter(
+                                                  10,
+                                                ),
+                                              ],
+                                              decoration: _signInput(
+                                                label: 'Data de nascimento',
+                                                icon: Icons.cake_rounded,
+                                                hint: 'DD/MM/AAAA',
+                                                required: true,
+                                                suffixIcon: IconButton(
+                                                  icon: Icon(
+                                                    Icons
+                                                        .calendar_month_rounded,
+                                                    color: ThemeCleanPremium
+                                                        .primary,
+                                                  ),
+                                                  tooltip: 'Calendário',
+                                                  onPressed: _pickBirthDate,
+                                                ),
+                                              ),
+                                              validator: (v) {
+                                                final t = (v ?? '').trim();
+                                                if (t.isEmpty)
+                                                  return 'Campo obrigatório';
+                                                final p =
+                                                    memberSignupParseBirthDateBr(
+                                                      t,
+                                                    );
+                                                if (p == null)
+                                                  return 'Use DD/MM/AAAA';
+                                                final now = DateTime.now();
+                                                if (p.isAfter(
+                                                  DateTime(
+                                                    now.year,
+                                                    now.month,
+                                                    now.day,
+                                                  ),
+                                                )) {
+                                                  return 'Data inválida';
+                                                }
+                                                return null;
+                                              },
+                                              onChanged: (v) {
+                                                final p =
+                                                    memberSignupParseBirthDateBr(
+                                                      v,
+                                                    );
+                                                if (p != null) {
+                                                  setState(
+                                                    () => _birthDate = p,
+                                                  );
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child:
+                                                DropdownButtonFormField<String>(
+                                                  initialValue: _sexo,
+                                                  decoration: _signInput(
+                                                    label: 'Sexo',
+                                                    icon: Icons.wc_rounded,
+                                                  ),
+                                                  items: const [
+                                                    DropdownMenuItem(
+                                                      value: 'Masculino',
+                                                      child: Text('Masculino'),
+                                                    ),
+                                                    DropdownMenuItem(
+                                                      value: 'Feminino',
+                                                      child: Text('Feminino'),
+                                                    ),
+                                                    DropdownMenuItem(
+                                                      value: 'Outro',
+                                                      child: Text('Outro'),
+                                                    ),
+                                                  ],
+                                                  onChanged: (v) => setState(
+                                                    () => _sexo =
+                                                        v ?? 'Masculino',
+                                                  ),
+                                                ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: TextFormField(
+                                              controller: _phoneCtrl,
+                                              keyboardType: TextInputType.phone,
+                                              inputFormatters: const [
+                                                BrPhoneInputFormatter(),
+                                              ],
+                                              decoration: _signInput(
+                                                label: 'Telefone',
+                                                icon: Icons.phone_rounded,
+                                                hint: '62 9.9170-5247',
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextFormField(
+                                        controller: _emailCtrl,
+                                        keyboardType:
+                                            TextInputType.emailAddress,
+                                        decoration: _signInput(
+                                          label: 'E-mail',
+                                          icon: Icons.alternate_email_rounded,
+                                          required: true,
+                                        ),
+                                        validator: _reqEmail,
+                                      ),
+                                      const SizedBox(height: 12),
+                                      DropdownButtonFormField<String>(
+                                        initialValue:
+                                            MemberSignupPremiumUi
+                                                .escolaridadeOptions
+                                                .contains(
+                                                  _escolaridadeCtrl.text.trim(),
+                                                )
+                                            ? _escolaridadeCtrl.text.trim()
+                                            : null,
+                                        decoration: _signInput(
+                                          label: 'Escolaridade',
+                                          icon: Icons.school_rounded,
+                                        ),
+                                        hint: const Text('Opcional'),
+                                        isExpanded: true,
+                                        items: MemberSignupPremiumUi
+                                            .escolaridadeOptions
+                                            .map(
+                                              (e) => DropdownMenuItem<String>(
+                                                value: e,
+                                                child: Text(e),
+                                              ),
+                                            )
+                                            .toList(),
+                                        onChanged: (v) => setState(
+                                          () => _escolaridadeCtrl.text =
+                                              (v ?? '').trim(),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextFormField(
+                                        controller: _profissaoCtrl,
+                                        decoration: _signInput(
+                                          label: 'Profissão',
+                                          icon: Icons.work_outline_rounded,
+                                        ),
+                                      ),
+                                    ],
+                                    if (_signupStep == 1) ...[
+                                      MemberSignupSectionTitle(
+                                        title: 'Endereço (opcional)',
+                                        accentColor: _signupStepAccent,
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        'Digite o CEP e saia do campo para preencher os dados automaticamente.',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextFormField(
+                                        controller: _cepCtrl,
+                                        keyboardType: TextInputType.number,
+                                        maxLength: 9,
+                                        decoration: _signInput(
+                                          label: 'CEP',
+                                          icon: Icons.pin_drop_rounded,
+                                          hint: '00000-000',
+                                          counterText: '',
+                                          suffixIcon: _loadingCep
+                                              ? const Padding(
+                                                  padding: EdgeInsets.all(12),
+                                                  child: SizedBox(
+                                                    width: 20,
+                                                    height: 20,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                          strokeWidth: 2,
+                                                        ),
+                                                  ),
+                                                )
+                                              : null,
+                                        ),
+                                        onChanged: (v) {
+                                          if (_onlyDigits(v).length == 8)
+                                            _buscarCep();
+                                        },
+                                        onEditingComplete: _buscarCep,
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextFormField(
+                                        controller: _enderecoCtrl,
+                                        decoration: _signInput(
+                                          label: 'Logradouro (rua, avenida)',
+                                          icon: Icons.home_rounded,
+                                          hint: 'Opcional',
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextFormField(
+                                        controller: _quadraLoteNumeroCtrl,
+                                        decoration: _signInput(
+                                          label: 'Quadra, Lote e Número',
+                                          icon: Icons.tag_rounded,
+                                          hint: 'Qd 1, Lt 5, Nº 123',
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextFormField(
+                                        controller: _bairroCtrl,
+                                        decoration: _signInput(
+                                          label: 'Bairro',
+                                          icon: Icons.location_city_rounded,
+                                          hint: 'Opcional',
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextFormField(
+                                        controller: _cityCtrl,
+                                        decoration: _signInput(
+                                          label: 'Cidade',
+                                          icon: Icons.apartment_rounded,
+                                        ),
+                                        onChanged: _searchCitySuggestions,
+                                      ),
+                                      const SizedBox(height: 12),
+                                      DropdownButtonFormField<String>(
+                                        initialValue:
+                                            _ufs.contains(
+                                              _estadoCtrl.text.trim(),
+                                            )
+                                            ? _estadoCtrl.text.trim()
+                                            : null,
+                                        decoration: _signInput(
+                                          label: 'Estado (UF)',
+                                          icon: Icons.map_rounded,
+                                        ),
+                                        isExpanded: true,
+                                        items: _ufs
+                                            .map(
+                                              (uf) => DropdownMenuItem(
+                                                value: uf,
+                                                child: Text(uf),
+                                              ),
+                                            )
+                                            .toList(),
+                                        onChanged: (v) {
+                                          if (v != null) _estadoCtrl.text = v;
+                                          setState(() {});
+                                        },
+                                        onSaved: (v) {
+                                          if (v != null) _estadoCtrl.text = v;
+                                        },
+                                      ),
+                                      if (_loadingCitySuggestions ||
+                                          _citySuggestions.isNotEmpty) ...[
+                                        const SizedBox(height: 8),
+                                        Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            border: Border.all(
+                                              color: const Color(0xFFE2E8F0),
+                                            ),
+                                          ),
+                                          child: _loadingCitySuggestions
+                                              ? const Padding(
+                                                  padding: EdgeInsets.all(12),
+                                                  child: Row(
+                                                    children: [
+                                                      SizedBox(
+                                                        width: 16,
+                                                        height: 16,
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                              strokeWidth: 2,
+                                                            ),
+                                                      ),
+                                                      SizedBox(width: 10),
+                                                      Text(
+                                                        'Buscando cidades...',
+                                                      ),
+                                                    ],
+                                                  ),
+                                                )
+                                              : ListView.separated(
+                                                  shrinkWrap: true,
+                                                  physics:
+                                                      const NeverScrollableScrollPhysics(),
+                                                  itemCount:
+                                                      _citySuggestions.length,
+                                                  separatorBuilder: (_, _) =>
+                                                      const Divider(height: 1),
+                                                  itemBuilder: (_, i) {
+                                                    final s =
+                                                        _citySuggestions[i];
+                                                    return ListTile(
+                                                      dense: true,
+                                                      leading: const Icon(
+                                                        Icons
+                                                            .location_city_rounded,
+                                                        size: 20,
+                                                      ),
+                                                      title: Text(s.city),
+                                                      subtitle: Text(s.state),
+                                                      onTap: () =>
+                                                          _applyCitySuggestion(
+                                                            s,
+                                                          ),
+                                                    );
+                                                  },
+                                                ),
+                                        ),
+                                      ],
+                                    ],
+                                    if (_signupStep == 2) ...[
+                                      MemberSignupSectionTitle(
+                                        title: 'Família (opcional)',
+                                        accentColor: _signupStepAccent,
+                                      ),
+                                      const SizedBox(height: 10),
+                                      DropdownButtonFormField<String>(
+                                        initialValue:
+                                            MemberSignupPremiumUi
+                                                .estadoCivilOptions
+                                                .contains(
+                                                  _estadoCivilCtrl.text.trim(),
+                                                )
+                                            ? _estadoCivilCtrl.text.trim()
+                                            : null,
+                                        decoration: _signInput(
+                                          label: 'Estado civil',
+                                          icon: Icons.favorite_outline_rounded,
+                                        ),
+                                        hint: const Text('Opcional'),
+                                        isExpanded: true,
+                                        items: MemberSignupPremiumUi
+                                            .estadoCivilOptions
+                                            .map(
+                                              (e) => DropdownMenuItem<String>(
+                                                value: e,
+                                                child: Text(e),
+                                              ),
+                                            )
+                                            .toList(),
+                                        onChanged: (v) => setState(
+                                          () => _estadoCivilCtrl.text =
+                                              (v ?? '').trim(),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextFormField(
+                                        controller: _conjugeCtrl,
+                                        decoration: _signInput(
+                                          label: 'Nome conjuge',
+                                          icon: Icons.people_alt_rounded,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      MemberSignupPhotoRequiredCard(
+                                        hasPhoto:
+                                            _photoBytes != null &&
+                                            _photoBytes!.isNotEmpty,
+                                        onGallery: () =>
+                                            _pickPhoto(fromCamera: false),
+                                        onCamera: () =>
+                                            _pickPhoto(fromCamera: true),
+                                        onRemove:
+                                            _photoBytes != null &&
+                                                _photoBytes!.isNotEmpty
+                                            ? () => unawaited(
+                                                _confirmClearPhoto(),
+                                              )
+                                            : null,
+                                        photoPreview: Stack(
+                                          clipBehavior: Clip.none,
+                                          children: [
+                                            CircleAvatar(
+                                              radius: 72,
+                                              backgroundColor: const Color(
+                                                0xFFF1F5F9,
+                                              ),
+                                              backgroundImage:
+                                                  _photoBytes == null
+                                                  ? null
+                                                  : MemoryImage(_photoBytes!),
+                                              child: _photoBytes == null
+                                                  ? Icon(
+                                                      Icons.person_rounded,
+                                                      size: 56,
+                                                      color:
+                                                          Colors.grey.shade400,
+                                                    )
+                                                  : null,
+                                            ),
+                                            if (_photoBytes != null &&
+                                                _photoBytes!.isNotEmpty)
+                                              Positioned(
+                                                top: -4,
+                                                right: -4,
+                                                child: Material(
+                                                  color: Colors.black54,
+                                                  shape: const CircleBorder(),
+                                                  child: InkWell(
+                                                    onTap: () => unawaited(
+                                                      _confirmClearPhoto(),
+                                                    ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          24,
+                                                        ),
+                                                    child: const SizedBox(
+                                                      width: 48,
+                                                      height: 48,
+                                                      child: Center(
+                                                        child: Icon(
+                                                          Icons.close_rounded,
+                                                          size: 26,
+                                                          color: Colors.white,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 20),
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          OutlinedButton(
+                                            onPressed: _saving
+                                                ? null
+                                                : () => setState(
+                                                    () => _signupStep = 1,
+                                                  ),
+                                            child: const Text('Voltar'),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: SizedBox(
+                                              height: 56,
+                                              child: ElevatedButton.icon(
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor:
+                                                      ThemeCleanPremium.primary,
+                                                  foregroundColor: Colors.white,
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          16,
+                                                        ),
+                                                  ),
+                                                ),
+                                                onPressed: _saving
+                                                    ? null
+                                                    : _submit,
+                                                icon: _saving
+                                                    ? const SizedBox(
+                                                        width: 18,
+                                                        height: 18,
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                              strokeWidth: 2,
+                                                            ),
+                                                      )
+                                                    : const Icon(
+                                                        Icons.check_circle,
+                                                      ),
+                                                label: Text(
+                                                  _saving
+                                                      ? 'Enviando...'
+                                                      : 'Finalizar cadastro',
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                    if (_signupStep < 2) ...[
+                                      const SizedBox(height: 24),
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          if (_signupStep > 0)
+                                            OutlinedButton(
+                                              onPressed: () =>
+                                                  setState(() => _signupStep--),
+                                              child: const Text('Voltar'),
+                                            ),
+                                          if (_signupStep > 0)
+                                            const SizedBox(width: 12),
+                                          Expanded(
+                                            child: FilledButton(
+                                              onPressed: _onWizardNext,
+                                              style: FilledButton.styleFrom(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 16,
+                                                    ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(16),
+                                                ),
+                                              ),
+                                              child: Text(
+                                                _signupStep == 0
+                                                    ? 'Continuar (endereço opcional)'
+                                                    : 'Continuar para foto *',
+                                                textAlign: TextAlign.center,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                    const SizedBox(height: 12),
                                   ],
                                 ),
-                              )
-                            : ListView.separated(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: _citySuggestions.length,
-                                separatorBuilder: (_, _) =>
-                                    const Divider(height: 1),
-                                itemBuilder: (_, i) {
-                                  final s = _citySuggestions[i];
-                                  return ListTile(
-                                    dense: true,
-                                    leading: const Icon(
-                                        Icons.location_city_rounded,
-                                        size: 20),
-                                    title: Text(s.city),
-                                    subtitle: Text(s.state),
-                                    onTap: () => _applyCitySuggestion(s),
-                                  );
-                                },
                               ),
-                      ),
-                    ],
-                    ],
-                    if (_signupStep == 2) ...[
-                    MemberSignupSectionTitle(
-                      title: 'Família (opcional)',
-                      accentColor: _signupStepAccent,
-                    ),
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
-                      initialValue: MemberSignupPremiumUi.estadoCivilOptions
-                              .contains(_estadoCivilCtrl.text.trim())
-                          ? _estadoCivilCtrl.text.trim()
-                          : null,
-                      decoration: _signInput(
-                          label: 'Estado civil',
-                          icon: Icons.favorite_outline_rounded),
-                      hint: const Text('Opcional'),
-                      isExpanded: true,
-                      items: MemberSignupPremiumUi.estadoCivilOptions
-                          .map((e) => DropdownMenuItem<String>(
-                              value: e, child: Text(e)))
-                          .toList(),
-                      onChanged: (v) => setState(
-                          () => _estadoCivilCtrl.text = (v ?? '').trim()),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _conjugeCtrl,
-                      decoration: _signInput(
-                          label: 'Nome conjuge',
-                          icon: Icons.people_alt_rounded),
-                    ),
-                    const SizedBox(height: 16),
-                    MemberSignupPhotoRequiredCard(
-                      hasPhoto:
-                          _photoBytes != null && _photoBytes!.isNotEmpty,
-                      onGallery: () => _pickPhoto(fromCamera: false),
-                      onCamera: () => _pickPhoto(fromCamera: true),
-                      onRemove: _photoBytes != null && _photoBytes!.isNotEmpty
-                          ? () => unawaited(_confirmClearPhoto())
-                          : null,
-                      photoPreview: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          CircleAvatar(
-                            radius: 72,
-                            backgroundColor: const Color(0xFFF1F5F9),
-                            backgroundImage: _photoBytes == null
-                                ? null
-                                : MemoryImage(_photoBytes!),
-                            child: _photoBytes == null
-                                ? Icon(Icons.person_rounded,
-                                    size: 56, color: Colors.grey.shade400)
-                                : null,
-                          ),
-                          if (_photoBytes != null && _photoBytes!.isNotEmpty)
-                            Positioned(
-                              top: -4,
-                              right: -4,
-                              child: Material(
-                                color: Colors.black54,
-                                shape: const CircleBorder(),
-                                child: InkWell(
-                                  onTap: () =>
-                                      unawaited(_confirmClearPhoto()),
-                                  borderRadius: BorderRadius.circular(24),
-                                  child: const SizedBox(
-                                    width: 48,
-                                    height: 48,
-                                    child: Center(
-                                      child: Icon(
-                                        Icons.close_rounded,
-                                        size: 26,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        OutlinedButton(
-                          onPressed: _saving
-                              ? null
-                              : () => setState(() => _signupStep = 1),
-                          child: const Text('Voltar'),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: SizedBox(
-                            height: 56,
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: ThemeCleanPremium.primary,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                              onPressed: _saving ? null : _submit,
-                              icon: _saving
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2),
-                                    )
-                                  : const Icon(Icons.check_circle),
-                              label: Text(
-                                _saving
-                                    ? 'Enviando...'
-                                    : 'Finalizar cadastro',
-                                style:
-                                    const TextStyle(fontWeight: FontWeight.w800),
-                              ),
-                            ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
-                    ],
-                    if (_signupStep < 2) ...[
-                      const SizedBox(height: 24),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (_signupStep > 0)
-                            OutlinedButton(
-                              onPressed: () =>
-                                  setState(() => _signupStep--),
-                              child: const Text('Voltar'),
-                            ),
-                          if (_signupStep > 0) const SizedBox(width: 12),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: _onWizardNext,
-                              style: FilledButton.styleFrom(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                              child: Text(
-                                _signupStep == 0
-                                    ? 'Continuar (endereço opcional)'
-                                    : 'Continuar para foto *',
-                                textAlign: TextAlign.center,
-                                style:
-                                    const TextStyle(fontWeight: FontWeight.w800),
-                              ),
-                            ),
-                          ),
-                        ],
                       ),
-                    ],
-                    const SizedBox(height: 12),
-                        ],
-                      ),
-                    ),
-                      ],
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        ),
-      ),
-        ],
+          ],
         ),
       ),
     );
@@ -2070,12 +2279,8 @@ class PublicSignupStatusPage extends StatelessWidget {
     required this.protocolo,
   });
 
-  Future<({
-    String churchName,
-    String? nome,
-    String? statusRaw,
-    String? error,
-  })> _loadStatus() async {
+  Future<({String churchName, String? nome, String? statusRaw, String? error})>
+  _loadStatus() async {
     final slugTrim = slug.trim();
     final protocol = protocolo.trim();
     if (slugTrim.isEmpty || protocol.isEmpty) {
@@ -2088,8 +2293,9 @@ class PublicSignupStatusPage extends StatelessWidget {
     }
 
     PublicChurchResolved? resolved = PublicChurchSlugResolver.peek(slugTrim);
-    resolved ??= await PublicChurchSlugResolver.resolveFast(slugTrim)
-        .timeout(const Duration(seconds: 6), onTimeout: () => null);
+    resolved ??= await PublicChurchSlugResolver.resolveFast(
+      slugTrim,
+    ).timeout(const Duration(seconds: 6), onTimeout: () => null);
 
     try {
       final cf = await ChurchFunctionsService.publicSignupStatus(
@@ -2102,7 +2308,8 @@ class PublicSignupStatusPage extends StatelessWidget {
           churchName: cf.churchName,
           nome: null,
           statusRaw: null,
-          error: cf.error ?? 'Cadastro não localizado para o protocolo informado.',
+          error:
+              cf.error ?? 'Cadastro não localizado para o protocolo informado.',
         );
       }
       return (
@@ -2115,7 +2322,7 @@ class PublicSignupStatusPage extends StatelessWidget {
       return (
         churchName: resolved != null
             ? (resolved.profile['name'] ?? resolved.profile['nome'] ?? 'Igreja')
-                .toString()
+                  .toString()
             : 'Igreja',
         nome: null,
         statusRaw: null,
@@ -2151,94 +2358,93 @@ class PublicSignupStatusPage extends StatelessWidget {
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
-          child: Container(
-            height: 1,
-            color: const Color(0xFFE2E8F0),
-          ),
+          child: Container(height: 1, color: const Color(0xFFE2E8F0)),
         ),
       ),
       body: ChurchPublicSiteScaffoldBackground(
-        child: FutureBuilder<
-            ({
-              String churchName,
-              String? nome,
-              String? statusRaw,
-              String? error,
-            })>(
-          future: _loadStatus(),
-          builder: (context, snap) {
-            if (!snap.hasData) {
-              return const ChurchWisdomPublicLoading(
-                message: 'Consultando protocolo…',
-              );
-            }
-            final data = snap.data!;
-            if (data.error != null) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: ChurchWisdomPublicSurfaceCard(
-                    child: Text(
-                      data.error!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 15),
+        child:
+            FutureBuilder<
+              ({
+                String churchName,
+                String? nome,
+                String? statusRaw,
+                String? error,
+              })
+            >(
+              future: _loadStatus(),
+              builder: (context, snap) {
+                if (!snap.hasData) {
+                  return const ChurchWisdomPublicLoading(
+                    message: 'Consultando protocolo…',
+                  );
+                }
+                final data = snap.data!;
+                if (data.error != null) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: ChurchWisdomPublicSurfaceCard(
+                        child: Text(
+                          data.error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 15),
+                        ),
+                      ),
+                    ),
+                  );
+                }
+                final nome = data.nome ?? 'Membro';
+                final status = _statusUi(data.statusRaw ?? 'pendente');
+                return Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: ChurchWisdomPublicSurfaceCard(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              data.churchName,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              nome,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            ChurchWisdomPublicStatusBadge(
+                              label: 'Status: ${status.label}',
+                              color: status.color,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'Protocolo: $protocolo',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF475569),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              );
-            }
-            final nome = data.nome ?? 'Membro';
-            final status = _statusUi(data.statusRaw ?? 'pendente');
-            return Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 560),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: ChurchWisdomPublicSurfaceCard(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          data.churchName,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          nome,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        ChurchWisdomPublicStatusBadge(
-                          label: 'Status: ${status.label}',
-                          color: status.color,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Protocolo: $protocolo',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFF475569),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        ),
+                );
+              },
+            ),
       ),
     );
   }

@@ -96,7 +96,8 @@ String normalizeFirebaseStorageDownloadUrl(String raw) {
   // ex.: `igrejas/<tenant>/membros/foto.jpg` ou `igrejas%2F...%2Ffoto.jpg`.
   // Como nossas rules permitem `allow read: if true` para essas pastas,
   // montamos a URL do "media" sem token para acelerar e evitar falhas.
-  final looksLikeStoragePath = (low.contains('igrejas/') ||
+  final looksLikeStoragePath =
+      (low.contains('igrejas/') ||
           low.contains('membros/') ||
           low.contains('members/') ||
           low.contains('patrimonio/') ||
@@ -122,8 +123,9 @@ String normalizeFirebaseStorageDownloadUrl(String raw) {
   if (looksLikeStoragePath) {
     final bucket = storageBucket();
     final pathPart = t.replaceAll(RegExp(r'^/+'), '').replaceAll('\\', '/');
-    final encoded =
-        pathPart.contains('%') ? pathPart : Uri.encodeComponent(pathPart);
+    final encoded = pathPart.contains('%')
+        ? pathPart
+        : Uri.encodeComponent(pathPart);
     return 'https://firebasestorage.googleapis.com/v0/b/$bucket/o/$encoded?alt=media';
   }
 
@@ -245,8 +247,9 @@ Uint8List? decodeDataImageBytes(String raw) {
   final header = u.substring(0, comma).toLowerCase();
   if (!header.contains(';base64')) return null;
   try {
-    final b =
-        base64Decode(u.substring(comma + 1).replaceAll(RegExp(r'\s'), ''));
+    final b = base64Decode(
+      u.substring(comma + 1).replaceAll(RegExp(r'\s'), ''),
+    );
     return b.length > 24 ? b : null;
   } catch (_) {
     return null;
@@ -361,8 +364,8 @@ bool firebaseStorageDownloadUrlLooksTokenized(String rawUrl) {
 /// Renova token / resolve caminho — **única fonte** para painel, avisos, site público, patrimônio e vídeos.
 /// Nunca lança: em timeout ou falha do SDK, devolve a URL já sanitizada (a que abre no navegador).
 ///
-/// **Importante:** não devolver cedo só porque a URL já tem `token=` — tokens do Firestore **expiram**;
-/// sempre que possível obtemos uma URL nova via [Reference.getDownloadURL].
+/// URLs HTTPS já resolvidas são usadas imediatamente. [forceRefresh] fica
+/// reservado ao retry após erro real de carregamento.
 ///
 /// **Coalescência:** listas (membros, mural) pediam a mesma URL em paralelo — vários `getDownloadURL`
 /// competindo deixavam fotos/vídeos lentos. Uma única Future por objeto resolve todos os waiters.
@@ -376,10 +379,18 @@ String _freshFirebaseStorageDisplayUrlCoalesceKey(String u) {
   return u.toLowerCase();
 }
 
-Future<String> freshFirebaseStorageDisplayUrl(String rawUrl) async {
+Future<String> freshFirebaseStorageDisplayUrl(
+  String rawUrl, {
+  bool forceRefresh = false,
+}) async {
   final u = sanitizeImageUrl(rawUrl).trim();
   if (u.isEmpty) return u;
   if (!firebaseStorageMediaUrlLooksLike(u)) return u;
+  if (!forceRefresh &&
+      isValidImageUrl(u) &&
+      (u.startsWith('http://') || u.startsWith('https://'))) {
+    return u;
+  }
 
   final key = _freshFirebaseStorageDisplayUrlCoalesceKey(u);
   final inflight = _freshFirebaseStorageDisplayUrlInflight[key];
@@ -416,16 +427,18 @@ Future<String> _freshFirebaseStorageDisplayUrlUncached(String u) async {
     if (u.toLowerCase().startsWith('gs://')) {
       try {
         final refGs = FirebaseStorage.instance.refFromURL(u);
-        final freshGs = await refGs
-            .getDownloadURL()
-            .timeout(const Duration(seconds: 22), onTimeout: () => '');
+        final freshGs = await refGs.getDownloadURL().timeout(
+          const Duration(seconds: 22),
+          onTimeout: () => '',
+        );
         if (freshGs.isNotEmpty) return sanitizeImageUrl(freshGs);
       } catch (_) {}
     }
     if (!u.startsWith('http://') && !u.startsWith('https://')) {
       try {
         final bare = normalizeFirebaseStorageObjectPath(
-            u.replaceFirst(RegExp(r'^/+'), ''));
+          u.replaceFirst(RegExp(r'^/+'), ''),
+        );
         if (!bare.toLowerCase().startsWith('gs://')) {
           final fresh = await FirebaseStorage.instance
               .ref(bare)
@@ -437,9 +450,10 @@ Future<String> _freshFirebaseStorageDisplayUrlUncached(String u) async {
     }
     try {
       final ref = FirebaseStorage.instance.refFromURL(u);
-      final fresh = await ref
-          .getDownloadURL()
-          .timeout(const Duration(seconds: 18), onTimeout: () => '');
+      final fresh = await ref.getDownloadURL().timeout(
+        const Duration(seconds: 18),
+        onTimeout: () => '',
+      );
       if (fresh.isNotEmpty) return sanitizeImageUrl(fresh);
     } catch (_) {}
     try {
@@ -474,7 +488,8 @@ String? firebaseStorageObjectPathFromHttpUrl(String rawUrl) {
         final enc = segs.sublist(4).join('/');
         if (enc.isEmpty) return null;
         return normalizeFirebaseStorageObjectPath(
-            Uri.decodeComponent(enc.replaceAll('+', ' ')));
+          Uri.decodeComponent(enc.replaceAll('+', ' ')),
+        );
       }
     }
 
@@ -486,7 +501,8 @@ String? firebaseStorageObjectPathFromHttpUrl(String rawUrl) {
       final enc = segs.sublist(1).join('/');
       if (enc.isEmpty) return null;
       return normalizeFirebaseStorageObjectPath(
-          Uri.decodeComponent(enc.replaceAll('+', ' ')));
+        Uri.decodeComponent(enc.replaceAll('+', ' ')),
+      );
     }
 
     // GCS: https://storage.googleapis.com/<bucket>/<objectPath...>
@@ -494,7 +510,8 @@ String? firebaseStorageObjectPathFromHttpUrl(String rawUrl) {
       final objectPath = segs.sublist(1).join('/');
       if (objectPath.isNotEmpty) {
         return normalizeFirebaseStorageObjectPath(
-            Uri.decodeComponent(objectPath.replaceAll('+', ' ')));
+          Uri.decodeComponent(objectPath.replaceAll('+', ' ')),
+        );
       }
     }
   } catch (_) {}
@@ -515,16 +532,18 @@ String? imageRefDedupeKey(String raw) {
     final rest = s.substring(5);
     final idx = rest.indexOf('/');
     if (idx > 0 && idx + 1 < rest.length) {
-      return normalizeFirebaseStorageObjectPath(rest.substring(idx + 1))
-          .toLowerCase();
+      return normalizeFirebaseStorageObjectPath(
+        rest.substring(idx + 1),
+      ).toLowerCase();
     }
     return low;
   }
   if (firebaseStorageMediaUrlLooksLike(s) &&
       !low.startsWith('http://') &&
       !low.startsWith('https://')) {
-    return normalizeFirebaseStorageObjectPath(s.replaceFirst(RegExp(r'^/+'), ''))
-        .toLowerCase();
+    return normalizeFirebaseStorageObjectPath(
+      s.replaceFirst(RegExp(r'^/+'), ''),
+    ).toLowerCase();
   }
   try {
     final u = Uri.parse(s);
@@ -715,7 +734,8 @@ String imageUrlFromMap(Map<String, dynamic>? data, {String? baseUrl}) {
       return;
     }
     if (v is Map) {
-      final u = v['url'] ??
+      final u =
+          v['url'] ??
           v['imageUrl'] ??
           v['downloadURL'] ??
           v['downloadUrl'] ??
@@ -849,13 +869,14 @@ String imageUrlFromMap(Map<String, dynamic>? data, {String? baseUrl}) {
 /// Path Storage da logo no doc `igrejas/{id}` — **não** é URL https.
 String churchTenantLogoUrl(Map<String, dynamic>? data) {
   if (data == null) return '';
-  final tid = (data['tenantId'] ??
-          data['churchId'] ??
-          data['igrejaId'] ??
-          data['id'] ??
-          '')
-      .toString()
-      .trim();
+  final tid =
+      (data['tenantId'] ??
+              data['churchId'] ??
+              data['igrejaId'] ??
+              data['id'] ??
+              '')
+          .toString()
+          .trim();
   final path = ChurchImageFields.logoStoragePath(data, churchIdHint: tid);
   if (path != null && path.isNotEmpty) return path;
   if (tid.isNotEmpty) return ChurchStorageLayout.churchIdentityLogoPath(tid);
@@ -886,13 +907,14 @@ String churchTenantLogoHttpsUrl(Map<String, dynamic>? data) {
 List<String> churchTenantLogoUrlCandidates(Map<String, dynamic>? data) {
   if (data == null) return [];
   final out = <String>[];
-  final tid = (data['tenantId'] ??
-          data['churchId'] ??
-          data['igrejaId'] ??
-          data['id'] ??
-          '')
-      .toString()
-      .trim();
+  final tid =
+      (data['tenantId'] ??
+              data['churchId'] ??
+              data['igrejaId'] ??
+              data['id'] ??
+              '')
+          .toString()
+          .trim();
   void pushPath(String? raw) {
     final p = (raw ?? '').trim().replaceAll('\\', '/');
     if (p.isEmpty || out.contains(p)) return;
@@ -920,8 +942,7 @@ bool avisoImageListRefAcceptable(String raw) {
   if (isDataImageUrl(s)) return true;
   if (isValidImageUrl(s)) {
     final base = low.split('?').first.split('#').first;
-    if (RegExp(r'\.(mp4|webm|mov|m4v)$', caseSensitive: false)
-        .hasMatch(base)) {
+    if (RegExp(r'\.(mp4|webm|mov|m4v)$', caseSensitive: false).hasMatch(base)) {
       return false;
     }
     return true;
@@ -930,13 +951,13 @@ bool avisoImageListRefAcceptable(String raw) {
   if (firebaseStorageMediaUrlLooksLike(s)) {
     final base = low.split('?').first.split('#').first;
     final hasImg = RegExp(
-            r'\.(jpg|jpeg|png|gif|webp|bmp|svg)(%|$|\?|/)',
-            caseSensitive: false)
-        .hasMatch(base);
+      r'\.(jpg|jpeg|png|gif|webp|bmp|svg)(%|$|\?|/)',
+      caseSensitive: false,
+    ).hasMatch(base);
     final hasVid = RegExp(
-            r'\.(mp4|webm|mov|m4v)(%|$|\?|/)',
-            caseSensitive: false)
-        .hasMatch(base);
+      r'\.(mp4|webm|mov|m4v)(%|$|\?|/)',
+      caseSensitive: false,
+    ).hasMatch(base);
     if (hasVid && !hasImg) return false;
     return true;
   }
@@ -957,7 +978,8 @@ List<String> imageUrlsListFromMap(Map<String, dynamic>? data) {
       return;
     }
     if (v is Map) {
-      final u = v['url'] ??
+      final u =
+          v['url'] ??
           v['imageUrl'] ??
           v['downloadURL'] ??
           v['downloadUrl'] ??
@@ -1021,20 +1043,20 @@ List<String> imageUrlsListFromMap(Map<String, dynamic>? data) {
 }
 
 Widget defaultImagePlaceholder({double size = 48}) => Shimmer.fromColors(
-      baseColor: const Color(0xFFE5E7EB),
-      highlightColor: const Color(0xFFF3F4F6),
-      period: const Duration(milliseconds: 1200),
-      child: Center(
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
+  baseColor: const Color(0xFFE5E7EB),
+  highlightColor: const Color(0xFFF3F4F6),
+  period: const Duration(milliseconds: 1200),
+  child: Center(
+    child: Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
       ),
-    );
+    ),
+  ),
+);
 
 Widget defaultImageErrorWidget({
   String message = 'Imagem indisponível',
@@ -1042,15 +1064,14 @@ Widget defaultImageErrorWidget({
   VoidCallback? onRetry,
   double? width,
   double? height,
-}) =>
-    UnavailableMediaWidget(
-      message: message,
-      onRetry: onRetry,
-      width: width,
-      height: height,
-      icon: Icons.broken_image_rounded,
-      compact: (width ?? iconSize) < 72,
-    );
+}) => UnavailableMediaWidget(
+  message: message,
+  onRetry: onRetry,
+  width: width,
+  height: height,
+  icon: Icons.broken_image_rounded,
+  compact: (width ?? iconSize) < 72,
+);
 
 /// Padrão EcoFire: renova token do Storage antes de exibir (patrimônio, avisos, eventos, logo igreja).
 /// URLs no Firestore costumam expirar; sem refresh a imagem quebra na web.
@@ -1064,6 +1085,7 @@ class FreshFirebaseStorageImage extends StatefulWidget {
   final int? memCacheWidth;
   final int? memCacheHeight;
   final void Function(String url, Object? error)? onLoadError;
+
   /// Invalida disco quando o post/mídia muda (ex.: [feedMediaCacheRevisionFromPost]).
   final int storageCacheRevision;
 
@@ -1112,8 +1134,15 @@ class _FreshFirebaseStorageImageState extends State<FreshFirebaseStorageImage> {
     final s = sanitizeImageUrl(raw);
     try {
       if (!firebaseStorageMediaUrlLooksLike(s)) return s;
-      var out = await freshFirebaseStorageDisplayUrl(s)
-          .timeout(const Duration(seconds: 22), onTimeout: () => s);
+      // URL HTTPS do getDownloadURL é estável; carregar primeiro e renovar apenas
+      // no tratamento de erro evita um round-trip do SDK para cada card da lista.
+      if (isValidImageUrl(s) &&
+          (s.startsWith('http://') || s.startsWith('https://'))) {
+        return s;
+      }
+      var out = await freshFirebaseStorageDisplayUrl(
+        s,
+      ).timeout(const Duration(seconds: 22), onTimeout: () => s);
       var cleaned = sanitizeImageUrl(out);
       if (!isValidImageUrl(cleaned) && !isDataImageUrl(cleaned)) {
         try {
@@ -1124,8 +1153,9 @@ class _FreshFirebaseStorageImageState extends State<FreshFirebaseStorageImage> {
                 .timeout(const Duration(seconds: 18), onTimeout: () => '');
             if (r.isNotEmpty) cleaned = sanitizeImageUrl(r);
           } else if (!s.contains('://') && s.contains('/')) {
-            final bare =
-                normalizeFirebaseStorageObjectPath(s.replaceFirst(RegExp(r'^/+'), ''));
+            final bare = normalizeFirebaseStorageObjectPath(
+              s.replaceFirst(RegExp(r'^/+'), ''),
+            );
             final r = await FirebaseStorage.instance
                 .ref(bare)
                 .getDownloadURL()
@@ -1154,7 +1184,9 @@ class _FreshFirebaseStorageImageState extends State<FreshFirebaseStorageImage> {
         final u = sanitizeImageUrl(snap.data ?? widget.imageUrl);
         if (!isValidImageUrl(u) && !isDataImageUrl(u)) {
           widget.onLoadError?.call(
-              widget.imageUrl, StateError('URL inválida após refresh token'));
+            widget.imageUrl,
+            StateError('URL inválida após refresh token'),
+          );
           return err;
         }
         return SafeNetworkImage(
@@ -1187,8 +1219,10 @@ class ResilientNetworkImage extends StatelessWidget {
   final int? memCacheWidth;
   final int? memCacheHeight;
   final void Function(String url, Object? error)? onLoadError;
+
   /// `true` quando [AppStorageImageService]/[StableStorageImage] já renovou o token.
   final bool skipFreshDisplayUrl;
+
   /// Revisão Firestore (foto de membro ou capa de aviso/evento) — disco só atualiza ao mudar.
   final int storageCacheRevision;
 
@@ -1245,7 +1279,8 @@ class ResilientNetworkImage extends StatelessWidget {
       }
       return err;
     }
-    final useFresh = isFirebaseStorageHttpUrl(u) ||
+    final useFresh =
+        isFirebaseStorageHttpUrl(u) ||
         (isValidImageUrl(u) &&
             firebaseStorageMediaUrlLooksLike(u) &&
             (u.startsWith('http://') || u.startsWith('https://')));
@@ -1323,10 +1358,13 @@ class SafeNetworkImage extends StatefulWidget {
   final Widget? errorWidget;
   final int? memCacheWidth;
   final int? memCacheHeight;
+
   /// Ver [FirebaseStorageMemoryImage.skipFreshDisplayUrl].
   final bool skipFreshDisplayUrl;
+
   /// Revisão Firestore — cache em disco só muda quando a mídia do membro/post muda.
   final int storageCacheRevision;
+
   /// Diagnóstico: falha em qualquer ramo (Storage, [CachedNetworkImage], URL inválida).
   final void Function(String url, Object? error)? onLoadError;
 
@@ -1381,8 +1419,10 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
           width: widget.width,
           height: widget.height,
           gaplessPlayback: true,
-          filterQuality:
-              filterQualityForMemCache(widget.memCacheWidth, widget.memCacheHeight),
+          filterQuality: filterQualityForMemCache(
+            widget.memCacheWidth,
+            widget.memCacheHeight,
+          ),
           cacheWidth: widget.memCacheWidth,
           cacheHeight: widget.memCacheHeight,
         );
@@ -1426,7 +1466,9 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
     if (kIsWeb) {
       if (isFirebaseStorageHttpUrl(url)) {
         return FirebaseStorageMemoryImage(
-          key: ValueKey<String>('sn_web_fs_${url}_${widget.storageCacheRevision}'),
+          key: ValueKey<String>(
+            'sn_web_fs_${url}_${widget.storageCacheRevision}',
+          ),
           imageUrl: url,
           fit: widget.fit,
           width: widget.width,
@@ -1557,7 +1599,8 @@ class _WebNetworkImageLastResort extends StatefulWidget {
       _WebNetworkImageLastResortState();
 }
 
-class _WebNetworkImageLastResortState extends State<_WebNetworkImageLastResort> {
+class _WebNetworkImageLastResortState
+    extends State<_WebNetworkImageLastResort> {
   Timer? _giveUpTimer;
   bool _timedOut = false;
   bool _completed = false;
@@ -1610,8 +1653,10 @@ class _WebNetworkImageLastResortState extends State<_WebNetworkImageLastResort> 
       gaplessPlayback: true,
       cacheWidth: widget.cacheWidth,
       cacheHeight: widget.cacheHeight,
-      filterQuality:
-          filterQualityForMemCache(widget.cacheWidth, widget.cacheHeight),
+      filterQuality: filterQualityForMemCache(
+        widget.cacheWidth,
+        widget.cacheHeight,
+      ),
       loadingBuilder: (_, child, progress) {
         if (progress == null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1634,26 +1679,30 @@ class _WebNetworkImageLastResortState extends State<_WebNetworkImageLastResort> 
 
 /// Baixa bytes do Firebase Storage na web (token + SDK). [refFromURL] pode falhar em alguns builds;
 /// tenta também decodificar o path (`/v0/b/.../o/...` ou `*.firebasestorage.app/o/...`).
-/// Fallback: getDownloadURL para URL nova com token válido quando getData falha (token expirado).
-/// Prioriza getDownloadURL quando a URL original contém token (site público / usuário não logado).
+/// Fallback: getDownloadURL para URL nova somente quando getData/URL atual falham.
 ///
 /// Limite global de tempo: evita spinner infinito no painel web se o SDK ou a fila travarem.
-Future<Uint8List?> firebaseStorageBytesFromDownloadUrl(String rawUrl,
-    {int maxBytes = 15 * 1024 * 1024, bool skipFreshDisplayUrl = false}) async {
+Future<Uint8List?> firebaseStorageBytesFromDownloadUrl(
+  String rawUrl, {
+  int maxBytes = 15 * 1024 * 1024,
+  bool skipFreshDisplayUrl = false,
+}) async {
   try {
-    return await _firebaseStorageBytesFromDownloadUrlImpl(rawUrl,
-            maxBytes: maxBytes, skipFreshDisplayUrl: skipFreshDisplayUrl)
-        .timeout(
-      const Duration(seconds: 45),
-      onTimeout: () => null,
-    );
+    return await _firebaseStorageBytesFromDownloadUrlImpl(
+      rawUrl,
+      maxBytes: maxBytes,
+      skipFreshDisplayUrl: skipFreshDisplayUrl,
+    ).timeout(const Duration(seconds: 24), onTimeout: () => null);
   } catch (_) {
     return null;
   }
 }
 
-Future<Uint8List?> _firebaseStorageBytesFromDownloadUrlImpl(String rawUrl,
-    {int maxBytes = 15 * 1024 * 1024, bool skipFreshDisplayUrl = false}) async {
+Future<Uint8List?> _firebaseStorageBytesFromDownloadUrlImpl(
+  String rawUrl, {
+  int maxBytes = 15 * 1024 * 1024,
+  bool skipFreshDisplayUrl = false,
+}) async {
   var url = sanitizeImageUrl(rawUrl);
   if (isDataImageUrl(url)) return null;
   if (!isValidImageUrl(url)) {
@@ -1662,8 +1711,9 @@ Future<Uint8List?> _firebaseStorageBytesFromDownloadUrlImpl(String rawUrl,
       return null;
     }
     try {
-      final resolved = await freshFirebaseStorageDisplayUrl(rawUrl)
-          .timeout(const Duration(seconds: 24), onTimeout: () => url);
+      final resolved = await freshFirebaseStorageDisplayUrl(
+        rawUrl,
+      ).timeout(const Duration(seconds: 24), onTimeout: () => url);
       url = sanitizeImageUrl(resolved);
     } catch (_) {}
     if (!isValidImageUrl(url)) return null;
@@ -1683,23 +1733,12 @@ Future<Uint8List?> _firebaseStorageBytesFromDownloadUrlImpl(String rawUrl,
     } catch (_) {}
   }
 
-  if (!skipFreshDisplayUrl && firebaseStorageMediaUrlLooksLike(url)) {
-    try {
-      final refreshed = await freshFirebaseStorageDisplayUrl(url)
-          .timeout(const Duration(seconds: 22), onTimeout: () => url);
-      if (isValidImageUrl(refreshed)) {
-        url = sanitizeImageUrl(refreshed);
-      }
-    } catch (_) {}
-  }
-
   Future<Uint8List?> tryHttpUri(Uri uri) async {
     try {
       final r = await _mediaDownloadLimiter.run(() {
-        return http.get(
-          uri,
-          headers: const {'Accept': 'image/*,*/*;q=0.8'},
-        ).timeout(const Duration(seconds: 25));
+        return http
+            .get(uri, headers: const {'Accept': 'image/*,*/*;q=0.8'})
+            .timeout(const Duration(seconds: 10));
       });
       if (r.statusCode == 200 && r.bodyBytes.length > 32) return r.bodyBytes;
     } catch (_) {}
@@ -1709,20 +1748,22 @@ Future<Uint8List?> _firebaseStorageBytesFromDownloadUrlImpl(String rawUrl,
   /// Na **web**, `http.get` do pacote [http] costuma falhar por CORS; priorizar [getData] do SDK.
   /// Em todo lugar: [getData] com timeout para não travar spinner indefinidamente.
   Future<Uint8List?> tryWithRef(Reference ref) async {
-    var freshUrl = '';
-    try {
-      freshUrl = await ref
-          .getDownloadURL()
-          .timeout(const Duration(seconds: 18), onTimeout: () => '');
-    } catch (_) {}
-
     if (kIsWeb) {
       try {
         final b = await ref
             .getData(maxBytes)
-            .timeout(const Duration(seconds: 22), onTimeout: () => null);
+            .timeout(const Duration(seconds: 12), onTimeout: () => null);
         if (b != null && b.length > 32) return b;
       } catch (_) {}
+      var freshUrl = '';
+      if (!skipFreshDisplayUrl) {
+        try {
+          freshUrl = await ref.getDownloadURL().timeout(
+            const Duration(seconds: 6),
+            onTimeout: () => '',
+          );
+        } catch (_) {}
+      }
       if (freshUrl.isNotEmpty) {
         try {
           final fromFresh = await tryHttpUri(Uri.parse(freshUrl));
@@ -1734,21 +1775,31 @@ Future<Uint8List?> _firebaseStorageBytesFromDownloadUrlImpl(String rawUrl,
         if (fromOriginal != null) return fromOriginal;
       } catch (_) {}
       try {
-        final again = await ref
-            .getDownloadURL()
-            .timeout(const Duration(seconds: 12), onTimeout: () => '');
+        final again = await ref.getDownloadURL().timeout(
+          const Duration(seconds: 12),
+          onTimeout: () => '',
+        );
         if (again.isNotEmpty) return await tryHttpUri(Uri.parse(again));
       } catch (_) {}
       return null;
     }
 
-    // Android/iOS: SDK autenticado — getData primeiro (HTTP com token expirado falha em listas).
+    // Android/iOS: SDK autenticado primeiro; URL renovada somente no fallback.
     try {
       final b = await ref
           .getData(maxBytes)
-          .timeout(const Duration(seconds: 18), onTimeout: () => null);
+          .timeout(const Duration(seconds: 12), onTimeout: () => null);
       if (b != null && b.length > 32) return b;
     } catch (_) {}
+    var freshUrl = '';
+    if (!skipFreshDisplayUrl) {
+      try {
+        freshUrl = await ref.getDownloadURL().timeout(
+          const Duration(seconds: 6),
+          onTimeout: () => '',
+        );
+      } catch (_) {}
+    }
     if (freshUrl.isNotEmpty) {
       try {
         final fromFresh = await tryHttpUri(Uri.parse(freshUrl));
@@ -1760,9 +1811,10 @@ Future<Uint8List?> _firebaseStorageBytesFromDownloadUrlImpl(String rawUrl,
       if (fromOriginal != null) return fromOriginal;
     } catch (_) {}
     try {
-      final again = await ref
-          .getDownloadURL()
-          .timeout(const Duration(seconds: 12), onTimeout: () => '');
+      final again = await ref.getDownloadURL().timeout(
+        const Duration(seconds: 12),
+        onTimeout: () => '',
+      );
       if (again.isNotEmpty) {
         final fromAgain = await tryHttpUri(Uri.parse(again));
         if (fromAgain != null) return fromAgain;
@@ -1800,8 +1852,10 @@ Future<String?> refreshFirebaseStorageDownloadUrl(String? rawUrl) async {
   if (u.isEmpty) return null;
   if (!firebaseStorageMediaUrlLooksLike(u)) return null;
   try {
-    final out = await freshFirebaseStorageDisplayUrl(u)
-        .timeout(const Duration(seconds: 18), onTimeout: () => u);
+    final out = await freshFirebaseStorageDisplayUrl(
+      u,
+      forceRefresh: true,
+    ).timeout(const Duration(seconds: 18), onTimeout: () => u);
     return isValidImageUrl(out) ? out : null;
   } catch (_) {
     return null;
@@ -1817,9 +1871,9 @@ Future<bool> storageBytesRenderWithImageMemory(Uint8List bytes) async {
     final codec = await ui
         .instantiateImageCodec(bytes)
         .timeout(const Duration(seconds: 10));
-    final frame = await codec
-        .getNextFrame()
-        .timeout(const Duration(seconds: 10));
+    final frame = await codec.getNextFrame().timeout(
+      const Duration(seconds: 10),
+    );
     final ok = frame.image.width > 0 && frame.image.height > 0;
     try {
       frame.image.dispose();
@@ -1863,7 +1917,8 @@ class MemberProfilePhotoBytesCache {
     final path = firebaseStorageObjectPathFromHttpUrl(u);
     if (path != null && path.isNotEmpty) return 'p:$path';
     final low = u.toLowerCase();
-    final isWebRef = low.startsWith('http://') ||
+    final isWebRef =
+        low.startsWith('http://') ||
         low.startsWith('https://') ||
         low.startsWith('data:');
     if (!isWebRef) {
@@ -2000,7 +2055,10 @@ Future<void> _writeStorageImageBytesToDisk(
 /// No Android, [CachedNetworkImage] costuma ficar indefinidamente em loading com URLs
 /// `firebasestorage.googleapis.com` tokenizadas; este widget contorna o problema.
 /// Limite de download para avatares/listas (evita puxar foto 4K no painel ou chat).
-int firebaseStorageMaxBytesForMemCache(int? memCacheWidth, int? memCacheHeight) {
+int firebaseStorageMaxBytesForMemCache(
+  int? memCacheWidth,
+  int? memCacheHeight,
+) {
   final edge = [
     memCacheWidth ?? 0,
     memCacheHeight ?? 0,
@@ -2021,11 +2079,14 @@ class FirebaseStorageMemoryImage extends StatefulWidget {
   final Widget? errorWidget;
   final int? memCacheWidth;
   final int? memCacheHeight;
+
   /// Quando a URL já passou por [freshFirebaseStorageDisplayUrl] / [AppStorageImageService.resolveImageUrl],
   /// evita segundo refresh em [firebaseStorageBytesFromDownloadUrl] (menos contenção do SDK na web).
   final bool skipFreshDisplayUrl;
+
   /// Revisão Firestore — invalida cache em disco ao trocar foto/capa.
   final int storageCacheRevision;
+
   /// Diagnóstico (ex.: mural): falha ao obter bytes ou decodificar.
   final void Function(String url, Object? error)? onLoadError;
 
@@ -2090,7 +2151,8 @@ class _FirebaseStorageMemoryImageState
   void _applyUrl(String raw, {required bool notify}) {
     final url = sanitizeImageUrl(raw);
     if (!isValidImageUrl(url)) {
-      final canResolveStorage = firebaseStorageMediaUrlLooksLike(raw.trim()) ||
+      final canResolveStorage =
+          firebaseStorageMediaUrlLooksLike(raw.trim()) ||
           raw.trim().toLowerCase().startsWith('gs://');
       if (canResolveStorage) {
         void applyLoading() {
@@ -2117,8 +2179,10 @@ class _FirebaseStorageMemoryImageState
         _webBrowserUrl = '';
         if (!_loadFailureReported) {
           _loadFailureReported = true;
-          widget.onLoadError
-              ?.call(widget.imageUrl, StateError('URL inválida ou vazia'));
+          widget.onLoadError?.call(
+            widget.imageUrl,
+            StateError('URL inválida ou vazia'),
+          );
         }
       }
 
@@ -2218,10 +2282,11 @@ class _FirebaseStorageMemoryImageState
     );
     try {
       if (isFirebaseStorageHttpUrl(url)) {
-        data = await firebaseStorageBytesFromDownloadUrl(url,
-                maxBytes: maxDl,
-                skipFreshDisplayUrl: widget.skipFreshDisplayUrl)
-            .timeout(storageTimeout, onTimeout: () => null);
+        data = await firebaseStorageBytesFromDownloadUrl(
+          url,
+          maxBytes: maxDl,
+          skipFreshDisplayUrl: widget.skipFreshDisplayUrl,
+        ).timeout(storageTimeout, onTimeout: () => null);
       } else if (firebaseStorageMediaUrlLooksLike(widget.imageUrl.trim()) ||
           widget.imageUrl.trim().toLowerCase().startsWith('gs://')) {
         data = await firebaseStorageBytesFromDownloadUrl(
@@ -2231,10 +2296,12 @@ class _FirebaseStorageMemoryImageState
         ).timeout(storageTimeout, onTimeout: () => null);
       } else {
         final r = await _mediaDownloadLimiter.run(() {
-          return http.get(
-            Uri.parse(url),
-            headers: <String, String>{'Accept': 'image/*,*/*;q=0.8'},
-          ).timeout(const Duration(seconds: 45));
+          return http
+              .get(
+                Uri.parse(url),
+                headers: <String, String>{'Accept': 'image/*,*/*;q=0.8'},
+              )
+              .timeout(const Duration(seconds: 45));
         });
         if (r.statusCode == 200 && r.bodyBytes.length > 24) {
           data = r.bodyBytes;
@@ -2271,11 +2338,13 @@ class _FirebaseStorageMemoryImageState
       }
       MemberProfilePhotoBytesCache.put(url, data);
       if (!kIsWeb) {
-        unawaited(_writeStorageImageBytesToDisk(
-          url,
-          data,
-          storageCacheRevision: widget.storageCacheRevision,
-        ));
+        unawaited(
+          _writeStorageImageBytesToDisk(
+            url,
+            data,
+            storageCacheRevision: widget.storageCacheRevision,
+          ),
+        );
       }
       setState(() {
         _bytes = data;
@@ -2321,7 +2390,9 @@ class _FirebaseStorageMemoryImageState
     if (!_loadFailureReported) {
       _loadFailureReported = true;
       widget.onLoadError?.call(
-          url, Exception('Falha ao carregar imagem (Storage/HTTP)'));
+        url,
+        Exception('Falha ao carregar imagem (Storage/HTTP)'),
+      );
     }
     setState(() {
       _bytes = null;
@@ -2358,8 +2429,10 @@ class _FirebaseStorageMemoryImageState
         width: widget.width,
         height: widget.height,
         gaplessPlayback: true,
-        filterQuality:
-            filterQualityForMemCache(widget.memCacheWidth, widget.memCacheHeight),
+        filterQuality: filterQualityForMemCache(
+          widget.memCacheWidth,
+          widget.memCacheHeight,
+        ),
         cacheWidth: widget.memCacheWidth,
         cacheHeight: widget.memCacheHeight,
       );
@@ -2488,10 +2561,12 @@ class _StorageFriendlyImageState extends State<StorageFriendlyImage> {
     Future<bool> tryHttp() async {
       try {
         final r = await _mediaDownloadLimiter.run(() {
-          return http.get(
-            Uri.parse(url),
-            headers: <String, String>{'Accept': 'image/*,*/*;q=0.8'},
-          ).timeout(const Duration(seconds: 45));
+          return http
+              .get(
+                Uri.parse(url),
+                headers: <String, String>{'Accept': 'image/*,*/*;q=0.8'},
+              )
+              .timeout(const Duration(seconds: 45));
         });
         if (!mounted) return true;
         if (r.statusCode == 200 && r.bodyBytes.length > 32) {
@@ -2544,17 +2619,23 @@ class _StorageFriendlyImageState extends State<StorageFriendlyImage> {
           width: widget.width,
           height: widget.height,
           gaplessPlayback: true,
-          filterQuality:
-              filterQualityForMemCache(widget.memCacheWidth, widget.memCacheHeight),
+          filterQuality: filterQualityForMemCache(
+            widget.memCacheWidth,
+            widget.memCacheHeight,
+          ),
         );
       }
-      widget.onLoadError
-          ?.call(widget.imageUrl, StateError('data:image inválida ou corrompida'));
+      widget.onLoadError?.call(
+        widget.imageUrl,
+        StateError('data:image inválida ou corrompida'),
+      );
       return widget.errorWidget ?? defaultImageErrorWidget();
     }
     if (!isValidImageUrl(url)) {
-      widget.onLoadError
-          ?.call(widget.imageUrl, StateError('URL inválida ou vazia'));
+      widget.onLoadError?.call(
+        widget.imageUrl,
+        StateError('URL inválida ou vazia'),
+      );
       return widget.errorWidget ?? defaultImageErrorWidget();
     }
     if (!kIsWeb) {
@@ -2577,8 +2658,10 @@ class _StorageFriendlyImageState extends State<StorageFriendlyImage> {
         width: widget.width,
         height: widget.height,
         gaplessPlayback: true,
-        filterQuality:
-            filterQualityForMemCache(widget.memCacheWidth, widget.memCacheHeight),
+        filterQuality: filterQualityForMemCache(
+          widget.memCacheWidth,
+          widget.memCacheHeight,
+        ),
       );
     }
     if (_loading || !_webAttemptDone) {
@@ -2634,12 +2717,9 @@ class SafeCircleAvatarImage extends StatelessWidget {
       );
     }
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    final cacheSize = memCacheSize ??
-        memCacheExtentForLogicalSize(
-          radius * 2,
-          dpr,
-          maxPx: 640,
-        );
+    final cacheSize =
+        memCacheSize ??
+        memCacheExtentForLogicalSize(radius * 2, dpr, maxPx: 640);
     return ClipOval(
       child: SizedBox(
         width: radius * 2,
@@ -2694,16 +2774,22 @@ class _SafeCircleAvatarContentState extends State<_SafeCircleAvatarContent> {
   }
 
   Widget get _placeholder => Container(
-        color: widget.backgroundColor,
-        child: Icon(widget.fallbackIcon,
-            size: widget.radius * 0.8, color: widget.fallbackColor),
-      );
+    color: widget.backgroundColor,
+    child: Icon(
+      widget.fallbackIcon,
+      size: widget.radius * 0.8,
+      color: widget.fallbackColor,
+    ),
+  );
 
   Widget get _errorIcon => Container(
-        color: widget.backgroundColor,
-        child: Icon(widget.fallbackIcon,
-            size: widget.radius * 1.1, color: widget.fallbackColor),
-      );
+    color: widget.backgroundColor,
+    child: Icon(
+      widget.fallbackIcon,
+      size: widget.radius * 1.1,
+      color: widget.fallbackColor,
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -2804,33 +2890,36 @@ Future<void> preloadNetworkImages(
       .take(maxItems)
       .toList();
   if (cleaned.isEmpty) return;
-  await Future.wait(cleaned.map((u) async {
-    await _mediaPreloadLimiter.run(() async {
-      try {
-        if (firebaseStorageMediaUrlLooksLike(u) || isFirebaseStorageHttpUrl(u)) {
-          final bytes = await firebaseStorageBytesFromDownloadUrl(
-            u,
-            maxBytes: 4 * 1024 * 1024,
-            skipFreshDisplayUrl: true,
-          ).timeout(const Duration(seconds: 20), onTimeout: () => null);
-          if (bytes != null && bytes.length > 32) {
-            MemberProfilePhotoBytesCache.put(u, bytes);
-            if (!kIsWeb) {
-              unawaited(_writeStorageImageBytesToDisk(u, bytes));
+  await Future.wait(
+    cleaned.map((u) async {
+      await _mediaPreloadLimiter.run(() async {
+        try {
+          if (firebaseStorageMediaUrlLooksLike(u) ||
+              isFirebaseStorageHttpUrl(u)) {
+            final bytes = await firebaseStorageBytesFromDownloadUrl(
+              u,
+              maxBytes: 4 * 1024 * 1024,
+              skipFreshDisplayUrl: true,
+            ).timeout(const Duration(seconds: 20), onTimeout: () => null);
+            if (bytes != null && bytes.length > 32) {
+              MemberProfilePhotoBytesCache.put(u, bytes);
+              if (!kIsWeb) {
+                unawaited(_writeStorageImageBytesToDisk(u, bytes));
+              }
+              _preloadedMediaUrls.add(u);
             }
-            _preloadedMediaUrls.add(u);
+            return;
           }
-          return;
-        }
-        var use = u;
-        if (kIsWeb) {
-          use = await freshFirebaseStorageDisplayUrl(u);
-        }
-        if (!isValidImageUrl(use)) return;
-        if (!context.mounted) return;
-        await precacheImage(NetworkImage(use), context);
-        _preloadedMediaUrls.add(u);
-      } catch (_) {}
-    });
-  }));
+          var use = u;
+          if (kIsWeb) {
+            use = await freshFirebaseStorageDisplayUrl(u);
+          }
+          if (!isValidImageUrl(use)) return;
+          if (!context.mounted) return;
+          await precacheImage(NetworkImage(use), context);
+          _preloadedMediaUrls.add(u);
+        } catch (_) {}
+      });
+    }),
+  );
 }

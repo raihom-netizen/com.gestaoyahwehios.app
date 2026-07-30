@@ -6,17 +6,16 @@ import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
 import 'package:gestao_yahweh/services/church_tenant_media_service.dart';
+import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
-
-
 
 /// Upload direto ao Storage com várias tentativas — usado por [MediaUploadService]
 
 /// e pela [StorageUploadQueueService] (sem fila offline no dreno).
 
 Future<String> uploadStoragePutDataWithRetry({
-
   required String storagePath,
 
   required Uint8List bytes,
@@ -34,7 +33,6 @@ Future<String> uploadStoragePutDataWithRetry({
   bool useOfflineQueue = false,
 
   String? localFilePathForRetry,
-
 }) async {
   if (bytes.isEmpty) {
     throw StateError('Ficheiro vazio — selecione outro.');
@@ -67,9 +65,8 @@ Future<String> uploadStoragePutDataWithRetry({
   }
 }
 
-
-
-/// Ficheiro local → lê bytes → [uploadStoragePutDataWithRetry] (padrão CT: só putData).
+/// Ficheiro local grande → upload nativo resumível. Web continua exclusivamente
+/// em [uploadStoragePutDataWithRetry].
 Future<String> uploadStoragePutFileWithRetry({
   required String storagePath,
   required File file,
@@ -80,20 +77,52 @@ Future<String> uploadStoragePutFileWithRetry({
   void Function(UploadTask task)? onTaskStarted,
   bool useOfflineQueue = false,
 }) async {
-  final bytes = await file.readAsBytes();
-  if (bytes.isEmpty) {
+  if (!await file.exists()) {
+    throw StateError('Ficheiro não encontrado no aparelho.');
+  }
+  final length = await file.length();
+  if (length <= 0) {
     throw StateError('Ficheiro vazio — selecione outro.');
   }
-  return uploadStoragePutDataWithRetry(
+  if (!FirebaseBootstrapService.isStorageUploadBootstrapFresh) {
+    await ensureUploadBootstrapForStoragePath(storagePath);
+  }
+  await ChurchTenantMediaService.assertUploadPathFromResolvedTenant(
     storagePath: storagePath,
-    bytes: bytes,
-    contentType: contentType,
-    cacheControl: cacheControl,
-    maxAttempts: maxAttempts,
-    onProgress: onProgress,
-    onTaskStarted: onTaskStarted,
-    useOfflineQueue: useOfflineQueue,
-    localFilePathForRetry: file.path,
   );
-}
 
+  Object? lastError;
+  for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      final ref = firebaseDefaultStorage.ref(storagePath);
+      final task = ref.putFile(
+        file,
+        SettableMetadata(
+          contentType: StorageUploadMetadata.contentTypeForPut(
+            contentType: contentType,
+            storagePath: storagePath,
+          ),
+          cacheControl: cacheControl,
+        ),
+      );
+      onTaskStarted?.call(task);
+      final snap = await awaitStorageUploadTask(
+        task,
+        payloadBytes: length,
+        onProgress: onProgress,
+      );
+      onProgress?.call(1);
+      ChurchTenantMediaActivity.recordUpload(storagePath);
+      return await storageDownloadUrlOrNull(snap.ref) ?? '';
+    } catch (e) {
+      lastError = e;
+      final canceled = e.toString().toLowerCase().contains('cancel');
+      if (canceled || !isRetryableUploadError(e) || attempt >= maxAttempts) {
+        ChurchTenantMediaActivity.recordError(e.toString());
+        rethrow;
+      }
+      await Future<void>.delayed(Duration(milliseconds: 250 * attempt));
+    }
+  }
+  throw lastError ?? StateError('Falha ao enviar ficheiro.');
+}

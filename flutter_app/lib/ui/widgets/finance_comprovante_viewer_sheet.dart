@@ -34,6 +34,18 @@ abstract final class FinanceComprovanteViewerSheet {
     final mime = FinanceComprovanteAttachService.mimeFromDoc(data);
     final fileName = FinanceComprovanteAttachService.displayNameFromDoc(data);
     final storagePath = FinanceComprovanteUtils.storagePath(data);
+    // O path canónico é a fonte estável. Abrir bytes diretamente evita URL
+    // expirada/CORS e funciona igual no Financeiro, Dashboard e Fornecedores.
+    if (storagePath.isNotEmpty) {
+      final isPdf = mime.toLowerCase().contains('pdf') ||
+          fileName.toLowerCase().endsWith('.pdf');
+      if (isPdf) {
+        await _showPdfFromStorage(context, data, fileName);
+      } else {
+        await _showImageFromStorage(context, data, fileName, mime);
+      }
+      return;
+    }
     var url =
         await FinanceComprovantePublishService.resolveComprovanteUrl(data);
     if (!context.mounted) return;
@@ -72,8 +84,8 @@ abstract final class FinanceComprovanteViewerSheet {
     String mime,
   ) async {
     try {
-      await ensureFirebaseCore(requireAuth: false);
-      final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
+      await ensureFirebaseCore(requireAuth: true);
+      final path = FinanceComprovanteUtils.storagePath(data);
       if (path.isEmpty) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -84,7 +96,8 @@ abstract final class FinanceComprovanteViewerSheet {
       }
       final bytes = await firebaseDefaultStorage
           .ref(path)
-          .getData(FinanceComprovanteAttachService.maxBytes);
+          .getData(FinanceComprovanteAttachService.maxBytes)
+          .timeout(const Duration(seconds: 18));
       if (!context.mounted) return;
       if (bytes == null || bytes.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -270,13 +283,14 @@ abstract final class FinanceComprovanteViewerSheet {
     String fileName,
   ) async {
     try {
-      await ensureFirebaseCore(requireAuth: false);
-      final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
+      await ensureFirebaseCore(requireAuth: true);
+      final path = FinanceComprovanteUtils.storagePath(data);
       Uint8List? bytes;
       if (path.isNotEmpty) {
         bytes = await firebaseDefaultStorage
             .ref(path)
-            .getData(FinanceComprovanteAttachService.maxBytes);
+            .getData(FinanceComprovanteAttachService.maxBytes)
+            .timeout(const Duration(seconds: 18));
       }
       if (!context.mounted) return;
       if (bytes == null || bytes.isEmpty) {

@@ -79,6 +79,7 @@ class TdlibMessageItem {
     this.senderName,
     this.text = '',
     this.mediaKind,
+    this.mediaFileId,
     this.mediaLocalPath,
     this.mediaRemoteId,
     this.mediaCaption,
@@ -102,6 +103,7 @@ class TdlibMessageItem {
 
   /// 'photo' | 'video' | 'voice' | 'document' | 'audio' | 'sticker' | null
   final String? mediaKind;
+  final int? mediaFileId;
   final String? mediaLocalPath;
   final String? mediaRemoteId;
   final String? mediaCaption;
@@ -126,6 +128,7 @@ class TdlibMessageItem {
     String? senderName,
     String? text,
     String? mediaKind,
+    int? mediaFileId,
     String? mediaLocalPath,
     String? mediaRemoteId,
     String? mediaCaption,
@@ -147,6 +150,7 @@ class TdlibMessageItem {
         senderName: senderName ?? this.senderName,
         text: text ?? this.text,
         mediaKind: mediaKind ?? this.mediaKind,
+        mediaFileId: mediaFileId ?? this.mediaFileId,
         mediaLocalPath: mediaLocalPath ?? this.mediaLocalPath,
         mediaRemoteId: mediaRemoteId ?? this.mediaRemoteId,
         mediaCaption: mediaCaption ?? this.mediaCaption,

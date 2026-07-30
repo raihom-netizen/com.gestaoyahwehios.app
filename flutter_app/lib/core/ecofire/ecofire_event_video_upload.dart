@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
+import 'package:gestao_yahweh/services/resumable_upload_service.dart';
 
 /// Vídeo de evento — bytes → `putData` → URL (padrão CT / EcoFire).
 abstract final class EcoFireEventVideoUpload {
@@ -18,14 +18,13 @@ abstract final class EcoFireEventVideoUpload {
       context: 'EcoFireEventVideoUpload.putVideoFile',
     );
     EcoFireFlow.log('EVENT_VIDEO putData $storagePath');
-    final bytes = await file.readAsBytes();
-    if (bytes.isEmpty) {
+    if (!await file.exists() || await file.length() <= 0) {
       throw StateError('Vídeo vazio — selecione outro ficheiro.');
     }
-    final url = await EcoFireStorageUpload.putData(
+    final url = await ResumableUploadService.uploadLocalFile(
       storagePath: storagePath,
-      bytes: bytes,
-      mimeType: 'video/mp4',
+      localFilePath: file.path,
+      contentType: 'video/mp4',
       onProgress: onProgress,
     );
     EcoFireFlow.log('EVENT_VIDEO OK $storagePath');

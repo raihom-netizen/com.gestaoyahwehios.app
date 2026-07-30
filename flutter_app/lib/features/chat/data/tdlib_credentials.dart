@@ -4,6 +4,11 @@
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+const String _telegramApiIdFromBuild =
+    String.fromEnvironment('TELEGRAM_API_ID');
+const String _telegramApiHashFromBuild =
+    String.fromEnvironment('TELEGRAM_API_HASH');
+
 /// Carrega dotenv. Seguro chamar várias vezes; falha soft se ausente.
 Future<void> loadTdlibDotEnv() async {
   if (dotenv.isInitialized) return;
@@ -21,6 +26,8 @@ Future<void> loadTdlibDotEnv() async {
 }
 
 int get telegramApiId {
+  final buildValue = _telegramApiIdFromBuild.trim();
+  if (buildValue.isNotEmpty) return int.tryParse(buildValue) ?? 0;
   final raw = (dotenv.isInitialized ? dotenv.env['TELEGRAM_API_ID'] : null)
           ?.trim() ??
       '';
@@ -28,6 +35,8 @@ int get telegramApiId {
 }
 
 String get telegramApiHash {
+  final buildValue = _telegramApiHashFromBuild.trim();
+  if (buildValue.isNotEmpty) return buildValue;
   return (dotenv.isInitialized ? dotenv.env['TELEGRAM_API_HASH'] : null)
           ?.trim() ??
       '';

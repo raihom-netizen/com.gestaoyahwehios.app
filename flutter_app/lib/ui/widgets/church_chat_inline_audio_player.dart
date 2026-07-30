@@ -2,12 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/services/storage_media_service.dart';
+import 'package:gestao_yahweh/services/church_chat_media_resolver.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show firebaseStorageDownloadUrlLooksTokenized, sanitizeImageUrl;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:audio_waveforms/audio_waveforms.dart' show PlayerController;
-import 'package:gestao_yahweh/ui/widgets/church_chat_audio_waveform_player.dart';
 import 'package:just_audio/just_audio.dart';
 
 /// Garante que só um áudio do chat toca de cada vez (estilo WhatsApp).
@@ -84,12 +83,11 @@ class ChurchChatInlineAudioPlayer extends StatefulWidget {
       _ChurchChatInlineAudioPlayerState();
 }
 
-class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlayer> {
+class _ChurchChatInlineAudioPlayerState
+    extends State<ChurchChatInlineAudioPlayer> {
   final AudioPlayer _player = AudioPlayer();
   bool _loading = true;
   String? _error;
-  String? _localPath;
-  bool _useWaveform = false;
   bool _disposed = false;
 
   static const Color _accent = Color(0xFF128C7E);
@@ -100,32 +98,35 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
     unawaited(_prepare());
   }
 
-  Future<String?> _resolveUrl() async {
+  Future<String?> _resolveUrl({bool forceRefresh = false}) async {
     final m = sanitizeImageUrl(widget.mediaUrl.trim());
-    if (!kIsWeb && firebaseStorageDownloadUrlLooksTokenized(m)) {
+    if (!forceRefresh &&
+        !kIsWeb &&
+        firebaseStorageDownloadUrlLooksTokenized(m)) {
       return m;
     }
     final sp = widget.storagePath?.trim() ?? '';
-    for (final candidate in <String>[m, sp]) {
-      if (candidate.isEmpty) continue;
-      try {
-        final u = await StorageMediaService.freshPlayableMediaUrl(candidate);
-        if (u.trim().isNotEmpty) return u.trim();
-      } catch (_) {}
-      if (!kIsWeb &&
-          firebaseStorageDownloadUrlLooksTokenized(
-              sanitizeImageUrl(candidate))) {
-        return sanitizeImageUrl(candidate);
-      }
-      try {
-        final u = await StorageMediaService.downloadUrlFromPathOrUrl(candidate);
-        if (u != null && u.trim().isNotEmpty) return u.trim();
-      } catch (_) {}
+    final candidate = sp.isNotEmpty ? sp : m;
+    if (candidate.isEmpty) return null;
+    final resolved = await ChurchChatMediaResolver.resolveDownloadUrl(
+      storagePath: candidate,
+      messageId: widget.messageId,
+      forceRefresh: forceRefresh,
+      fastPreview: true,
+    );
+    if (resolved != null && resolved.trim().isNotEmpty) {
+      return resolved.trim();
     }
-    return null;
+    return m.isNotEmpty ? m : null;
   }
 
   Future<void> _prepare() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final resolved = await _resolveUrl();
       if (_disposed) return;
@@ -138,30 +139,20 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
         }
         return;
       }
-      if (!kIsWeb) {
-        final path = await downloadChatAudioToTempFile(
-          url: resolved,
-          messageId: widget.messageId,
-        );
-        if (path != null && path.isNotEmpty) {
-          _localPath = path;
-          _useWaveform = true;
-          if (mounted) {
-            setState(() {
-              _loading = false;
-              _error = null;
-            });
-          }
-          return;
-        }
+      // Preparação por streaming/range nativo. O código anterior descarregava
+      // todos os áudios completos ao abrir a conversa, saturando a ligação.
+      try {
+        await _player.setUrl(resolved).timeout(const Duration(seconds: 15));
+      } catch (_) {
+        final fresh = await _resolveUrl(forceRefresh: true);
+        if (fresh == null || fresh.isEmpty || fresh == resolved) rethrow;
+        await _player.setUrl(fresh).timeout(const Duration(seconds: 15));
       }
-      await _player.setUrl(resolved);
       if (_disposed) return;
       if (mounted) {
         setState(() {
           _loading = false;
           _error = null;
-          _useWaveform = false;
         });
       }
     } catch (_) {
@@ -181,8 +172,10 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
       if (_player.playing) {
         await _player.pause();
       } else {
-        await ChurchChatAudioPlaybackCoordinator.instance
-            .beforePlay(_player, widget.messageId);
+        await ChurchChatAudioPlaybackCoordinator.instance.beforePlay(
+          _player,
+          widget.messageId,
+        );
         if (_player.processingState == ProcessingState.completed) {
           await _player.seek(Duration.zero);
         }
@@ -206,13 +199,6 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
 
   @override
   Widget build(BuildContext context) {
-    if (_useWaveform && _localPath != null && _error == null) {
-      return ChurchChatAudioWaveformPlayer(
-        playablePath: _localPath!,
-        messageId: widget.messageId,
-        mine: widget.mine,
-      );
-    }
     if (_loading) {
       return Row(
         mainAxisSize: MainAxisSize.min,
@@ -222,9 +208,7 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
             height: 22,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              color: widget.mine
-                  ? ThemeCleanPremium.primary
-                  : _accent,
+              color: widget.mine ? ThemeCleanPremium.primary : _accent,
             ),
           ),
           const SizedBox(width: 10),
@@ -240,22 +224,32 @@ class _ChurchChatInlineAudioPlayerState extends State<ChurchChatInlineAudioPlaye
       );
     }
     if (_error != null) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.error_outline_rounded,
-              size: 20, color: ThemeCleanPremium.onSurfaceVariant),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              _error!,
-              style: TextStyle(
-                fontSize: 13,
+      return InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => unawaited(_prepare()),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.refresh_rounded,
+                size: 20,
                 color: ThemeCleanPremium.onSurfaceVariant,
               ),
-            ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  '${_error!}. Toque para tentar novamente.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       );
     }
 

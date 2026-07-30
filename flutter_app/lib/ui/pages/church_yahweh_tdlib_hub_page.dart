@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_auth_state.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_service.dart';
+import 'package:gestao_yahweh/features/chat/presentation/tdlib_chat_thread_page.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_chat_hub_departments_service.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
@@ -69,7 +70,7 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
   bool _authBusy = false;
   String? _authLocalError;
   String? _myPhoneDigits;
-  bool _autoPhoneTried = false;
+  final Set<int> _openedChurchChatIds = <int>{};
 
   String get _churchId => ChurchRepository.churchId(widget.tenantId.trim());
 
@@ -80,6 +81,18 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
 
   bool get _tdlibReady =>
       TdLibService.instance.isSupported && _auth.phase == TdlibAuthPhase.ready;
+
+  List<TdlibChatPreview> get _churchChats {
+    final allowed = <int>{..._openedChurchChatIds};
+    for (final department in _depts) {
+      final data = department.data();
+      final id = int.tryParse(
+        (data['telegramChatId'] ?? data['tdlibChatId'] ?? '').toString(),
+      );
+      if (id != null && id != 0) allowed.add(id);
+    }
+    return _chats.where((chat) => allowed.contains(chat.id)).toList();
+  }
 
   @override
   void initState() {
@@ -106,9 +119,6 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
     _authSub = svc.authorizationStateStream.listen((snap) {
       if (!mounted) return;
       setState(() => _auth = snap);
-      if (snap.phase == TdlibAuthPhase.waitPhoneNumber) {
-        unawaited(_tryAutoPhone());
-      }
       if (snap.phase == TdlibAuthPhase.ready) {
         unawaited(svc.refreshChats());
       }
@@ -143,28 +153,8 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
           _myPhoneDigits = hit;
           _phoneCtrl.text = hit.startsWith('55') ? '+$hit' : '+55$hit';
         });
-        // Phone resolved — try silent auto-auth immediately.
-        _trySilentAutoAuth();
       }
     } catch (_) {}
-  }
-
-  /// Auto-phone: envia imediatamente quando o telefone já está resolvido.
-  Future<void> _tryAutoPhone() async {
-    if (_autoPhoneTried || _authBusy) return;
-    final phone = _phoneCtrl.text.trim();
-    if (phone.replaceAll(RegExp(r'\D'), '').length < 12) return;
-    _autoPhoneTried = true;
-    await _runAuth(() => TdLibService.instance.sendPhoneNumber(phone));
-  }
-
-  /// Tenta auto-autenticação silenciosa quando phone + auth phase permitem.
-  void _trySilentAutoAuth() {
-    if (_autoPhoneTried || _authBusy) return;
-    final phase = _auth.phase;
-    if (phase == TdlibAuthPhase.waitPhoneNumber) {
-      unawaited(_tryAutoPhone());
-    }
   }
 
   Future<void> _reloadDepts() async {
@@ -245,10 +235,10 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
           phone,
         );
         if (!mounted) return;
+        setState(() => _openedChurchChatIds.add(chatId));
         await Navigator.of(context, rootNavigator: true).push<void>(
           MaterialPageRoute(
-            builder: (_) =>
-                ChurchYahwehTdlibThreadPage(chatId: chatId, title: title),
+            builder: (_) => TdlibChatThreadPage(chatId: chatId, title: title),
           ),
         );
         return;
@@ -320,10 +310,10 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
           return;
         }
         if (!mounted) return;
+        setState(() => _openedChurchChatIds.add(chatId));
         await Navigator.of(context, rootNavigator: true).push<void>(
           MaterialPageRoute(
-            builder: (_) =>
-                ChurchYahwehTdlibThreadPage(chatId: chatId, title: name),
+            builder: (_) => TdlibChatThreadPage(chatId: chatId, title: name),
           ),
         );
         return;
@@ -445,9 +435,10 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
         try {
           final chatId = await _ensureDeptTelegramGroup(doc);
           if (!mounted) return;
+          setState(() => _openedChurchChatIds.add(chatId));
           await Navigator.of(context, rootNavigator: true).push<void>(
             MaterialPageRoute(
-              builder: (_) => ChurchYahwehTdlibThreadPage(
+              builder: (_) => TdlibChatThreadPage(
                 chatId: chatId,
                 title: churchDepartmentNameFromDoc(doc),
               ),
@@ -554,11 +545,11 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
             subtitle: 'Motor TDLib · por igreja',
           ),
         _buildHero(accent),
-        // Auth card: mostra só se não estiver pronto e não estiver a auto-autenticar.
+        // O telefone pode vir preenchido do cadastro, mas o usuário confirma
+        // explicitamente antes de o Telegram enviar o código.
         if (!_tdlibReady &&
             TdLibService.instance.isSupported &&
-            _auth.phase != TdlibAuthPhase.initializing &&
-            _auth.phase != TdlibAuthPhase.waitPhoneNumber)
+            _auth.phase != TdlibAuthPhase.initializing)
           _buildAuthCard(accent)
         else if (!TdLibService.instance.isSupported)
           _buildWebHint(accent),
@@ -631,7 +622,7 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
             TdLibService.instance.isSupported
                 ? (_tdlibReady
                       ? 'Motor TDLib ativo · esta igreja isolada · fotos, vídeos, áudios e arquivos'
-                      : 'Conectando ao Telegram em segundo plano…\nTelefone do cadastro entra sozinho; só o código SMS na 1ª vez.')
+                      : 'Conecte sua conta Telegram uma vez; o código chega no Telegram ou por SMS.')
                 : 'Web: conversas pelo Telegram embutido. No Android/iOS o motor TDLib nativo fica completo.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.95),
@@ -730,7 +721,9 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
                   controller: _codeCtrl,
                   keyboardType: TextInputType.number,
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: const InputDecoration(labelText: 'Código SMS'),
+                  decoration: const InputDecoration(
+                    labelText: 'Código recebido no Telegram ou por SMS',
+                  ),
                 ),
                 const SizedBox(height: 8),
                 FilledButton(
@@ -789,15 +782,25 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
         ],
       );
     }
-    if (_chats.isEmpty) {
-      return const Center(child: Text('Nenhuma conversa ainda.'));
+    final churchChats = _churchChats;
+    if (churchChats.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Nenhuma conversa desta igreja ainda.\n'
+            'Abra um grupo ou contato para iniciar.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
     }
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      itemCount: _chats.length,
+      itemCount: churchChats.length,
       separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (_, i) {
-        final c = _chats[i];
+        final c = churchChats[i];
         return Material(
           color: Colors.white,
           borderRadius: BorderRadius.circular(14),

@@ -1700,33 +1700,43 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
               ...deptIdSet.where((id) => !prefsGroupIds.contains(id)),
             ]
           : deptIdSet.toList();
+      final membershipResolved =
+          prefsGroupIds.isNotEmpty ||
+          (membro?.exists ?? false) ||
+          deptIdSet.isNotEmpty;
       if (uniqueIds.isNotEmpty) {
         final cachedEntries = await _fetchDeptEntriesParallel(tid, uniqueIds);
         if (cachedEntries.isNotEmpty && mounted) {
           setState(() => _departments = cachedEntries);
         }
-      } else if (mounted && _departments.isEmpty) {
+      } else if (mounted && membershipResolved) {
         setState(() => _departments = const []);
       }
 
-      unawaited(
-        ChatHubOperations.syncUserChatProfile(
-          tenantId: tid,
-          departmentIds: uniqueIds,
-          memberDocId: membro?.id,
-        ).timeout(const Duration(seconds: 10)).catchError((_) {}),
-      );
+      // Falha transitória ao resolver membro/preferências não pode persistir
+      // uma associação vazia e fazer os grupos desaparecerem.
+      if (membershipResolved) {
+        unawaited(
+          ChatHubOperations.syncUserChatProfile(
+            tenantId: tid,
+            departmentIds: uniqueIds,
+            memberDocId: membro?.id,
+          ).timeout(const Duration(seconds: 10)).catchError((_) {}),
+        );
+      }
 
       final entries = await _fetchDeptEntriesParallel(tid, uniqueIds);
       if (!mounted) return;
-      setState(() => _departments = entries);
-      unawaited(_ensureDeptThreadsBackground(tid, uid, entries));
+      if (entries.isNotEmpty || (membershipResolved && uniqueIds.isEmpty)) {
+        setState(() => _departments = entries);
+      }
+      if (entries.isNotEmpty) {
+        unawaited(_ensureDeptThreadsBackground(tid, uid, entries));
+      }
     } catch (e) {
       if (kDebugMode) debugPrint('chat grupos (membro): $e');
       if (!mounted) return;
-      if (_departments.isEmpty) {
-        setState(() => _departments = const []);
-      }
+      // Preserva RAM/Hive/último resultado visível em falha de rede.
     } finally {
       if (mounted && syncGen == _deptSyncGeneration) {
         setState(() => _departmentsLoading = false);

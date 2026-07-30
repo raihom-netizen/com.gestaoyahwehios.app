@@ -60,10 +60,9 @@ abstract final class EcoFireStorageUpload {
         // (hang histórico ~82–90% «Enviando logo…» / avisos). Timeout curto;
         // path-only basta para Firestore (SafeNetworkImage resolve depois).
         onProgress?.call(1.0);
-        final url = await storageDownloadUrlOrNull(snap.ref).timeout(
-          const Duration(seconds: 3),
-          onTimeout: () => null,
-        );
+        final url = await storageDownloadUrlOrNull(
+          snap.ref,
+        ).timeout(const Duration(seconds: 3), onTimeout: () => null);
         if (url != null && url.isNotEmpty) {
           EcoFireFlow.log('STORAGE OK $storagePath');
           return url;
@@ -73,6 +72,13 @@ abstract final class EcoFireStorageUpload {
       } catch (e) {
         lastError = e;
         EcoFireFlow.log('STORAGE retry $attempt: $e');
+        final raw = e.toString().toLowerCase();
+        final canceled =
+            (e is FirebaseException && e.code == 'canceled') ||
+            raw.contains('envio cancelado');
+        if (canceled || !isRetryableUploadError(e)) {
+          rethrow;
+        }
         if (attempt < _maxAttempts - 1) {
           try {
             await EcoFireDirectFirebase.ensureDefaultApp();
@@ -102,7 +108,7 @@ abstract final class EcoFireStorageUpload {
 
   /// Foto perfil membro — único ficheiro `membros/{id}/foto_perfil.jpg`.
   static Future<({String url, String storagePath, String? thumbUrl})>
-      uploadMemberProfile({
+  uploadMemberProfile({
     required String churchId,
     required String memberId,
     required Uint8List fullBytes,
@@ -128,8 +134,11 @@ abstract final class EcoFireStorageUpload {
     required String mimeType,
     void Function(double progress)? onProgress,
   }) async {
-    final path =
-        ChurchStorageLayout.avisoPostPhotoPath(churchId, postId, slotIndex);
+    final path = ChurchStorageLayout.avisoPostPhotoPath(
+      churchId,
+      postId,
+      slotIndex,
+    );
     final url = await putData(
       storagePath: path,
       bytes: bytes,
@@ -147,8 +156,11 @@ abstract final class EcoFireStorageUpload {
     required String mimeType,
     void Function(double progress)? onProgress,
   }) async {
-    final path =
-        ChurchStorageLayout.eventPostPhotoPath(churchId, postId, slotIndex);
+    final path = ChurchStorageLayout.eventPostPhotoPath(
+      churchId,
+      postId,
+      slotIndex,
+    );
     final url = await putData(
       storagePath: path,
       bytes: bytes,
@@ -166,8 +178,11 @@ abstract final class EcoFireStorageUpload {
     required String mimeType,
     void Function(double progress)? onProgress,
   }) async {
-    final path =
-        ChurchStorageLayout.patrimonioPhotoPath(churchId, itemId, slotIndex);
+    final path = ChurchStorageLayout.patrimonioPhotoPath(
+      churchId,
+      itemId,
+      slotIndex,
+    );
     final url = await putData(
       storagePath: path,
       bytes: bytes,
@@ -249,10 +264,10 @@ abstract final class EcoFireStorageUpload {
       if (url != null && url.isNotEmpty) return url;
     }
     try {
-      final prefix = ChurchStorageLayout.memberProfilePhotoPath(churchId, memberId)
-          .split('/')
-          .last
-          .replaceAll('.webp', '');
+      final prefix = ChurchStorageLayout.memberProfilePhotoPath(
+        churchId,
+        memberId,
+      ).split('/').last.replaceAll('.webp', '');
       final folder = await EcoFireDirectFirebase.storageRef(
         '${ChurchStorageLayout.churchRoot(churchId)}/${ChurchStorageLayout.kSegMembros}/fotos',
       );

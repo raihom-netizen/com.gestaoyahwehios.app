@@ -64,6 +64,7 @@ abstract final class FornecedorCompromissoPublishService {
     required String fileName,
     void Function(double progress)? onProgress,
     bool alreadyCompressed = false,
+    bool queueOnTransientFailure = true,
   }) async {
     final cid = ChurchRepository.churchId(churchId.trim());
     if (kIsWeb) {
@@ -117,7 +118,9 @@ abstract final class FornecedorCompromissoPublishService {
       );
       onProgress?.call(1.0);
     } catch (e) {
-      if (!kIsWeb && _shouldQueueComprovanteOffline(e)) {
+      if (queueOnTransientFailure &&
+          !kIsWeb &&
+          _shouldQueueComprovanteOffline(e)) {
         final ext = mimeType.toLowerCase().contains('pdf') ? 'pdf' : 'jpg';
         final path = ChurchStorageLayout.fornecedorCompromissoComprovantePath(
           tenantId: cid,

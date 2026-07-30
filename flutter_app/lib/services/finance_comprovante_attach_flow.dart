@@ -64,6 +64,7 @@ abstract final class FinanceComprovanteAttachFlow {
             (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
                 .toString(),
         alreadyCompressed: picked.alreadyOptimized,
+        queueOnTransientFailure: false,
       );
 
       if (context.mounted && !suppressSuccessSnackBar) {
@@ -150,6 +151,7 @@ abstract final class FinanceComprovanteAttachFlow {
         mimeType: mime,
         fileName: picked.fileName,
         alreadyCompressed: picked.alreadyOptimized,
+        queueOnTransientFailure: false,
       );
 
       if (context.mounted && !suppressSuccessSnackBar) {

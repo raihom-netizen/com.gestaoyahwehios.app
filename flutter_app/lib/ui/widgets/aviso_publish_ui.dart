@@ -18,7 +18,7 @@ abstract final class EcofirePublishProgressUi {
   EcofirePublishProgressUi._();
 
   /// Publicação silenciosa (padrão Controle Total): fecha o editor na hora,
-  /// upload em background **sem** faixa de %, e snack de sucesso **só depois**
+  /// upload em background com progresso global, e snack de sucesso **só depois**
   /// da gravação (evita «publicou» com Feed/painel ainda vazios).
   static Future<T> runSilentControleTotal<T>({
     required BuildContext context,
@@ -37,10 +37,13 @@ abstract final class EcofirePublishProgressUi {
       closeEditor();
     }
 
-    void reportProgress(double _) {}
+    void reportProgress(double progress) {
+      GlobalUploadProgress.instance.update(progress);
+    }
 
     try {
       closeOnce();
+      GlobalUploadProgress.instance.start('A publicar mídia…');
       var gateSoftOffline = false;
       try {
         await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
@@ -54,8 +57,10 @@ abstract final class EcofirePublishProgressUi {
           rethrow;
         }
       }
-      final result =
-          await _runPublishActionWithNoAppRetry(action, reportProgress);
+      final result = await _runPublishActionWithNoAppRetry(
+        action,
+        reportProgress,
+      );
       messenger?.showSnackBar(
         ThemeCleanPremium.successSnackBar(
           gateSoftOffline ? kFeedPublishQueuedUserMessage : successMessage,
@@ -95,6 +100,8 @@ abstract final class EcofirePublishProgressUi {
         ),
       );
       rethrow;
+    } finally {
+      GlobalUploadProgress.instance.end();
     }
   }
 
@@ -104,9 +111,13 @@ abstract final class EcofirePublishProgressUi {
     required Future<T> Function(void Function(double progress)) action,
     String Function(Object error)? formatError,
   }) async {
+    GlobalUploadProgress.instance.start('A reenviar mídia…');
     try {
       await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
-      await _runPublishActionWithNoAppRetry(action, (_) {});
+      await _runPublishActionWithNoAppRetry(
+        action,
+        GlobalUploadProgress.instance.update,
+      );
       messenger?.showSnackBar(
         ThemeCleanPremium.successSnackBar(successMessage),
       );
@@ -125,6 +136,8 @@ abstract final class EcofirePublishProgressUi {
           behavior: SnackBarBehavior.floating,
         ),
       );
+    } finally {
+      GlobalUploadProgress.instance.end();
     }
   }
 
@@ -148,8 +161,8 @@ abstract final class EcofirePublishProgressUi {
       final next = p < 0.88
           ? uploadLabel
           : p < 0.96
-              ? saveLabel
-              : distributeLabel;
+          ? saveLabel
+          : distributeLabel;
       if (next != phaseLabel) {
         phaseLabel = next;
         GlobalUploadProgress.instance.updateLabel(next);
@@ -179,7 +192,10 @@ abstract final class EcofirePublishProgressUi {
           rethrow;
         }
       }
-      final result = await _runPublishActionWithNoAppRetry(action, reportProgress);
+      final result = await _runPublishActionWithNoAppRetry(
+        action,
+        reportProgress,
+      );
       messenger?.showSnackBar(
         ThemeCleanPremium.successSnackBar(
           gateSoftOffline ? kFeedPublishQueuedUserMessage : successMessage,
@@ -256,8 +272,8 @@ abstract final class EcofirePublishProgressUi {
       final next = p < 0.88
           ? uploadLabel
           : p < 0.96
-              ? saveLabel
-              : distributeLabel;
+          ? saveLabel
+          : distributeLabel;
       if (next != phaseLabel) {
         phaseLabel = next;
         GlobalUploadProgress.instance.updateLabel(next);
@@ -349,8 +365,8 @@ abstract final class EcofirePublishProgressUi {
                 final phase = p < 0.88
                     ? uploadLabel
                     : p < 0.96
-                        ? saveLabel
-                        : distributeLabel;
+                    ? saveLabel
+                    : distributeLabel;
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,

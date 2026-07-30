@@ -1841,6 +1841,21 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         setState(() {
           _logoUrl = null;
           _logoStoragePath = null;
+          _tenantLiveData = Map<String, dynamic>.from(_tenantLiveData);
+          for (final key in const [
+            'logoPath',
+            'logoStoragePath',
+            'logoUrl',
+            'logo_url',
+            'logoProcessedUrl',
+            'logoProcessed',
+            'logoImage',
+            'logoDownloadUrl',
+            'logoVariants',
+            'logoCacheRevision',
+          ]) {
+            _tenantLiveData.remove(key);
+          }
         });
         _logoEditorKey.currentState?.resetAfterSave();
       } else if (_canEdit && _logoSnap.pendingBytes != null) {

@@ -14,19 +14,20 @@ abstract final class MemberProfileVariantsService {
   MemberProfileVariantsService._();
 
   /// Full 1024 @ 80% (quadrado) + thumb 200 webp — compressão obrigatória.
-  static Future<({
-    Uint8List thumb,
-    Uint8List full,
-  })> encodeProfileTiers(Uint8List raw) =>
-      YahwehUnifiedImagePipeline.encodeMemberProfileTiers(raw);
+  static Future<({Uint8List thumb, Uint8List full})> encodeProfileTiers(
+    Uint8List raw,
+  ) => YahwehUnifiedImagePipeline.encodeMemberProfileTiers(raw);
 
   /// Full `foto_perfil.jpg` + thumb `membros/thumbs/{id}.webp` (sobrescreve ao trocar).
-  static Future<({
-    String photoThumb,
-    String photoFull,
-    String fullStoragePath,
-    String thumbStoragePath,
-  })> uploadProfileVariants({
+  static Future<
+    ({
+      String photoThumb,
+      String photoFull,
+      String fullStoragePath,
+      String thumbStoragePath,
+    })
+  >
+  uploadProfileVariants({
     required String tenantId,
     required String storageFolderId,
     required Uint8List fullBytes,
@@ -54,10 +55,6 @@ abstract final class MemberProfileVariantsService {
       requireAuth: requireAuth,
       onProgress: report,
     );
-    if (fullUrl.trim().isEmpty) {
-      throw StateError('Upload da foto concluiu sem URL de download.');
-    }
-
     var thumbUrl = fullUrl;
     var thumbPathResolved = fullPath;
     final tb = thumbBytes;

@@ -596,6 +596,7 @@ abstract final class FinanceComprovantePublishService {
     String? previousDownloadUrl,
     void Function(double progress)? onProgress,
     bool alreadyCompressed = false,
+    bool queueOnTransientFailure = true,
   }) async {
     await _ensureReady();
     YahwehFlowLog.uploadStart('comprovante_ct');
@@ -647,7 +648,9 @@ abstract final class FinanceComprovantePublishService {
       onProgress?.call(1.0);
       return persisted.url;
     } catch (e) {
-      if (!kIsWeb && _shouldQueueComprovanteOffline(e)) {
+      if (queueOnTransientFailure &&
+          !kIsWeb &&
+          _shouldQueueComprovanteOffline(e)) {
         final ext = mimeType.toLowerCase().contains('pdf') ? 'pdf' : 'jpg';
         final path = comprovantePathFor(
           tenantId: churchId,

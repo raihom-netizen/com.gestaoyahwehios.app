@@ -13,7 +13,9 @@ import 'package:gestao_yahweh/services/patrimonio_publish_service.dart';
 abstract final class PatrimonioSaveService {
   PatrimonioSaveService._();
 
-  static const Duration kSaveTimeout = Duration(seconds: 60);
+  // Inclui upload (até 90s) + confirmação Firestore; o limite externo deve ser
+  // maior que o timeout do Storage para não iniciar um segundo envio órfão.
+  static const Duration kSaveTimeout = Duration(seconds: 140);
 
   static String resolveChurchId(String hint) =>
       ChurchRepository.churchId(hint.trim());
@@ -61,13 +63,14 @@ abstract final class PatrimonioSaveService {
           startSlot: startSlot,
           existingPaths: existingPaths,
           existingUrls: existingUrls,
+          queueOnTransientFailure: false,
           onUploadProgress: (p) {
             final pct = (p * 100).clamp(0, 100).toStringAsFixed(0);
             final label = p < 0.12
                 ? 'Salvando patrimônio e enviando fotos…'
                 : p < 0.88
-                    ? 'Enviando fotos… $pct%'
-                    : 'A gravar no Firestore… $pct%';
+                ? 'Enviando fotos… $pct%'
+                : 'A gravar no Firestore… $pct%';
             onProgress?.call(0.05 + p * 0.93, label);
           },
         );

@@ -9266,7 +9266,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
       final pendingComp = comprovanteSnap.pending;
       if (pendingComp != null) {
         if (!context.mounted) return true;
-        await FinanceComprovanteAttachFlow.attachToLancamento(
+        final attached = await FinanceComprovanteAttachFlow.attachToLancamento(
           context: context,
           tenantId: tenantId,
           docRef: existingDoc.reference,
@@ -9275,6 +9275,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
           showPickSheet: false,
           suppressSuccessSnackBar: true,
         );
+        if (!attached) return false;
       }
       if (context.mounted) {
         showFinanceSaveSnackBar(
@@ -9298,7 +9299,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
       final pendingAdd = comprovanteSnap.pending;
       if (pendingAdd != null) {
         if (!context.mounted) return true;
-        await FinanceComprovanteAttachFlow.attachToLancamento(
+        final attached = await FinanceComprovanteAttachFlow.attachToLancamento(
           context: context,
           tenantId: tenantId,
           docRef: preRef,
@@ -9307,6 +9308,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
           showPickSheet: false,
           suppressSuccessSnackBar: true,
         );
+        if (!attached) return false;
       }
       if (context.mounted) {
         showFinanceSaveSnackBar(
@@ -9615,35 +9617,16 @@ void showFinanceLancamentoDetailsBottomSheet(
                     fontWeight: FontWeight.w600,
                     color: Colors.grey.shade600)),
             const SizedBox(height: 8),
-            if (FinanceComprovanteAttachService.mimeFromDoc(data)
-                .contains('pdf'))
-              OutlinedButton.icon(
-                onPressed: () => FinanceComprovanteAttachService.viewFromDoc(
-                  ctx,
-                  data,
-                ),
-                icon: const Icon(Icons.picture_as_pdf_outlined),
-                label: Text(FinanceComprovanteAttachService.displayNameFromDoc(
-                    data)),
-              )
-            else if (comprovanteUrl.isNotEmpty)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: SafeNetworkImage(
-                    imageUrl: comprovanteUrl,
-                    height: 200,
-                    fit: BoxFit.cover,
-                    errorWidget: const Text('Erro ao carregar imagem')),
-              )
-            else
-              OutlinedButton.icon(
-                onPressed: () => FinanceComprovanteAttachService.viewFromDoc(
-                  ctx,
-                  data,
-                ),
-                icon: const Icon(Icons.visibility_outlined),
-                label: const Text('Ver comprovante'),
+            OutlinedButton.icon(
+              onPressed: () => FinanceComprovanteAttachService.viewFromDoc(
+                ctx,
+                data,
               ),
+              icon: const Icon(Icons.visibility_rounded),
+              label: Text(
+                'Ver ${FinanceComprovanteAttachService.displayNameFromDoc(data)}',
+              ),
+            ),
           ],
           const SizedBox(height: 20),
         ],

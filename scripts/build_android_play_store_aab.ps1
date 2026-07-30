@@ -441,10 +441,24 @@ Write-Host "`n=== flutter build appbundle --release --obfuscate --split-debug-in
 Write-Host "NDK arm64-v8a via android/app/build.gradle.kts (16K). Sem --target-platform (bundle completo para Play)." -ForegroundColor DarkGray
 Write-Host "Guarde a pasta flutter_app\debug-info\ para symbolizar stack traces (Crashlytics / flutter symbolize)." -ForegroundColor DarkGray
 . (Join-Path $RepoRoot "scripts\flutter_invoke_with_retry.ps1")
-$buildExit = Invoke-FlutterWithRetry -Label "AAB Play" -MaxAttempts 5 -InitialWaitSec 25 -Arguments @(
+$buildArguments = @(
     "build", "appbundle", "--release",
     "--obfuscate", "--split-debug-info=./debug-info"
 )
+if (-not [string]::IsNullOrWhiteSpace($env:TELEGRAM_API_ID) -and
+    -not [string]::IsNullOrWhiteSpace($env:TELEGRAM_API_HASH)) {
+    $tdlibDefinesPath = Join-Path ([System.IO.Path]::GetTempPath()) "gestao_yahweh_tdlib.json"
+    @{
+        TELEGRAM_API_ID = $env:TELEGRAM_API_ID
+        TELEGRAM_API_HASH = $env:TELEGRAM_API_HASH
+    } | ConvertTo-Json -Compress | Set-Content -Path $tdlibDefinesPath -Encoding UTF8
+    $buildArguments += "--dart-define-from-file=$tdlibDefinesPath"
+    Write-Host "TDLib: credenciais seguras do ambiente incluídas no AAB." -ForegroundColor Green
+}
+else {
+    Write-Warning "TELEGRAM_API_ID/TELEGRAM_API_HASH ausentes; login TDLib ficará indisponível."
+}
+$buildExit = Invoke-FlutterWithRetry -Label "AAB Play" -MaxAttempts 5 -InitialWaitSec 25 -Arguments $buildArguments
 if ($buildExit -ne 0) { exit $buildExit }
 
 if (-not (Test-Path $OutAab)) {

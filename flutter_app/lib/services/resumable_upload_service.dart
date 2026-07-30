@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:gestao_yahweh/services/upload_bytes_core.dart';
 
-/// Upload via bytes → putData (padrão CT; vídeos e ficheiros grandes incluídos).
+/// Upload resumível de ficheiro local no Android/iOS.
 abstract final class ResumableUploadService {
   ResumableUploadService._();
 

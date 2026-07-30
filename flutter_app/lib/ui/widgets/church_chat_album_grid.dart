@@ -23,6 +23,7 @@ class ChurchChatAlbumCell {
   });
 
   final String? url;
+
   /// Path Firebase Storage — resolve bytes quando `url` ainda não existe.
   final String? storagePath;
   final String? localPath;
@@ -152,7 +153,10 @@ class _SingleTile extends StatelessWidget {
           cell: cell,
           width: w,
           height: w * 0.75,
-          memCache: (MediaQuery.devicePixelRatioOf(context) * w).round().clamp(96, 360),
+          memCache: (MediaQuery.devicePixelRatioOf(context) * w).round().clamp(
+            96,
+            360,
+          ),
         ),
       ),
     );
@@ -192,26 +196,24 @@ class _AlbumTile extends StatelessWidget {
         fit: BoxFit.cover,
         errorBuilder: (_, _, _) => _placeholder(height),
       );
-    } else if ((cell.url ?? '').trim().isNotEmpty) {
-      img = SafeNetworkImage(
-        imageUrl: cell.url!,
-        width: width,
-        height: height,
-        fit: BoxFit.cover,
-        skipFreshDisplayUrl: true,
-        memCacheWidth: memCache,
-        memCacheHeight: memCache,
-      );
     } else if ((cell.storagePath ?? '').trim().isNotEmpty ||
         (cell.messageData != null &&
-            ((cell.messageData!['storagePath'] ?? '').toString().trim().isNotEmpty ||
-                (cell.messageData!['mediaUrl'] ?? '').toString().trim().isNotEmpty))) {
+            ((cell.messageData!['storagePath'] ?? '')
+                    .toString()
+                    .trim()
+                    .isNotEmpty ||
+                (cell.messageData!['mediaUrl'] ?? '')
+                    .toString()
+                    .trim()
+                    .isNotEmpty))) {
       img = ChurchChatStorageMediaImage(
-        data: cell.messageData ??
+        data:
+            cell.messageData ??
             <String, dynamic>{
               if ((cell.storagePath ?? '').trim().isNotEmpty)
                 'storagePath': cell.storagePath!.trim(),
-              if ((cell.url ?? '').trim().isNotEmpty) 'mediaUrl': cell.url!.trim(),
+              if ((cell.url ?? '').trim().isNotEmpty)
+                'mediaUrl': cell.url!.trim(),
               'type': cell.type,
             },
         tenantId: cell.tenantId,
@@ -220,12 +222,22 @@ class _AlbumTile extends StatelessWidget {
         height: height,
         fit: BoxFit.cover,
       );
+    } else if ((cell.url ?? '').trim().isNotEmpty) {
+      img = SafeNetworkImage(
+        imageUrl: cell.url!,
+        width: width,
+        height: height,
+        fit: BoxFit.cover,
+        memCacheWidth: memCache,
+        memCacheHeight: memCache,
+      );
     } else {
       img = _placeholder(height);
     }
 
     return GestureDetector(
-      onTap: cell.onTap ??
+      onTap:
+          cell.onTap ??
           () {
             final u = (cell.url ?? '').trim();
             if (u.isNotEmpty) churchChatOpenImageZoom(context, u);

@@ -864,7 +864,7 @@ Future<void> showFornecedorCompromissoEditor(
     final pendingComp = comprovanteSnap.pending;
     if (pendingComp != null) {
       if (!context.mounted) return;
-      await FinanceComprovanteAttachFlow.attachToCompromisso(
+      final attached = await FinanceComprovanteAttachFlow.attachToCompromisso(
         context: context,
         tenantId: churchId,
         docRef: docRef,
@@ -874,6 +874,7 @@ Future<void> showFornecedorCompromissoEditor(
         showPickSheet: false,
         suppressSuccessSnackBar: true,
       );
+      if (!attached) return;
     }
 
     if (context.mounted) {

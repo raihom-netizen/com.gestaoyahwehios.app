@@ -42,12 +42,14 @@ class ChurchMediaUploadBatchItem {
     required this.storagePath,
     this.logLabel = 'batch_photo',
     this.alreadyCompressed = false,
+    this.compressForFeed = true,
   });
 
   final Uint8List bytes;
   final String storagePath;
   final String logLabel;
   final bool alreadyCompressed;
+  final bool compressForFeed;
 }
 
 /// Resultado por slot no lote — sucesso ou erro individual.
@@ -152,6 +154,7 @@ abstract final class ChurchMediaUploadFacade {
     if (!skipEnsureReady) {
       await ensureReady();
     }
+    UploadTask? activeTask;
     try {
       return await ChurchCentralStorageUpload.uploadImageAtPath(
         storagePath: storagePath,
@@ -160,15 +163,23 @@ abstract final class ChurchMediaUploadFacade {
         alreadyCompressed: alreadyCompressed,
         compressForFeed: compressForFeed,
         onProgress: onProgress,
-        onUploadTaskCreated: onUploadTaskCreated,
+        onUploadTaskCreated: (task) {
+          activeTask = task;
+          onUploadTaskCreated?.call(task);
+        },
         maxBytes: maxBytes,
         skipEnsureReady: true,
       ).timeout(
         timeout,
-        onTimeout: () => throw TimeoutException(
-          'Upload demorou demais ($logLabel). Verifique a rede ou toque em Cancelar.',
-          timeout,
-        ),
+        onTimeout: () async {
+          try {
+            await activeTask?.cancel();
+          } catch (_) {}
+          throw TimeoutException(
+            'Upload demorou demais ($logLabel). Verifique a rede ou toque em Cancelar.',
+            timeout,
+          );
+        },
       );
     } catch (e, st) {
       logFirebasePublishPhase(
@@ -218,6 +229,7 @@ abstract final class ChurchMediaUploadFacade {
             rawBytes: item.bytes,
             logLabel: item.logLabel,
             alreadyCompressed: item.alreadyCompressed,
+            compressForFeed: item.compressForFeed,
             onProgress: onItemProgress == null
                 ? null
                 : (p) => onItemProgress(i, p),
@@ -251,8 +263,10 @@ abstract final class ChurchMediaUploadFacade {
     bool withPhotos = true,
     bool requireAuth = true,
   }) async {
-    // Warm paralelo (token + Storage) — evita N awaits em cada foto.
-    await FastMediaPublishBootstrap.warmForFeedPublish();
+    // Cadastro público não pode passar pelo warm autenticado do painel.
+    if (requireAuth) {
+      await FastMediaPublishBootstrap.warmForFeedPublish();
+    }
     await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
   }
 
@@ -266,10 +280,8 @@ abstract final class ChurchMediaUploadFacade {
   static String mensagemAmigavel(Object error) =>
       formatUploadErrorForUser(error);
 
-  /// Chat / ficheiros genéricos — bytes → putData (padrão CT).
-  ///
-  /// Usa [YahwehMediaUploadPipeline] por baixo, mas força o warmup unificado
-  /// ([ensureReady]) para evitar fila de awaits antes do upload.
+  /// Chat / ficheiros genéricos já preparados — bytes → putData (padrão CT).
+  /// Não recomprime novamente nem abre progresso global concorrente.
   static Future<String> uploadFromPipeline({
     required Uint8List bytes,
     required String storagePath,
@@ -281,16 +293,19 @@ abstract final class ChurchMediaUploadFacade {
     ChurchCentralStorageUpload.assertPayloadWithinRules(
       bytes: bytes.length,
       logLabel: module.name,
+      maxBytes: module == YahwehUploadModule.chat
+          ? kStorageRulesMaxChatVideoBytes
+          : kStorageRulesMaxFeedImageBytes,
     );
-    return YahwehMediaUploadPipeline.uploadBytes(
+    return DirectStorageUrlPublish.uploadBytes(
       storagePath: storagePath,
       bytes: bytes,
-      contentType: StorageUploadMetadata.contentTypeForPut(
+      mimeType: StorageUploadMetadata.contentTypeForPut(
         storagePath: storagePath,
       ),
-      module: module,
       onProgress: onProgress,
       onUploadTaskCreated: onUploadTaskCreated,
+      skipEnsureReady: true,
     );
   }
 }

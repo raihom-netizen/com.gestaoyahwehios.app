@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
+import 'package:gestao_yahweh/services/member_profile_variants_service.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show imageUrlFromMap, sanitizeImageUrl;
@@ -33,7 +34,7 @@ abstract final class MemberProfilePhotoSaveService {
   MemberProfilePhotoSaveService._();
 
   /// Timeout só no putData — sem cap global que trava «A enviar…».
-  static const Duration kUploadTimeout = Duration(seconds: 38);
+  static const Duration kUploadTimeout = Duration(seconds: 90);
 
   /// Se o pick já entregou WebP/JPEG leve, não recomprimir de novo.
   static const int _kSkipReencodeMaxBytes = 420 * 1024;
@@ -46,19 +47,19 @@ abstract final class MemberProfilePhotoSaveService {
     void Function(String phaseLabel)? onPhase,
     void Function(double progress)? onProgress,
     bool requireAuth = true,
-  }) =>
-      saveInternal(
-        tenantId: tenantId,
-        memberDocId: memberDocId,
-        memberData: memberData,
-        rawBytes: rawBytes,
-        onPhase: onPhase,
-        onProgress: onProgress,
-        requireAuth: requireAuth,
-      );
+  }) => saveInternal(
+    tenantId: tenantId,
+    memberDocId: memberDocId,
+    memberData: memberData,
+    rawBytes: rawBytes,
+    onPhase: onPhase,
+    onProgress: onProgress,
+    requireAuth: requireAuth,
+  );
 
   /// Só Storage (cadastro público grava Firestore no submit).
-  static Future<({String url, String storagePath})> uploadStorageOnlyControleTotal({
+  static Future<({String url, String storagePath, String thumbStoragePath})>
+  uploadStorageOnlyControleTotal({
     required String tenantId,
     required String memberDocId,
     required Uint8List rawBytes,
@@ -80,26 +81,30 @@ abstract final class MemberProfilePhotoSaveService {
     );
     await ChurchMediaUploadFacade.ensureReady(requireAuth: requireAuth);
     onProgress?.call(0.12);
-    final fullBytes = await _prepareFullBytes(rawBytes);
-    onProgress?.call(0.18);
-    final uploaded = await ChurchMediaUploadFacade.uploadMidia(
-      bytes: fullBytes,
-      storagePath: fullPath,
-      logLabel: 'membro_foto',
-      alreadyCompressed: true,
-      compressForFeed: false,
-      onProgress: (p) => onProgress?.call(0.18 + p * 0.72),
-      timeout: kUploadTimeout,
-      skipEnsureReady: true,
+    final tiers = await MemberProfileVariantsService.encodeProfileTiers(
+      rawBytes,
     );
-    final url = uploaded.downloadUrl;
+    onProgress?.call(0.18);
+    final uploaded = await MemberProfileVariantsService.uploadProfileVariants(
+      tenantId: churchId,
+      storageFolderId: storageFolderId,
+      fullBytes: tiers.full,
+      thumbBytes: tiers.thumb,
+      requireAuth: requireAuth,
+      onProgress: (p) => onProgress?.call(0.18 + p * 0.72),
+    );
+    final url = uploaded.photoFull;
     // putData OK = objeto no bucket. URL vazia = path-only (UI resolve depois).
     FirebaseStorageCleanupService.scheduleCleanupAfterMemberProfilePhotoUpload(
       tenantId: churchId,
       memberId: storageFolderId,
     );
     onProgress?.call(1.0);
-    return (url: sanitizeImageUrl(url), storagePath: fullPath);
+    return (
+      url: sanitizeImageUrl(url),
+      storagePath: fullPath,
+      thumbStoragePath: uploaded.thumbStoragePath,
+    );
   }
 
   static Future<MemberProfilePhotoUpdateResult> saveInternal({
@@ -144,12 +149,13 @@ abstract final class MemberProfilePhotoSaveService {
 
     final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
     final docId = memberDocId.trim();
-    final authUid = (memberData['authUid'] ??
-            memberData['firebaseUid'] ??
-            memberData['uid'] ??
-            '')
-        .toString()
-        .trim();
+    final authUid =
+        (memberData['authUid'] ??
+                memberData['firebaseUid'] ??
+                memberData['uid'] ??
+                '')
+            .toString()
+            .trim();
     final storageFolderId = FirebaseStorageService.memberProfileStorageFolderId(
       docId,
       authUid.isEmpty ? null : authUid,
@@ -164,20 +170,22 @@ abstract final class MemberProfilePhotoSaveService {
       onPhase?.call('A enviar…');
       onProgress?.call(0.10);
 
-      final fullBytes = await _prepareFullBytes(rawBytes);
+      final tiers = await MemberProfileVariantsService.encodeProfileTiers(
+        rawBytes,
+      );
       onProgress?.call(0.15);
 
-      final uploaded = await ChurchMediaUploadFacade.uploadMidia(
-        bytes: fullBytes,
-        storagePath: fullPath,
-        logLabel: 'membro_foto',
-        alreadyCompressed: true,
-        compressForFeed: false,
+      final uploaded = await MemberProfileVariantsService.uploadProfileVariants(
+        tenantId: churchId,
+        storageFolderId: storageFolderId,
+        fullBytes: tiers.full,
+        thumbBytes: tiers.thumb,
+        requireAuth: requireAuth,
         onProgress: (p) => onProgress?.call(0.15 + p * 0.60),
-        timeout: kUploadTimeout,
-        skipEnsureReady: true,
       );
-      final uploadedUrl = uploaded.downloadUrl;
+      final uploadedUrl = uploaded.photoFull;
+      final uploadedThumbUrl = uploaded.photoThumb;
+      final thumbPath = uploaded.thumbStoragePath;
       // putData OK — URL opcional; Firestore grava sempre photoStoragePath.
 
       final revision = YahwehMediaCacheBust.freshRevisionMs();
@@ -185,14 +193,18 @@ abstract final class MemberProfilePhotoSaveService {
       final photoUrl = photoUrlRaw.isNotEmpty
           ? YahwehMediaCacheBust.apply(photoUrlRaw, revision)
           : '';
+      final thumbUrlRaw = sanitizeImageUrl(uploadedThumbUrl);
+      final thumbUrl = thumbUrlRaw.isNotEmpty
+          ? YahwehMediaCacheBust.apply(thumbUrlRaw, revision)
+          : photoUrl;
 
       final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
 
       final updates = <String, dynamic>{
         'photoStoragePath': fullPath,
-        'photoThumbStoragePath': fullPath,
+        'photoThumbStoragePath': thumbPath,
         'fotoPath': fullPath,
-        'fotoThumbPath': fullPath,
+        'fotoThumbPath': thumbPath,
         if (photoUrl.isNotEmpty) ...{
           'FOTO_URL_DB': photoUrl,
           'avatarUrl': photoUrl,
@@ -201,8 +213,8 @@ abstract final class MemberProfilePhotoSaveService {
           'photoURL': photoUrl,
           'photoUrl': photoUrl,
           'foto_url': photoUrl,
-          'fotoThumbUrl': photoUrl,
-          'photoThumbUrl': photoUrl,
+          'fotoThumbUrl': thumbUrl,
+          'photoThumbUrl': thumbUrl,
         },
         MemberProfilePhotoUpdateService.photoUploadStateField:
             EntityPublishStatus.published,
@@ -237,7 +249,7 @@ abstract final class MemberProfilePhotoSaveService {
         previousDownloadUrl: previousUrl,
         newDownloadUrl: photoUrlRaw.isNotEmpty ? photoUrlRaw : photoUrl,
         storagePath: fullPath,
-        thumbStoragePath: fullPath,
+        thumbStoragePath: thumbPath,
         tenantId: churchId,
         memberDocId: docId,
         authUid: authUid.isEmpty ? null : authUid,
@@ -259,8 +271,8 @@ abstract final class MemberProfilePhotoSaveService {
         downloadUrl: photoUrl.isNotEmpty ? photoUrl : photoUrlRaw,
         storagePath: fullPath,
         cacheRevision: revision,
-        thumbDownloadUrl: photoUrl.isNotEmpty ? photoUrl : photoUrlRaw,
-        thumbStoragePath: fullPath,
+        thumbDownloadUrl: thumbUrl.isNotEmpty ? thumbUrl : photoUrlRaw,
+        thumbStoragePath: thumbPath,
       );
     } catch (e) {
       if (!kIsWeb && _shouldQueueOffline(e)) {

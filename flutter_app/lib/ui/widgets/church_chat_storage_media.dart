@@ -9,9 +9,13 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_video_message_bubble.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_save_media.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show FreshFirebaseStorageImage, firebaseStorageMediaUrlLooksLike,
-        isValidImageUrl, sanitizeImageUrl;
-import 'package:gestao_yahweh/utils/pdf_actions_helper.dart' show showPdfActions;
+    show
+        FreshFirebaseStorageImage,
+        firebaseStorageMediaUrlLooksLike,
+        isValidImageUrl,
+        sanitizeImageUrl;
+import 'package:gestao_yahweh/utils/pdf_actions_helper.dart'
+    show showPdfActions;
 
 /// Cache RAM curto para miniaturas do chat (evita re-download ao scroll).
 final Map<String, Uint8List> _chatThumbRamCache = <String, Uint8List>{};
@@ -57,7 +61,8 @@ class ChurchChatStorageMediaImage extends StatefulWidget {
       _ChurchChatStorageMediaImageState();
 }
 
-class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImage> {
+class _ChurchChatStorageMediaImageState
+    extends State<ChurchChatStorageMediaImage> {
   Uint8List? _bytes;
   String? _networkUrl;
   bool _loading = true;
@@ -90,10 +95,11 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
     final thumbPath = ChurchChatMessageFields.thumbStoragePath(widget.data);
     final fullPath = ChurchChatMessageFields.storagePath(widget.data);
     final legacyUrl = ChurchChatMessageFields.mediaUrl(widget.data);
-    // Preferir full path se thumb ainda não existe no Storage (race no envio).
-    final primaryPath = fullPath.isNotEmpty ? fullPath : thumbPath;
-    final secondaryPath = (thumbPath.isNotEmpty && thumbPath != fullPath)
-        ? thumbPath
+    // Lista do chat carrega primeiro a miniatura leve; o ficheiro completo
+    // fica para zoom/download. Isso evita baixar vários MB durante o scroll.
+    final primaryPath = thumbPath.isNotEmpty ? thumbPath : fullPath;
+    final secondaryPath = (fullPath.isNotEmpty && fullPath != thumbPath)
+        ? fullPath
         : '';
     final cacheKey = primaryPath.isNotEmpty
         ? primaryPath
@@ -135,13 +141,10 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
       return ChurchChatMediaResolver.downloadBytes(
         storagePath: path,
         maxBytes: 4 * 1024 * 1024,
-      ).timeout(
-        const Duration(seconds: 14),
-        onTimeout: () => null,
-      );
+      ).timeout(const Duration(seconds: 14), onTimeout: () => null);
     }
 
-    // 1) full → 2) thumb → 3) legacy URL
+    // 1) thumb → 2) full legado/sem thumb → 3) URL legada
     Uint8List? data = await tryPath(primaryPath);
     if ((data == null || data.length < 32) && secondaryPath.isNotEmpty) {
       data = await tryPath(secondaryPath);
@@ -153,10 +156,7 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
         data = await ChurchChatMediaResolver.downloadBytes(
           storagePath: legacyUrl,
           maxBytes: 4 * 1024 * 1024,
-        ).timeout(
-          const Duration(seconds: 14),
-          onTimeout: () => null,
-        );
+        ).timeout(const Duration(seconds: 14), onTimeout: () => null);
       }
     }
 
@@ -170,7 +170,8 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
         messageId: widget.messageId,
         fastPreview: true,
       );
-      if ((resolvedUrl == null || resolvedUrl.isEmpty) && legacyUrl.isNotEmpty) {
+      if ((resolvedUrl == null || resolvedUrl.isEmpty) &&
+          legacyUrl.isNotEmpty) {
         resolvedUrl = sanitizeImageUrl(legacyUrl);
       }
     }
@@ -235,7 +236,11 @@ class _ChurchChatStorageMediaImageState extends State<ChurchChatStorageMediaImag
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.refresh_rounded, color: Colors.grey.shade600, size: 28),
+              Icon(
+                Icons.refresh_rounded,
+                color: Colors.grey.shade600,
+                size: 28,
+              ),
               const SizedBox(height: 6),
               Text(
                 'Toque para recarregar',
@@ -384,7 +389,9 @@ class _ChurchChatDocumentBubbleState extends State<ChurchChatDocumentBubble> {
         await widget.onOpenExternally!.call(openUrl);
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Não foi possível abrir o ficheiro.'),
+          ThemeCleanPremium.feedbackSnackBar(
+            'Não foi possível abrir o ficheiro.',
+          ),
         );
       }
     } finally {
@@ -437,7 +444,11 @@ class _ChurchChatDocumentBubbleState extends State<ChurchChatDocumentBubble> {
                       color: const Color(0xFF128C7E).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: Icon(_icon, color: const Color(0xFF128C7E), size: 28),
+                    child: Icon(
+                      _icon,
+                      color: const Color(0xFF128C7E),
+                      size: 28,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -489,8 +500,9 @@ class _ChurchChatDocumentBubbleState extends State<ChurchChatDocumentBubble> {
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
                 style: FilledButton.styleFrom(
-                  backgroundColor:
-                      ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                  backgroundColor: ThemeCleanPremium.primary.withValues(
+                    alpha: 0.1,
+                  ),
                   foregroundColor: ThemeCleanPremium.primary,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
@@ -506,10 +518,7 @@ class _ChurchChatDocumentBubbleState extends State<ChurchChatDocumentBubble> {
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
                     'Toque para ${_isPdf ? 'pré-visualizar' : 'abrir'} o ficheiro',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                   ),
                 ),
             ],
@@ -578,22 +587,25 @@ class _ChurchChatStorageVideoBubbleState
     final thumbSp = ChurchChatMessageFields.thumbStoragePath(widget.data);
     final thumbLegacy = ChurchChatMessageFields.thumbnailUrl(widget.data);
 
-    final videoUrl = await ChurchChatMediaResolver.resolveDownloadUrl(
-          storagePath: sp.isNotEmpty ? sp : legacy,
+    final resolved = await Future.wait<String?>([
+      ChurchChatMediaResolver.resolveDownloadUrl(
+        storagePath: sp.isNotEmpty ? sp : legacy,
+        tenantId: widget.tenantId,
+        messageId: widget.messageId,
+      ),
+      if (thumbSp.isNotEmpty || thumbLegacy.isNotEmpty)
+        ChurchChatMediaResolver.resolveDownloadUrl(
+          storagePath: thumbSp.isNotEmpty ? thumbSp : thumbLegacy,
           tenantId: widget.tenantId,
           messageId: widget.messageId,
-        ) ??
-        (legacy.isNotEmpty ? legacy : null);
-    String? thumbUrl;
-    if (thumbSp.isNotEmpty || thumbLegacy.isNotEmpty) {
-      thumbUrl = await ChurchChatMediaResolver.resolveDownloadUrl(
-            storagePath: thumbSp.isNotEmpty ? thumbSp : thumbLegacy,
-            tenantId: widget.tenantId,
-            messageId: widget.messageId,
-            fastPreview: true,
-          ) ??
-          (thumbLegacy.isNotEmpty ? thumbLegacy : null);
-    }
+          fastPreview: true,
+        )
+      else
+        Future<String?>.value(null),
+    ]);
+    final videoUrl = resolved[0] ?? (legacy.isNotEmpty ? legacy : null);
+    final thumbUrl =
+        resolved[1] ?? (thumbLegacy.isNotEmpty ? thumbLegacy : null);
 
     if (!mounted) return;
     if (videoUrl == null || videoUrl.trim().isEmpty) {
@@ -656,11 +668,8 @@ class _ChurchChatStorageVideoBubbleState
       thumbnailUrl: _thumbUrl,
       fileName: ChurchChatMessageFields.fileName(widget.data),
       mine: widget.mine,
-      onDownload: (url, {String fileName = ''}) => churchChatShareDownloadVideo(
-        context,
-        url,
-        fileName: fileName,
-      ),
+      onDownload: (url, {String fileName = ''}) =>
+          churchChatShareDownloadVideo(context, url, fileName: fileName),
     );
   }
 }

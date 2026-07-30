@@ -3520,7 +3520,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         ),
       );
       final msg = e.toString();
-      final micDenied = _isMicrophonePermissionError(msg);
+      final permissionError = e is ChatMicrophonePermissionException ? e : null;
+      final micDenied =
+          permissionError != null || _isMicrophonePermissionError(msg);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -3528,14 +3530,24 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               micDenied
                   ? (kIsWeb
                         ? 'Microfone bloqueado no navegador. Autorize e tente novamente.'
-                        : 'Microfone bloqueado no iPhone. Ative em Ajustes > Privacidade e Segurança > Microfone.')
+                        : Platform.isIOS
+                        ? 'Microfone bloqueado no iPhone. Toque em «Abrir Ajustes» e autorize o acesso.'
+                        : 'Microfone bloqueado. Toque em «Abrir Ajustes» e autorize o acesso.')
                   : 'Não foi possível gravar: ${formatUploadErrorForUser(e)}',
             ),
             behavior: SnackBarBehavior.floating,
             action: micDenied
                 ? SnackBarAction(
-                    label: 'Anexar áudio',
-                    onPressed: () => unawaited(_pickAudioFile()),
+                    label: permissionError?.permanentlyDenied == true
+                        ? 'Abrir Ajustes'
+                        : 'Tentar novamente',
+                    onPressed: () {
+                      if (permissionError?.permanentlyDenied == true) {
+                        unawaited(ChatAudioService.openAppMicrophoneSettings());
+                      } else {
+                        unawaited(_startVoiceRecording());
+                      }
+                    },
                   )
                 : null,
           ),

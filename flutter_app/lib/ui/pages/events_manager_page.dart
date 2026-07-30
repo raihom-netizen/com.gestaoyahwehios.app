@@ -7667,7 +7667,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         raw,
         postType: kChurchPostTypeEvento,
       );
-      if (preparedBytes.isEmpty) preparedBytes = raw;
+      if (preparedBytes.isEmpty) {
+        throw StateError(
+          'Não foi possível preparar a foto. Escolha outra imagem.',
+        );
+      }
       if (!mounted) return;
       setState(() {
         _newImages.add(preparedBytes!);

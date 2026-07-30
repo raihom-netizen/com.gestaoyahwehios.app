@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Base estável — Gestão YAHWEH
 
-Referência unica: `PONTO_BASE_MEMORIA_2026-07-24_11.2.305+2134.md` (release atual `11.2.305+2134`). Tag historica Git: `baseline-11.2.295-1819`.
+Referência unica: `PONTO_BASE_MEMORIA_2026-07-30_11.2.305+2143.md` (release atual `11.2.305+2143`). Tag historica Git: `baseline-11.2.295-1819`.
 
 ## Antes de alterar código ou fazer deploy
 

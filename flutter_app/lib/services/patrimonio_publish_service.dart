@@ -47,11 +47,13 @@ abstract final class PatrimonioPublishService {
     List<String> existingUrls = const [],
     String? userUid,
     void Function(double progress)? onUploadProgress,
+    bool queueOnTransientFailure = true,
   }) async {
-    final igrejaId = PatrimonioPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: seedTenantId,
-      userUid: userUid,
-    );
+    final igrejaId =
+        PatrimonioPublishVerificationService.resolveTenantForPublish(
+          seedTenantId: seedTenantId,
+          userUid: userUid,
+        );
     final docRef = PatrimonioPublishVerificationService.patrimonioDocRef(
       igrejaId: igrejaId,
       itemId: itemId,
@@ -74,7 +76,10 @@ abstract final class PatrimonioPublishService {
         onUploadProgress: onUploadProgress,
       );
     } catch (e) {
-      if (!EcoFireResilientPublish.shouldQueueSilently(e)) rethrow;
+      if (!queueOnTransientFailure ||
+          !EcoFireResilientPublish.shouldQueueSilently(e)) {
+        rethrow;
+      }
       await EcoFireResilientPublish.queuePatrimonioPublish(
         churchId: igrejaId,
         itemId: itemId,
@@ -136,14 +141,18 @@ abstract final class PatrimonioPublishService {
             : '';
       }
     } else {
-      for (var i = 0;
-          i < existingUrls.length && i < PatrimonioPhotoFields.maxPhotos;
-          i++) {
+      for (
+        var i = 0;
+        i < existingUrls.length && i < PatrimonioPhotoFields.maxPhotos;
+        i++
+      ) {
         slotUrls[i] = sanitizeImageUrl(existingUrls[i]);
       }
-      for (var i = 0;
-          i < existingPaths.length && i < PatrimonioPhotoFields.maxPhotos;
-          i++) {
+      for (
+        var i = 0;
+        i < existingPaths.length && i < PatrimonioPhotoFields.maxPhotos;
+        i++
+      ) {
         slotPaths[i] = existingPaths[i].trim();
       }
     }
@@ -188,9 +197,7 @@ abstract final class PatrimonioPublishService {
             );
             final results = await Future.wait(batch.map(uploadSlot));
             uploaded.addAll(results);
-            onUploadProgress?.call(
-              0.06 + (uploaded.length / total) * 0.78,
-            );
+            onUploadProgress?.call(0.06 + (uploaded.length / total) * 0.78);
           }
         } else {
           uploaded = await FirebaseBootstrapService.runGuarded(
@@ -201,7 +208,11 @@ abstract final class PatrimonioPublishService {
       } catch (e, st) {
         if (CrashlyticsService.shouldReport(e)) {
           unawaited(
-            CrashlyticsService.record(e, st, reason: 'patrimonio_publish_slots'),
+            CrashlyticsService.record(
+              e,
+              st,
+              reason: 'patrimonio_publish_slots',
+            ),
           );
         }
         rethrow;
@@ -232,23 +243,26 @@ abstract final class PatrimonioPublishService {
         itemDocId: itemId,
       );
     } else {
-      final maxNew = (kMaxPatrimonioPhotosPerItem - startSlot)
-          .clamp(0, kMaxPatrimonioPhotosPerItem);
+      final maxNew = (kMaxPatrimonioPhotosPerItem - startSlot).clamp(
+        0,
+        kMaxPatrimonioPhotosPerItem,
+      );
       final batch = newImages.take(maxNew).toList(growable: false);
 
       if (batch.isNotEmpty) {
         // CT: sem delete-before-upload; overwrite no path canónico.
         onUploadProgress?.call(0.06);
 
-        final uploaded = await PatrimonioMediaUpload.uploadGalleryPhotosParallel(
-          churchId: igrejaId,
-          itemDocId: itemId,
-          images: batch,
-          startSlot: startSlot,
-          maxParallel: 4,
-          alreadyCompressed: true,
-          onBatchProgress: (p) => onUploadProgress?.call(0.06 + p * 0.78),
-        );
+        final uploaded =
+            await PatrimonioMediaUpload.uploadGalleryPhotosParallel(
+              churchId: igrejaId,
+              itemDocId: itemId,
+              images: batch,
+              startSlot: startSlot,
+              maxParallel: 4,
+              alreadyCompressed: true,
+              onBatchProgress: (p) => onUploadProgress?.call(0.06 + p * 0.78),
+            );
 
         if (uploaded.length != batch.length) {
           throw StateError(
@@ -342,20 +356,22 @@ abstract final class PatrimonioPublishService {
       docId: itemId,
       data: payload,
       isNewDoc: isNewDoc,
-      directWrite: () => runFirestorePublishWithRecovery(
-        () => docRef.set(payload, SetOptions(merge: mergeWrite)),
-      ).timeout(
-        const Duration(seconds: 25),
-        onTimeout: () => throw TimeoutException(
-          'Gravação no Firestore demorou demais. Verifique a rede.',
-        ),
-      ),
+      directWrite: () =>
+          runFirestorePublishWithRecovery(
+            () => docRef.set(payload, SetOptions(merge: mergeWrite)),
+          ).timeout(
+            const Duration(seconds: 25),
+            onTimeout: () => throw TimeoutException(
+              'Gravação no Firestore demorou demais. Verifique a rede.',
+            ),
+          ),
     );
 
     unawaited(() async {
       try {
-        await PatrimonioPublishVerificationService.verifyDocumentExists(docRef)
-            .timeout(const Duration(seconds: 15));
+        await PatrimonioPublishVerificationService.verifyDocumentExists(
+          docRef,
+        ).timeout(const Duration(seconds: 15));
       } catch (_) {}
     }());
 
@@ -400,10 +416,11 @@ abstract final class PatrimonioPublishService {
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
-    final igrejaId = PatrimonioPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: seedTenantId,
-      userUid: userUid,
-    );
+    final igrejaId =
+        PatrimonioPublishVerificationService.resolveTenantForPublish(
+          seedTenantId: seedTenantId,
+          userUid: userUid,
+        );
     final docRef = PatrimonioPublishVerificationService.patrimonioDocRef(
       igrejaId: igrejaId,
       itemId: itemId,
@@ -476,10 +493,11 @@ abstract final class PatrimonioPublishService {
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
-    final igrejaId = PatrimonioPublishVerificationService.resolveTenantForPublish(
-      seedTenantId: seedTenantId,
-      userUid: userUid,
-    );
+    final igrejaId =
+        PatrimonioPublishVerificationService.resolveTenantForPublish(
+          seedTenantId: seedTenantId,
+          userUid: userUid,
+        );
     final docRef = PatrimonioPublishVerificationService.patrimonioDocRef(
       igrejaId: igrejaId,
       itemId: itemId,
@@ -533,7 +551,9 @@ abstract final class PatrimonioPublishService {
     final iid = itemId.trim();
     if (cid.isEmpty || iid.isEmpty) return;
 
-    await FirebaseBootstrapService.ensureStorageAlwaysLinked(refreshAuthToken: true);
+    await FirebaseBootstrapService.ensureStorageAlwaysLinked(
+      refreshAuthToken: true,
+    );
 
     final slotUrls = List<String>.filled(PatrimonioPhotoFields.maxPhotos, '');
     final slotPaths = List<String>.filled(PatrimonioPhotoFields.maxPhotos, '');
@@ -555,9 +575,10 @@ abstract final class PatrimonioPublishService {
           } else {
             // Ficheiro pode existir sem URL imediata — ainda assim guarda path.
             try {
-              await firebaseDefaultStorage.ref(path).getMetadata().timeout(
-                    const Duration(seconds: 4),
-                  );
+              await firebaseDefaultStorage
+                  .ref(path)
+                  .getMetadata()
+                  .timeout(const Duration(seconds: 4));
               slotPaths[slot] = path;
             } catch (_) {}
           }
@@ -565,8 +586,8 @@ abstract final class PatrimonioPublishService {
       }());
     }
     await Future.wait(futures, eagerError: false);
-    final hasAny = slotPaths.any((p) => p.isNotEmpty) ||
-        slotUrls.any((u) => u.isNotEmpty);
+    final hasAny =
+        slotPaths.any((p) => p.isNotEmpty) || slotUrls.any((u) => u.isNotEmpty);
     if (!hasAny) return;
 
     final docRef = PatrimonioPublishVerificationService.patrimonioDocRef(

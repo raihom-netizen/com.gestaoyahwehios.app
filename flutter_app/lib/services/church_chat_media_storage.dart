@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
+import 'package:gestao_yahweh/services/resumable_upload_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
 /// Upload Storage do chat — padrão Controle Total / Telegram: `putData` direto → URL.
@@ -52,7 +53,7 @@ abstract final class ChurchChatMediaStorage {
     onProgress: onProgress,
   );
 
-  /// @deprecated Preferir [putBytesFast] com bytes lidos do picker — mantido para legado.
+  /// Mobile: ficheiro grande usa `putFile` resumível sem carregar tudo em RAM.
   static Future<String> putFile({
     required String storagePath,
     required String localPath,
@@ -68,13 +69,12 @@ abstract final class ChurchChatMediaStorage {
     if (!await file.exists()) {
       throw StateError('Ficheiro não encontrado no aparelho.');
     }
-    final bytes = await file.readAsBytes();
-    if (bytes.isEmpty) {
+    if (await file.length() <= 0) {
       throw StateError('Ficheiro vazio — selecione outro.');
     }
-    return putBytesFast(
+    return ResumableUploadService.uploadLocalFile(
       storagePath: storagePath,
-      bytes: bytes,
+      localFilePath: file.path,
       contentType: contentType,
       onProgress: onProgress,
     );

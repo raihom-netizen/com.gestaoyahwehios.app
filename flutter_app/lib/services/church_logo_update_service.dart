@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
+import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
@@ -98,12 +99,15 @@ abstract final class ChurchLogoUpdateService {
     final displayUrl = YahwehMediaCacheBust.apply(url, cacheRevision);
     unawaited(CachedNetworkImage.evictFromCache(url));
     unawaited(CachedNetworkImage.evictFromCache(displayUrl));
-    AppStorageImageService.instance
-        .invalidateStoragePrefix('igrejas/$cid/logo');
-    AppStorageImageService.instance
-        .invalidateStoragePrefix('igrejas/$cid/branding');
-    AppStorageImageService.instance
-        .invalidateStoragePrefix('igrejas/$cid/configuracoes');
+    AppStorageImageService.instance.invalidateStoragePrefix(
+      'igrejas/$cid/logo',
+    );
+    AppStorageImageService.instance.invalidateStoragePrefix(
+      'igrejas/$cid/branding',
+    );
+    AppStorageImageService.instance.invalidateStoragePrefix(
+      'igrejas/$cid/configuracoes',
+    );
     FirebaseStorageService.invalidateChurchLogoCache(cid);
     AppStorageImageService.instance.invalidate(
       storagePath: identityPath,
@@ -144,13 +148,33 @@ abstract final class ChurchLogoUpdateService {
     Map<String, dynamic>? tenantData,
     String? storagePath,
     String? downloadUrl,
-  }) =>
-      ChurchCanonicalMediaDeleteService.removeChurchLogoStrict(
-        churchId: resolveChurchId(churchIdHint),
-        tenantData: tenantData,
-        storagePath: storagePath,
-        downloadUrl: downloadUrl,
-      );
+  }) async {
+    final cid = resolveChurchId(churchIdHint);
+    if (cid.isEmpty) {
+      throw StateError('Igreja não identificada para remover a logo.');
+    }
+    final canonicalPath = ChurchStorageLayout.churchIdentityLogoPath(cid);
+    await ChurchCanonicalMediaDeleteService.removeChurchLogoStrict(
+      churchId: cid,
+      tenantData: tenantData,
+      storagePath: storagePath,
+      downloadUrl: downloadUrl,
+    );
+    ChurchBrandService.invalidate(churchId: cid);
+    FirebaseStorageService.invalidateChurchLogoCache(cid);
+    AppStorageImageService.instance.invalidateStoragePrefix(
+      'igrejas/$cid/configuracoes',
+    );
+    AppStorageImageService.instance.invalidate(
+      storagePath: canonicalPath,
+      imageUrl: downloadUrl,
+    );
+    final url = (downloadUrl ?? '').trim();
+    if (url.isNotEmpty) {
+      unawaited(CachedNetworkImage.evictFromCache(url));
+    }
+    unawaited(ChurchPanelLocalCache.saveLogoPath(churchId: cid, logoPath: ''));
+  }
 }
 
 final class ChurchLogoPublishResult {

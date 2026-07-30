@@ -2,6 +2,7 @@ import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/features/chat/data/tdlib_credentials.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -59,6 +60,7 @@ import 'pages/calendar_page.dart';
 import 'pages/sistema_informacoes_page.dart';
 import 'pages/configuracoes_page.dart';
 import 'pages/church_chat_hub_page.dart';
+import 'pages/church_yahweh_tdlib_hub_page.dart';
 import 'pages/utilitarios_screen.dart';
 import 'pages/relatorios_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
@@ -3038,9 +3040,18 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           embeddedInShell: true,
         );
       case 23:
-        // Yahweh Chat — visual nativo (Conversas/Grupos/Contatos).
-        // Motor TDLib/Telegram permanece no projeto para uso nativo futuro;
-        // a UI principal volta a ser o hub Firestore (estilo que o usuário pediu).
+        if (!kIsWeb && kTelegramCredentialsConfigured) {
+          return ChurchYahwehTdlibHubPage(
+            key: _shellPageKey(23),
+            tenantId: _moduleTenantId,
+            cpf: widget.cpf,
+            role: _panelRole,
+            permissions: widget.permissions,
+            embeddedInShell: true,
+            onShellBack: () => setState(() => _selectedIndex = 0),
+          );
+        }
+        // TDLib não compila para Web; preserva o Yahweh Chat Firebase nesse alvo.
         return ChurchChatHubPage(
           key: _shellPageKey(23),
           tenantId: _moduleTenantId,

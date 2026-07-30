@@ -9,13 +9,16 @@ class MemberProfilePhotoSyncNotifier extends ChangeNotifier {
 
   String? lastTenantId;
   String? lastAuthUid;
+
   /// Doc `membros/{id}` — cartão/certificados/painel podem não ter authUid no mapa.
   String? lastMemberDocId;
   int lastCacheRevision = 0;
+
   /// URL bustada (com `?v=cb…`) para merge imediato na UI sem esperar directory/Firestore.
   String? lastPhotoUrl;
   String? lastPhotoThumbUrl;
   String? lastStoragePath;
+  bool lastRemoved = false;
 
   void notifyPhotoUpdated({
     required String tenantId,
@@ -25,6 +28,7 @@ class MemberProfilePhotoSyncNotifier extends ChangeNotifier {
     String? photoUrl,
     String? photoThumbUrl,
     String? storagePath,
+    bool removed = false,
   }) {
     lastTenantId = tenantId.trim();
     lastAuthUid = authUid.trim();
@@ -37,6 +41,7 @@ class MemberProfilePhotoSyncNotifier extends ChangeNotifier {
     lastPhotoThumbUrl = thumb.isEmpty ? null : thumb;
     final sp = (storagePath ?? '').trim();
     lastStoragePath = sp.isEmpty ? null : sp;
+    lastRemoved = removed;
     notifyListeners();
   }
 }

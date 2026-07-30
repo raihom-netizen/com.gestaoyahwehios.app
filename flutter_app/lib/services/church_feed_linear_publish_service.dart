@@ -84,27 +84,26 @@ abstract final class ChurchFeedLinearPublishService {
     String? agendaCategory,
     String? agendaColorHex,
     void Function(double progress)? onUploadProgress,
-  }) =>
-      _publish(
-        kind: PublicationKind.evento,
-        docRef: docRef,
-        tenantId: tenantId,
-        corePayload: corePayload,
-        isNewDoc: isNewDoc,
-        existingPhotoRefs: existingPhotoRefs,
-        startSlotIndex: startSlotIndex,
-        newImagesBytes: newImagesBytes,
-        newImagePaths: newImagePaths,
-        publicSite: publicSite,
-        hasVideo: hasVideo,
-        videoStoragePath: videoStoragePath,
-        eventStartAt: eventStartAt,
-        location: location,
-        syncAgenda: syncAgenda,
-        agendaCategory: agendaCategory,
-        agendaColorHex: agendaColorHex,
-        onUploadProgress: onUploadProgress,
-      );
+  }) => _publish(
+    kind: PublicationKind.evento,
+    docRef: docRef,
+    tenantId: tenantId,
+    corePayload: corePayload,
+    isNewDoc: isNewDoc,
+    existingPhotoRefs: existingPhotoRefs,
+    startSlotIndex: startSlotIndex,
+    newImagesBytes: newImagesBytes,
+    newImagePaths: newImagePaths,
+    publicSite: publicSite,
+    hasVideo: hasVideo,
+    videoStoragePath: videoStoragePath,
+    eventStartAt: eventStartAt,
+    location: location,
+    syncAgenda: syncAgenda,
+    agendaCategory: agendaCategory,
+    agendaColorHex: agendaColorHex,
+    onUploadProgress: onUploadProgress,
+  );
 
   static Future<String> _publish({
     required PublicationKind kind,
@@ -153,8 +152,9 @@ abstract final class ChurchFeedLinearPublishService {
 
     final existingPaths = _pathsFromRefs(existingPhotoRefs);
 
-    var existingUrls =
-        await EcoFireFeedPublishService.refsToPlayableUrls(existingPhotoRefs);
+    var existingUrls = await EcoFireFeedPublishService.refsToPlayableUrls(
+      existingPhotoRefs,
+    );
     final uploadedPaths = <String>[];
     final alignedThumbPaths = <String>[];
     final alignedThumbUrls = <String>[];
@@ -169,7 +169,8 @@ abstract final class ChurchFeedLinearPublishService {
       _report(onUploadProgress, 0.20);
       if (isEvento) {
         final images = newImagesBytes ?? const <Uint8List>[];
-        final imagePaths = newImagePaths
+        final imagePaths =
+            newImagePaths
                 ?.map((p) => p.trim())
                 .where((p) => p.isNotEmpty)
                 .toList() ??
@@ -197,7 +198,9 @@ abstract final class ChurchFeedLinearPublishService {
             files.map((f) async {
               final bytes = await f.readAsBytes();
               if (bytes.isEmpty) {
-                throw StateError('Foto do evento vazia — selecione outra imagem.');
+                throw StateError(
+                  'Foto do evento vazia — selecione outra imagem.',
+                );
               }
               return bytes;
             }),
@@ -223,6 +226,7 @@ abstract final class ChurchFeedLinearPublishService {
               ),
               logLabel: 'evento_photo',
               alreadyCompressed: bytesWerePrepared,
+              compressForFeed: !bytesWerePrepared,
             ),
           );
           nextSlot++;
@@ -230,7 +234,7 @@ abstract final class ChurchFeedLinearPublishService {
 
         final batch = await ChurchMediaUploadFacade.uploadBatchParallel(
           items: batchItems,
-          timeoutPerItem: const Duration(seconds: 55),
+          timeoutPerItem: const Duration(seconds: 120),
           onItemProgress: (index, p) {
             final span = 0.62 / batchItems.length;
             _report(onUploadProgress, 0.20 + span * index + p * span);
@@ -260,7 +264,8 @@ abstract final class ChurchFeedLinearPublishService {
         uploadedCount = uploadedPaths.length;
       } else {
         final images = newImagesBytes ?? const <Uint8List>[];
-        final imagePaths = newImagePaths
+        final imagePaths =
+            newImagePaths
                 ?.map((p) => p.trim())
                 .where((p) => p.isNotEmpty)
                 .toList() ??
@@ -290,7 +295,9 @@ abstract final class ChurchFeedLinearPublishService {
             files.map((f) async {
               final bytes = await f.readAsBytes();
               if (bytes.isEmpty) {
-                throw StateError('Foto do aviso vazia — selecione outra imagem.');
+                throw StateError(
+                  'Foto do aviso vazia — selecione outra imagem.',
+                );
               }
               return bytes;
             }),
@@ -313,6 +320,7 @@ abstract final class ChurchFeedLinearPublishService {
               ),
               logLabel: 'aviso_photo',
               alreadyCompressed: bytesWerePrepared,
+              compressForFeed: !bytesWerePrepared,
             ),
           );
           nextSlot++;
@@ -320,7 +328,7 @@ abstract final class ChurchFeedLinearPublishService {
 
         final batch = await ChurchMediaUploadFacade.uploadBatchParallel(
           items: batchItems,
-          timeoutPerItem: const Duration(seconds: 55),
+          timeoutPerItem: const Duration(seconds: 120),
           onItemProgress: (index, p) {
             final span = 0.62 / batchItems.length;
             _report(onUploadProgress, 0.20 + span * index + p * span);
@@ -359,19 +367,19 @@ abstract final class ChurchFeedLinearPublishService {
           'Verifique a rede e toque em «Tentar novamente».',
         );
       }
-      if (isEvento && alignedThumbUrls.isEmpty && alignedThumbPaths.isNotEmpty) {
+      if (isEvento &&
+          alignedThumbUrls.isEmpty &&
+          alignedThumbPaths.isNotEmpty) {
         // Best-effort: não bloquear publish se getDownloadURL dos thumbs falhar.
         try {
           final thumbFutures = alignedThumbPaths.map(
             (tp) => EcoFireFeedPublishService.refsToPlayableUrls([tp]),
           );
-          final thumbResults = await Future.wait(
-            thumbFutures,
-            eagerError: false,
-          ).timeout(
-            const Duration(seconds: 8),
-            onTimeout: () => <List<String>>[],
-          );
+          final thumbResults =
+              await Future.wait(thumbFutures, eagerError: false).timeout(
+                const Duration(seconds: 8),
+                onTimeout: () => <List<String>>[],
+              );
           for (final tu in thumbResults) {
             if (tu.isNotEmpty) alignedThumbUrls.add(tu.first);
           }
@@ -483,10 +491,9 @@ abstract final class ChurchFeedLinearPublishService {
 
     // Verify em background — não segurar a UI em 78–88%.
     unawaited(
-      _verifyFeedDocPublished(
-        docRef: docRef,
-        isEvento: isEvento,
-      ).catchError((Object e) {
+      _verifyFeedDocPublished(docRef: docRef, isEvento: isEvento).catchError((
+        Object e,
+      ) {
         debugPrint('feed doc verify (background): $e');
       }),
     );
@@ -502,23 +509,23 @@ abstract final class ChurchFeedLinearPublishService {
       if (start != null) {
         unawaited(
           ChurchFeedAgendaSyncService.upsertForEvento(
-            tenantId: churchId,
-            eventoId: docId,
-            title: (payload['title'] ?? '').toString(),
-            description: (payload['text'] ?? '').toString(),
-            startAt: start,
-            location: location,
-            category: agendaCategory ?? 'evento_social',
-            colorHex: agendaColorHex ?? '#E11D48',
-          )
+                tenantId: churchId,
+                eventoId: docId,
+                title: (payload['title'] ?? '').toString(),
+                description: (payload['text'] ?? '').toString(),
+                startAt: start,
+                location: location,
+                category: agendaCategory ?? 'evento_social',
+                colorHex: agendaColorHex ?? '#E11D48',
+              )
               .timeout(
                 kIsWeb
                     ? const Duration(seconds: 12)
                     : const Duration(seconds: 30),
               )
               .catchError((Object e) {
-            debugPrint('EVENTOS agenda sync (background): $e');
-          }),
+                debugPrint('EVENTOS agenda sync (background): $e');
+              }),
         );
       }
     } else if (!isEvento && syncCalendar) {
@@ -561,7 +568,9 @@ abstract final class ChurchFeedLinearPublishService {
       uploadStatus: hasNewPhotos ? 'ok' : 'skipped',
       firestoreStatus: 'ok',
       siteStatus: publicSite ? 'scheduled' : 'skipped',
-      calendarStatus: (isEvento && syncAgenda) || syncCalendar ? 'ok' : 'skipped',
+      calendarStatus: (isEvento && syncAgenda) || syncCalendar
+          ? 'ok'
+          : 'skipped',
       notificationStatus: 'cf_on_create',
     );
 
@@ -580,9 +589,7 @@ abstract final class ChurchFeedLinearPublishService {
 
   static List<String> _pathsFromRefs(List<String> refs) {
     final deduped = dedupeImageRefsByStorageIdentity(refs);
-    return [
-      ...AvisosPublishVerificationService.storagePathsFromUrls(deduped),
-    ];
+    return [...AvisosPublishVerificationService.storagePathsFromUrls(deduped)];
   }
 
   static Future<void> _mirrorEventoToLegacyEventsCollection({
@@ -698,16 +705,21 @@ abstract final class ChurchFeedLinearPublishService {
     payload['videoStoragePath'] = path;
 
     try {
-      final videoUrls = await EcoFireFeedPublishService.refsToPlayableUrls([path])
-          .timeout(const Duration(seconds: 8), onTimeout: () => <String>[]);
-      final videoUrl = videoUrls.isNotEmpty ? sanitizeImageUrl(videoUrls.first) : '';
+      final videoUrls = await EcoFireFeedPublishService.refsToPlayableUrls([
+        path,
+      ]).timeout(const Duration(seconds: 8), onTimeout: () => <String>[]);
+      final videoUrl = videoUrls.isNotEmpty
+          ? sanitizeImageUrl(videoUrls.first)
+          : '';
       if (videoUrl.isNotEmpty) {
         payload['videoUrl'] = videoUrl;
         payload['mediaUrl'] = videoUrl;
       }
 
       String thumbStoragePath = '';
-      final directThumbPath = (payload['thumbStoragePath'] ?? '').toString().trim();
+      final directThumbPath = (payload['thumbStoragePath'] ?? '')
+          .toString()
+          .trim();
       if (directThumbPath.isNotEmpty) {
         thumbStoragePath = directThumbPath;
       } else {
@@ -719,9 +731,9 @@ abstract final class ChurchFeedLinearPublishService {
 
       String thumbUrl = '';
       if (thumbStoragePath.isNotEmpty) {
-        final thumbUrls =
-            await EcoFireFeedPublishService.refsToPlayableUrls([thumbStoragePath])
-                .timeout(const Duration(seconds: 8), onTimeout: () => <String>[]);
+        final thumbUrls = await EcoFireFeedPublishService.refsToPlayableUrls([
+          thumbStoragePath,
+        ]).timeout(const Duration(seconds: 8), onTimeout: () => <String>[]);
         if (thumbUrls.isNotEmpty) {
           thumbUrl = sanitizeImageUrl(thumbUrls.first);
           payload['thumbUrl'] = thumbUrl;
@@ -737,14 +749,11 @@ abstract final class ChurchFeedLinearPublishService {
           'storagePath': path,
           if (thumbStoragePath.isNotEmpty) 'thumbStoragePath': thumbStoragePath,
           if (thumbUrl.isNotEmpty) 'thumbUrl': thumbUrl,
-        }
+        },
       ];
     } catch (_) {
       payload['videos'] = [
-        {
-          'videoStoragePath': path,
-          'storagePath': path,
-        }
+        {'videoStoragePath': path, 'storagePath': path},
       ];
     }
   }

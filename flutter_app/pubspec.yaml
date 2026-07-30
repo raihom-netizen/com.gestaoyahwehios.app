@@ -3,7 +3,7 @@ description: Gestao YAHWEH - Onboarding + Trial 30 dias + Planos (starter)
 publish_to: "none"
 # Alinhado com lib/app_version.dart; marketing fixo 11.2.305 — só .\scripts\bump_build.ps1 (+N).
 # App Store: cada IPA precisa de build (+N) unico; se der 409, incrementar +N.
-version: 11.2.305+2143
+version: 11.2.305+2145
 
 environment:
   sdk: ">=3.12.0 <4.0.0"
@@ -106,10 +106,9 @@ dependencies:
   just_audio: ^0.10.5
   audio_waveforms: ^2.0.2
   package_info_plus: ^9.0.1
-  # TDLib (Telegram) — motor nativo do YAHWEH Chat (Android/iOS).
-  # DESATIVADO no iOS CI: flutter_libtdjson pod falha ao linkar libtdjson.a no Xcode.
-  # Para reativar: adicionar `libtdjson: 0.3.0` e rodar setup_tdlib.dart --ios-only.
-  # libtdjson: 0.3.0  # desativado — fallback automatico para Firestore chat
+  # TDLib 1.8.65 — cliente Telegram nativo no Android/iOS.
+  # As credenciais entram por TELEGRAM_API_ID/TELEGRAM_API_HASH no CI.
+  libtdjson: ^0.3.0
   flutter_dotenv: ^6.0.1
 flutter:
   # Flutter 3.44+ SPM nao instala Pods/FirebaseCrashlytics/run — obrigatorio para Crashlytics no CI.

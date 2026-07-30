@@ -10,6 +10,17 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:record/record.dart';
 
+class ChatMicrophonePermissionException implements Exception {
+  const ChatMicrophonePermissionException({required this.permanentlyDenied});
+
+  final bool permanentlyDenied;
+
+  @override
+  String toString() => permanentlyDenied
+      ? 'Permissão de microfone bloqueada nos Ajustes.'
+      : 'Permissão de microfone negada.';
+}
+
 /// Gravação de voz estilo WhatsApp para o Chat Igreja (AAC/M4A mobile; web via blob).
 class ChatAudioService {
   AudioRecorder? _recorder;
@@ -43,13 +54,25 @@ class ChatAudioService {
     return encoder;
   }
 
-  Future<bool> _ensureMicrophonePermission() async {
-    if (kIsWeb) return true;
+  Future<void> _ensureMicrophonePermission() async {
+    if (kIsWeb) return;
+    final status = await ph.Permission.microphone.status;
+    if (status.isGranted || status.isLimited) return;
+    if (status.isPermanentlyDenied || status.isRestricted) {
+      throw const ChatMicrophonePermissionException(permanentlyDenied: true);
+    }
+    final requested = await ph.Permission.microphone.request();
+    if (requested.isGranted || requested.isLimited) return;
+    throw ChatMicrophonePermissionException(
+      permanentlyDenied:
+          requested.isPermanentlyDenied || requested.isRestricted,
+    );
+  }
+
+  static Future<bool> openAppMicrophoneSettings() async {
+    if (kIsWeb) return false;
     try {
-      final status = await ph.Permission.microphone.status;
-      if (status.isGranted || status.isLimited) return true;
-      final requested = await ph.Permission.microphone.request();
-      return requested.isGranted || requested.isLimited;
+      return ph.openAppSettings();
     } catch (_) {
       return false;
     }
@@ -67,18 +90,11 @@ class ChatAudioService {
   /// Inicia gravação (mobile: ficheiro `.m4a`; web: blob em memória).
   Future<String?> startRecording() async {
     await stopRecording(send: false);
-    final permissionFuture = _ensureMicrophonePermission();
+    // iOS: pedir autorização nativa primeiro. Consultar o plugin `record`
+    // simultaneamente cria uma corrida e pode devolver "negado" durante o popup.
+    await _ensureMicrophonePermission();
     final recorder = AudioRecorder();
-    final recorderPermFuture = recorder.hasPermission();
-    final nativePermissionOk = await permissionFuture;
-    if (!nativePermissionOk) {
-      await recorder.dispose();
-      throw StateError(
-        'Permissão de microfone negada. Ative em Ajustes do telefone.',
-      );
-    }
-
-    var permitted = await recorderPermFuture;
+    var permitted = await recorder.hasPermission();
     if (!permitted) {
       try {
         permitted = await recorder.hasPermission();
@@ -86,9 +102,7 @@ class ChatAudioService {
     }
     if (!permitted) {
       await recorder.dispose();
-      throw StateError(
-        'Permissão de microfone negada. Ative em Ajustes do telefone.',
-      );
+      throw const ChatMicrophonePermissionException(permanentlyDenied: true);
     }
 
     _encoder = await _resolveEncoder(recorder);

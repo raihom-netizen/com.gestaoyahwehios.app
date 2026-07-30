@@ -1,10 +1,10 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/design_system/app_theme.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_auth_state.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_service.dart';
+import 'package:gestao_yahweh/features/chat/presentation/tdlib_local_media.dart';
 import 'package:image_picker/image_picker.dart';
 
 /// Página de thread do chat — motor TDLib (Telegram).
@@ -460,69 +460,16 @@ class _MessageBubble extends StatelessWidget {
   }
 
   Widget _buildMediaPreview(ThemeData theme) {
-    final kind = message.mediaKind ?? '';
-    IconData icon;
-    String label;
-    switch (kind) {
-      case 'photo':
-        icon = Icons.image_rounded;
-        label = 'Foto';
-        break;
-      case 'video':
-        icon = Icons.play_circle_fill_rounded;
-        label = 'Vídeo';
-        break;
-      case 'voice':
-        icon = Icons.mic_rounded;
-        label = 'Áudio';
-        break;
-      case 'document':
-        icon = Icons.description_rounded;
-        label = message.fileName ?? 'Documento';
-        break;
-      default:
-        icon = Icons.insert_drive_file_rounded;
-        label = 'Arquivo';
-    }
-
-    // Show local image if available (mobile only — TDLib not on Web)
-    if (kind == 'photo' &&
-        message.mediaLocalPath != null &&
-        message.mediaLocalPath!.isNotEmpty &&
-        !kIsWeb) {
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Image.network(
-            'file://${message.mediaLocalPath}',
-            width: 200,
-            height: 150,
-            fit: BoxFit.cover,
-            errorBuilder: (_, _, _) => _buildMediaIcon(icon, label, theme),
-          ),
-        ),
-      );
-    }
-
-    return _buildMediaIcon(icon, label, theme);
-  }
-
-  Widget _buildMediaIcon(IconData icon, String label, ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: AppColors.primary),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: AppColors.primary,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          TdlibLocalMedia(message: message),
+          if ((message.mediaCaption ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(message.mediaCaption!, style: theme.textTheme.bodyMedium),
+          ],
         ],
       ),
     );

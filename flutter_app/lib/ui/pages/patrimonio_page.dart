@@ -18,6 +18,7 @@ import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
@@ -9184,54 +9185,56 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
       if (uploadsBySlot.isNotEmpty) {
         PatrimonioPendingPhotosCache.set(tenantId, itemId, uploadsBySlot);
         final corePayload = buildCorePayload();
-        try {
-          await PatrimonioSaveService.saveMetadataFirst(
-            churchIdHint: tenantId,
-            itemId: itemId,
-            corePayload: corePayload,
-            isNewDoc: wasNew,
-            indexedSlotUrls: indexedSlotUrls,
-            indexedSlotPaths: indexedSlotPaths,
-          );
-        } catch (e) {
-          PatrimonioPendingPhotosCache.clear(tenantId, itemId);
-          rethrow;
-        }
+        await PatrimonioSaveService.save(
+          churchIdHint: tenantId,
+          itemId: itemId,
+          corePayload: corePayload,
+          isNewDoc: wasNew,
+          uploadsBySlot: uploadsBySlot,
+          indexedSlotUrls: indexedSlotUrls,
+          indexedSlotPaths: indexedSlotPaths,
+          onProgress: (p, label) {
+            if (mounted) {
+              setState(() {
+                _uploadProgress = p;
+                _uploadProgressLabel = label;
+              });
+            }
+          },
+        );
         YahwehFlowLog.patrimonioSuccess();
         if (!mounted) return;
+        PatrimonioPendingPhotosCache.clear(tenantId, itemId);
+        final completedSlotPaths = List<String>.from(indexedSlotPaths);
+        for (final slot in uploadsBySlot.keys) {
+          if (slot >= 0 && slot < completedSlotPaths.length) {
+            completedSlotPaths[slot] = ChurchStorageLayout.patrimonioPhotoPath(
+              tenantId,
+              itemId,
+              slot,
+            );
+          }
+        }
         final savedPayload = Map<String, dynamic>.from(corePayload);
         PatrimonioPhotoFields.applyIndexedSlots(
           savedPayload,
           indexedSlotUrls,
-          indexedSlotPaths,
+          completedSlotPaths,
+          allowDeleteSentinels: false,
         );
         navigator.pop(<String, dynamic>{
           'ok': true,
           'itemId': itemId,
           'payload': savedPayload,
-          'photosPending': true,
         });
         messenger.showSnackBar(
           ThemeCleanPremium.successSnackBar(
             wasNew
-                ? 'Patrimônio cadastrado — fotos a enviar em segundo plano.'
-                : 'Patrimônio atualizado — fotos a enviar em segundo plano.',
+                ? 'Patrimônio cadastrado com as fotos.'
+                : 'Patrimônio e fotos atualizados.',
           ),
         );
-        // Não invalidate — preserva seedOptimistic/Hive (sumiço ao trocar módulo).
-        unawaited(
-          PatrimonioSaveService.uploadPhotosInBackground(
-            churchIdHint: tenantId,
-            itemId: itemId,
-            corePayload: corePayload,
-            isNewDoc: wasNew,
-            uploadsBySlot: uploadsBySlot,
-            indexedSlotUrls: indexedSlotUrls,
-            indexedSlotPaths: indexedSlotPaths,
-          ).whenComplete(() {
-            PatrimonioPendingPhotosCache.clear(tenantId, itemId);
-          }),
-        );
+        unawaited(editor?.cleanupUnusedSlots(photoSnap));
         return;
       }
 
@@ -9264,6 +9267,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
         savedPayload,
         indexedSlotUrls,
         indexedSlotPaths,
+        allowDeleteSentinels: false,
       );
 
       navigator.pop(<String, dynamic>{
@@ -9282,7 +9286,10 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
     } catch (e, st) {
       YahwehCatchLog.log(e, st, tag: 'patrimonio_save');
       if (!mounted) return;
-      if (EcoFireResilientPublish.treatAsSilentSuccess(e)) {
+      // Com fotos novas, nunca fechar como sucesso silencioso: o utilizador
+      // precisa manter o formulário aberto para tentar novamente.
+      if (pendingPhotos.isEmpty &&
+          EcoFireResilientPublish.treatAsSilentSuccess(e)) {
         final offlinePayload = buildCorePayload();
         final offSnap = editor?.snapshot;
         if (offSnap != null) {
@@ -9290,6 +9297,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
             offlinePayload,
             offSnap.slotUrls,
             offSnap.slotPaths,
+            allowDeleteSentinels: false,
           );
         }
         navigator.pop(<String, dynamic>{

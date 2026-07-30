@@ -1,40 +1,12 @@
 ---
-description: Ponto base memoria GERAL 11.2.305+2134 — projeto completo Web/Android/iOS/Master
-alwaysApply: true
+description: "[SUPERSEDED] Use ponto-base-memoria-11-2-305-2143.mdc — memoria 2134 arquivada"
+alwaysApply: false
 ---
 
-# Ponto Base Memoria 11.2.305+2134 (GERAL)
+# [SUPERSEDED] Memoria 11.2.305+2134
 
-- Antes de qualquer correcao ou melhoria, consultar `PONTO_BASE_MEMORIA_2026-07-24_11.2.305+2134.md` (documento **unico** de memoria).
-- Ponto atual: marketing `11.2.305`, `appBuildNumber/versionCode 2134`. Nao mudar `appVersion` sem ordem explicita.
-- **PARIDADE OBRIGATORIA:** Web + Android + iOS — paths so `igrejas/{churchId}/…`.
-- **Chat principal:** Yahweh Chat nativo (Firestore) — **nao** TDLib na UI; `libtdjson` fora do pubspec de producao/CI.
-- **Play / AAB:** `targetSdk`/`compileSdk` **36**; versionCode Android sempre **maior** que o ultimo publicado; artefactos em `D:\Temporarios`.
-- Performance: cache-first; paginacao 20; sem queries pesadas no caminho quente da UI; anti-sumico (nao envenenar RAM/Hive com lista vazia).
-- Temporarios: `D:\Temporarios`. Deploy via `.\scripts\deploy_completo.ps1` so com pedido explicito. Force update: `.\scripts\publish_force_update_online.ps1`.
-- Nao alterar Firestore/regras/indices/functions/deploy sem pedido claro.
-- **Regras GCP (503):** publicar em **2 etapas** — simples → completa (`firestore-rules-publicar-duas-etapas.mdc`).
-- Painel pos-login: `ChurchRepository` — proibido `tenants` / `church_aliases` / novos resolvers / `*ServiceV2`.
-- Midia: Storage → validar → Firestore uma vez; soft-fail getDownloadURL / path-only; Web sem `putFile`.
+Usar `ponto-base-memoria-11-2-305-2143.mdc` e
+`PONTO_BASE_MEMORIA_2026-07-30_11.2.305+2143.md`.
 
-## Release 2134 + CI iOS
-
-- Web + AAB + ZIP + force update alinhados (`11.2.305+2134`).
-- iOS: App Groups + Widget; Push (`PUSH_NOTIFICATIONS` + `aps-environment`); align se perfil sem Push.
-- Asset dotenv = `.env.example` (nunca listar `.env` gitignore no pubspec).
-- Codemagic = **somente iOS**; branch `main`; Start manual.
-
-## Preservar critico herdado
-
-- Offline-first + `FirestoreWebGuard` (sem terminate no hot path).
-- Shell indices `ChurchShellIndices`; Master `admin_panel_page`.
-- `PublicationEngine`; chat `igrejas/{id}/chats`; Storage layout canónico.
-- Anti-sumiço patrimônio/financeiro/fornecedores; mídia path-only soft-fail.
-- Menus/drawers fora de `SelectableRegion`.
-
-## iOS Codemagic (nao regredir)
-
-- Ordem: Sign In → Push → App Groups → registar grupos → limpar perfis → P12/perfil → Widget → align groups → align push → IPA → validate.
-- Sem `aps-environment` no binario + `remote-notification` no Info.plist = Binário inválido.
-- Nunca AAB Android no Codemagic.
-- Memoria antiga (`*2122*`, `*2120*`) **nao** usar como ponto ativo.
+Arquivo histórico:
+`PONTO_BASE_MEMORIA_2026-07-24_11.2.305+2134_ARQUIVADA.md`.

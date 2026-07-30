@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:firebase_storage/firebase_storage.dart' show UploadTask;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/ecofire/ecofire_firestore_meta.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
@@ -38,8 +39,7 @@ abstract final class EcoFireMediaUpload {
       EcoFireMediaProfile.patrimonio =>
         EcoFireImageProcess.processForPatrimonio(bytes),
       EcoFireMediaProfile.chat => _chatCompress(bytes),
-      EcoFireMediaProfile.document ||
-      EcoFireMediaProfile.feedPhoto =>
+      EcoFireMediaProfile.document || EcoFireMediaProfile.feedPhoto =>
         EcoFireImageProcess.processForFeedPhoto(bytes),
     };
   }
@@ -59,13 +59,12 @@ abstract final class EcoFireMediaUpload {
     required String storagePath,
     required Uint8List bytes,
     void Function(double progress)? onProgress,
-  }) =>
-      EcoFireStorageUpload.putData(
-        storagePath: storagePath,
-        bytes: bytes,
-        mimeType: 'image/webp',
-        onProgress: onProgress,
-      );
+  }) => EcoFireStorageUpload.putData(
+    storagePath: storagePath,
+    bytes: bytes,
+    mimeType: 'image/webp',
+    onProgress: onProgress,
+  );
 
   /// Upload genérico — qualquer path `igrejas/…`.
   static Future<String> uploadBytes({
@@ -74,6 +73,7 @@ abstract final class EcoFireMediaUpload {
     required String contentType,
     EcoFireMediaProfile profile = EcoFireMediaProfile.feedPhoto,
     void Function(double progress)? onProgress,
+    void Function(UploadTask task)? onUploadTaskCreated,
   }) async {
     EcoFireFlow.log('UPLOAD $storagePath');
     final prepared = await _prepareBytes(bytes, contentType, profile: profile);
@@ -82,6 +82,7 @@ abstract final class EcoFireMediaUpload {
       bytes: prepared.bytes,
       mimeType: prepared.mime,
       onProgress: onProgress,
+      onUploadTaskCreated: onUploadTaskCreated,
     );
   }
 
@@ -112,16 +113,16 @@ abstract final class EcoFireMediaUpload {
     required String storagePath,
     String? thumbUrl,
     String? thumbPath,
-  }) =>
-      EcoFireFirestoreMeta.memberPhoto(
-        downloadUrl: downloadUrl,
-        storagePath: storagePath,
-        thumbUrl: thumbUrl,
-        thumbPath: thumbPath,
-      );
+  }) => EcoFireFirestoreMeta.memberPhoto(
+    downloadUrl: downloadUrl,
+    storagePath: storagePath,
+    thumbUrl: thumbUrl,
+    thumbPath: thumbPath,
+  );
 
   /// Membro: full + thumb numa operação (padrão EcoFire save → URL → Firestore).
-  static Future<({String url, String path, String? thumbUrl})> uploadMemberProfile(
+  static Future<({String url, String path, String? thumbUrl})>
+  uploadMemberProfile(
     String churchId,
     String memberId,
     Uint8List rawBytes, {
@@ -174,8 +175,9 @@ abstract final class EcoFireMediaUpload {
     final u = (httpsUrl ?? '').trim();
     if (u.startsWith('http')) return u;
     if (storagePath != null && storagePath.trim().isNotEmpty) {
-      final fromPath =
-          await EcoFireStorageUpload.downloadUrlFromStoragePath(storagePath);
+      final fromPath = await EcoFireStorageUpload.downloadUrlFromStoragePath(
+        storagePath,
+      );
       if (fromPath != null && fromPath.isNotEmpty) return fromPath;
     }
     if (churchId != null && memberId != null) {

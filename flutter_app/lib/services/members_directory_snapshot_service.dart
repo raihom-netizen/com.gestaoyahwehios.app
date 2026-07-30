@@ -9,7 +9,8 @@ import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'firestore_stream_utils.dart' show FirestoreStreamUtils, MergedFirestoreQuerySnapshot;
+import 'firestore_stream_utils.dart'
+    show FirestoreStreamUtils, MergedFirestoreQuerySnapshot;
 
 /// Entrada leve em `igrejas/{tid}/_panel_cache/members_directory`.
 class MemberDirectoryEntry {
@@ -55,6 +56,7 @@ class MemberDirectoryEntry {
   final Timestamp? createdAt;
   final Timestamp? updatedAt;
   final dynamic dataNascimento;
+
   /// Timestamp Firestore ou ISO local — estado da assinatura da carteirinha.
   final dynamic carteirinhaAssinadaEm;
   final String? carteirinhaAssinadaPor;
@@ -108,8 +110,12 @@ class MemberDirectoryEntry {
       dataNascimento: raw['dataNascimento'],
       carteirinhaAssinadaEm: raw['carteirinhaAssinadaEm'],
       carteirinhaAssinadaPor: _pickOptStr(raw['carteirinhaAssinadaPor']),
-      carteirinhaAssinadaPorNome: _pickOptStr(raw['carteirinhaAssinadaPorNome']),
-      carteirinhaAssinadaPorCargo: _pickOptStr(raw['carteirinhaAssinadaPorCargo']),
+      carteirinhaAssinadaPorNome: _pickOptStr(
+        raw['carteirinhaAssinadaPorNome'],
+      ),
+      carteirinhaAssinadaPorCargo: _pickOptStr(
+        raw['carteirinhaAssinadaPorCargo'],
+      ),
       carteirinhaAssinaturaUrl: _pickOptStr(raw['carteirinhaAssinaturaUrl']),
     );
   }
@@ -171,81 +177,80 @@ class MemberDirectoryEntry {
 
   /// Mescla campos gravados no Firestore — lista/painel actualizam sem reload.
   MemberDirectoryEntry mergeFirestoreFields(Map<String, dynamic> fields) {
-    final name = FirestoreMapFields.pickString(
-      fields,
-      const ['NOME_COMPLETO', 'nome', 'name'],
-      fallback: displayName,
-    );
-    final st = FirestoreMapFields.pickString(
-      fields,
-      const ['STATUS', 'status'],
-      fallback: status,
-    );
-    final fn = FirestoreMapFields.pickString(
-      fields,
-      const ['FUNCAO', 'funcao', 'CARGO', 'cargo'],
-      fallback: funcao ?? '',
-    );
-    final mail = FirestoreMapFields.pickString(
-      fields,
-      const ['EMAIL', 'email'],
-      fallback: email ?? '',
-    );
-    final tel = FirestoreMapFields.pickString(
-      fields,
-      const ['TELEFONES', 'TELEFONE', 'telefone'],
-      fallback: telefone ?? '',
-    );
-    final gen = FirestoreMapFields.pickString(
-      fields,
-      const ['SEXO', 'sexo', 'genero'],
-      fallback: genero ?? '',
-    );
+    final name = FirestoreMapFields.pickString(fields, const [
+      'NOME_COMPLETO',
+      'nome',
+      'name',
+    ], fallback: displayName);
+    final st = FirestoreMapFields.pickString(fields, const [
+      'STATUS',
+      'status',
+    ], fallback: status);
+    final fn = FirestoreMapFields.pickString(fields, const [
+      'FUNCAO',
+      'funcao',
+      'CARGO',
+      'cargo',
+    ], fallback: funcao ?? '');
+    final mail = FirestoreMapFields.pickString(fields, const [
+      'EMAIL',
+      'email',
+    ], fallback: email ?? '');
+    final tel = FirestoreMapFields.pickString(fields, const [
+      'TELEFONES',
+      'TELEFONE',
+      'telefone',
+    ], fallback: telefone ?? '');
+    final gen = FirestoreMapFields.pickString(fields, const [
+      'SEXO',
+      'sexo',
+      'genero',
+    ], fallback: genero ?? '');
     final cpf = FirestoreMapFields.pickCpfDigits(fields);
-    final dn = fields['DATA_NASCIMENTO'] ?? fields['dataNascimento'] ?? dataNascimento;
-    final funcoesMerged = FirestoreMapFields.pickStringList(
-      fields,
-      const ['FUNCOES', 'funcoes'],
-      fallback: funcoes,
-    );
-    final incomingPhotoRevision = FirestoreMapFields.pickInt(
-      fields,
-      const ['fotoUrlCacheRevision'],
-    );
+    final dn =
+        fields['DATA_NASCIMENTO'] ?? fields['dataNascimento'] ?? dataNascimento;
+    final funcoesMerged = FirestoreMapFields.pickStringList(fields, const [
+      'FUNCOES',
+      'funcoes',
+    ], fallback: funcoes);
+    final incomingPhotoRevision = FirestoreMapFields.pickInt(fields, const [
+      'fotoUrlCacheRevision',
+    ]);
+    final clearProfilePhoto = fields['profilePhotoRemoved'] == true;
 
     final assinadaEm = fields.containsKey('carteirinhaAssinadaEm')
         ? fields['carteirinhaAssinadaEm']
         : carteirinhaAssinadaEm;
-    final assinadaPor = FirestoreMapFields.pickString(
-      fields,
-      const ['carteirinhaAssinadaPor'],
-      fallback: carteirinhaAssinadaPor ?? '',
-    );
-    final assinadaPorNome = FirestoreMapFields.pickString(
-      fields,
-      const ['carteirinhaAssinadaPorNome'],
-      fallback: carteirinhaAssinadaPorNome ?? '',
-    );
-    final assinadaPorCargo = FirestoreMapFields.pickString(
-      fields,
-      const ['carteirinhaAssinadaPorCargo'],
-      fallback: carteirinhaAssinadaPorCargo ?? '',
-    );
-    final assinaturaUrl = FirestoreMapFields.pickString(
-      fields,
-      const ['carteirinhaAssinaturaUrl'],
-      fallback: carteirinhaAssinaturaUrl ?? '',
-    );
+    final assinadaPor = FirestoreMapFields.pickString(fields, const [
+      'carteirinhaAssinadaPor',
+    ], fallback: carteirinhaAssinadaPor ?? '');
+    final assinadaPorNome = FirestoreMapFields.pickString(fields, const [
+      'carteirinhaAssinadaPorNome',
+    ], fallback: carteirinhaAssinadaPorNome ?? '');
+    final assinadaPorCargo = FirestoreMapFields.pickString(fields, const [
+      'carteirinhaAssinadaPorCargo',
+    ], fallback: carteirinhaAssinadaPorCargo ?? '');
+    final assinaturaUrl = FirestoreMapFields.pickString(fields, const [
+      'carteirinhaAssinaturaUrl',
+    ], fallback: carteirinhaAssinaturaUrl ?? '');
 
     return MemberDirectoryEntry(
       memberDocId: memberDocId,
       displayName: name,
-      photoUrl: _pickOptional(fields, const ['fotoUrl', 'photoUrl', 'FOTO_URL_OU_ID'], photoUrl),
-      photoThumbUrl: _pickOptional(
-        fields,
-        const ['fotoThumbUrl', 'photoThumbUrl', 'photoThumb'],
-        photoThumbUrl,
-      ),
+      photoUrl: clearProfilePhoto
+          ? null
+          : _pickOptional(fields, const [
+              'fotoUrl',
+              'photoUrl',
+              'FOTO_URL_OU_ID',
+            ], photoUrl),
+      photoThumbUrl: clearProfilePhoto
+          ? null
+          : _pickOptional(fields, const [
+              'fotoThumbUrl',
+              'photoThumbUrl',
+              'photoThumb',
+            ], photoThumbUrl),
       fotoUrlCacheRevision: incomingPhotoRevision > 0
           ? incomingPhotoRevision
           : fotoUrlCacheRevision,
@@ -262,24 +267,25 @@ class MemberDirectoryEntry {
       updatedAt: Timestamp.now(),
       dataNascimento: dn,
       carteirinhaAssinadaEm: assinadaEm,
-      carteirinhaAssinadaPor:
-          assinadaPor.isEmpty ? carteirinhaAssinadaPor : assinadaPor,
+      carteirinhaAssinadaPor: assinadaPor.isEmpty
+          ? carteirinhaAssinadaPor
+          : assinadaPor,
       carteirinhaAssinadaPorNome: assinadaPorNome.isEmpty
           ? carteirinhaAssinadaPorNome
           : assinadaPorNome,
       carteirinhaAssinadaPorCargo: assinadaPorCargo.isEmpty
           ? carteirinhaAssinadaPorCargo
           : assinadaPorCargo,
-      carteirinhaAssinaturaUrl:
-          assinaturaUrl.isEmpty ? carteirinhaAssinaturaUrl : assinaturaUrl,
+      carteirinhaAssinaturaUrl: assinaturaUrl.isEmpty
+          ? carteirinhaAssinaturaUrl
+          : assinaturaUrl,
     );
   }
 
   /// Entrada blindada a partir de documento Firestore real.
   static MemberDirectoryEntry fromFirestoreDoc(
     DocumentSnapshot<Map<String, dynamic>> doc,
-  ) =>
-      BlindMemberDoc.fromSnapshot(doc).toDirectoryEntry();
+  ) => BlindMemberDoc.fromSnapshot(doc).toDirectoryEntry();
 
   static String? _pickOptional(
     Map<String, dynamic> fields,
@@ -342,8 +348,7 @@ class MembersDirectorySnapshot {
 
   bool get hasEntries => entries.isNotEmpty;
 
-  bool get isCompleteForStats =>
-      totalCount > 0 && entries.length >= totalCount;
+  bool get isCompleteForStats => totalCount > 0 && entries.length >= totalCount;
 
   factory MembersDirectorySnapshot.fromMap(Map<String, dynamic>? raw) {
     if (raw == null || raw.isEmpty) return const MembersDirectorySnapshot();
@@ -351,17 +356,16 @@ class MembersDirectorySnapshot {
     final list = raw['entries'];
     final entries = list is List
         ? list
-            .whereType<Map>()
-            .map((e) => MemberDirectoryEntry.fromMap(
-                  Map<String, dynamic>.from(e),
-                ))
-            .toList()
+              .whereType<Map>()
+              .map(
+                (e) =>
+                    MemberDirectoryEntry.fromMap(Map<String, dynamic>.from(e)),
+              )
+              .toList()
         : <MemberDirectoryEntry>[];
     final summaryRaw = raw['summary'];
     final summary = summaryRaw is Map
-        ? MembersDirectorySummary.fromMap(
-            Map<String, dynamic>.from(summaryRaw),
-          )
+        ? MembersDirectorySummary.fromMap(Map<String, dynamic>.from(summaryRaw))
         : null;
     return MembersDirectorySnapshot(
       totalCount: n(raw['totalCount']),
@@ -372,8 +376,10 @@ class MembersDirectorySnapshot {
 }
 
 class MembersDirectorySnapshotService {
-  static final _functions =
-      FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
+  static final _functions = FirebaseFunctions.instanceFor(
+    app: firebaseDefaultApp,
+    region: 'us-central1',
+  );
 
   static final Map<String, MembersDirectorySnapshot> _memoryByTenant = {};
 
@@ -407,7 +413,10 @@ class MembersDirectorySnapshotService {
     if (tid.isEmpty || signatureFields.isEmpty) return;
     final snap = peekMemory(tid);
     if (snap == null || !snap.hasEntries) return;
-    final idSet = memberIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+    final idSet = memberIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet();
     if (idSet.isEmpty) return;
     var touched = false;
     final entries = snap.entries.map((e) {
@@ -436,6 +445,7 @@ class MembersDirectorySnapshotService {
     String? photoStoragePath,
     String? photoThumbStoragePath,
     required int cacheRevision,
+    bool clearPhoto = false,
   }) {
     final tid = tenantId.trim();
     final mid = memberDocId.trim();
@@ -445,6 +455,7 @@ class MembersDirectorySnapshotService {
     final au = (authUid ?? '').trim();
     final fields = <String, dynamic>{
       'fotoUrlCacheRevision': cacheRevision,
+      if (clearPhoto) 'profilePhotoRemoved': true,
       if ((photoUrl ?? '').trim().isNotEmpty) ...{
         'fotoUrl': photoUrl!.trim(),
         'photoUrl': photoUrl.trim(),
@@ -466,7 +477,8 @@ class MembersDirectorySnapshotService {
     };
     var touched = false;
     final entries = snap.entries.map((e) {
-      final hit = e.memberDocId == mid ||
+      final hit =
+          e.memberDocId == mid ||
           (au.isNotEmpty && (e.authUid ?? '').trim() == au);
       if (!hit) return e;
       touched = true;
@@ -517,9 +529,9 @@ class MembersDirectorySnapshotService {
   static DocumentReference<Map<String, dynamic>> cacheRefForOperational(
     String operationalTenantId,
   ) {
-    return ChurchOperationalPaths.churchDoc(operationalTenantId.trim())
-        .collection('_panel_cache')
-        .doc('members_directory');
+    return ChurchOperationalPaths.churchDoc(
+      operationalTenantId.trim(),
+    ).collection('_panel_cache').doc('members_directory');
   }
 
   static DocumentReference<Map<String, dynamic>> cacheRef(String tenantId) {
@@ -643,13 +655,16 @@ class MembersDirectorySnapshotService {
     final docs = snap.entries
         .where((e) => isRealMemberDisplayName(e.displayName))
         .map((e) {
-      final id = e.memberDocId.trim().isNotEmpty ? e.memberDocId.trim() : 'dir_${e.displayName.hashCode}';
-      return _DirectoryMemberQueryDocumentSnapshot(
-        reference: baseRef.collection('membros').doc(id),
-        docId: id,
-        data: e.toMemberDataMap(),
-      );
-    }).toList();
+          final id = e.memberDocId.trim().isNotEmpty
+              ? e.memberDocId.trim()
+              : 'dir_${e.displayName.hashCode}';
+          return _DirectoryMemberQueryDocumentSnapshot(
+            reference: baseRef.collection('membros').doc(id),
+            docId: id,
+            data: e.toMemberDataMap(),
+          );
+        })
+        .toList();
     return MergedFirestoreQuerySnapshot(docs);
   }
 }
@@ -696,4 +711,3 @@ class _DirectorySnapshotMetadata implements SnapshotMetadata {
   @override
   bool get isFromCache => true;
 }
-
