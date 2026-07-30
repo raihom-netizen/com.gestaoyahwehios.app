@@ -1,1 +1,0 @@
-Firebase Cloud Functions that periodically purge anonymous Auth users and stale pending uploads, and consolidate the legacy BPC church cluster into a single canonical Firestore document.

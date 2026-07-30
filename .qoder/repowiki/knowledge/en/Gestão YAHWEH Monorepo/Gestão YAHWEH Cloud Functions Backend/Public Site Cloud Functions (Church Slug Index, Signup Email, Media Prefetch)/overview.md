@@ -1,1 +1,0 @@
-Firebase Cloud Functions that maintain the public church slug index, send post-signup confirmation emails via SendGrid, and precompute media prefetch URLs for the public church website feed.

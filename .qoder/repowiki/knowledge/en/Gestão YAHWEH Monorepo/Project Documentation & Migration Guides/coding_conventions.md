@@ -1,6 +1,0 @@
-- Each feature module follows a four-layer template: UI → ModuleCacheService (ChangeNotifier + RAM/SharedPreferences/Hive) → ChurchRepository gateway → Firestore/Storage/Cloud Functions, with no direct Firestore calls from screens.
-- Cache services use a signature-based `ensureLoaded(churchId, forceServer)` pattern with `_inFlight` deduplication, `_notifyIfChanged` to avoid redundant rebuilds, and warm-up via SharedPreferences before Firestore reads.
-- Media publishing follows strict order: client-side optimization → Storage upload with progress → download URL retrieval → Firestore write with `{url, storagePath, status}` → local cache invalidation, never infinite snapshots.
-- Web writes are wrapped in `FirestoreWebGuard.runFirestoreOpSafe()` / `prepareForPublishWrite()` and `FirebaseFirestore.instance.terminate()` is never called during normal user flows.
-- Cross-app migrations are documented as step-by-step notebooks with file-level change tables, per-app applicability matrices, and version-baseline markers (e.g., `11.2.295+1512`).
-- Documents are self-indexing via relative Markdown links and maintain a clear separation between architecture blueprints, production checklists, and post-implementation audit reports.

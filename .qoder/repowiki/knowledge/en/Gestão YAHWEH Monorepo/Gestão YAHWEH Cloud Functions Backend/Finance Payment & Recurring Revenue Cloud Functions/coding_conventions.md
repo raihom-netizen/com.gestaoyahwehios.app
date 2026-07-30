@@ -1,6 +1,0 @@
-- Per-tenant isolation is enforced by always scoping Firestore paths to `igrejas/${tenantId}/...` with `tenantId` extracted from function context, bridge documents, or request data.
-- Firestore writes use `{ merge: true }` and `admin.firestore.FieldValue.serverTimestamp()` for idempotent upserts and audit timestamps.
-- External API calls (Mercado Pago) go through typed helpers (`mpGetWithToken`, `mpPostWithToken`) that attach `Authorization: Bearer <accessToken>` headers and throw on non-ok responses.
-- Error handling wraps tenant-scoped operations in try/catch blocks that log via `functions.logger.error`/`warn` and continue processing other tenants rather than aborting.
-- Deduplication is achieved either by checking a dedicated state document (`internal_notif_state`) or by verifying existence of a deterministic docId (`rec_${id}_${competencia}`, `mp_donation_${pid}`) before writing.
-- HTTPS callable endpoints validate authentication via `context.auth`, enforce role-based tenant access through `canManageTenant`, and return `functions.https.HttpsError` with Portuguese messages for invalid arguments.

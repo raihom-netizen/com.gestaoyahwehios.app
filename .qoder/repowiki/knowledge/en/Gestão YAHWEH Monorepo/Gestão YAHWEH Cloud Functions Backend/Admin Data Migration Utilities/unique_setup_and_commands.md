@@ -1,1 +1,0 @@
-The storage migration also supports a CLI entry point `node lib/migrateStorageConsolidatedCli.js` after build (per the file header comment). Both callables are deployed to `us-central1` with extended timeouts (540s) and elevated memory (1–2 GB) to handle large tenant datasets.

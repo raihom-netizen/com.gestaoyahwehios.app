@@ -1,0 +1,9 @@
+The project is a monorepo combining three layers:
+
+- **Flutter app** (`flutter_app/`): A single Dart codebase targeting Android, iOS, Web, Linux, macOS, and Windows. Entry point `lib/main.dart` bootstraps Firebase, offline-first Hive cache, Crashlytics, deep links, and platform-specific UI chrome. Feature modules are organized under `lib/features/`, `lib/services/`, `lib/repositories/`, `lib/data/`, `lib/models/`, and `lib/ui/`. The chat subsystem lives in `lib/features/chat/` with its own data layer (`tdlib_credentials.dart`, `tdlib_service.dart`, `tdlib_auth_state.dart`) and presentation screens (`telegram_login_screen.dart`, `telegram_chat_list_screen.dart`).
+
+- **Firebase Functions** (`functions/src/`): TypeScript serverless functions compiled to `functions/lib/`. Each business domain has a dedicated file (e.g., `churchChatNotify.ts`, `pushNovoConteudo.ts`, `notificationBranding.ts`, `memberAccessPolicy.ts`, `churchTenantProvisioning.ts`). The entry `index.ts` wires all callable endpoints, Firestore triggers, and HTTP rewrites declared in `firebase.json`. Functions use `firebase-admin` for Firestore/Storage/Messaging and `firebase-functions/v1` for triggers.
+
+- **Build & deploy tooling** (`scripts/`, `.github/workflows/`, `codemagic.yaml`): PowerShell/Shell scripts orchestrate Flutter builds, AAB/IPA packaging, Firebase hosting deployment, rules publishing, and CodeMagic CI/CD pipelines. Separate signing assets live in `IOS/`, `ANDROID/`, and `_local/ios-signing/`.
+
+Dependency direction: Flutter app → Firebase SDK → Cloud Functions → Firestore/Storage. Deep links flow from FCM `data.deepLink` through `NotificationDeepLinkRouter` into the panel navigation bridge. TDLib credentials are loaded at startup via `.env` (soft-fail), keeping Telegram integration optional.

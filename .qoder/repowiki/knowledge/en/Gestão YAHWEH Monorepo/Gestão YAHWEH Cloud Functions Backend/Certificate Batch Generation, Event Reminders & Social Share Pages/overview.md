@@ -1,1 +1,0 @@
-Firebase Cloud Functions that batch-generate signed PDF certificates into a ZIP, schedule push reminders for upcoming church events, and render Open Graph social-share pages for events and announcements.

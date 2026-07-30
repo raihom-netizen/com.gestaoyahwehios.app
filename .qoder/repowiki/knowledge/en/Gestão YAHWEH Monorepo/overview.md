@@ -1,1 +1,0 @@
-Firebase-hosted monorepo that wires the Flutter church-management app, Cloud Functions backend, Firestore/Storage rules, and Codemagic CI into a single deployable Gestao YAHWEH platform.

@@ -1,1 +1,0 @@
-TypeScript compiled to CommonJS (Node 22), Firebase Functions v7, firebase-admin v13, googleapis/google-auth-library for GCP services, pdf-lib/pdfkit for certificate generation, sharp for image processing, archiver for ZIP packaging, qrcode for QR codes, SendGrid/FCM for notifications, and TDLib planned as the new chat engine replacing Firestore-backed messaging.

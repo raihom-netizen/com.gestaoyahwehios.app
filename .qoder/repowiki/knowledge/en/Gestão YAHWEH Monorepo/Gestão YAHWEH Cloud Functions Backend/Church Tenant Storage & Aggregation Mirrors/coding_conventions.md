@@ -1,4 +1,0 @@
-- All tenant/church IDs are normalized via `String(seed || "").trim()` before any use, and empty results short-circuit with `{ created: false, path: "" }` or early returns.
-- Firestore writes use `{ merge: true }` with `serverTimestamp()` to stamp update time alongside data, keeping schema evolution additive.
-- Test churches are skipped through the shared `isForbiddenTestChurchId` guard, which logs a warning and returns without mutating state.
-- Optional aggregate fields are defaulted with `?? 0` at write time so the root document always contains numeric values for client consumption.

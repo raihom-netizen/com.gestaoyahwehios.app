@@ -1,1 +1,0 @@
-Requires Firebase Functions environment variables `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, `SENDGRID_FROM_NAME`, and `PUBLIC_WEB_BASE_URL` to be set before email sending will succeed; the sender short-circuits and logs a message when any of these are unset.

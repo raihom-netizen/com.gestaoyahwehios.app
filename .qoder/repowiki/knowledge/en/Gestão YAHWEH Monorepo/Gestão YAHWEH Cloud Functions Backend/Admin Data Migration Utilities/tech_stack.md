@@ -1,1 +1,0 @@
-Firebase Admin SDK + firebase-functions v1 HTTPS callables; image processing via `sharp` (WebP encoding with EXIF rotation); Firestore batched pagination with `FieldPath.documentId()` ordering; Google Cloud Storage bucket API for file download/upload.

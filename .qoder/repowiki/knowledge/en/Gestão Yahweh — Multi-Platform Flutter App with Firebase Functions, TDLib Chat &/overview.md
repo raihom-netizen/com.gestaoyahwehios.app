@@ -1,0 +1,1 @@
+Multi-platform Flutter application (Android, iOS, Web) for church management backed by Firebase Hosting, Firestore, Storage, and Cloud Functions, featuring a native TDLib-based Telegram chat engine and a comprehensive FCM push notification system.

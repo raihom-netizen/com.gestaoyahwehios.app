@@ -1,0 +1,1 @@
+Multi-platform Flutter app (Web/iOS/Android/Desktop) for church management with Firestore-backed functions, TDLib-powered Telegram chat bridge, and a comprehensive CI/CD and deployment toolchain.

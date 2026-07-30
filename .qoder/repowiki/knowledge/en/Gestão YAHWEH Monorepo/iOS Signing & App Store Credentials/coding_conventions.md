@@ -1,3 +1,0 @@
-- Sensitive Apple artifacts (`.p8`, `.p12`, `.mobileprovision`, `.cer`) are kept out of Git and only injected into Codemagic as Base64-encoded environment variables under the `appstore_credentials` group.
-- Each artifact directory is accompanied by a Portuguese-language README (e.g. `LEIA-ME-APNS.md`, `LEIA-ME-WIDGET-IOS.md`, `README_BOOTSTRAP.txt`) that documents required entitlements, bundle IDs, and the exact Codemagic variable names to populate.
-- Codemagic signing supports two parallel modes — API-only via `APP_STORE_CONNECT_*` plus optional `CM_DISTRIBUTION_CERT_PRIVATE_KEY_PEM`, and manual mode via `CM_CERTIFICATE` + `CM_PROVISIONING_PROFILE` — with fallback logic documented in `CODEMAGIC_SIGNING_FIX.md`.

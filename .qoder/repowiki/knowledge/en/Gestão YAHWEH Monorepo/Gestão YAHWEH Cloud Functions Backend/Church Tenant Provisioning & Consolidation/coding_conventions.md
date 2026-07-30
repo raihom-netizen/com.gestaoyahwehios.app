@@ -1,5 +1,0 @@
-- Every public function returns a structured result object with an `ok` boolean plus detailed status fields, never throwing for transient failures — errors are captured inside the result payload.
-- Source tracking is propagated through a `source` string parameter that gets appended/prefixed at each call boundary (e.g. `${source}:provision`) to trace execution paths.
-- Firestore writes use `{ merge: true }` with explicit field deletion via `admin.firestore.FieldValue.delete()` for legacy fields like `alias`, `slug`, `slugId` that must not exist in SaaS-direct mode.
-- ID normalization goes through a local `str(v)` helper that coerces to trimmed string, applied consistently before any Firestore or Storage operation.
-- Test/reserved church IDs are filtered early via `isForbiddenTestChurchId()` so provisioning is skipped entirely rather than patched.

@@ -1,6 +1,0 @@
-- Platform-specific implementations use conditional imports with `if (dart.library.io)` / `if (dart.library.html)` patterns to switch between io/web/stub variants of the same interface.
-- Async operations that must not block UI are wrapped with `unawaited()` and error handling via `.catchError((_) {})` to prevent unhandled exceptions from crashing the app.
-- Firebase access goes through centralized bootstrap services (`FirebaseBootstrapService`, `ensureFirebaseCore`) rather than direct plugin instances, ensuring consistent auth token refresh and retry logic.
-- Startup-critical warmup tasks are scheduled non-blocking via `unawaited()` with timeouts (typically 2 seconds) to avoid blocking the first frame render.
-- Configuration and secrets are loaded from `.env` files via `flutter_dotenv` with `.env.example` committed as template, while `.env` itself is gitignored.
-- Feature modules follow a consistent structure with separate data/presentation layers and feature-scoped packages under `lib/features/<feature_name>/`.

@@ -1,1 +1,0 @@
-No build or test commands are specific to this module; it ships as part of the Cloud Functions source tree and is invoked at runtime by other functions after cache updates.

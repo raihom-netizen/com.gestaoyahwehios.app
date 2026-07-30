@@ -1,1 +1,0 @@
-Architectural documentation, production checklists, audit reports, and migration guides for the Gestão YAHWEH Flutter app, including iOS App Store hardening patterns and WISDOMAPP performance standards.

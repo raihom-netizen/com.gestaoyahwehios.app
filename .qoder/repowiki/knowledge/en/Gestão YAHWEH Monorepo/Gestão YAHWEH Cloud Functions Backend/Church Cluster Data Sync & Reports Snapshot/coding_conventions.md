@@ -1,6 +1,0 @@
-- Each module exposes both a pure async helper (`runSync...`) and a thin `functions.https.onCall` wrapper that handles auth, claims-based authorization, and argument parsing before delegating to the helper.
-- Tenant identity resolution goes through shared anchor helpers (`resolveCanonicalChurchDocId`, `resolveAnchoredCanonicalTenantId`, `addAnchoredCluster`) rather than ad-hoc string manipulation.
-- Firestore reads are paginated with `limit(BATCH_LIMIT)` and `startAfter(last.id)` loops, committing in batches of ~400 operations to stay within write limits.
-- Error-prone Firestore lookups are wrapped in try/catch blocks that silently ignore failures (e.g. optional indexes, missing collections), treating absence as zero score rather than an error.
-- Response objects follow a uniform shape with `ok: true`, `tenantId`, `migrated` boolean, `sourceTenantId`, `candidates`, and a `status`/`completedAt` or `syncedAt` timestamp stored in `_meta`.
-- Field name normalisation uses a `pickString(data, [alt1, alt2, ...])` fallback chain so callers can read documents regardless of whether fields are camelCase or UPPERCASE_SNAKE_CASE.

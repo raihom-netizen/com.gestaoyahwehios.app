@@ -1,6 +1,0 @@
-- Firestore reads/writes are batched in chunks of ~400 documents using `db.batch()` and committed incrementally to avoid exceeding request limits.
-- String fields derived from untrusted input are normalized with `String(...).trim()` and upper/lower-cased comparisons before use as identifiers or enum values.
-- Permission checks on `https.onCall` functions validate `context.auth?.uid` first, then derive role from `context.auth.token.role` (uppercased) and throw `functions.https.HttpsError` with specific codes (`unauthenticated`, `permission-denied`, `invalid-argument`, `failed-precondition`).
-- Tenant scoping is enforced by comparing the caller's `igrejaId`/`tenantId` from `context.auth.token` against the requested `tenantId` parameter, with ADMIN/ADM/MASTER roles bypassing cross-tenant restrictions.
-- Firestore document updates use `{ merge: true }` with selective field assignment rather than full-document overwrites, and deletions use `admin.firestore.FieldValue.delete()` for sparse field removal.
-- Background work that touches many tenants iterates with try/catch around each tenant's operation so a single failure does not abort the entire pass.

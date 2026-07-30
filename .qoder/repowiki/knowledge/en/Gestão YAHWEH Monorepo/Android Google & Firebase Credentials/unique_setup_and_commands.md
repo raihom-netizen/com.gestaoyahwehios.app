@@ -1,1 +1,0 @@
-Copy `google-services.json` into `flutter_app\android\app\` or run `./scripts/sync_android_google_services.ps1`; after adding SHA-1/SHA-256 in Firebase Console, re-download and resync. Build the Play Store bundle with `./scripts/build_android_play_store_aab.ps1`, which outputs `flutter_app\build\app\outputs\bundle\release\app-release.aab`.

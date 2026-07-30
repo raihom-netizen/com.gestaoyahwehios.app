@@ -1,5 +1,0 @@
-- Each file exports exactly one named function constant created via `functions.region("us-central1").runWith({...}).https.onCall|onRequest|pubsub.schedule(...).onRun`.
-- Firestore document fields are read with defensive fallbacks across multiple key variants (e.g. `NOME_COMPLETO || nome`, `videoUrl || video_url || url`) to tolerate schema drift between app versions.
-- Errors are surfaced through `functions.https.HttpsError` with explicit codes (`unauthenticated`, `permission-denied`, `invalid-argument`, `not-found`) rather than throwing generic exceptions.
-- User-facing strings are escaped via a dedicated `escAttr` helper or inline `.replace()` chains before being interpolated into HTML responses.
-- Storage URLs are normalized through helper functions (`normalizeStorageMediaUrl`, `toSignedReadUrlIfStorage`) that accept gs:// paths, googleapis URLs, and bare storage paths, then produce signed read URLs for crawlers.

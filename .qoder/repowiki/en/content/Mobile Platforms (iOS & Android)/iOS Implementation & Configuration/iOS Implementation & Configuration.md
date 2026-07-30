@@ -25,7 +25,15 @@
 - [CREDENCIAIS APPLE ATUAL.txt](file://IOS/CREDENCIAIS_APPLE_ATUAL.txt)
 - [APP_STORE_3_1_1_ORGANIZATION_SIGNUP.md](file://IOS/APP_STORE_3_1_1_ORGANIZATION_SIGNUP.md)
 - [README.md](file://flutter_app/README.md)
+- [codemagic.yaml](file://codemagic.yaml)
 </cite>
+
+## Update Summary
+**Changes Made**
+- Updated CI/CD build system section to reflect the removal of libtdjson dependency due to CocoaPods bug with flutter_libtdjson version 1.8.65
+- Modified dependency management section to document the optional nature of TDLib and automatic fallback to Firestore chat functionality
+- Updated troubleshooting guide to include information about Pods cache clearing for build stability
+- Enhanced CI/CD configuration documentation to reflect the simplified build process without TDLib setup steps
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -42,6 +50,8 @@
 ## Introduction
 This document provides comprehensive iOS implementation and configuration guidance for Gestão Yahweh Premium. It covers the Flutter-based iOS project structure, Swift native integration points, widget extensions, background task handling, dependency management via CocoaPods, and App Store Connect deployment workflows. It also includes build scheme configuration, code signing, performance optimizations, memory management, debugging techniques, and CI/CD considerations using CodeMagic.
 
+**Updated** The CI/CD build system has been optimized by removing the problematic libtdjson dependency, which was causing CocoaPods build failures with flutter_libtdjson version 1.8.65. The application now relies on Firestore for chat functionality as a reliable fallback.
+
 ## Project Structure
 The iOS portion of the project resides under flutter_app/ios and follows standard Flutter conventions:
 - Runner target: main app entry point, Info.plist, entitlements, and Firebase configuration.
@@ -55,7 +65,7 @@ graph TB
 subgraph "iOS Project"
 Runner["Runner Target<br/>AppDelegate.swift<br/>Info.plist<br/>Runner.entitlements"]
 Widget["Widget Extension<br/>GestaoYahwehWidget.swift<br/>WidgetFullBleedBackground.swift<br/>Info.plist<br/>GestaoYahwehWidget.entitlements"]
-Pods["CocoaPods Dependencies<br/>Podfile"]
+Pods["CocoaPods Dependencies<br/>Podfile<br/>libtdjson disabled"]
 Frameworks["Frameworks<br/>libtdjson-static.xcframework<br/>YahwehTdjsonStatic.podspec"]
 Config["Configurations<br/>ExportOptions.plist<br/>GoogleService-Info.plist<br/>firebase_app_id_file.json"]
 end
@@ -100,11 +110,12 @@ Key iOS components include:
 - [GestaoYahwehWidget.entitlements](file://flutter_app/ios/GestaoYahwehWidget/GestaoYahwehWidget.entitlements)
 
 ## Architecture Overview
-The iOS architecture integrates Flutter’s Dart layer with native Swift components and platform services:
+The iOS architecture integrates Flutter's Dart layer with native Swift components and platform services:
 - Flutter engine initializes via AppDelegate and loads the main Dart entry point.
 - Widgets are implemented as a separate extension target, sharing data via App Groups or shared storage.
 - Push notifications flow from APNs to Firebase Messaging and then to Flutter handlers.
 - CocoaPods manages third-party libraries and static frameworks.
+- TDLib is now optional and automatically falls back to Firestore chat functionality when unavailable.
 
 ```mermaid
 graph TB
@@ -114,8 +125,9 @@ DartMain["Dart Main Entry"]
 WidgetExt["Widget Extension"]
 APNs["Apple Push Notification Service"]
 FirebaseMessaging["Firebase Messaging"]
-CocoaPods["CocoaPods Dependencies"]
+CocoaPods["CocoaPods Dependencies<br/>(TDLib Disabled)"]
 StaticFW["Static Frameworks"]
+Firestore["Firestore Chat Fallback"]
 FlutterEngine --> AppDelegate
 AppDelegate --> DartMain
 DartMain --> WidgetExt
@@ -123,6 +135,7 @@ APNs --> FirebaseMessaging
 FirebaseMessaging --> DartMain
 CocoaPods --> AppDelegate
 StaticFW --> AppDelegate
+DartMain --> Firestore
 ```
 
 **Diagram sources**
@@ -223,8 +236,10 @@ Flutter-->>App : process payload
 
 ### Dependency Management with CocoaPods
 - Podfile defines all third-party dependencies and static frameworks.
+- **Updated** TDLib dependency (libtdjson) has been disabled due to CocoaPods compatibility issues with flutter_libtdjson version 1.8.65.
 - Ensures consistent builds across environments by locking versions.
 - Supports custom podspecs for internal libraries like YahwehTdjsonStatic.
+- Application automatically falls back to Firestore chat functionality when TDLib is unavailable.
 
 **Section sources**
 - [Podfile](file://flutter_app/ios/Podfile)
@@ -232,6 +247,7 @@ Flutter-->>App : process payload
 ### Framework Integrations
 - Static frameworks such as libtdjson-static.xcframework are included for advanced functionality.
 - Custom podspecs manage packaging and distribution of internal libraries.
+- **Updated** TDLib framework is now optional and not required for core application functionality.
 
 **Section sources**
 - [YahwehTdjsonStatic.podspec](file://flutter_app/ios/Frameworks/YahwehTdjsonStatic.podspec)
@@ -241,20 +257,23 @@ Dependencies are managed through CocoaPods and structured into logical groups:
 - Core dependencies for Firebase, networking, and UI.
 - Static frameworks for specialized features.
 - Widget-specific dependencies isolated in the extension target.
+- **Updated** TDLib dependency removed to resolve CocoaPods build failures.
 
 ```mermaid
 graph TB
-Podfile["Podfile"]
+Podfile["Podfile<br/>(TDLib Disabled)"]
 Firebase["Firebase SDK"]
 Networking["Networking Libraries"]
 UI["UI Frameworks"]
-StaticFW["Static Frameworks"]
+StaticFW["Static Frameworks<br/>(Optional)"]
 WidgetDeps["Widget Dependencies"]
+Firestore["Firestore Chat<br/>(Fallback)"]
 Podfile --> Firebase
 Podfile --> Networking
 Podfile --> UI
 Podfile --> StaticFW
 Podfile --> WidgetDeps
+StaticFW -.-> Firestore
 ```
 
 **Diagram sources**
@@ -269,6 +288,7 @@ Podfile --> WidgetDeps
 - Optimize widget refresh intervals to reduce battery usage.
 - Leverage caching strategies for frequently accessed data.
 - Profile memory usage with Instruments to detect leaks and overallocations.
+- **Updated** Removing TDLib dependency reduces build time and potential runtime overhead.
 
 [No sources needed since this section provides general guidance]
 
@@ -278,6 +298,8 @@ Common issues and resolutions:
 - Push notifications not received: ensure APNs certificate is valid and Firebase configuration matches bundle ID.
 - Widget not updating: check App Group permissions and data synchronization mechanisms.
 - CocoaPods installation errors: clean derived data and reinstall pods.
+- **Updated** TDLib-related build failures: Clear Pods cache and rebuild without TDLib dependency.
+- **Updated** Chat functionality issues: Verify Firestore connectivity as the primary chat backend.
 
 **Section sources**
 - [CODEMAGIC_APP_STORE_INTEGRATION.txt](file://IOS/CODEMAGIC_APP_STORE_INTEGRATION.txt)
@@ -286,6 +308,8 @@ Common issues and resolutions:
 
 ## Conclusion
 This document outlined the iOS implementation for Gestão Yahweh Premium, covering project structure, Swift integration, widget extensions, background tasks, dependency management, and deployment processes. By following these guidelines, developers can maintain a robust, performant, and secure iOS application that integrates seamlessly with Flutter and platform services.
+
+**Updated** The recent CI/CD improvements have eliminated TDLib-related build issues while maintaining full chat functionality through Firestore fallback, resulting in a more stable and reliable build pipeline.
 
 [No sources needed since this section summarizes without analyzing specific files]
 
@@ -314,6 +338,9 @@ This document outlined the iOS implementation for Gestão Yahweh Premium, coveri
 - Scripts automate signing, building, and uploading IPA files.
 - Validate export options and profiles before upload.
 - Enable push notifications and App Groups programmatically during build.
+- **Updated** Removed 'Setup TDLib iOS' step from build pipeline to eliminate CocoaPods conflicts.
+- **Updated** Added Pods cache clearing to prevent dependency resolution issues.
+- **Updated** Simplified build process focuses on essential dependencies only.
 
 **Section sources**
 - [codemagic_ios_install_signing.sh](file://scripts/codemagic_ios_install_signing.sh)
@@ -323,3 +350,4 @@ This document outlined the iOS implementation for Gestão Yahweh Premium, coveri
 - [codemagic_ios_ensure_widget_appstore_profile.py](file://scripts/codemagic_ios_ensure_widget_appstore_profile.py)
 - [codemagic_ios_write_export_options.py](file://scripts/codemagic_ios_write_export_options.py)
 - [build_ios_ipa_macos.sh](file://scripts/build_ios_ipa_macos.sh)
+- [codemagic.yaml](file://codemagic.yaml)

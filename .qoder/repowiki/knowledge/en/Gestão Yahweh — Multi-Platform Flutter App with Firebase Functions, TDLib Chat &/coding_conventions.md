@@ -1,0 +1,6 @@
+- Cloud Functions are organized as one TypeScript file per feature, each exporting named handlers registered in `functions/src/index.ts`, with Firestore triggers using `functions.region('us-central1')`.
+- Push notifications use a unified `buildGyTopicMessage` / `buildGyTokenMessage` builder in `notificationBranding.ts` that injects branded logo, module accent color, and cross-platform payload (android/apns/webpush).
+- Deep links follow the pattern `https://gestaoyahweh.com.br/igreja/{tenantId}/{screen}/{id}` and are parsed centrally by `NotificationDeepLinkRouter` which delegates navigation through `ChurchPanelNavigationBridge`.
+- Android/iOS notification channels are defined as string constants (e.g., `gy_fcm_chat_sound`, `gy_fcm_chat_vibrate`, `gy_fcm_chat_silent`) shared between Flutter services and Cloud Functions to keep foreground/background behavior aligned.
+- Secrets and environment variables are loaded via `flutter_dotenv` with soft-fallback (`.env.example` included in bundle), never hard-coded; function parameters use `defineString` with defaults.
+- Firestore triggers batch operations using `db.batch()` and process recipients in fixed-size slices (10 for user reads, 500 for writes) to respect API quotas.

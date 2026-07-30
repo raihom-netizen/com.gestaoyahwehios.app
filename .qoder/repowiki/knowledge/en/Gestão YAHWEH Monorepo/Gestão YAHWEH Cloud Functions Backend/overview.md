@@ -1,1 +1,0 @@
-Firebase Cloud Functions monorepo implementing the serverless backend for the multi-tenant church management platform, with domain-scoped functions sharing a single TypeScript build, Firebase Admin SDK runtime, and deployment pipeline.

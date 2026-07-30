@@ -1,5 +1,0 @@
-- Each function lives in its own `src/*.ts` file and exports a single named function that is registered with the appropriate Firebase trigger/callable decorator.
-- Cross-cutting tenant context (church ID, canonical resolve, Storage paths) is accessed through shared helpers in `churchFirestorePaths.ts` and `churchCanonicalResolve.ts` rather than inline parsing.
-- Admin operations use `admin.firestore()` and `admin.storage()` from `firebase-admin` with explicit error handling and structured logging.
-- Multi-tenant data mutations target the consolidated `igrejas/{id}` document shape produced by the tenant provisioning flow.
-- Scheduled and background tasks follow a fire-and-forget pattern with idempotent writes and retry-aware error handling.

@@ -1,1 +1,0 @@
-No build script is needed beyond the standard Firebase Functions deployment; the scheduled backfill runs automatically every 15 minutes via PubScheduler, and the repair callable `repairChurchChatDmThreads` can be invoked on-demand to re-normalize DM threads for a given tenant.

@@ -1,0 +1,6 @@
+- Cloud Functions are organized per-feature in separate TypeScript files under `functions/src/` and registered in `functions/src/index.ts`, with both `.ts` source and compiled `.js` artifacts tracked.
+- Secrets and configuration are loaded from environment variables via `defineString` in Functions and `flutter_dotenv` in Flutter, with soft-fail fallbacks when unavailable.
+- Firestore security and tenant isolation follow a church-tenant model where all collections are scoped under `igrejas/{churchId}/...` and access is validated against user roles resolved from tokens or database documents.
+- Error handling in Functions wraps operations in try/catch and throws `functions.https.HttpsError` with specific codes (unauthenticated, permission-denied, invalid-argument) rather than generic exceptions.
+- Flutter startup follows a staged bootstrap pattern: WidgetsFlutterBinding → FirebaseBootstrap → OfflineFirstCoordinator → runApp, with platform-specific branches using conditional imports (`if (dart.library.io)` / `if (dart.library.html)`).
+- Media uploads use a consistent field schema across message types (`type`, `mediaType`, `storagePath`, `mediaUrl`, `uploadCompleted`, `telegramFileId`) enabling unified rendering regardless of upload origin (direct, Telegram bridge, or WhatsApp).

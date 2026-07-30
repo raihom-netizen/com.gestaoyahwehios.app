@@ -1,0 +1,1 @@
+Flutter (Dart) multi-platform app with Firebase (Auth, Firestore, Storage, Hosting, Messaging, Crashlytics), Google Cloud Functions (TypeScript, firebase-functions v1), TDLib via FFI for native Telegram chat, CodeMagic CI/CD for iOS builds, and PowerShell/Shell automation scripts for Android AAB and web deployment.

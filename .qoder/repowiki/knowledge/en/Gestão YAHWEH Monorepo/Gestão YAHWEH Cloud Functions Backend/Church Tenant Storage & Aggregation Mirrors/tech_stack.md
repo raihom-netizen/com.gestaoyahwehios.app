@@ -1,1 +1,0 @@
-Firebase Admin SDK (`firebase-admin`) for Firestore and Storage operations; embedded raw PNG bytes as a 1×1 transparent image placeholder stored with `cacheControl: public,max-age=60`.

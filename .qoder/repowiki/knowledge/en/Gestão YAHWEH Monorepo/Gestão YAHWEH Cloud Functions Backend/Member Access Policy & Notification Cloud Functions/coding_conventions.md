@@ -1,5 +1,0 @@
-- Member document fields are accessed with case-insensitive fallbacks (e.g. `data.STATUS ?? data.status ?? ''`) to tolerate schema variations across sources.
-- Email builders follow a uniform shape: they accept an options object, escape all user-supplied strings via `escapeHtml`, call `wrapEmail` with a `module` tag, and return `{ subject, html }`.
-- Configuration values are read at runtime through `defineString(..., { default: '' })` rather than imported constants, allowing hot-reload without redeploy.
-- Boolean decision helpers return explicit booleans based on normalized lowercase string comparisons against a fixed set of allowed values (e.g. `PRIVILEGED_ROLE_KEYS`, inactive status list).
-- Async side effects (SendGrid HTTP call, Firestore write) are wrapped in try/catch or early-return guards so callers never receive thrown exceptions.

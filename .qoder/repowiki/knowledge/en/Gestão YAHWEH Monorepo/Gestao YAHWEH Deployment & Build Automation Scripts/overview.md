@@ -1,1 +1,0 @@
-PowerShell, Bash, Node.js and Python scripts that automate Firebase deployment, Flutter web/AAB/iOS builds, Codemagic iOS signing, data migrations, Firestore/Storage rule publishing, and one-shot production release pipelines for the Gestao YAHWEH project.

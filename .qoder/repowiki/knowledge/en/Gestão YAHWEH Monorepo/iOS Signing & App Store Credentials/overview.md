@@ -1,1 +1,0 @@
-Stores Apple signing artifacts (APNs keys, distribution certificates, provisioning profiles) and Codemagic integration documentation for building and distributing the iOS app and its Widget extension.
