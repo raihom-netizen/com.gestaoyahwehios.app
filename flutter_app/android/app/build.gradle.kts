@@ -78,6 +78,10 @@ android {
                     "Na raiz do repo: .\\scripts\\build_android_play_store_aab.ps1"
             }
             signingConfig = signingConfigs.getByName("release")
+            // R8 completo: remove código e recursos não usados. Com AGP 8.13 e
+            // android.r8.optimizedResourceShrinking, usa o pipeline recomendado pela Play.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
