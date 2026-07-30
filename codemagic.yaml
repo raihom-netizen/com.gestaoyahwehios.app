@@ -125,6 +125,10 @@ workflows:
         IOS_BUNDLE_ID: "com.gestaoyahwehios.app"
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:81977b3cd1ba58614ac0e1"
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
+        # O pod libtdjson 0.3.0 usa um -force_load incompatível com o
+        # XCFrameworkIntermediates do Xcode/CocoaPods atual. Android continua
+        # com TDLib; iOS usa Yahweh Chat Firebase até o linker nativo ser validado.
+        YAHWEH_TDLIB_IOS_ENABLED: "0"
       # 3.44+ exige flutter_quill 11.5.1 (onFocusReceived) e font_awesome 11 (IconData final).
       flutter: 3.44.1
       xcode: latest
@@ -154,6 +158,36 @@ workflows:
           cd "$ROOT"
           case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app ;; root) ;; *) echo "ERRO: /tmp/cm_yw_layout ausente"; exit 1 ;; esac
           flutter pub get
+      - name: Aplicar fallback TDLib iOS seguro
+        script: |
+          set -e
+          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          cd "$ROOT"
+          case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app ;; root) ;; *) echo "ERRO: layout"; exit 1 ;; esac
+          if [ "${YAHWEH_TDLIB_IOS_ENABLED:-0}" = "1" ]; then
+            echo "TDLib iOS explicitamente ativado; mantendo plugin nativo."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = Path('.flutter-plugins-dependencies')
+          data = json.loads(manifest.read_text(encoding='utf-8'))
+          ios_plugins = data.get('plugins', {}).get('ios', [])
+          before = len(ios_plugins)
+          data['plugins']['ios'] = [
+              plugin for plugin in ios_plugins
+              if plugin.get('name') != 'libtdjson'
+          ]
+          manifest.write_text(
+              json.dumps(data, separators=(',', ':')),
+              encoding='utf-8',
+          )
+          removed = before - len(data['plugins']['ios'])
+          print(f'TDLib iOS removido do manifesto nativo: {removed} entrada(s).')
+          PY
+          echo "iOS seguirá com Yahweh Chat Firebase; Android mantém TDLib."
       - name: Verificar variaveis Apple (API + assinatura)
         script: |
           set -e
@@ -280,7 +314,7 @@ workflows:
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           bash "$ROOT/scripts/codemagic_ios_ensure_deployment_target_15.sh"
-      # Limpa cache de Pods para invalidar versoes antigas (ex: flutter_libtdjson removido).
+      # Limpa cache de Pods para invalidar versões antigas do flutter_libtdjson.
       # Pode ser removido apos o primeiro build bem-sucedido para retomar caching.
       - name: Limpar cache Pods (invalidar flutter_libtdjson removido)
         script: |
@@ -366,7 +400,9 @@ workflows:
           python3 "$ROOT/scripts/codemagic_ios_write_export_options.py" -o ios/ExportOptions.plist
           bash "$ROOT/scripts/codemagic_ios_prepare_build_ipa.sh"
           TDLIB_BUILD_ARGS=()
-          if [ -n "${TELEGRAM_API_ID:-}" ] && [ -n "${TELEGRAM_API_HASH:-}" ]; then
+          if [ "${YAHWEH_TDLIB_IOS_ENABLED:-0}" = "1" ] && \
+             [ -n "${TELEGRAM_API_ID:-}" ] && \
+             [ -n "${TELEGRAM_API_HASH:-}" ]; then
             python3 - <<'PY'
           import json
           import os
@@ -378,11 +414,14 @@ workflows:
           PY
             TDLIB_BUILD_ARGS+=(--dart-define-from-file=/tmp/gestao_yahweh_tdlib.json)
             echo "TDLib: credenciais seguras do ambiente incluídas no IPA."
+          elif [ "${YAHWEH_TDLIB_IOS_ENABLED:-0}" = "1" ]; then
+            echo "AVISO: TDLib iOS ativado sem TELEGRAM_API_ID/TELEGRAM_API_HASH."
           else
-            echo "AVISO: TELEGRAM_API_ID/TELEGRAM_API_HASH ausentes; login TDLib ficará indisponível."
+            echo "TDLib iOS desativado por compatibilidade de linker; fallback Firebase ativo."
           fi
           set +e
           flutter build ipa --release \
+            --no-pub \
             --build-name="$BUILD_NAME" \
             --build-number="$BN" \
             --export-options-plist=/tmp/ExportOptions.plist \
