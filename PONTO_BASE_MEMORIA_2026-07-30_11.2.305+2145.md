@@ -1,4 +1,6 @@
-# Ponto Base de Memória — Gestão YAHWEH (GERAL)
+# Ponto Base de Memória — Gestão YAHWEH (ARQUIVADA)
+
+**Memória histórica. Ponto ativo:** `PONTO_BASE_MEMORIA_2026-08-02_11.2.305+2153.md`
 
 **Data:** 2026-07-30  
 **Release de referência:** `11.2.305+2145`  
@@ -12,7 +14,7 @@
 **Bucket Storage:** `gs://gestaoyahweh-21e23.firebasestorage.app`  
 **Web produção:** https://gestaoyahweh-21e23.web.app
 
-**Este é o único ponto de memória ativo.**
+**Arquivada em 2026-08-02 — não usar como memória ativa.**
 
 ---
 
@@ -111,5 +113,5 @@
 
 ## Referências
 
-- Ponto ativo: `PONTO_BASE_MEMORIA_2026-07-30_11.2.305+2145.md`
-- Memórias `2143`, `2134`, `2122` e anteriores são históricas.
+- Ponto ativo: `PONTO_BASE_MEMORIA_2026-08-02_11.2.305+2153.md`
+- Esta memória `2145` e as anteriores (`2143`, `2134`, `2122`) são históricas.

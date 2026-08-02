@@ -12,7 +12,7 @@
 **Bucket Storage:** `gs://gestaoyahweh-21e23.firebasestorage.app`  
 **Web producao:** https://gestaoyahweh-21e23.web.app  
 
-**Memória histórica. Ponto ativo:** `PONTO_BASE_MEMORIA_2026-07-30_11.2.305+2145.md`
+**Memória histórica. Ponto ativo:** `PONTO_BASE_MEMORIA_2026-08-02_11.2.305+2153.md`
 
 ---
 
@@ -97,4 +97,4 @@
 ## Referências históricas
 
 - Regra superseded: `.cursor/rules/ponto-base-memoria-11-2-305-2143.mdc`
-- Ponto ativo: `PONTO_BASE_MEMORIA_2026-07-30_11.2.305+2145.md`
+- Ponto ativo: `PONTO_BASE_MEMORIA_2026-08-02_11.2.305+2153.md`
