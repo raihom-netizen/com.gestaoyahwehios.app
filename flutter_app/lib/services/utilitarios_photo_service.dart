@@ -1,11 +1,25 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui
     show ImageByteFormat, PaintingStyle, PictureRecorder, instantiateImageCodec;
 
 import 'package:flutter/material.dart'
-    show Canvas, Color, Colors, Offset, Paint, Rect, RRect, Radius, Shadow, TextAlign, TextDirection, TextPainter, TextSpan, TextStyle;
+    show
+        Canvas,
+        Color,
+        Colors,
+        Offset,
+        Paint,
+        Rect,
+        RRect,
+        Radius,
+        Shadow,
+        TextAlign,
+        TextDirection,
+        TextPainter,
+        TextSpan,
+        TextStyle;
 import 'package:flutter/foundation.dart'
     show TargetPlatform, compute, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/painting.dart';
@@ -14,7 +28,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
-import 'package:gestao_yahweh/services/smart_input_image_ocr_service.dart';
+import 'smart_input_image_ocr_service.dart';
 
 /// Região normalizada (0–1) para borrar ou destacar na foto.
 class UtilPhotoEditRegion {
@@ -139,10 +153,13 @@ class UtilPhotoCaptionOverlay {
   final UtilPhotoCaptionStyle style;
   final double scale;
   final int colorArgb;
+
   /// Fundo da caixa (0 = sem caixa dedicada).
   final int boxBgArgb;
+
   /// Cor da borda (0 = sem borda).
   final int borderArgb;
+
   /// Negrito (visual + burn).
   final bool bold;
 
@@ -373,8 +390,10 @@ abstract final class UtilitariosPhotoService {
         textAlign: TextAlign.center,
         textDirection: TextDirection.ltr,
       )..layout(maxWidth: w * 0.92);
-      final dx = (o.nx * w - painter.width / 2).clamp(4.0, w - painter.width - 4);
-      final dy = (o.ny * h - painter.height / 2).clamp(4.0, h - painter.height - 4);
+      final dx =
+          (o.nx * w - painter.width / 2).clamp(4.0, w - painter.width - 4);
+      final dy =
+          (o.ny * h - painter.height / 2).clamp(4.0, h - painter.height - 4);
       final padH = 12.0 * o.scale;
       final padV = 8.0 * o.scale;
       final hasCustomBox = o.boxBgArgb != 0;
@@ -413,7 +432,9 @@ abstract final class UtilitariosPhotoService {
     final picture = recorder.endRecording();
     final outImg = await picture.toImage(w, h);
     final data = await outImg.toByteData(format: ui.ImageByteFormat.png);
-    if (data == null) throw StateError('Não foi possível gravar o texto na foto.');
+    if (data == null) {
+      throw StateError('Não foi possível gravar o texto na foto.');
+    }
     final png = data.buffer.asUint8List();
     final flat = img.decodeImage(png);
     if (flat == null) throw StateError('Imagem inválida após legenda.');
@@ -445,7 +466,8 @@ abstract final class UtilitariosPhotoService {
           color: color,
           shadows: [
             Shadow(color: color.withValues(alpha: 0.85), blurRadius: 14),
-            const Shadow(color: Colors.black87, blurRadius: 4, offset: Offset(0, 2)),
+            const Shadow(
+                color: Colors.black87, blurRadius: 4, offset: Offset(0, 2)),
           ],
         ),
       UtilPhotoCaptionStyle.classic => TextStyle(
@@ -758,7 +780,8 @@ abstract final class UtilitariosPhotoService {
         return _formatPlate(slice);
       }
     }
-    final m = _plateRe.firstMatch(compact) ?? _plateLegacyRe.firstMatch(compact);
+    final m =
+        _plateRe.firstMatch(compact) ?? _plateLegacyRe.firstMatch(compact);
     return m == null ? null : _formatPlate(m.group(0)!);
   }
 
@@ -995,7 +1018,7 @@ Uint8List _normalizePhotoForMlKitIsolate(Uint8List raw) {
   return Uint8List.fromList(img.encodeJpg(work, quality: 90));
 }
 
-  /// Pré-processamento mínimo para OCR instantâneo (máx. 1280 / JPEG 78).
+/// Pré-processamento mínimo para OCR instantâneo (máx. 1600 / JPEG 82).
 Uint8List _normalizePhotoForFastOcrIsolate(Uint8List raw) {
   final decoded = img.decodeImage(raw);
   if (decoded == null) return raw;
@@ -1006,7 +1029,7 @@ Uint8List _normalizePhotoForFastOcrIsolate(Uint8List raw) {
     img.compositeImage(flat, work);
     work = flat;
   }
-  const maxDim = 1280;
+  const maxDim = 1600;
   final md = math.max(work.width, work.height);
   if (md > maxDim) {
     final scale = maxDim / md;
@@ -1020,7 +1043,7 @@ Uint8List _normalizePhotoForFastOcrIsolate(Uint8List raw) {
     // Já pequeno: só reencode barato se JPEG; evita decode/encode se ok.
     // Sempre reencode após bakeOrientation (EXIF).
   }
-  return Uint8List.fromList(img.encodeJpg(work, quality: 78));
+  return Uint8List.fromList(img.encodeJpg(work, quality: 82));
 }
 
 Uint8List _enhanceColorsFastIsolate(Uint8List raw) {
@@ -1094,8 +1117,18 @@ void _drawPolaroidFrames(img.Image canvas) {
   final frameColor = img.ColorRgb8(245, 245, 245);
   final shadow = img.ColorRgba8(0, 0, 0, 28);
   for (final rect in [
-    (x: (0.04 * w).round(), y: (0.04 * h).round(), fw: (0.42 * w).round(), fh: (0.88 * h).round()),
-    (x: (0.52 * w).round(), y: (0.04 * h).round(), fw: (0.42 * w).round(), fh: (0.88 * h).round()),
+    (
+      x: (0.04 * w).round(),
+      y: (0.04 * h).round(),
+      fw: (0.42 * w).round(),
+      fh: (0.88 * h).round()
+    ),
+    (
+      x: (0.52 * w).round(),
+      y: (0.04 * h).round(),
+      fw: (0.42 * w).round(),
+      fh: (0.88 * h).round()
+    ),
   ]) {
     for (var dy = -2; dy <= rect.fh + 2; dy++) {
       for (var dx = -2; dx <= rect.fw + 2; dx++) {
@@ -1368,9 +1401,15 @@ img.Image _photoSharpen(img.Image src, {double strength = 0.4}) {
   return img.convolution(
     src,
     filter: [
-      0, -k, 0,
-      -k, c, -k,
-      0, -k, 0,
+      0,
+      -k,
+      0,
+      -k,
+      c,
+      -k,
+      0,
+      -k,
+      0,
     ],
   );
 }

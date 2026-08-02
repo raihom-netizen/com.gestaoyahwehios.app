@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/services/panel_finance_chart_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 
-/// Gráficos premium do Resumo Financeiro — [PanelFinanceChartService] + categorias.
+/// Gr├íficos premium do Resumo Financeiro ÔÇö [PanelFinanceChartService] + categorias.
 class FinanceResumoChartsSection extends StatelessWidget {
   const FinanceResumoChartsSection({
     super.key,
@@ -69,7 +69,7 @@ class FinanceResumoChartsSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _ChartShell(
-          title: 'Receitas x Despesas · $year',
+          title: 'Receitas x Despesas ┬À $year',
           icon: Icons.bar_chart_rounded,
           child: SizedBox(
             height: 240,
@@ -81,7 +81,7 @@ class FinanceResumoChartsSection extends StatelessWidget {
                   )
                 : Center(
                     child: Text(
-                      'Sem movimentação efetivada em $year.',
+                      'Sem movimenta├º├úo efetivada em $year.',
                       style: TextStyle(
                         color: Colors.grey.shade600,
                         fontSize: 13,
@@ -377,7 +377,7 @@ class _CategoryPieCard extends StatelessWidget {
           height: 160,
           child: Center(
             child: Text(
-              'Sem dados para o período.',
+              'Sem dados para o per├¡odo.',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
             ),
           ),
@@ -432,7 +432,7 @@ class _CategoryPieCard extends StatelessWidget {
                 ),
               ),
               Text(
-                'Total no período',
+                'Total no per├¡odo',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -504,7 +504,7 @@ class _CategoryPieCard extends StatelessWidget {
   }
 }
 
-/// Card donut modernizado — visual Controle Total (ícone insight + total + %).
+/// Card donut modernizado ÔÇö visual Controle Total (├¡cone insight + total + %).
 class _ModernCategoryShell extends StatelessWidget {
   const _ModernCategoryShell({
     required this.title,

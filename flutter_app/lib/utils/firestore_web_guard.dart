@@ -518,4 +518,21 @@ class FirestoreWebGuard {
       lastStack ?? StackTrace.current,
     );
   }
+
+  /// Verifica se o erro e de um cliente Firestore terminado — CT compat.
+  static bool isTerminatedClientError(Object e) {
+    if (e is FirebaseException) {
+      return e.code == 'failed-precondition' ||
+          e.message?.contains('terminated') == true;
+    }
+    return false;
+  }
+
+  /// Trata erros fatais de Firestore no web — CT compat.
+  static void handleFatalWebFirestoreIfNeeded(Object e) {
+    // No-op em YAHWEH — o guard ja faz recovery automatico.
+    if (kIsWeb) {
+      debugPrint('[FirestoreWebGuard] erro web: $e');
+    }
+  }
 }

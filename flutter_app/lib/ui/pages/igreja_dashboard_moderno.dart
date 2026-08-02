@@ -1,4 +1,4 @@
-import 'dart:async' show StreamSubscription, unawaited;
+﻿import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -111,11 +111,11 @@ import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
 import 'dart:ui' show ImageFilter;
 import 'igreja_cadastro_page.dart';
 import 'members_page.dart';
-import 'finance_page.dart';
+import 'finance_page_adapter.dart';
 import 'aprovar_membros_pendentes_page.dart';
 import 'prayer_requests_page.dart';
 import 'visitors_page.dart';
-import '../../services/app_permissions.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_institutional_video.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
@@ -5283,7 +5283,7 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
             tenantId: widget.tenantId,
             role: widget.role,
             cpf: widget.cpf,
-            podeVerFinanceiro: widget.podeVerFinanceiro,
+            podeVerFinanceiro: widget.podeVerFinanceiro ?? true,
             permissions: widget.permissions,
             initialTabIndex: tab,
             openLancamentoId: openId,

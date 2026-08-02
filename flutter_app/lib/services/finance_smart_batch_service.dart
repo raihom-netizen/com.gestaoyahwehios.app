@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:gestao_yahweh/controle_total_sync/bank_notification_parser.dart';
 import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
@@ -7,7 +7,7 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/sync_service.dart';
 import 'package:gestao_yahweh/utils/finance_smart_input_text.dart';
 
-/// Gera documentos `finance` a partir de linhas parseadas (Controle Total → tenant Yahweh).
+/// Gera documentos `finance` a partir de linhas parseadas (Controle Total ÔåÆ tenant Yahweh).
 abstract final class FinanceSmartBatchService {
   FinanceSmartBatchService._();
 
@@ -28,13 +28,13 @@ abstract final class FinanceSmartBatchService {
   }) {
     final v = row.valor ?? 0.0;
     if (v <= 0) {
-      throw StateError('Valor inválido');
+      throw StateError('Valor inv├ílido');
     }
     var desc = (row.descricao ?? '').toString();
     desc = FinanceSmartInputText.sanitize(desc);
     desc = desc.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (desc.isEmpty) {
-      throw StateError('Descrição vazia');
+      throw StateError('Descri├º├úo vazia');
     }
     final t = _yahwehType(row.type);
     final when = row.data ?? DateTime.now();

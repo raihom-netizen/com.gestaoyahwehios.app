@@ -1,4 +1,4 @@
-﻿import 'package:pdf/pdf.dart';
+import 'package:pdf/pdf.dart';
 
 /// Folha **A4** padrão em Utilitários: conversores, PDF Pro, extrator de texto, Word e Excel.
 abstract final class UtilitariosExportPageFormat {

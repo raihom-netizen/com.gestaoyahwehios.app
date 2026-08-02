@@ -4536,7 +4536,6 @@ class _FeedTabState extends State<_FeedTab> {
               avail.isFinite &&
               avail > AppTheme.maxSocialFeedWidthWeb;
           Widget feedList = ListView.builder(
-            cacheExtent: 1200,
             padding: const EdgeInsets.fromLTRB(
               ThemeCleanPremium.spaceMd,
               ThemeCleanPremium.spaceSm,

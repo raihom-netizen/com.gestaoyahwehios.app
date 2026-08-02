@@ -1,7 +1,7 @@
-import 'package:intl/intl.dart';
+﻿import 'package:intl/intl.dart';
 
-/// Padrão brasileiro: data dd/MM/yyyy e hora 24h (HH:mm).
-/// Use em todo o app para exibição e parsing.
+/// Padr├úo brasileiro: data dd/MM/yyyy e hora 24h (HH:mm).
+/// Use em todo o app para exibi├º├úo e parsing.
 class DateTimeFormats {
   DateTimeFormats._();
 

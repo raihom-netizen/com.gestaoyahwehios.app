@@ -1,4 +1,4 @@
-﻿import 'dart:typed_data';
+import 'dart:typed_data';
 
 /// Stub: compartilhamento/download web (plataformas nativas).
 Future<bool> utilitariosWebShareFile({

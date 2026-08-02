@@ -1,4 +1,4 @@
-import 'dart:async' show Timer, unawaited;
+﻿import 'dart:async' show Timer, unawaited;
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -40,7 +40,7 @@ import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
 import 'package:gestao_yahweh/ui/pages/relatorio_gastos_fornecedores_page.dart'
     hide sanitizeImageUrl;
-import '../../services/app_permissions.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 
 /// Membros para relatórios — cache RAM + `_panel_cache/members_directory` (rápido).
 abstract final class _RelatoriosMembersDataCache {

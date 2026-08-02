@@ -66,13 +66,14 @@ class TdLibService {
       _emitAuth(TdlibAuthSnapshot.unsupported);
       return;
     }
-    await loadTdlibDotEnv();
+    await ensureTelegramCredentialsLoaded();
     if (!kTelegramCredentialsConfigured) {
       _emitAuth(const TdlibAuthSnapshot(
         phase: TdlibAuthPhase.error,
         message:
-            'Credenciais TDLib ausentes. Configure TELEGRAM_API_ID e '
-            'TELEGRAM_API_HASH em flutter_app/.env',
+            'Credenciais TDLib ausentes. No painel Master → Telegram / TDLib '
+            'grave api_id e api_hash (my.telegram.org/apps), ou use '
+            'flutter_app/.env / dart-define no build.',
       ));
       return;
     }

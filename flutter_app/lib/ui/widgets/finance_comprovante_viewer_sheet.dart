@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+﻿import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -15,7 +15,7 @@ import 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_web_stub.dar
     if (dart.library.html) 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_web.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 
-/// Visualização premium de comprovante (imagem ou PDF) — padrão Controle Total.
+/// Visualiza├º├úo premium de comprovante (imagem ou PDF) ÔÇö padr├úo Controle Total.
 abstract final class FinanceComprovanteViewerSheet {
   FinanceComprovanteViewerSheet._();
 
@@ -26,7 +26,7 @@ abstract final class FinanceComprovanteViewerSheet {
     if (!FinanceComprovanteAttachService.hasComprovanteInDoc(data)) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Este lançamento não tem comprovante.')),
+          const SnackBar(content: Text('Este lan├ºamento n├úo tem comprovante.')),
         );
       }
       return;
@@ -34,7 +34,7 @@ abstract final class FinanceComprovanteViewerSheet {
     final mime = FinanceComprovanteAttachService.mimeFromDoc(data);
     final fileName = FinanceComprovanteAttachService.displayNameFromDoc(data);
     final storagePath = FinanceComprovanteUtils.storagePath(data);
-    // O path canónico é a fonte estável. Abrir bytes diretamente evita URL
+    // O path can├│nico ├® a fonte est├ível. Abrir bytes diretamente evita URL
     // expirada/CORS e funciona igual no Financeiro, Dashboard e Fornecedores.
     if (storagePath.isNotEmpty) {
       final isPdf = mime.toLowerCase().contains('pdf') ||
@@ -63,7 +63,7 @@ abstract final class FinanceComprovanteViewerSheet {
       }
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Não foi possível abrir o comprovante.'),
+          content: Text('N├úo foi poss├¡vel abrir o comprovante.'),
         ),
       );
       return;
@@ -89,7 +89,7 @@ abstract final class FinanceComprovanteViewerSheet {
       if (path.isEmpty) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Não foi possível abrir o comprovante.')),
+            const SnackBar(content: Text('N├úo foi poss├¡vel abrir o comprovante.')),
           );
         }
         return;
@@ -101,7 +101,7 @@ abstract final class FinanceComprovanteViewerSheet {
       if (!context.mounted) return;
       if (bytes == null || bytes.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Não foi possível carregar a imagem.')),
+          const SnackBar(content: Text('N├úo foi poss├¡vel carregar a imagem.')),
         );
         return;
       }
@@ -179,7 +179,7 @@ abstract final class FinanceComprovanteViewerSheet {
           SnackBar(
             content: Text(
               missing
-                  ? 'Comprovante não encontrado no Storage. Use «Trocar» para anexar de novo.'
+                  ? 'Comprovante n├úo encontrado no Storage. Use ┬½Trocar┬╗ para anexar de novo.'
                   : 'Erro ao abrir comprovante: ${msg.split('\n').first}',
             ),
           ),
@@ -295,7 +295,7 @@ abstract final class FinanceComprovanteViewerSheet {
       if (!context.mounted) return;
       if (bytes == null || bytes.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Não foi possível carregar o PDF.')),
+          const SnackBar(content: Text('N├úo foi poss├¡vel carregar o PDF.')),
         );
         return;
       }
@@ -367,7 +367,7 @@ class _PdfBodyState extends State<_PdfBody> {
       if (bytes == null || bytes.isEmpty) {
         setState(() {
           _loading = false;
-          _error = 'PDF não encontrado no Storage.';
+          _error = 'PDF n├úo encontrado no Storage.';
         });
         return;
       }
@@ -399,7 +399,7 @@ class _PdfBodyState extends State<_PdfBody> {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          _error ?? 'Abrindo PDF…',
+          _error ?? 'Abrindo PDFÔÇª',
           textAlign: TextAlign.center,
           style: TextStyle(color: ThemeCleanPremium.onSurfaceVariant),
         ),

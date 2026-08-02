@@ -13,7 +13,7 @@ import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
-import 'package:gestao_yahweh/ui/pages/finance_page.dart'
+import 'package:gestao_yahweh/core/finance_church_ops.dart'
     show showFinanceLancamentoEditorForTenant;
 import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';

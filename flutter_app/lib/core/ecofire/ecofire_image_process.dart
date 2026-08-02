@@ -110,7 +110,8 @@ class _MemberEncodeArgs {
 Uint8List _logoIsolate(Uint8List inputBytes) {
   final decoded = img.decodeImage(inputBytes);
   if (decoded == null) {
-    throw StateError('Não foi possível decodificar a imagem (logo).');
+    // Fallback: retorna bytes originais (o Storage rejeita se inválido).
+    return inputBytes;
   }
   final resized = _resizeKeepAspect(decoded, EcoFireImageProcess.logoMaxSide);
   return Uint8List.fromList(img.encodePng(resized));
@@ -119,7 +120,8 @@ Uint8List _logoIsolate(Uint8List inputBytes) {
 Uint8List _memberProfileIsolate(_MemberEncodeArgs args) {
   final decoded = img.decodeImage(args.raw);
   if (decoded == null) {
-    throw StateError('Não foi possível decodificar a imagem.');
+    // Fallback: retorna bytes originais (o Storage rejeita se inválido).
+    return args.raw;
   }
   final cropped = _cropCenterAspect(decoded, 1.0);
   final resized = img.copyResize(
@@ -137,7 +139,8 @@ Uint8List _feedPhotoIsolate(_FeedEncodeArgs args) {
   if (raw.isEmpty) return raw;
   final decoded = img.decodeImage(raw);
   if (decoded == null) {
-    throw StateError('Não foi possível decodificar a imagem (feed).');
+    // Fallback: retorna bytes originais (o Storage rejeita se inválido).
+    return raw;
   }
   final resized = _resizeKeepAspect(decoded, args.maxEdge);
   const qualities = <int>[78, 70, 62, 55, 48];

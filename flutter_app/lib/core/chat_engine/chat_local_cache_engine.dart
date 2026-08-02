@@ -40,6 +40,35 @@ abstract final class ChatLocalCacheEngine {
     return out;
   }
 
+  /// Grava 1 mensagem no cache local logo após envio (sobrevive a reabrir a thread).
+  static Future<void> upsertOutboundMessage({
+    required String churchId,
+    required String chatId,
+    required String messageId,
+    required Map<String, dynamic> data,
+  }) async {
+    final id = messageId.trim();
+    if (churchId.trim().isEmpty || chatId.trim().isEmpty || id.isEmpty) return;
+    try {
+      final existing = await loadMessagesPage(
+        churchId: churchId,
+        chatId: chatId,
+      );
+      final merged = <QueryDocumentSnapshot<Map<String, dynamic>>>[
+        _CachedChatMessageDoc(id: id, data: Map<String, dynamic>.from(data)),
+      ];
+      for (final d in existing) {
+        if (d.id == id) continue;
+        merged.add(d);
+      }
+      await saveMessagesPage(
+        churchId: churchId,
+        chatId: chatId,
+        docs: merged,
+      );
+    } catch (_) {}
+  }
+
   static Future<void> saveMessagesPage({
     required String churchId,
     required String chatId,

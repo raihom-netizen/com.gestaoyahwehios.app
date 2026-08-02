@@ -3,10 +3,11 @@
 
 /// Um feriado nacional no calendário.
 class NationalHoliday {
-  const NationalHoliday({required this.date, required this.name});
+  const NationalHoliday({required this.date, required this.name, this.isOptional = false});
 
   final DateTime date;
   final String name;
+  final bool isOptional;
 }
 
 /// Utilitário perpétuo para planejamento na Agenda.
@@ -39,7 +40,8 @@ abstract final class HolidayHelper {
       NationalHoliday(date: DateTime(year, 1, 1), name: 'Confraternização Universal'),
       NationalHoliday(
           date: e.subtract(const Duration(days: 48)),
-          name: 'Carnaval (ponto facultativo)'),
+          name: 'Carnaval (ponto facultativo)',
+          isOptional: true),
       NationalHoliday(
           date: e.subtract(const Duration(days: 47)), name: 'Carnaval'),
       NationalHoliday(
@@ -77,6 +79,23 @@ abstract final class HolidayHelper {
             '${h.date.year.toString().padLeft(4, '0')}-${h.date.month.toString().padLeft(2, '0')}-${h.date.day.toString().padLeft(2, '0')}')
         .toSet();
   }
+
+  /// Alias de [nationalHolidayKeys] (compat CT).
+  static Set<String> nationalHolidayKeysForYear(int year) =>
+      nationalHolidayKeys(year);
+
+  /// Feriados do mês (alias de [nationalHolidaysInMonth]).
+  /// Aceita (year, month) ou um DateTime único.
+  static List<NationalHoliday> getFeriadosDoMes(Object yearOrDate, [int? month]) {
+    if (yearOrDate is DateTime) {
+      return nationalHolidaysInMonth(yearOrDate.year, yearOrDate.month);
+    }
+    return nationalHolidaysInMonth(yearOrDate as int, month ?? 1);
+  }
+
+  /// Se [day] é sábado ou domingo.
+  static bool isWeekend(DateTime day) =>
+      day.weekday == DateTime.saturday || day.weekday == DateTime.sunday;
 
   /// Nome do feriado na data (só dia civil; ignora hora).
   static String? holidayNameOn(DateTime day) {

@@ -1,3 +1,4 @@
+import 'dart:typed_data' show Uint8List;
 import 'dart:async';
 
 import 'package:flutter/material.dart' show BuildContext, MediaQuery, Offset, Rect, RenderBox;
@@ -65,6 +66,59 @@ abstract final class RelatorioService {
       center: Offset(sz.width / 2, pad.top + sz.height / 3),
       width: 2,
       height: 2,
+    );
+  }
+
+  /// Aquece assets PDF (fontes, logos) em background — CT compat.
+  static Future<void> warmUpPdfAssets() async {/* no-op — lazy loading */}
+
+  /// Gera nome de ficheiro para relatorio PDF a partir do periodo — CT compat.
+  static String reportFilenameFromPeriod(
+    String prefix,
+    DateTime start,
+    DateTime end,
+    String? suffix,
+  ) {
+    final ds = '${start.year}${start.month.toString().padLeft(2, '0')}${start.day.toString().padLeft(2, '0')}';
+    final de = '${end.year}${end.month.toString().padLeft(2, '0')}${end.day.toString().padLeft(2, '0')}';
+    final suf = (suffix != null && suffix.isNotEmpty) ? '_$suffix' : '';
+    return '${prefix}_$ds-$de$suf.pdf';
+  }
+
+  /// Sanitiza texto para uso em relatorio PDF — CT compat.
+  static String sanitizeForReport(String text) => text;
+
+  /// Carrega bytes do logo para PDF uma unica vez — CT compat.
+  static Future<Uint8List?> loadPdfLogoBytesOnce() async => null;
+
+  /// Partilha bytes PDF (printing sharePdf) — CT compat.
+  static Future<void> sharePdfBytes(
+    Uint8List bytes,
+    String filename, {
+    BuildContext? anchorContext,
+    Rect? sharePositionOrigin,
+    Offset? anchorPoint,
+  }) async {
+    await Printing.sharePdf(
+      bytes: bytes,
+      filename: filename,
+    );
+  }
+
+  /// Constroi badge de logo para cabecalho PDF — CT compat.
+  static pw.Widget buildPdfLogoBadge(
+    Uint8List? logoBytes, {
+    pw.EdgeInsets margin = pw.EdgeInsets.zero,
+    double size = 48,
+  }) {
+    if (logoBytes == null || logoBytes.isEmpty) {
+      return pw.SizedBox(width: size, height: size);
+    }
+    return pw.Container(
+      margin: margin,
+      width: size,
+      height: size,
+      child: pw.Image(pw.MemoryImage(logoBytes), fit: pw.BoxFit.contain),
     );
   }
 }

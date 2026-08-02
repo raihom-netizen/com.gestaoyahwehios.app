@@ -7227,3 +7227,9 @@ export {
   telegramSetWebhook,
 } from "./telegramBotBridge";
 
+/** Financeiro pessoal: agregados mensais (paridade Controle Total). */
+export {
+  financeMonthBucketsOnTransactionWrite,
+  gyFinanceRebuildOpeningBuckets,
+} from "./userFinanceMonthBuckets";
+

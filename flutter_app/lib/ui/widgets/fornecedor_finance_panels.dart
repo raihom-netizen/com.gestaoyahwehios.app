@@ -14,12 +14,7 @@ import 'package:gestao_yahweh/services/church_fornecedores_load_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/pdf/fornecedor_historico_pdf.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_flow.dart';
-import 'package:gestao_yahweh/ui/pages/finance_page.dart'
-    show
-        excluirLancamentoFinanceiroComAuditoria,
-        removeFinanceComprovanteForLancamento,
-        showFinanceLancamentoDetailsBottomSheet,
-        showFinanceLancamentoEditorForTenant;
+import 'package:gestao_yahweh/core/finance_church_ops.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_premium_lancamento_ui.dart'
     show

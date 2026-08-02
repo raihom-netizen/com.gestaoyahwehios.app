@@ -1,0 +1,501 @@
+/// Operações financeiras da igreja (compatibilidade).
+///
+/// Funções church-specific que eram parte do antigo `finance_page.dart`
+/// do YAHWEH e agora são fornecidas como módulo separado, já que o
+/// novo módulo financeiro veio do Controle Total App.
+library;
+
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
+import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
+import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
+import 'package:gestao_yahweh/services/finance_audit_log_service.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_attach_flow.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_update_service.dart';
+import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+
+// ────────────────────────────────────────────────────────────────────────────
+// Exclusão com auditoria
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Exclui um lançamento financeiro do Firestore com auditoria e invalidação de cache.
+Future<void> excluirLancamentoFinanceiroComAuditoria(
+  DocumentSnapshot<Map<String, dynamic>> doc,
+  String tenantId,
+) async {
+  final data = Map<String, dynamic>.from(doc.data() ?? {});
+  TenantDeletedDocTombstones.mark(
+    tenantId,
+    TenantModuleKeys.financeiro,
+    [doc.id],
+  );
+  try {
+    await logFinanceiroAuditoria(
+      tenantId: tenantId,
+      acao: 'exclusao',
+      lancamentoId: doc.id,
+      dadosAntes: data,
+    );
+  } catch (_) {}
+  if (kIsWeb) {
+    await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+  }
+  await FirestoreWebGuard.runWithWebRecovery(
+    () => doc.reference.delete(),
+    maxAttempts: 2,
+  );
+  unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Upload de comprovante
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Faz upload de comprovante para um lançamento financeiro.
+Future<void> uploadFinanceComprovanteForLancamento(
+  BuildContext context, {
+  required String tenantId,
+  required DocumentSnapshot<Map<String, dynamic>> doc,
+}) async {
+  await FinanceComprovanteAttachFlow.attachToLancamento(
+    context: context,
+    tenantId: tenantId,
+    docRef: doc.reference,
+    docData: doc.data(),
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Remover comprovante
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Remove o comprovante anexado a um lançamento financeiro.
+Future<void> removeFinanceComprovanteForLancamento(
+  BuildContext context, {
+  required String tenantId,
+  required DocumentSnapshot<Map<String, dynamic>> doc,
+  VoidCallback? onChanged,
+}) async {
+  final data = doc.data() ?? {};
+  if (!FinanceComprovanteAttachService.hasComprovanteInDoc(data)) return;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+      ),
+      title: const Text('Remover comprovante'),
+      content: const Text(
+        'O comprovante será removido deste lançamento e apagado do armazenamento.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Remover'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true || !context.mounted) return;
+  try {
+    await FinanceComprovanteUpdateService.removeFinanceLancamentoStrict(
+      churchIdHint: tenantId,
+      docRef: doc.reference,
+      data: data,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.successSnackBar('Comprovante removido.'),
+    );
+    onChanged?.call();
+    unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Detalhes do lançamento (bottom sheet)
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Mostra um bottom sheet com os detalhes de um lançamento financeiro.
+void showFinanceLancamentoDetailsBottomSheet(
+  BuildContext context, {
+  required Map<String, dynamic> data,
+  required String comprovanteUrl,
+  required String dataStr,
+  required bool isEntrada,
+  required bool isTransfer,
+  required Color color,
+  required double valor,
+  required String titulo,
+  required String subtitulo,
+}) {
+  final tipoLabel =
+      isTransfer ? 'Transferência' : (isEntrada ? 'Receita' : 'Despesa');
+  final origemNome = (data['contaOrigemNome'] ?? '').toString();
+  final destinoNome = (data['contaDestinoNome'] ?? '').toString();
+  showModalBottomSheet(
+    context: context,
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (ctx) => Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+              child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2)))),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12)),
+                child: Icon(
+                    isTransfer
+                        ? Icons.swap_horiz_rounded
+                        : (isEntrada
+                            ? Icons.trending_up_rounded
+                            : Icons.trending_down_rounded),
+                    color: color,
+                    size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(titulo,
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w800)),
+                    Text(tipoLabel,
+                        style: TextStyle(
+                            fontSize: 13,
+                            color: color,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              Text('R\$ ${valor.toStringAsFixed(2)}',
+                  style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      color: color)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (isTransfer &&
+              origemNome.isNotEmpty &&
+              destinoNome.isNotEmpty) ...[
+            Text('Conta de origem',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600)),
+            Text(origemNome, style: const TextStyle(fontSize: 15)),
+            const SizedBox(height: 8),
+            Text('Conta de destino',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600)),
+            Text(destinoNome, style: const TextStyle(fontSize: 15)),
+            const SizedBox(height: 12),
+          ],
+          if (subtitulo.isNotEmpty && !isTransfer) ...[
+            Text('Descrição',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600)),
+            Text(subtitulo, style: const TextStyle(fontSize: 15)),
+            const SizedBox(height: 12),
+          ],
+          Text('Data',
+              style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade600)),
+          Text(dataStr, style: const TextStyle(fontSize: 15)),
+          const SizedBox(height: 16),
+          if (comprovanteUrl.isNotEmpty ||
+              FinanceComprovanteAttachService.hasComprovanteInDoc(data)) ...[
+            Text('Comprovante',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600)),
+            const SizedBox(height: 4),
+            Text(comprovanteUrl.isNotEmpty ? 'Disponível' : 'Interno',
+                style: const TextStyle(fontSize: 14)),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Editor de lançamento (compatibilidade church)
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Abre o editor de lançamento financeiro para a igreja.
+///
+/// Esta é uma versão simplificada que cria/edita lançamentos diretamente
+/// no Firestore da igreja. O módulo financeiro principal (FinanceScreen)
+/// tem o seu próprio editor inline.
+Future<bool> showFinanceLancamentoEditorForTenant(
+  BuildContext context, {
+  required String tenantId,
+  DocumentSnapshot<Map<String, dynamic>>? existingDoc,
+  String? presetFornecedorId,
+  String? presetFornecedorNome,
+  bool lockFornecedor = false,
+  String? panelRole,
+  String? presetNovoTipo,
+  String? presetContaOrigemId,
+}) async {
+  final effectiveTenantId =
+      ChurchContextService.panelChurchId(ChurchRepository.churchId(tenantId));
+  if (effectiveTenantId.isEmpty) return false;
+
+  final isEdit = existingDoc != null;
+  final data = existingDoc?.data();
+  final financeCol = ChurchUiCollections.financeiro(effectiveTenantId);
+
+  String tipo = isEdit ? financeInferTipo(data ?? const {}) : 'entrada';
+  if (tipo != 'entrada' && tipo != 'saida' && tipo != 'transferencia') {
+    tipo = 'entrada';
+  }
+  if (!isEdit && presetNovoTipo != null) {
+    final p = presetNovoTipo.trim().toLowerCase();
+    if (p == 'entrada' || p == 'saida' || p == 'transferencia') {
+      tipo = p;
+    }
+  }
+
+  final amtInicial = isEdit
+      ? ((data?['amount'] ?? data?['valor']) ?? 0).toDouble()
+      : 0.0;
+  final valorCtrl = TextEditingController(
+      text: isEdit && amtInicial > 0 ? amtInicial.toStringAsFixed(2) : '');
+  final descCtrl = TextEditingController(
+      text: isEdit
+          ? (data?['descricao'] ?? data?['anotacoes'] ?? '').toString()
+          : '');
+  String categoria = isEdit ? (data?['categoria'] ?? '').toString() : '';
+  DateTime dataSel = DateTime.now();
+  if (isEdit) {
+    final ts = data?['createdAt'] ?? data?['date'];
+    if (ts is Timestamp) dataSel = ts.toDate();
+  }
+
+  final result = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (ctx) {
+      return Padding(
+        padding: EdgeInsets.fromLTRB(
+          24, 24, 24, MediaQuery.of(ctx).viewInsets.bottom + 24,
+        ),
+        child: StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40, height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(isEdit ? 'Editar lançamento' : 'Novo lançamento',
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 20),
+                // Tipo
+                Row(children: [
+                  _tipoChip('Entrada', 'entrada', tipo,
+                      Colors.blue, (v) => setModalState(() => tipo = v)),
+                  const SizedBox(width: 8),
+                  _tipoChip('Saída', 'saida', tipo,
+                      Colors.red, (v) => setModalState(() => tipo = v)),
+                  const SizedBox(width: 8),
+                  _tipoChip('Transf.', 'transferencia', tipo,
+                      Colors.indigo, (v) => setModalState(() => tipo = v)),
+                ]),
+                const SizedBox(height: 16),
+                // Valor
+                TextField(
+                  controller: valorCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: InputDecoration(
+                    labelText: 'Valor (R\$)',
+                    prefixText: 'R\$ ',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Descrição
+                TextField(
+                  controller: descCtrl,
+                  maxLines: 2,
+                  decoration: InputDecoration(
+                    labelText: 'Descrição',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Categoria
+                TextField(
+                  controller: TextEditingController(text: categoria),
+                  decoration: InputDecoration(
+                    labelText: 'Categoria',
+                    border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onChanged: (v) => categoria = v,
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: ThemeCleanPremium.success,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onPressed: () async {
+                      final valor = double.tryParse(
+                          valorCtrl.text.replaceAll(',', '.'));
+                      if (valor == null || valor <= 0) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(content: Text('Informe um valor válido.')),
+                        );
+                        return;
+                      }
+                      final desc = descCtrl.text.trim();
+                      if (desc.isEmpty) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(content: Text('Informe uma descrição.')),
+                        );
+                        return;
+                      }
+                      try {
+                        final payload = <String, dynamic>{
+                          'amount': valor,
+                          'valor': valor,
+                          'descricao': desc,
+                          'categoria': categoria,
+                          'tipo': tipo,
+                          'date': Timestamp.fromDate(dataSel),
+                          'updatedAt': FieldValue.serverTimestamp(),
+                        };
+                        if (presetFornecedorId != null) {
+                          payload['fornecedorId'] = presetFornecedorId;
+                          payload['fornecedorNome'] =
+                              presetFornecedorNome ?? '';
+                        }
+                        if (isEdit) {
+                          await existingDoc.reference.update(payload);
+                        } else {
+                          payload['createdAt'] = FieldValue.serverTimestamp();
+                          payload['churchId'] = effectiveTenantId;
+                          await financeCol.add(payload);
+                        }
+                        unawaited(ChurchFinanceRealtimeService
+                            .onFinanceMutation(effectiveTenantId));
+                        Navigator.pop(ctx, true);
+                      } catch (e) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(content: Text(e.toString())),
+                        );
+                      }
+                    },
+                    child: Text(isEdit ? 'Salvar' : 'Criar',
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    },
+  );
+  return result == true;
+}
+
+Widget _tipoChip(
+  String label,
+  String value,
+  String selected,
+  Color color,
+  ValueChanged<String> onTap,
+) {
+  final isSelected = selected == value;
+  return InkWell(
+    onTap: () => onTap(value),
+    borderRadius: BorderRadius.circular(20),
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: isSelected ? color.withValues(alpha: 0.15) : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isSelected ? color : Colors.transparent,
+          width: 1.5,
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: isSelected ? color : Colors.grey.shade700,
+        ),
+      ),
+    ),
+  );
+}

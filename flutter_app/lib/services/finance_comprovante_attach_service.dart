@@ -1,4 +1,4 @@
-import 'package:file_picker/file_picker.dart';
+﻿import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
@@ -12,7 +12,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_comprovante_viewer_sheet.dart';
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 
-/// Comprovante financeiro — JPEG/PNG/PDF (sem vídeo), padrão Controle Total.
+/// Comprovante financeiro ÔÇö JPEG/PNG/PDF (sem v├¡deo), padr├úo Controle Total.
 class FinanceComprovanteAttachment {
   const FinanceComprovanteAttachment({
     required this.bytes,
@@ -25,7 +25,7 @@ class FinanceComprovanteAttachment {
   final String fileName;
   final String mimeType;
 
-  /// true quando o picker já passou por optimização no pick.
+  /// true quando o picker j├í passou por optimiza├º├úo no pick.
   final bool alreadyOptimized;
 
   bool get isPdf => mimeType.contains('pdf');
@@ -115,7 +115,7 @@ abstract final class FinanceComprovanteAttachService {
     );
   }
 
-  /// Uma compressão só (CT): JPEG optimizado; PNG pequeno mantém formato.
+  /// Uma compress├úo s├│ (CT): JPEG optimizado; PNG pequeno mant├®m formato.
   static Future<FinanceComprovanteAttachment?> _finalizeImageAttachment({
     required Uint8List raw,
     required String fileName,
@@ -169,7 +169,7 @@ abstract final class FinanceComprovanteAttachService {
       if (!_isAllowedExtension(ext)) {
         _showSnack(
           context,
-          'Arquivo inválido. Use apenas JPEG, PNG ou PDF (sem vídeo).',
+          'Arquivo inv├ílido. Use apenas JPEG, PNG ou PDF (sem v├¡deo).',
         );
         return null;
       }
@@ -178,7 +178,7 @@ abstract final class FinanceComprovanteAttachService {
       if (bytes == null || bytes.isEmpty) {
         _showSnack(
           context,
-          'Não foi possível ler o arquivo. Tente outro ou um tamanho menor.',
+          'N├úo foi poss├¡vel ler o arquivo. Tente outro ou um tamanho menor.',
         );
         return null;
       }
@@ -233,7 +233,7 @@ abstract final class FinanceComprovanteAttachService {
       if (!context.mounted) return null;
       final raw = await xfile.readAsBytes();
       if (raw.isEmpty) {
-        _showSnack(context, 'Não foi possível ler a foto da câmera.');
+        _showSnack(context, 'N├úo foi poss├¡vel ler a foto da c├ómera.');
         return null;
       }
       final attachment = await _finalizeImageAttachment(
@@ -247,7 +247,7 @@ abstract final class FinanceComprovanteAttachService {
     } catch (e) {
       _showSnack(
         context,
-        'Erro na câmera: ${formatFirebaseErrorForUser(e)}',
+        'Erro na c├ómera: ${formatFirebaseErrorForUser(e)}',
       );
       return null;
     }
@@ -258,7 +258,7 @@ abstract final class FinanceComprovanteAttachService {
   ) =>
       _pickFromGallery(context);
 
-  /// Folha inferior — Galeria / Câmera / Arquivo (padrão Controle Total).
+  /// Folha inferior ÔÇö Galeria / C├ómera / Arquivo (padr├úo Controle Total).
   static Future<FinanceComprovanteAttachment?> showPickSheet(
     BuildContext context, {
     bool allowCamera = true,
@@ -290,14 +290,14 @@ abstract final class FinanceComprovanteAttachService {
               ),
               const SizedBox(height: 4),
               Text(
-                'JPEG, PNG ou PDF — até 5 MB',
+                'JPEG, PNG ou PDF ÔÇö at├® 5 MB',
                 style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
               ),
               const SizedBox(height: 12),
               if (allowCamera)
                 ListTile(
                   leading: const Icon(Icons.photo_camera_outlined),
-                  title: const Text('Câmera'),
+                  title: const Text('C├ómera'),
                   subtitle: kIsWeb
                       ? const Text('Tirar foto agora')
                       : const Text('Capturar comprovante'),
@@ -351,7 +351,7 @@ abstract final class FinanceComprovanteAttachService {
       if (!context.mounted) return null;
       final raw = await xfile.readAsBytes();
       if (raw.isEmpty) {
-        _showSnack(context, 'Não foi possível ler a imagem.');
+        _showSnack(context, 'N├úo foi poss├¡vel ler a imagem.');
         return null;
       }
       final hintExt = xfile.name.toLowerCase().endsWith('.png') ? 'png' : 'jpg';

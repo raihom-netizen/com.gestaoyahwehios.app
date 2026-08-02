@@ -1,11 +1,11 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
-import '../core/frota_firestore_paths.dart';
-import '../services/data_formatador.dart';
-import '../services/endereco_formatador.dart';
+import 'package:gestao_yahweh/jimsabores_frota/core/frota_firestore_paths.dart';
+import 'package:gestao_yahweh/jimsabores_frota/services/data_formatador.dart';
+import 'package:gestao_yahweh/jimsabores_frota/services/endereco_formatador.dart';
 
 class _MotoristaOption {
   const _MotoristaOption({

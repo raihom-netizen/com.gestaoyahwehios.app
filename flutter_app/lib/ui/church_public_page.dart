@@ -3966,8 +3966,9 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
                               );
                             if (when.isNotEmpty) base.write('\nData: $when');
                             if (time.isNotEmpty) base.write('\nHora: $time');
-                            if (locFinal.isNotEmpty)
+                            if (locFinal.isNotEmpty) {
                               base.write('\nLocal: $locFinal');
+                            }
                             final isRealPost =
                                 itemId.isNotEmpty &&
                                 !itemId.startsWith('virt_');

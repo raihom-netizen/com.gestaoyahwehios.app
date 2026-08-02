@@ -1,5 +1,4 @@
-import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
-import 'dart:io';
+﻿import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -11,7 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'package:gestao_yahweh/services/relatorio_service.dart';
-import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
+import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
 import 'utilitarios_web_io_stub.dart'
     if (dart.library.html) 'utilitarios_web_io_web.dart' as web_io;
 
@@ -107,7 +106,7 @@ Future<List<PlatformFile>> utilitariosPickPlatformFiles({
             (!allowMultiple && mobile) ||
             (allowMultiple && mobile && onlyImages));
 
-    final r = await YahwehFilePicker.pickFiles(
+    final r = await FilePicker.pickFiles(
       type: pickType,
       allowedExtensions: !useAnyPicker &&
               pickType == FileType.custom &&
@@ -204,7 +203,7 @@ Future<String> utilitariosWriteBytesToTempFile(Uint8List bytes, String name) =>
 /// Salva ou compartilha bytes **localmente** (sem Storage / Cloud).
 ///
 /// Quando [chooseSaveLocation] é `true` (mobile), o utilizador escolhe a pasta
-/// antes de salvar via [YahwehFilePicker.saveFile].
+/// antes de salvar via [FilePicker.platform.getDirectoryPath].
 Future<bool> utilitariosSaveOrShareBytes({
   required BuildContext context,
   required Uint8List bytes,
@@ -233,7 +232,7 @@ Future<bool> utilitariosSaveOrShareBytes({
       return true;
     }
     if (isDesktop) {
-      final path = await YahwehFilePicker.saveFile(
+      final path = await FilePicker.saveFile(
         dialogTitle: 'Salvar arquivo',
         fileName: safe,
         type: FileType.custom,
@@ -244,9 +243,9 @@ Future<bool> utilitariosSaveOrShareBytes({
       await File(target).writeAsBytes(bytes, flush: true);
       return true;
     }
-    // Mobile: escolher pasta salva diretamente via YahwehFilePicker (requer bytes).
+    // Mobile: escolher pasta salva diretamente via FilePicker (requer bytes).
     if (chooseSaveLocation) {
-      final picked = await YahwehFilePicker.saveFile(
+      final picked = await FilePicker.saveFile(
         dialogTitle: 'Salvar em…',
         fileName: safe,
         type: FileType.custom,
@@ -257,7 +256,7 @@ Future<bool> utilitariosSaveOrShareBytes({
     }
 
     final baseDir = await getApplicationDocumentsDirectory();
-    final outDir = Directory('${baseDir.path}/Utilitarios_GestaoYahweh');
+    final outDir = Directory('${baseDir.path}/Utilitarios_ControleTotal');
     if (!await outDir.exists()) {
       await outDir.create(recursive: true);
     }
@@ -281,7 +280,8 @@ Future<bool> utilitariosSaveOrShareBytes({
   final stamp = DateTime.now().millisecondsSinceEpoch;
   final path = '${tmp.path}/ct_share_${stamp}_$safe';
   final file = File(path);
-  await file.writeAsBytes(bytes, flush: true);
+  // flush:false = gravação mais rápida no caminho quente do compartilhar.
+  await file.writeAsBytes(bytes, flush: false);
   if (!await file.exists() || await file.length() == 0) {
     return false;
   }
@@ -307,66 +307,121 @@ Future<bool> utilitariosSaveOrShareBytes({
   }
 }
 
-/// Exibe bottom sheet padronizado com as ações «Compartilhar» e «Escolher pasta».
+/// Exibe bottom sheet padronizado com as ações «Compartilhar» e «Salvar».
 ///
 /// Retorna `'share'` para compartilhar, `'save_folder'` para salvar com escolha
 /// de pasta, ou `null` se o usuário fechar o sheet.
 Future<String?> utilitariosShowShareSaveActionSheet(
   BuildContext context, {
   String title = 'Arquivo pronto',
-  String subtitle = 'Salve na pasta desejada ou compartilhe.',
+  String subtitle = 'Compartilhe agora ou salve na pasta desejada.',
   String? fileName,
   bool showShare = true,
   bool showSave = true,
+  bool shareFirst = true,
 }) async {
   return showModalBottomSheet<String>(
     context: context,
     backgroundColor: Colors.transparent,
+    isScrollControlled: true,
     builder: (ctx) {
-      return Container(
-        decoration: ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              title,
-              style: ModernModuleUI.moduleTitleStyle(ctx, fontSize: 18),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              fileName == null ? subtitle : '$subtitle\n$fileName',
-              style: ModernModuleUI.moduleSubtitleStyle(ctx, fontSize: 12.5),
-            ),
-            const SizedBox(height: 20),
-            if (showSave)
-              ModernModuleUI.gradientFilledButton(
-                onPressed: () => Navigator.pop(ctx, 'save_folder'),
-                icon: Icons.folder_open_rounded,
-                label: 'Escolher pasta',
-                gradient: const [Color(0xFF3B82F6), Color(0xFF2563EB)],
-              ),
-            if (showSave && showShare) const SizedBox(height: 12),
-            if (showShare)
-              ModernModuleUI.gradientFilledButton(
-                onPressed: () => Navigator.pop(ctx, 'share'),
-                icon: Icons.share_rounded,
-                label: 'Compartilhar',
-                gradient: const [Color(0xFF34D399), Color(0xFF22C55E)],
-              ),
-            const SizedBox(height: 10),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: Text(
-                'Fechar',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: ModernModuleUI.onSurfaceMuted(ctx),
+      return SafeArea(
+        child: Container(
+          decoration: ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: ModernModuleUI.onSurfaceMuted(ctx)
+                        .withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF22C55E).withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(
+                      Icons.check_circle_rounded,
+                      color: Color(0xFF16A34A),
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style:
+                              ModernModuleUI.moduleTitleStyle(ctx, fontSize: 17),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          fileName == null ? subtitle : '$subtitle\n$fileName',
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: ModernModuleUI.moduleSubtitleStyle(
+                            ctx,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              if (showShare && showSave)
+                ModernModuleUI.shareSaveActionRow(
+                  shareFirst: shareFirst,
+                  shareLabel: 'Compartilhar',
+                  saveLabel: 'Salvar',
+                  height: 52,
+                  onShare: () => Navigator.pop(ctx, 'share'),
+                  onSave: () => Navigator.pop(ctx, 'save_folder'),
+                )
+              else if (showShare)
+                ModernModuleUI.gradientFilledButton(
+                  onPressed: () => Navigator.pop(ctx, 'share'),
+                  icon: Icons.share_rounded,
+                  label: 'Compartilhar',
+                  gradient: const [Color(0xFF34D399), Color(0xFF22C55E)],
+                )
+              else if (showSave)
+                ModernModuleUI.gradientFilledButton(
+                  onPressed: () => Navigator.pop(ctx, 'save_folder'),
+                  icon: Icons.folder_open_rounded,
+                  label: 'Salvar',
+                  gradient: const [Color(0xFF3B82F6), Color(0xFF2563EB)],
+                ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(
+                  'Fechar',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: ModernModuleUI.onSurfaceMuted(ctx),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     },
@@ -503,4 +558,43 @@ Future<int> utilitariosFileSizeAtPath(String path) async {
   final file = File(path);
   if (!await file.exists()) return 0;
   return file.length();
+}
+
+/// Quick save: salva direto em Downloads/Utilitarios_ControleTotal/ sem prompt.
+///
+/// Devolve `true` se salvou com sucesso. Mostra toast no contexto.
+Future<bool> utilitariosQuickSave({
+  required BuildContext context,
+  required Uint8List bytes,
+  required String fileName,
+}) async {
+  final safe = fileName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
+  try {
+    final baseDir = await getApplicationDocumentsDirectory();
+    final outDir = Directory('${baseDir.path}/Utilitarios_ControleTotal');
+    if (!await outDir.exists()) {
+      await outDir.create(recursive: true);
+    }
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final path = '${outDir.path}/${stamp}_$safe';
+    await File(path).writeAsBytes(bytes, flush: true);
+    if (!context.mounted) return true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Salvo em Utilitarios_ControleTotal no aparelho.'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+    return true;
+  } catch (_) {
+    if (!context.mounted) return false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Não foi possível salvar.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    return false;
+  }
 }

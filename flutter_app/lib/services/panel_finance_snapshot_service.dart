@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -136,7 +136,7 @@ class PanelFinanceSnapshotService {
         '${d.month.toString().padLeft(2, '0')}';
   }
 
-  /// Fluxo líquido (entradas − saídas) por bucket do painel — só `finance_summary`.
+  /// Fluxo l├¡quido (entradas ÔêÆ sa├¡das) por bucket do painel ÔÇö s├│ `finance_summary`.
   static List<double> netFlowByBuckets({
     required PanelFinanceSnapshot snapshot,
     required List<DateTime> bucketStarts,
@@ -157,7 +157,7 @@ class PanelFinanceSnapshotService {
     return out;
   }
 
-  /// Saídas por bucket — só cache mensal.
+  /// Sa├¡das por bucket ÔÇö s├│ cache mensal.
   static List<double> saidasByBuckets({
     required PanelFinanceSnapshot snapshot,
     required List<DateTime> bucketStarts,
@@ -171,7 +171,7 @@ class PanelFinanceSnapshotService {
       if (monthlyMode) {
         out[i] = m.saidas;
       } else {
-        // Cache só tem totais mensais — não repetir o mesmo valor em cada dia.
+        // Cache s├│ tem totais mensais ÔÇö n├úo repetir o mesmo valor em cada dia.
         out[i] = 0;
       }
     }
@@ -181,7 +181,7 @@ class PanelFinanceSnapshotService {
   static Future<PanelFinanceSnapshot> readOnce(String tenantId) =>
       _fetchOnce(tenantId);
 
-  /// Ignora cache local — uso após lançamento financeiro (actualização imediata).
+  /// Ignora cache local ÔÇö uso ap├│s lan├ºamento financeiro (actualiza├º├úo imediata).
   static Future<PanelFinanceSnapshot> readOnceFromServer(String tenantId) async {
     final fromServer = await _fetchOnce(
       tenantId,

@@ -30,18 +30,23 @@ abstract final class EcoFireMediaUpload {
     if (ct == 'image/webp' && profile == EcoFireMediaProfile.document) {
       return (bytes: bytes, mime: contentType);
     }
-    return switch (profile) {
-      EcoFireMediaProfile.logo => EcoFireImageProcess.processForLogo(bytes),
-      EcoFireMediaProfile.memberProfile =>
-        EcoFireImageProcess.processForMemberProfile(bytes),
-      EcoFireMediaProfile.memberThumb =>
-        EcoFireImageProcess.processForMemberThumb(bytes),
-      EcoFireMediaProfile.patrimonio =>
-        EcoFireImageProcess.processForPatrimonio(bytes),
-      EcoFireMediaProfile.chat => _chatCompress(bytes),
-      EcoFireMediaProfile.document || EcoFireMediaProfile.feedPhoto =>
-        EcoFireImageProcess.processForFeedPhoto(bytes),
-    };
+    try {
+      return switch (profile) {
+        EcoFireMediaProfile.logo => EcoFireImageProcess.processForLogo(bytes),
+        EcoFireMediaProfile.memberProfile =>
+          EcoFireImageProcess.processForMemberProfile(bytes),
+        EcoFireMediaProfile.memberThumb =>
+          EcoFireImageProcess.processForMemberThumb(bytes),
+        EcoFireMediaProfile.patrimonio =>
+          EcoFireImageProcess.processForPatrimonio(bytes),
+        EcoFireMediaProfile.chat => _chatCompress(bytes),
+        EcoFireMediaProfile.document || EcoFireMediaProfile.feedPhoto =>
+          EcoFireImageProcess.processForFeedPhoto(bytes),
+      };
+    } catch (_) {
+      // Falha no decode/compressão — envia bytes originais.
+      return (bytes: bytes, mime: ct.startsWith('image/') ? 'image/jpeg' : contentType);
+    }
   }
 
   static Future<({Uint8List bytes, String mime})> _chatCompress(

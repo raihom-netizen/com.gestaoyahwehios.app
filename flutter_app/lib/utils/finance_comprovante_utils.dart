@@ -1,8 +1,8 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 
-/// Utilitários centralizados para comprovantes — espelho WISDOMAPP ReceiptAttachmentUtils.
+/// Utilit├írios centralizados para comprovantes ÔÇö espelho WISDOMAPP ReceiptAttachmentUtils.
 abstract final class FinanceComprovanteUtils {
   FinanceComprovanteUtils._();
 

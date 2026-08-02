@@ -93,28 +93,42 @@ abstract final class ChurchCentralStorageUpload {
     );
 
     try {
-      final ({Uint8List bytes, String mime}) processed;
+      ({Uint8List bytes, String mime}) processed;
       if (alreadyCompressed && !compressForFeed) {
         if (rawBytes.length <= 700 * 1024 && _looksLikeWebpOrJpeg(rawBytes)) {
           processed = (bytes: rawBytes, mime: _mimeForBytes(rawBytes));
         } else {
-          processed = await EcoFireImageProcess.processForFeedPhoto(rawBytes);
+          try {
+            processed = await EcoFireImageProcess.processForFeedPhoto(rawBytes);
+          } catch (_) {
+            // Falha no decode — envia bytes originais (Storage rejeita se inválido).
+            processed = (bytes: rawBytes, mime: _mimeForBytes(rawBytes));
+          }
         }
       } else if (compressForFeed) {
         // Já leve (pick CT) — evita 2.ª compressão e travamento.
         if (rawBytes.length <= 700 * 1024 && _looksLikeWebpOrJpeg(rawBytes)) {
           processed = (bytes: rawBytes, mime: _mimeForBytes(rawBytes));
         } else {
-          processed = await EcoFireImageProcess.processForFeedPhoto(rawBytes);
+          try {
+            processed = await EcoFireImageProcess.processForFeedPhoto(rawBytes);
+          } catch (_) {
+            // Falha no decode — envia bytes originais.
+            processed = (bytes: rawBytes, mime: _mimeForBytes(rawBytes));
+          }
         }
       } else {
-        processed = (
-          bytes: await MediaService.compressImageBytes(
-            rawBytes,
-            profile: MediaImageProfile.feed,
-          ),
-          mime: 'image/jpeg',
-        );
+        try {
+          processed = (
+            bytes: await MediaService.compressImageBytes(
+              rawBytes,
+              profile: MediaImageProfile.feed,
+            ),
+            mime: 'image/jpeg',
+          );
+        } catch (_) {
+          processed = (bytes: rawBytes, mime: 'image/jpeg');
+        }
       }
 
       final url = await DirectStorageUrlPublish.uploadBytes(

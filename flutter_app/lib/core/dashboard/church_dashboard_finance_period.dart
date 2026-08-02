@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 /// Presets do filtro financeiro no painel da igreja (dashboard).
 enum ChurchDashboardFinancePreset {
@@ -9,7 +9,7 @@ enum ChurchDashboardFinancePreset {
   custom,
 }
 
-/// Resolve o intervalo [DateTimeRange] em horário local e rótulos para a UI.
+/// Resolve o intervalo [DateTimeRange] em hor├írio local e r├│tulos para a UI.
 class ChurchDashboardFinancePeriod {
   ChurchDashboardFinancePeriod._();
 
@@ -91,19 +91,19 @@ class ChurchDashboardFinancePeriod {
   static String presetLabel(ChurchDashboardFinancePreset p) {
     switch (p) {
       case ChurchDashboardFinancePreset.previousMonth:
-        return 'Mês anterior';
+        return 'M├¬s anterior';
       case ChurchDashboardFinancePreset.currentMonth:
-        return 'Mês atual';
+        return 'M├¬s atual';
       case ChurchDashboardFinancePreset.weekly:
         return 'Semanal';
       case ChurchDashboardFinancePreset.yearly:
         return 'Anual';
       case ChurchDashboardFinancePreset.custom:
-        return 'Período';
+        return 'Per├¡odo';
     }
   }
 
-  /// Meses “equivalentes” para médias tipo / mês (projeção).
+  /// Meses ÔÇ£equivalentesÔÇØ para m├®dias tipo / m├¬s (proje├º├úo).
   static double equivalentMonths(DateTimeRange range) {
     final days = range.end.difference(range.start).inDays + 1;
     if (days < 1) return 1 / 30.4;

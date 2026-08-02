@@ -1,4 +1,4 @@
-import 'currency_formats.dart';
+import 'package:gestao_yahweh/constants/currency_formats.dart';
 
 /// Máscara em tempo real para o campo «Lançamento expresso»: completa datas `d/m` ou `dd/mm` com o ano
 /// corrente (saída sempre `dd/mm/aaaa`) e formata valores em centavos (3+ dígitos) no fim **ou** no

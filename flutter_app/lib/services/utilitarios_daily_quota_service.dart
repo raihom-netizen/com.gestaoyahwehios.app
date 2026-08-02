@@ -1,4 +1,4 @@
-﻿import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Status da cota local (aparelho) — janela de **24 horas** após estourar o limite.
 class UtilitariosQuotaStatus {
@@ -28,8 +28,8 @@ class UtilitariosQuotaStatus {
 
 /// Cota **local** do módulo Utilitários (por usuário, no aparelho).
 ///
-/// - [heavy]: comprimir PDF/imagem → **15** usos
-/// - [light]: conversões leves → **15** usos
+/// - [heavy]: comprimir PDF/imagem → **20** usos
+/// - [light]: conversões leves → **20** usos
 /// - Ao estourar: bloqueia por **24 horas** a partir desse momento
 /// - **Admin / master:** sem limite
 ///
@@ -37,8 +37,8 @@ class UtilitariosQuotaStatus {
 abstract final class UtilitariosDailyQuotaService {
   UtilitariosDailyQuotaService._();
 
-  static const int kHeavyLimitPerDay = 15;
-  static const int kLightLimitPerDay = 15;
+  static const int kHeavyLimitPerDay = 20;
+  static const int kLightLimitPerDay = 20;
   static const Duration kLockDuration = Duration(hours: 24);
 
   static const _kHeavyUsed = 'util_quota_heavy_v2_used_';

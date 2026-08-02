@@ -31,10 +31,7 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
-import 'package:gestao_yahweh/ui/pages/finance_page.dart'
-    show
-        excluirLancamentoFinanceiroComAuditoria,
-        showFinanceLancamentoEditorForTenant;
+import 'package:gestao_yahweh/core/finance_church_ops.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
     show formatUploadErrorForUser;

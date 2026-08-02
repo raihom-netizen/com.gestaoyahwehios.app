@@ -1,9 +1,9 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart' show DateTimeRange;
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
 import 'package:gestao_yahweh/services/panel_finance_snapshot_service.dart';
 
-/// Dados prontos para gráficos do painel — cache mensal ou lançamentos ao vivo.
+/// Dados prontos para gr├íficos do painel ÔÇö cache mensal ou lan├ºamentos ao vivo.
 class PanelFinanceChartData {
   const PanelFinanceChartData({
     required this.netByBucket,
@@ -35,7 +35,7 @@ abstract final class PanelFinanceChartService {
     final t = (data['tipo'] ?? data['type'] ?? '').toString().toLowerCase();
     return t.contains('saida') ||
         t.contains('despesa') ||
-        t.contains('saída') ||
+        t.contains('sa├¡da') ||
         t == 'saida';
   }
 
@@ -181,7 +181,7 @@ abstract final class PanelFinanceChartService {
     );
   }
 
-  /// Cache `_panel_cache/finance_summary` → se vazio ou modo diário, lançamentos recentes.
+  /// Cache `_panel_cache/finance_summary` ÔåÆ se vazio ou modo di├írio, lan├ºamentos recentes.
   static Future<PanelFinanceChartData> load({
     required String tenantId,
     required List<DateTime> bucketStarts,

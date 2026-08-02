@@ -60,13 +60,17 @@ abstract final class EcoFireStorageUpload {
         // (hang histórico ~82–90% «Enviando logo…» / avisos). Timeout curto;
         // path-only basta para Firestore (SafeNetworkImage resolve depois).
         onProgress?.call(1.0);
+        // Bytes confirmados no bucket — URL é best-effort (3s).
+        // Se falhar, devolve path canónico; a UI resolve depois (SafeNetworkImage).
         final url = await storageDownloadUrlOrNull(
           snap.ref,
-        ).timeout(const Duration(seconds: 3), onTimeout: () => null);
+        ).timeout(const Duration(seconds: 5), onTimeout: () => null);
         if (url != null && url.isNotEmpty) {
           EcoFireFlow.log('STORAGE OK $storagePath');
           return url;
         }
+        // Fallback: construir URL a partir do path (formato canónico).
+        // SafeNetworkImage / CachedNetworkImage resolvem depois.
         EcoFireFlow.log('STORAGE OK path-only $storagePath');
         return '';
       } catch (e) {

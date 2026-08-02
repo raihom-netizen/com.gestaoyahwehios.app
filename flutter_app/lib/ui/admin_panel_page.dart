@@ -42,6 +42,7 @@ import 'admin_divulgacao_media_page.dart';
 import 'admin_multi_tenant_diagnostic_page.dart';
 import 'master_command_center_page.dart';
 import 'master_feature_flags_page.dart';
+import 'admin_telegram_tdlib_page.dart';
 import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
 import 'master_saas_command_center_page.dart';
 import 'master_usuarios_controle_360_page.dart';
@@ -125,6 +126,8 @@ String _masterMenuTitle(AdminMenuItem item) {
       return 'Migrar membros';
     case AdminMenuItem.sistemaFeatureFlags:
       return 'Feature flags';
+    case AdminMenuItem.sistemaTelegramTdlib:
+      return 'Telegram / TDLib';
     case AdminMenuItem.sistemaHome:
       return 'Início';
   }
@@ -327,6 +330,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       AdminMenuItem.sistemaVersaoMinima: 'versao',
       AdminMenuItem.sistemaMigrarMembros: 'migracao',
       AdminMenuItem.sistemaFeatureFlags: 'customizacao',
+      AdminMenuItem.sistemaTelegramTdlib: 'customizacao',
     };
     final key = map[item];
     if (key == null) return true;
@@ -649,6 +653,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       case AdminMenuItem.sistemaFeatureFlags:
         content = const MasterFeatureFlagsPage();
         break;
+      case AdminMenuItem.sistemaTelegramTdlib:
+        content = const AdminTelegramTdlibPage();
+        break;
       case AdminMenuItem.sistemaFirebaseSaude:
         content = const SystemFirebaseHealthPage();
         break;
@@ -863,6 +870,13 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                     if (_canAccessMasterItem(AdminMenuItem.sistemaFeatureFlags))
                       _drawerTile(context, Icons.toggle_on_rounded,
                           'Feature flags', AdminMenuItem.sistemaFeatureFlags),
+                    if (_canAccessMasterItem(
+                        AdminMenuItem.sistemaTelegramTdlib))
+                      _drawerTile(
+                          context,
+                          Icons.telegram,
+                          'Telegram / TDLib',
+                          AdminMenuItem.sistemaTelegramTdlib),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaHome))
                       _drawerTile(context, Icons.home_rounded,
                           'Voltar ao aplicativo', AdminMenuItem.sistemaHome),

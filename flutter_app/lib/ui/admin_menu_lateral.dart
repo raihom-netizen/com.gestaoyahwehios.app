@@ -38,6 +38,7 @@ enum AdminMenuItem {
   sistemaVersaoMinima,
   sistemaMigrarMembros,
   sistemaFeatureFlags,
+  sistemaTelegramTdlib,
   sistemaFirebaseSaude,
   sistemaMultiTenantDiag,
   sistemaHome,
@@ -219,6 +220,9 @@ class AdminMenuLateral extends StatelessWidget {
       if (itemVisible?.call(AdminMenuItem.sistemaFeatureFlags) ?? true)
         _tile(AdminMenuItem.sistemaFeatureFlags, Icons.toggle_on_rounded,
             'Feature flags', isCollapsed),
+      if (itemVisible?.call(AdminMenuItem.sistemaTelegramTdlib) ?? true)
+        _tile(AdminMenuItem.sistemaTelegramTdlib, Icons.telegram,
+            'Telegram / TDLib', isCollapsed),
     ];
   }
 
@@ -289,6 +293,7 @@ class AdminMenuLateral extends StatelessWidget {
       case AdminMenuItem.sistemaSugestoes:
       case AdminMenuItem.sistemaDivulgacao:
       case AdminMenuItem.sistemaFeatureFlags:
+      case AdminMenuItem.sistemaTelegramTdlib:
         return const Color(0xFF06B6D4);
       case AdminMenuItem.sistemaHome:
         return const Color(0xFF60A5FA);

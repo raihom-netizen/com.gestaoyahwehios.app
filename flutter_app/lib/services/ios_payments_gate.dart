@@ -210,5 +210,13 @@ class IosPaymentsGate {
     );
     return launchUrl(uri, mode: LaunchMode.externalApplication);
   }
+
+  /// Abre planos no Safari (compat CT — redireciona para upgrade externo).
+  static Future<bool> openReaderPlansInSafari({
+    String source = 'reader_plans',
+  }) async {
+    final uri = churchAtualizarPlanoExpressUri(utmMedium: source);
+    return launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
 }
 

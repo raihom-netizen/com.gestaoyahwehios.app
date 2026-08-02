@@ -1,12 +1,13 @@
-# Deploy web Gestao YAHWEH - build release + Firebase Hosting apenas
-# Uso (na raiz do repo):  .\scripts\deploy_web_hosting.ps1
-# Requisitos: Flutter no PATH, Firebase CLI logado (`firebase login`)
+# Deploy web Gestao YAHWEH - build release + Firebase Hosting
+# Uso (na raiz):  .\scripts\deploy_web_hosting.ps1
+# Padrao CT: SEM flutter clean por padrao (rapido). Use -Clean so quando necessario.
 #
-# -SkipPubGet: salta `flutter clean` + `flutter pub get` (usado pelo
-#   deploy completo, que ja roda essas etapas uma unica vez no inicio).
+# -SkipPubGet: salta pub get (deploy completo ja fez)
+# -Clean: forca flutter clean
 
 param(
-    [switch] $SkipPubGet
+    [switch] $SkipPubGet,
+    [switch] $Clean
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,9 +42,13 @@ if (-not (Test-Path (Join-Path $FlutterApp "pubspec.yaml"))) {
 
 Set-Location $FlutterApp
 if (-not $SkipPubGet) {
-    Write-Host "=== flutter clean (evita locks / ficheiros duplicados no build web no Windows) ===" -ForegroundColor Cyan
-    flutter clean
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    if ($Clean) {
+        Write-Host "=== flutter clean (-Clean) ===" -ForegroundColor Cyan
+        flutter clean
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    } else {
+        Write-Host "=== flutter clean PULADO (padrao rapido CT; use -Clean se precisar) ===" -ForegroundColor DarkGray
+    }
     Write-Host "=== flutter pub get ===" -ForegroundColor Cyan
     flutter pub get
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -51,18 +56,15 @@ if (-not $SkipPubGet) {
     Write-Host "=== flutter clean / pub get saltados (-SkipPubGet) ===" -ForegroundColor DarkGray
 }
 
-# Limpeza extra para evitar conflito `build/web/assets/assets/...` no Windows.
+# Limpeza pontual so da pasta web (evita assets duplicados no Windows) — nao e flutter clean.
 Remove-PathRobust -PathToRemove (Join-Path $FlutterApp "build\web")
 Remove-PathRobust -PathToRemove (Join-Path $FlutterApp "build\web\assets")
 Remove-PathRobust -PathToRemove (Join-Path $FlutterApp "build\web\assets\assets")
 
-Write-Host "`n=== flutter build web --release (CanvasKit / GPU, fotos 4K e crop) ===" -ForegroundColor Cyan
-# FLUTTER_WEB_USE_SKIA=true = CanvasKit (padrão para performance com mídia HD na web).
-# HTML/DOM (alternativa): .\scripts\deploy_web_hosting_html_dom.ps1
-# --no-tree-shake-icons: ícones só via IconData dinâmico (menu lateral) não viram quadrados vazios na web.
+Write-Host "`n=== flutter build web --release (CanvasKit) ===" -ForegroundColor Cyan
 . (Join-Path $RepoRoot "scripts\flutter_invoke_with_retry.ps1")
 $buildExit = Invoke-FlutterWithRetry -Label "Web hosting" -MaxAttempts 3 -InitialWaitSec 15 -Arguments @(
-    "build", "web", "--release", "--no-tree-shake-icons",
+    "build", "web", "--release", "--pwa-strategy=none", "--no-wasm-dry-run", "--no-tree-shake-icons",
     "--dart-define=FLUTTER_WEB_USE_SKIA=true"
 )
 if ($buildExit -ne 0) { exit $buildExit }
@@ -78,4 +80,5 @@ if (Test-Path $firebaseCmd) {
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""
+Write-Host "Hosting OK." -ForegroundColor Green
 Write-Host "Concluido. Hosting: https://gestaoyahweh-21e23.web.app" -ForegroundColor Green

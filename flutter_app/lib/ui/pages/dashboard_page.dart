@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+﻿import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -17,7 +17,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'departments_page.dart';
-import 'finance_page.dart';
+import 'finance_page_adapter.dart';
 import 'patrimonio_page.dart';
 import 'member_card_page.dart';
 import 'members_page.dart';
@@ -26,10 +26,10 @@ import 'notifications_page.dart';
 import 'schedules_page.dart';
 import 'users_page.dart';
 import 'sistema_informacoes_page.dart';
-import '../widgets/version_footer.dart';
-import '../widgets/member_demographics_utils.dart';
-import '../widgets/install_pwa_button.dart';
-import '../widgets/yahweh_premium_feed_widgets.dart'
+import 'package:gestao_yahweh/ui/widgets/version_footer.dart';
+import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/install_pwa_button.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
     show YahwehPremiumFeedShimmer;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 

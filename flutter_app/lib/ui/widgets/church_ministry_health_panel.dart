@@ -10,7 +10,7 @@ import 'package:gestao_yahweh/core/dashboard/church_dashboard_query_limits.dart'
 import 'package:gestao_yahweh/core/dashboard/church_ministry_intel.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
-import 'package:gestao_yahweh/ui/pages/finance_page.dart';
+import 'package:gestao_yahweh/core/finance_church_ops.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/pages/visitors_page.dart';

@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Skeleton loader para listas (membros, eventos) — reduz sensação de tela em branco.
+/// Placeholder shimmer effect (grey boxes with animated gradient).
+/// Use where CircularProgressIndicator is shown for list loading.
 class SkeletonLoader extends StatefulWidget {
   final int itemCount;
-  final double itemHeight;
-  final EdgeInsetsGeometry? padding;
+  final double? itemHeight;
+  final double? width;
+  final double? height;
+  final BorderRadius? borderRadius;
 
   const SkeletonLoader({
     super.key,
-    this.itemCount = 5,
-    this.itemHeight = 72,
-    this.padding,
+    this.itemCount = 1,
+    this.itemHeight,
+    this.width,
+    this.height,
+    this.borderRadius,
   });
 
   @override
@@ -21,16 +25,16 @@ class SkeletonLoader extends StatefulWidget {
 class _SkeletonLoaderState extends State<SkeletonLoader>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _shimmer;
+  late Animation<double> _animation;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
-      vsync: this,
       duration: const Duration(milliseconds: 1500),
+      vsync: this,
     )..repeat();
-    _shimmer = Tween<double>(begin: 0.3, end: 0.7).animate(
+    _animation = Tween<double>(begin: -1, end: 2).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
   }
@@ -43,67 +47,65 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: widget.padding ?? const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-      child: ListView.separated(
-        itemCount: widget.itemCount,
-        separatorBuilder: (_, _) => const SizedBox(height: ThemeCleanPremium.spaceSm),
-        itemBuilder: (_, i) => AnimatedBuilder(
-          animation: _shimmer,
-          builder: (_, child) => Container(
-            height: widget.itemHeight,
+    final singleItem = SizedBox(
+      width: widget.width,
+      height: widget.itemHeight ?? widget.height,
+      child: AnimatedBuilder(
+        animation: _animation,
+        builder: (context, child) {
+          return Container(
+            width: widget.width,
+            height: widget.itemHeight ?? widget.height,
             decoration: BoxDecoration(
-              color: Colors.grey.shade300.withValues(
-                alpha: 0.3 + _shimmer.value * 0.25,
-              ),
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: ThemeCleanPremium.spaceMd,
-                vertical: 12,
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade400.withValues(alpha: 0.5),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          height: 14,
-                          width: 140,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade400.withValues(alpha: 0.5),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          height: 12,
-                          width: 200,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade400.withValues(alpha: 0.4),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+              borderRadius: widget.borderRadius ?? BorderRadius.circular(8),
+              gradient: LinearGradient(
+                begin: Alignment(_animation.value - 1, 0),
+                end: Alignment(_animation.value, 0),
+                colors: [
+                  Colors.grey.shade300,
+                  Colors.grey.shade100,
+                  Colors.grey.shade300,
                 ],
               ),
             ),
-          ),
-        ),
+          );
+        },
+      ),
+    );
+
+    if (widget.itemCount <= 1) return singleItem;
+
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: widget.itemCount,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (_, __) => singleItem,
+    );
+  }
+}
+
+/// A list placeholder with multiple skeleton rows (for finance, reports, dashboard).
+class SkeletonListLoader extends StatelessWidget {
+  final int itemCount;
+  final double itemHeight;
+
+  const SkeletonListLoader({
+    super.key,
+    this.itemCount = 5,
+    this.itemHeight = 64,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: itemCount,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (_, _) => SkeletonLoader(
+        height: itemHeight,
+        borderRadius: BorderRadius.circular(12),
       ),
     );
   }

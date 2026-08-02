@@ -115,6 +115,14 @@ class TdLibService {
     throw UnsupportedError('TDLib não disponível na Web');
   }
 
+  Future<String?> ensureMediaDownloaded(
+    TdlibMessageItem message, {
+    int priority = 16,
+  }) async {
+    final path = (message.mediaLocalPath ?? '').trim();
+    return path.isEmpty ? null : path;
+  }
+
   Future<void> markAsRead(int chatId, List<int> messageIds) async {}
 
   Future<void> sendChatAction(

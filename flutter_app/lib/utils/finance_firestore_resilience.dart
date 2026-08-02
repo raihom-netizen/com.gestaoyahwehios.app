@@ -1,4 +1,4 @@
-/// Repete operações Firestore após falha de rede — sem `getIdToken(true)` (quota Auth).
+﻿/// Repete opera├º├Áes Firestore ap├│s falha de rede ÔÇö sem `getIdToken(true)` (quota Auth).
 Future<T> financeFirestoreOpWithRetry<T>(
   Future<T> Function() op, {
   int maxAttempts = 3,

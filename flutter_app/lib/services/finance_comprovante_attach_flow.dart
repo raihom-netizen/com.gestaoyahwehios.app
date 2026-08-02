@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -13,10 +13,10 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 
-/// Fluxo único de anexo de comprovante — **igual Controle Total**.
+/// Fluxo ├║nico de anexo de comprovante ÔÇö **igual Controle Total**.
 ///
-/// Pick → Storage → Firestore → SnackBar.
-/// **Sem** faixa global «A trocar comprovante… — N%» (upload silencioso).
+/// Pick ÔåÆ Storage ÔåÆ Firestore ÔåÆ SnackBar.
+/// **Sem** faixa global ┬½A trocar comprovanteÔÇª ÔÇö N%┬╗ (upload silencioso).
 /// Falha de rede (mobile): fila local + sync em background.
 abstract final class FinanceComprovanteAttachFlow {
   FinanceComprovanteAttachFlow._();
@@ -111,7 +111,7 @@ abstract final class FinanceComprovanteAttachFlow {
     }
   }
 
-  /// Compromisso de fornecedor — mesmo fluxo CT (silencioso, sem faixa %).
+  /// Compromisso de fornecedor ÔÇö mesmo fluxo CT (silencioso, sem faixa %).
   static Future<bool> attachToCompromisso({
     required BuildContext context,
     required String tenantId,

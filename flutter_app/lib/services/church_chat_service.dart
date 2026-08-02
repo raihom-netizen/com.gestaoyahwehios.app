@@ -7,6 +7,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 
+import 'package:gestao_yahweh/core/chat_engine/chat_local_cache_engine.dart';
 import 'package:gestao_yahweh/core/chat_engine/chat_thread_repository.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
@@ -98,6 +99,50 @@ class ChurchChatService {
   static String formatInstantSendError(Object e) => formatUploadErrorForUser(e);
 
   static FirebaseFirestore get _db => firebaseDefaultFirestore;
+
+  // ── Telegram Bridge (motor real) ───────────────────────────────────
+  /// Verifica se a ponte Telegram está ativa para a igreja.
+  /// Retorna os dados da ponte (botToken, chatId, threadDocId) ou null.
+  static Future<Map<String, dynamic>?> telegramBridgeStatus(
+    String tenantId,
+  ) async {
+    final cid = ChurchRepository.churchId(tenantId);
+    if (cid.isEmpty) return null;
+    try {
+      final snap = await _db.collection('igrejas').doc(cid).get();
+      final bridge = snap.data()?['telegramBridge'] as Map<String, dynamic>?;
+      if (bridge == null) return null;
+      if (bridge['enabled'] != true) return null;
+      final botToken = (bridge['botToken'] ?? '').toString().trim();
+      final chatId = (bridge['chatId'] ?? '').toString().trim();
+      if (botToken.isEmpty || chatId.isEmpty) return null;
+      return bridge;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Garante que o thread tem `telegramChatId` e `telegramBotToken`
+  /// quando a ponte está ativa (necessário para o trigger `telegramOutgoingMessage`).
+  static Future<void> ensureThreadTelegramBridgeFields({
+    required String tenantId,
+    required String threadId,
+  }) async {
+    final bridge = await telegramBridgeStatus(tenantId);
+    if (bridge == null) return;
+    final cid = ChurchRepository.churchId(tenantId);
+    final botToken = (bridge['botToken'] ?? '').toString().trim();
+    final chatId = (bridge['chatId'] ?? '').toString().trim();
+    if (botToken.isEmpty || chatId.isEmpty) return;
+    try {
+      await threadRef(cid, threadId).set({
+        'telegramChatId': chatId,
+        'telegramBotToken': botToken,
+      }, SetOptions(merge: true));
+    } catch (_) {
+      // best-effort
+    }
+  }
 
   static String dmThreadId(String uidA, String uidB) {
     final a = uidA.compareTo(uidB) < 0 ? uidA : uidB;
@@ -404,6 +449,11 @@ class ChurchChatService {
     );
   }
 
+  /// `createdAt` com Timestamp de cliente — entra já no `orderBy(createdAt)`.
+  /// `FieldValue.serverTimestamp()` deixa o doc fora da query até o servidor
+  /// resolver (Web: hub mostra «🎬 Vídeo» e a thread fica «Sem mensagens ainda»).
+  static Timestamp messageCreatedAtNow() => Timestamp.now();
+
   /// Mensagem + índice do thread no mesmo commit (evita conversa invisível na lista).
   static Future<void> _commitMessageAndThreadIndex({
     required String tenantId,
@@ -422,29 +472,51 @@ class ChurchChatService {
       messageType: messageType,
     );
     final tRef = threadRef(tenantId, threadId);
-    Future<void> commitMobile() =>
+    // Garante createdAt materializado (ordem Telegram: sequência estável).
+    final data = Map<String, dynamic>.from(messageData);
+    if (data['createdAt'] is! Timestamp) {
+      data['createdAt'] = messageCreatedAtNow();
+    }
+    Future<void> commitBatch() =>
         FirestoreWebGuard.runChatWriteWithRecovery(() async {
           final batch = _db.batch();
-          batch.set(msgRef, messageData);
+          batch.set(msgRef, data);
           batch.set(tRef, threadPatch, SetOptions(merge: true));
           await batch.commit();
         });
-    if (kIsWeb) {
-      await AdminFeedFirestoreBridge.upsertDocRef(
-        docRef: msgRef,
-        data: messageData,
-        isNewDoc: true,
-        directWrite: () => msgRef.set(messageData),
-      );
-      await AdminFeedFirestoreBridge.upsertDocRef(
-        docRef: tRef,
-        data: threadPatch,
-        isNewDoc: false,
-        directWrite: () => tRef.set(threadPatch, SetOptions(merge: true)),
-      );
-    } else {
-      await runFirestorePublishWithRecovery(commitMobile);
+    try {
+      // Web + mobile: batch atómico (mensagem e preview juntos).
+      await (kIsWeb
+          ? commitBatch()
+          : runFirestorePublishWithRecovery(commitBatch));
+    } catch (_) {
+      // Fallback sequencial só se batch falhar (SDK Web instável).
+      if (kIsWeb) {
+        await AdminFeedFirestoreBridge.upsertDocRef(
+          docRef: msgRef,
+          data: data,
+          isNewDoc: true,
+          directWrite: () => msgRef.set(data),
+        );
+        await AdminFeedFirestoreBridge.upsertDocRef(
+          docRef: tRef,
+          data: threadPatch,
+          isNewDoc: false,
+          directWrite: () => tRef.set(threadPatch, SetOptions(merge: true)),
+        );
+      } else {
+        rethrow;
+      }
     }
+    // Cache local imediato — reabrir conversa não perde o histórico.
+    unawaited(
+      ChatLocalCacheEngine.upsertOutboundMessage(
+        churchId: tenantId,
+        chatId: threadId,
+        messageId: msgRef.id,
+        data: data,
+      ),
+    );
     unawaited(mergeDmThreadIndexIfNeeded(tenantId, threadId));
     unawaited(
       ChurchChatLocalConversations.recordFromOutbound(
@@ -1802,7 +1874,7 @@ class ChurchChatService {
             'linkUrl': ?linkUrl,
             'deliveryStatus': deliveryStatus,
             'status': deliveryStatus,
-            'createdAt': FieldValue.serverTimestamp(),
+            'createdAt': messageCreatedAtNow(),
             'expiresAt': expiresAt,
             'replyTo': ?nr,
             'forwardedFrom': ?nf,
@@ -1833,6 +1905,13 @@ class ChurchChatService {
         () => commitOnce(deliveryStatus: deliveryStatus),
       );
       unawaited(markThreadLastSeen(tenantId: tid, threadId: threadId));
+      // ── Telegram Bridge: garantir campos no thread para o trigger CF ──
+      unawaited(
+        ensureThreadTelegramBridgeFields(
+          tenantId: tid,
+          threadId: threadId,
+        ).catchError((_) {}),
+      );
       ChurchPublishFlowLog.chatMessageCreated();
       ChurchPublishFlowLog.chatSuccess();
       return (messageId: msgRef.id, allowed: true);
@@ -1930,7 +2009,7 @@ class ChurchChatService {
       'storagePath': sp,
       'deliveryStatus': deliverySending,
       'status': deliverySending,
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': messageCreatedAtNow(),
       'expiresAt': expiresAt,
       'replyTo': ?nr,
       if (label.isNotEmpty)
@@ -2011,7 +2090,7 @@ class ChurchChatService {
       'status': deliverySent,
       if (fileName != null && fileName.trim().isNotEmpty)
         'fileName': fileName.trim(),
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': messageCreatedAtNow(),
       'expiresAt': expiresAt,
       'replyTo': ?nr,
       'forwardedFrom': ?nf,
@@ -2061,7 +2140,7 @@ class ChurchChatService {
       'type': 'sticker',
       'storagePath': sp,
       'stickerSource': stickerSource,
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': messageCreatedAtNow(),
       'expiresAt': expiresAt,
       'replyTo': ?nr,
       if (label.isNotEmpty)
@@ -2320,7 +2399,7 @@ class ChurchChatService {
         'uploadCompleted': false,
         'storageVerified': false,
         'pendingMedia': true,
-        'createdAt': FieldValue.serverTimestamp(),
+        'createdAt': messageCreatedAtNow(),
         'expiresAt': expiresAt,
         if (fileName != null && fileName.trim().isNotEmpty)
           'fileName': fileName.trim(),
@@ -2461,7 +2540,7 @@ class ChurchChatService {
       'senderUid': uid,
       'senderId': uid,
       'type': kind,
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': messageCreatedAtNow(),
       'expiresAt': expiresAt,
       ...ChurchChatMessageFields.mediaWritePatch(
         storagePath: storagePath,

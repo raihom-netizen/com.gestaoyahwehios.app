@@ -1,4 +1,4 @@
-﻿import 'utilitarios_local_service.dart';
+import 'utilitarios_local_service.dart';
 
 /// Resolução de exportação MP4.
 enum UtilitariosVideoExportResolution {

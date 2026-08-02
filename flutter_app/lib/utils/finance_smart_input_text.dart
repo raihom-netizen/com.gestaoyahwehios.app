@@ -1,4 +1,4 @@
-/// Texto colado / importação: remove ruído comum (controlo, zero-width) sem quebrar extratos.
+﻿/// Texto colado / importa├º├úo: remove ru├¡do comum (controlo, zero-width) sem quebrar extratos.
 class FinanceSmartInputText {
   FinanceSmartInputText._();
 
@@ -6,7 +6,7 @@ class FinanceSmartInputText {
     r'[\u200B-\u200D\uFEFF\x00-\x08\x0B\x0C\x0E-\x1F\x7F]',
   );
 
-  /// Limpa caracteres estranhos, NBSP, normaliza espaços.
+  /// Limpa caracteres estranhos, NBSP, normaliza espa├ºos.
   static String sanitize(String s) {
     if (s.isEmpty) return s;
     var t = s

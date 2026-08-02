@@ -51,6 +51,8 @@ import 'package:gestao_yahweh/services/fast_media_publish_bootstrap.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
+import 'package:gestao_yahweh/services/church_chat_video_prepare.dart';
+import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_date_separator.dart';
 import 'package:gestao_yahweh/services/church_chat_diagnostic_service.dart';
@@ -532,7 +534,12 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                 ).timeout(ChurchPanelReadTimeouts.queryCap)
               : await read().timeout(ChurchPanelReadTimeouts.queryCap);
           if (!mounted) return;
+          // Nunca substituir histórico visível por lista vazia (só some se apagar).
           if (docs.isEmpty && _latestRecentDocs.isNotEmpty) return;
+          if (docs.isEmpty) {
+            setState(() => _messagesStreamReady = true);
+            return;
+          }
           _prunePendingOutboundMatchedByStream(docs);
           setState(() {
             _latestRecentDocs = docs;
@@ -1770,6 +1777,16 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                             unawaited(_pickAudioFile());
                           },
                         ),
+                        _WhatsStyleAttachTile(
+                          icon: Icons.videocam_rounded,
+                          label: 'Vídeo',
+                          subtitle: 'galeria',
+                          color: const Color(0xFFDC2626),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            unawaited(_pickVideoFromGallery());
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -2813,6 +2830,101 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
         _sendPickedPlatformFile(files[i], defaultFileName: 'audio_$i.m4a'),
       );
     }
+  }
+
+  /// Pick vídeo da galeria para envio no chat (com compressão automática).
+  Future<void> _pickVideoFromGallery() async {
+    _warmChatFirebaseForPicker();
+    final picked = await MediaHandlerService.instance.pickVideoFromGallery(
+      module: YahwehMediaModule.chat,
+      context: context,
+      maxSizeMb: 100, // Limite de 100MB para chat
+    );
+    if (picked == null || !mounted) return;
+    // Comprime vídeo antes do envio (mobile).
+    if (!kIsWeb) {
+      final prepared = await ChurchChatVideoPrepare.preparePathForUpload(picked.path);
+      if (!mounted) return;
+      final file = File(prepared);
+      final bytes = await file.length();
+      final previewBytes = await _extractVideoThumbnail(prepared);
+      await _uploadAndSendFile(
+        path: prepared,
+        bytes: bytes,
+        name: picked.name,
+        mime: 'video/mp4',
+        kind: 'video',
+        previewBytes: previewBytes,
+      );
+    } else {
+      // Web: envia direto (sem compressão).
+      final bytes = await picked.readAsBytes();
+      await _uploadAndSend(
+        bytes,
+        picked.name,
+        'video/mp4',
+        'video',
+        fileSizeBytes: bytes.length,
+      );
+    }
+  }
+
+  /// Extrai thumbnail do vídeo para preview.
+  Future<Uint8List?> _extractVideoThumbnail(String videoPath) async {
+    if (kIsWeb) return null;
+    try {
+      final thumbFile = await MediaService.getVideoThumbnail(File(videoPath));
+      if (thumbFile == null || !thumbFile.existsSync()) return null;
+      return await thumbFile.readAsBytes();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Envia vídeo já processado (path local).
+  Future<void> _uploadAndSendFile({
+    required String path,
+    required int bytes,
+    required String name,
+    required String mime,
+    required String kind,
+    Uint8List? previewBytes,
+  }) async {
+    final blocked = ChurchChatAttachmentUtils.blockReasonForFileName(name);
+    if (blocked != null) {
+      _showChatAttachmentError(blocked);
+      return;
+    }
+    final kindBlocked = ChurchChatAttachmentUtils.blockReasonForChatKind(kind);
+    if (kindBlocked != null) {
+      _showChatAttachmentError(kindBlocked);
+      return;
+    }
+    _typingDebounce?.cancel();
+    _typingIdleTimer?.cancel();
+    unawaited(
+      ChatThreadOperations.clearTypingForMe(
+        tenantId: _tid,
+        threadId: widget.threadId,
+      ),
+    );
+    final pending = ChurchChatOutboundPending(
+      localId: 'p_${DateTime.now().millisecondsSinceEpoch}_0',
+      kind: kind,
+      mime: mime,
+      fileName: name,
+      localPath: !kIsWeb ? path : null,
+      previewBytes: previewBytes,
+      byteSize: bytes,
+      replyPreview: _replyDraft?.preview,
+    );
+    unawaited(
+      _enqueueAndUploadPending(
+        pending: pending,
+        bytes: null,
+        localPath: !kIsWeb ? path : null,
+      ),
+    );
   }
 
   Future<void> _uploadAndSend(
@@ -4455,13 +4567,13 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                               }
                               final delivery = (m['deliveryStatus'] ?? '')
                                   .toString();
-                              if (delivery == 'uploading' ||
-                                  delivery == 'queued' ||
-                                  delivery == 'sending') {
-                                final sp = ChurchChatMessageFields.storagePath(
-                                  m,
-                                ).trim();
-                                if (sp.isNotEmpty &&
+                              // Mídia já com path/URL: sempre visível (estilo Telegram).
+                              if (ChurchChatMessageFields.hasResolvableMedia(
+                                m,
+                              )) {
+                                if ((delivery == 'uploading' ||
+                                        delivery == 'queued' ||
+                                        delivery == 'sending') &&
                                     (m['senderUid'] ?? '').toString() == uid) {
                                   unawaited(
                                     ChatStrictPublishService.tryFinalizeIfStorageReady(
@@ -4472,15 +4584,17 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
                                     ),
                                   );
                                 }
+                                return true;
+                              }
+                              if (delivery == 'uploading' ||
+                                  delivery == 'queued' ||
+                                  delivery == 'sending') {
                                 final created = m['createdAt'];
                                 // Só abandona/oculta upload preso se for MENSAGEM MINHA
                                 // e sem mídia resolvível — nunca esconder mídia de
                                 // outro remetente nem mensagem já com storagePath.
                                 if (created is Timestamp &&
-                                    (m['senderUid'] ?? '').toString() == uid &&
-                                    !ChurchChatMessageFields.hasResolvableMedia(
-                                      m,
-                                    )) {
+                                    (m['senderUid'] ?? '').toString() == uid) {
                                   final age = DateTime.now().difference(
                                     created.toDate(),
                                   );

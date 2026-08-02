@@ -1,9806 +1,10774 @@
-import 'dart:async' show StreamSubscription, TimeoutException, Timer, unawaited;
+import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/constants/finance_bank_presets.dart';
+import 'package:gestao_yahweh/constants/finance_account_visuals.dart';
+import 'package:gestao_yahweh/constants/finance_export_limits.dart';
+import 'package:gestao_yahweh/models/finance_account.dart';
+import 'package:gestao_yahweh/services/finance_accounts_service.dart';
+import 'package:gestao_yahweh/services/finance_advanced_settings_service.dart';
+import 'categories_config_page.dart';
+import 'finance_accounts_page.dart';
+import 'finance_bulk_assign_page.dart';
+import 'package:gestao_yahweh/utils/finance_export_csv.dart';
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import 'package:flutter/material.dart' hide showDatePicker;
+import 'package:gestao_yahweh/ui/widgets/fast_text_field.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:fl_chart/fl_chart.dart';
-import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
-import 'package:gestao_yahweh/core/church_shell_indices.dart';
-import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
-import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
-import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
-import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
-import 'package:gestao_yahweh/services/finance_comprovante_attach_flow.dart';
-import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
-import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
-import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
-import 'package:gestao_yahweh/services/finance_comprovante_update_service.dart';
-import 'package:gestao_yahweh/ui/widgets/finance_comprovante_editor.dart';
-import 'package:gestao_yahweh/services/firebase_storage_service.dart';
-import 'package:gestao_yahweh/core/yahweh_central_engine_service.dart';
-import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
-import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/firebase_paths.dart';
-import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
-import 'package:gestao_yahweh/core/brasil_bancos.dart';
-import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
-import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
-import 'package:gestao_yahweh/core/finance_tenant_settings.dart';
-import 'package:gestao_yahweh/services/app_permissions.dart';
-import 'package:gestao_yahweh/services/app_connectivity_service.dart';
-import 'package:gestao_yahweh/services/image_helper.dart';
-import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
-import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
-import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
-import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
-import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
-import 'package:gestao_yahweh/utils/br_input_formatters.dart';
-import 'package:gestao_yahweh/ui/pages/finance_receitas_recorrentes_tabs.dart';
-import 'package:gestao_yahweh/services/despesas_fixas_geracao_service.dart';
-import 'package:gestao_yahweh/ui/widgets/finance_resumo_charts_section.dart';
-import 'package:gestao_yahweh/ui/widgets/finance_fixo_premium_dialogs.dart';
-import 'package:gestao_yahweh/services/finance_audit_log_service.dart';
-import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
-import 'package:gestao_yahweh/services/finance_account_migrate_service.dart';
-import 'package:gestao_yahweh/ui/pages/finance_bulk_assign_page.dart';
-import 'package:gestao_yahweh/ui/pages/finance_smart_input_page.dart';
-import 'package:gestao_yahweh/ui/pages/relatorios_page.dart'
-    show RelatorioFinanceiroPage;
-import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
-import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
-import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
-import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
-import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fa;
+import 'package:file_picker/file_picker.dart';
+import 'package:gestao_yahweh/constants/currency_formats.dart';
+import 'package:gestao_yahweh/models/user_profile.dart';
+import 'package:gestao_yahweh/services/user_categories_service.dart';
+import 'package:gestao_yahweh/services/logs_service.dart';
+import 'package:gestao_yahweh/services/functions_service.dart';
+import 'package:gestao_yahweh/services/finance_receipt_upload_service.dart';
+import 'package:gestao_yahweh/services/transaction_save_service.dart';
+import 'package:gestao_yahweh/core/finance_app_colors.dart';
+import 'package:gestao_yahweh/core/finance_theme_context.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
-import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
-import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
-import 'package:gestao_yahweh/services/church_finance_load_service.dart';
-import 'package:gestao_yahweh/services/finance_church_bootstrap_service.dart';
-import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
-import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
-import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
-import 'package:gestao_yahweh/services/panel_finance_accounts_snapshot_service.dart';
-import 'package:gestao_yahweh/ui/widgets/finance_premium_widgets.dart';
-import 'package:gestao_yahweh/ui/widgets/finance_premium_lancamento_ui.dart';
-import 'package:gestao_yahweh/ui/widgets/church_signatory_picker_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
+import 'package:gestao_yahweh/ui/widgets/skeleton_loader.dart';
+import 'package:gestao_yahweh/utils/premium_upgrade.dart';
+import 'package:gestao_yahweh/utils/firestore_query_batched_collect.dart';
+import 'package:gestao_yahweh/utils/friendly_error.dart';
+import 'novo_lancamento_page.dart';
+import 'package:gestao_yahweh/models/smart_input_pop_result.dart';
+import 'package:gestao_yahweh/services/finance_opening_balance_service.dart';
+import 'package:gestao_yahweh/services/finance_service.dart';
+import 'smart_input_page.dart';
+import 'despesas_fixas_page.dart';
+import 'receitas_fixas_page.dart';
+import 'anexo_viewer_page.dart';
+import 'package:gestao_yahweh/services/fixed_expense_preferences_service.dart';
+import 'package:gestao_yahweh/services/fixed_income_preferences_service.dart';
+import 'package:gestao_yahweh/services/fixed_expense_service.dart';
+import 'package:gestao_yahweh/services/fixed_income_service.dart';
+import 'package:gestao_yahweh/utils/finance_line_opening.dart';
+import 'package:gestao_yahweh/utils/finance_goal_tx_delete.dart';
+import 'package:gestao_yahweh/services/goal_deposit_service.dart';
+import 'package:gestao_yahweh/utils/finance_transaction_datetime.dart';
+import 'package:gestao_yahweh/utils/finance_period_summary.dart';
+import 'package:gestao_yahweh/utils/home_shell_layout.dart';
+import 'package:gestao_yahweh/utils/finance_main_period_server.dart';
+import 'package:gestao_yahweh/utils/finance_insight_query.dart';
+import 'package:gestao_yahweh/utils/finance_transactions_realtime.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_sparkline.dart';
+import 'package:gestao_yahweh/ui/widgets/brl_amount_text_field.dart';
+import 'package:gestao_yahweh/constants/finance_category_visuals.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_category_picker.dart';
+import 'package:gestao_yahweh/utils/anexo_viewer_helper.dart';
+import 'package:gestao_yahweh/constants/finance_tips.dart';
+import 'package:gestao_yahweh/constants/app_strings.dart';
+import 'package:gestao_yahweh/constants/app_business_rules.dart';
+import 'package:gestao_yahweh/services/first_time_hint_service.dart';
+import 'package:intl/intl.dart';
+import 'package:gestao_yahweh/constants/date_time_formats.dart';
+import 'package:gestao_yahweh/services/relatorio_service.dart';
+import 'report_preview_page.dart';
+import 'package:gestao_yahweh/utils/date_picker_a11y.dart';
+import 'package:gestao_yahweh/ui/widgets/app_pie_chart.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_account_category_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_smart_tips_insight.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_bank_brand_thumb.dart';
+import 'package:gestao_yahweh/services/finance_transfer_service.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_transfer_bottom_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_transaction_edit_dialog.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_transaction_list_tile.dart';
+import 'package:gestao_yahweh/utils/finance_fatura_transaction_sort.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_transaction_sort_bar.dart';
+import 'finance_transactions_fullscreen_page.dart';
+import 'finance_categories_fullscreen_page.dart';
+import 'finance_assistant_insights_page.dart';
+import 'package:gestao_yahweh/services/delegate_access_service.dart';
+import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart'
+    show
+        firestoreUserDocIdForAppShell,
+        firestoreUserDocIdForModuleReads,
+        firestoreUserDocIdStrictFromSession;
+import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
+import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
+import 'package:gestao_yahweh/utils/finance_shell_navigation.dart';
+import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
+import 'package:gestao_yahweh/services/finance_month_cache.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_premium_ui.dart';
+import 'package:gestao_yahweh/ui/widgets/light_filter_picker.dart';
+import 'package:gestao_yahweh/ui/widgets/modern_pdf_period_dialog.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_confirm_payment_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_credit_card_fatura_sheet.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_fatura_em_aberto_hub.dart';
+import 'package:gestao_yahweh/utils/finance_account_balance_utils.dart';
+import 'package:gestao_yahweh/utils/pdf_financeiro_super_extrato.dart';
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Categorias padrão (seed quando coleções vazias)
-// ───────────────────────────────────────────────────────────────────────────────
-const _categoriasReceitaPadrao = [
-  'Aluguéis Recebidos',
-  'Dízimos',
-  'Doações',
-  'Inscrições em Eventos',
-  'Ofertas Missionárias',
-  'Ofertas Voluntárias',
-  'Vendas de Produtos',
-  'Campanhas',
-  'Outros',
-];
+class FinanceScreen extends StatefulWidget {
+  final String uid;
+  final UserProfile profile;
+  final void Function(int index)? onNavigateTo;
 
-const _mesesAbrev = [
-  'Jan',
-  'Fev',
-  'Mar',
-  'Abr',
-  'Mai',
-  'Jun',
-  'Jul',
-  'Ago',
-  'Set',
-  'Out',
-  'Nov',
-  'Dez'
-];
+  /// Shell: false quando outro módulo está ativo — pausa streams e acelera o app.
+  final bool isShellVisible;
 
-bool _financeUiCanDeleteLancamento(String role) =>
-    AppPermissions.canDeleteFinanceLancamento(role);
+  /// Scroll da lista principal — o shell faz [jumpTo(0)] ao entrar/sair do Financeiro.
+  final ScrollController? shellScrollController;
 
-Future<void> _excluirLancamentoComAuditoria(
-  DocumentSnapshot<Map<String, dynamic>> doc,
-  String tenantId,
-) async {
-  final data = Map<String, dynamic>.from(doc.data() ?? {});
-  // Lápide ANTES do delete — caches não «ressuscitam» o lançamento.
-  TenantDeletedDocTombstones.mark(
-    tenantId,
-    TenantModuleKeys.financeiro,
-    [doc.id],
-  );
-  // Auditoria best-effort — nunca bloquear a exclusão (permission-denied no log).
-  try {
-    await logFinanceiroAuditoria(
-      tenantId: tenantId,
-      acao: 'exclusao',
-      lancamentoId: doc.id,
-      dadosAntes: data,
-    );
-  } catch (_) {}
-  if (kIsWeb) {
-    await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
-  }
-  await FirestoreWebGuard.runWithWebRecovery(
-    () => doc.reference.delete(),
-    maxAttempts: 2,
-  );
-  ChurchCanonicalMediaDeleteService.scheduleComprovanteArtifactsDeleted(
-    tenantId: tenantId,
-    lancamentoId: doc.id,
-    data: data,
-  );
-  // Invalida RAM/Hive do financeiro — sem isto o lançamento volta na lista.
-  unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
-}
-
-/// Outros módulos (ex.: Fornecedores) — mesma exclusão com auditoria que o Financeiro.
-Future<void> excluirLancamentoFinanceiroComAuditoria(
-  DocumentSnapshot<Map<String, dynamic>> doc,
-  String tenantId,
-) =>
-    _excluirLancamentoComAuditoria(doc, tenantId);
-
-// Padrão de cores do módulo financeiro: entradas azul, saídas vermelho, saldo positivo verde, negativo vermelho
-const Color _financeEntradas = Color(0xFF2563EB); // azul — receitas/entradas
-const Color _financeSaidas = Color(0xFFDC2626); // vermelho — despesas/saídas
-const Color _financeSaldoPositivo = Color(0xFF16A34A); // verde — saldo positivo
-const Color _financeSaldoNegativo =
-    Color(0xFFDC2626); // vermelho — saldo negativo
-const Color _financeTransferencia =
-    Color(0xFF6366F1); // índigo — transferências
-
-/// Rótulo do tipo de conta (alinha com cadastro em Contas).
-String _financeTipoContaLabel(String? raw) {
-  switch ((raw ?? '').toLowerCase()) {
-    case 'poupanca':
-    case 'poupança':
-      return 'Poupança';
-    case 'caixa':
-      return 'Caixa / numerário';
-    case 'cartao_credito':
-    case 'cartao':
-      return 'Cartão de crédito';
-    default:
-      return 'Conta corrente';
-  }
-}
-
-/// Nome para exibição: `nome` preenchido no Firestore; senão combina banco + tipo (evita linhas vazias quando `nome` é string vazia).
-String _financeContaDisplayName(Map<String, dynamic> d) {
-  final nome = (d['nome'] ?? '').toString().trim();
-  if (nome.isNotEmpty) return nome;
-  final banco = (d['bancoNome'] ?? '').toString().trim();
-  final tipo = _financeTipoContaLabel(d['tipoConta']?.toString());
-  if (banco.isNotEmpty) return '$banco · $tipo';
-  return tipo;
-}
-
-/// Nome curto do banco para identificação visual na linha da conta.
-String _financeContaBancoNome(Map<String, dynamic> d) {
-  final banco = (d['bancoNome'] ?? '').toString().trim();
-  if (banco.isNotEmpty) return banco;
-  final codigo = (d['bancoCodigo'] ?? '').toString().trim();
-  if (codigo.isNotEmpty) {
-    final fromList = kBrasilBancosComuns.where((b) => b.codigo == codigo);
-    if (fromList.isNotEmpty) return fromList.first.nome;
-    return 'Banco $codigo';
-  }
-  return 'Caixa / interno';
-}
-
-/// Cor por banco (determinística) para facilitar leitura rápida das contas.
-Color _financeContaBancoColor(Map<String, dynamic> d) {
-  final branding = brasilBancoBrandingFor(
-    codigo: (d['bancoCodigo'] ?? '').toString(),
-    nome: _financeContaBancoNome(d),
-  );
-  if (branding != kBrasilBancoBrandingFallback) {
-    return Color(branding.colorHex);
-  }
-  final banco = _financeContaBancoNome(d).toLowerCase();
-  const palette = <Color>[
-    Color(0xFF2563EB),
-    Color(0xFF7C3AED),
-    Color(0xFF0EA5E9),
-    Color(0xFF14B8A6),
-    Color(0xFFDC2626),
-    Color(0xFFDB2777),
-    Color(0xFF0891B2),
-  ];
-  final idx = banco.hashCode.abs() % palette.length;
-  return palette[idx];
-}
-
-Widget _financeBankMiniLogo({
-  required String bancoCodigo,
-  required String bancoNome,
-  double size = 28,
-  double fontSize = 11,
-}) {
-  final branding = brasilBancoBrandingFor(codigo: bancoCodigo, nome: bancoNome);
-  final color = Color(branding.colorHex);
-  final bg = color.withValues(alpha: 0.16);
-  final initials = branding.initials.trim().isNotEmpty
-      ? branding.initials.trim()
-      : (bancoNome.trim().isEmpty ? 'BK' : bancoNome.trim().substring(0, 1).toUpperCase());
-  final logoPath = (branding.miniLogoAssetPath ?? '').trim();
-  final fallback = Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(
-      color: bg,
-      shape: BoxShape.circle,
-      border: Border.all(color: color.withValues(alpha: 0.42)),
-    ),
-    alignment: Alignment.center,
-    child: Text(
-      initials,
-      style: TextStyle(
-        fontSize: fontSize,
-        fontWeight: FontWeight.w900,
-        letterSpacing: -0.1,
-        color: color,
-      ),
-    ),
-  );
-  if (logoPath.isEmpty) return fallback;
-  return ClipOval(
-    child: Image.asset(
-      logoPath,
-      width: size,
-      height: size,
-      fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => fallback,
-    ),
-  );
-}
-
-Future<void> _seedFinanceCategoriasReceitaFirestore(
-  CollectionReference<Map<String, dynamic>> col,
-) async {
-  try {
-    final probe = await col.limit(1).get();
-    if (probe.docs.isNotEmpty) return;
-    for (final nome in _categoriasReceitaPadrao) {
-      await col.add(
-          {'nome': nome, 'ordem': _categoriasReceitaPadrao.indexOf(nome)});
-    }
-  } catch (_) {}
-}
-
-Future<List<String>> _financeCategoriasReceitaTenant(String tenantId) async {
-  try {
-    final op = ChurchRepository.churchId(tenantId);
-    if (op.isEmpty) return List<String>.from(_categoriasReceitaPadrao);
-    final col = ChurchUiCollections.churchDoc(op)
-        .collection('categorias_receitas');
-    final snap = await col.orderBy('nome').get();
-    if (snap.docs.isEmpty) {
-      unawaited(_seedFinanceCategoriasReceitaFirestore(col));
-      return List<String>.from(_categoriasReceitaPadrao);
-    }
-    final nomes = snap.docs
-        .map((d) => (d.data()['nome'] ?? '').toString())
-        .where((s) => s.isNotEmpty);
-    final seen = <String>{};
-    final list = nomes.where((n) => seen.add(n)).toList();
-    return list.isEmpty ? List<String>.from(_categoriasReceitaPadrao) : list;
-  } catch (_) {
-    return List<String>.from(_categoriasReceitaPadrao);
-  }
-}
-
-List<({String id, String nome})> _financeContasFromRamDocs(
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-) =>
-    docs
-        .where((d) => d.data()['ativo'] != false)
-        .map((d) => (id: d.id, nome: _financeContaDisplayName(d.data())))
-        .where((e) => e.nome.isNotEmpty)
-        .toList();
-
-Future<List<({String id, String nome})>> _financeContasAtivasTenant(
-    String tenantId) async {
-  try {
-    final op = ChurchRepository.churchId(tenantId);
-    if (op.isEmpty) return const [];
-    final ram = ChurchFinanceLoadService.peekContasRam(op);
-    if (ram != null && ram.isNotEmpty) {
-      return _financeContasFromRamDocs(ram);
-    }
-    final snap = await ChurchUiCollections.churchDoc(op)
-        .collection('contas')
-        .orderBy('nome')
-        .get();
-    return _financeContasFromRamDocs(snap.docs);
-  } catch (_) {
-    return const [];
-  }
-}
-
-Future<T> _financeEditorBootstrapTimeout<T>(
-  Future<T> future,
-  T fallback,
-) =>
-    future.timeout(const Duration(seconds: 4), onTimeout: () => fallback);
-
-class _FinancePdfSignerSelection {
-  final String leftName;
-  final String rightName;
-  final Uint8List? leftSignatureBytes;
-  final Uint8List? rightSignatureBytes;
-  final bool showDigitalSignatures;
-  final PdfDigitalStampInput? leftDigitalStamp;
-  final PdfDigitalStampInput? rightDigitalStamp;
-
-  const _FinancePdfSignerSelection({
-    required this.leftName,
-    required this.rightName,
-    required this.leftSignatureBytes,
-    required this.rightSignatureBytes,
-    required this.showDigitalSignatures,
-    this.leftDigitalStamp,
-    this.rightDigitalStamp,
-  });
-}
-
-Future<Uint8List?> _financeTryLoadSignatureBytes(String rawUrl) async {
-  final url = sanitizeImageUrl(rawUrl.trim());
-  if (url.isEmpty) return null;
-  final bytes = await ImageHelper.getBytesFromUrlOrNull(
-    url,
-    timeout: const Duration(seconds: 14),
-  );
-  if (bytes == null || bytes.length < 24) return null;
-  return bytes;
-}
-
-Future<_FinancePdfSignerSelection?> _pickFinancePdfSigners(
-  BuildContext context, {
-  required String tenantId,
-}) async {
-  final signers = await ChurchSignatoryLoadService.loadEligible(
-    seedTenantId: tenantId,
-  );
-  if (!context.mounted) return null;
-
-  final picked = await showChurchDualSignatoryDialog(
-    context,
-    title: 'Assinaturas do PDF financeiro',
-    signers: signers,
-  );
-  if (picked == null || !context.mounted) return null;
-
-  Map<String, dynamic> churchData = {};
-  String churchName = '';
-  try {
-    final snap = await ChurchRepository.churchDoc(tenantId).get();
-    churchData = snap.data() ?? {};
-    churchName = churchTaxIdChurchNameFromMap(churchData);
-  } catch (_) {}
-
-  PdfDigitalStampInput? leftStamp;
-  PdfDigitalStampInput? rightStamp;
-  if (picked.digital) {
-    if (picked.left != null) {
-      leftStamp = PdfDigitalStampInput.now(
-        signerName: picked.left!.nome,
-        signerCpfDigits: picked.left!.cpfDigits,
-        churchName: churchName,
-        churchData: churchData,
-      );
-    }
-    if (picked.right != null) {
-      rightStamp = PdfDigitalStampInput.now(
-        signerName: picked.right!.nome,
-        signerCpfDigits: picked.right!.cpfDigits,
-        churchName: churchName,
-        churchData: churchData,
-      );
-    }
-  }
-
-  return _FinancePdfSignerSelection(
-    leftName: picked.left?.nome ?? 'Tesoureiro(a)',
-    rightName: picked.right?.nome ?? 'Pastor Presidente',
-    leftSignatureBytes: null,
-    rightSignatureBytes: null,
-    showDigitalSignatures: picked.digital,
-    leftDigitalStamp: leftStamp,
-    rightDigitalStamp: rightStamp,
-  );
-}
-
-/// PDF Super Premium — lançamentos financeiros (lista completa ou filtrada).
-Future<void> exportFinanceiroRelatorioPdf({
-  required BuildContext context,
-  required String tenantId,
-  required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  List<String> filterSummaryLines = const [],
-  String filename = 'financeiro_relatorio.pdf',
-  String leftSignerName = 'Tesoureiro(a)',
-  String rightSignerName = 'Pastor Presidente',
-  Uint8List? leftSignatureBytes,
-  Uint8List? rightSignatureBytes,
-  bool showDigitalSignatures = false,
-  PdfDigitalStampInput? leftDigitalStamp,
-  PdfDigitalStampInput? rightDigitalStamp,
-}) async {
-  if (docs.isEmpty) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nenhum lançamento para exportar.')),
-      );
-    }
-    return;
-  }
-  try {
-    final branding = await loadReportPdfBranding(tenantId);
-    if (!context.mounted) return;
-    double entradas = 0, saidas = 0;
-    final data = docs.map((d) {
-      final m = d.data();
-      final tipo = (m['type'] ?? m['tipo'] ?? 'entrada').toString();
-      final valor = (m['amount'] ?? m['valor'] ?? 0) is num
-          ? (m['amount'] ?? m['valor'] ?? 0) as num
-          : 0.0;
-      final tl = tipo.toLowerCase();
-      if (tl.contains('entrada') || tl == 'receita') {
-        entradas += valor.toDouble();
-      } else if (tl != 'transferencia') {
-        saidas += valor.toDouble();
-      }
-      final ts = m['createdAt'];
-      String dataStr = '';
-      if (ts is Timestamp) {
-        dataStr = DateFormat('dd/MM/yyyy').format(ts.toDate());
-      }
-      return [
-        dataStr,
-        tipo,
-        (m['categoria'] ?? '').toString(),
-        (m['descricao'] ?? '').toString(),
-        valor.toStringAsFixed(2)
-      ];
-    }).toList();
-    final pdf = await PdfSuperPremiumTheme.newPdfDocument();
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4.landscape,
-        margin: PdfSuperPremiumTheme.pageMargin,
-        header: (ctx) => pw.Padding(
-          padding: const pw.EdgeInsets.only(bottom: 12),
-          child: PdfSuperPremiumTheme.header(
-            'Relatório Financeiro',
-            branding: branding,
-            extraLines: [
-              ...filterSummaryLines,
-              if (filterSummaryLines.isNotEmpty) '---',
-              'Entradas: R\$${entradas.toStringAsFixed(2)}',
-              'Saídas: R\$${saidas.toStringAsFixed(2)}',
-              'Saldo: R\$${(entradas - saidas).toStringAsFixed(2)}',
-            ],
-          ),
-        ),
-        footer: (ctx) => PdfSuperPremiumTheme.footer(
-          ctx,
-          churchName: branding.churchName,
-        ),
-        build: (ctx) => [
-          PdfSuperPremiumTheme.fromTextArray(
-            headers: const [
-              'Data',
-              'Tipo',
-              'Categoria',
-              'Descrição',
-              'Valor (R\$)'
-            ],
-            data: data,
-            accent: branding.accent,
-            columnWidths: PdfSuperPremiumTheme.columnWidthsFinanceiroReport,
-          ),
-          pw.SizedBox(height: 22),
-          PdfSuperPremiumTheme.reportDualSignatureAttestation(
-            accent: branding.accent,
-            leftSignerName: leftSignerName,
-            rightSignerName: rightSignerName,
-            leftSignatureImageBytes: leftSignatureBytes,
-            rightSignatureImageBytes: rightSignatureBytes,
-            showDigitalSignatures: showDigitalSignatures,
-            leftDigitalStamp: leftDigitalStamp,
-            rightDigitalStamp: rightDigitalStamp,
-          ),
-        ],
-      ),
-    );
-    final bytes = Uint8List.fromList(await pdf.save());
-    if (context.mounted) {
-      await showPdfActions(context, bytes: bytes, filename: filename);
-    }
-  } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao exportar PDF: $e')),
-      );
-    }
-  }
-}
-
-/// PDF — despesas agrupadas por fornecedor (nome denormalizado no lançamento).
-Future<void> exportFinanceiroDespesasPorFornecedorPdf({
-  required BuildContext context,
-  required String tenantId,
-  required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  List<String> filterSummaryLines = const [],
-  String filename = 'financeiro_despesas_por_fornecedor.pdf',
-  String leftSignerName = 'Tesoureiro(a)',
-  String rightSignerName = 'Pastor Presidente',
-  Uint8List? leftSignatureBytes,
-  Uint8List? rightSignatureBytes,
-  bool showDigitalSignatures = false,
-  PdfDigitalStampInput? leftDigitalStamp,
-  PdfDigitalStampInput? rightDigitalStamp,
-}) async {
-  final despesas = docs.where((d) {
-    final m = d.data();
-    final t = (m['type'] ?? m['tipo'] ?? '').toString().toLowerCase();
-    if (t == 'transferencia') return false;
-    return t.contains('saida') ||
-        t.contains('saída') ||
-        t.contains('despesa');
-  }).toList();
-  if (despesas.isEmpty) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text(
-                'Nenhuma despesa no filtro para agrupar por fornecedor.')),
-      );
-    }
-    return;
-  }
-  try {
-    final branding = await loadReportPdfBranding(tenantId);
-    if (!context.mounted) return;
-    final agg = <String, ({double total, int n})>{};
-    for (final d in despesas) {
-      final m = d.data();
-      final nome = (m['fornecedorNome'] ?? '').toString().trim();
-      final key = nome.isEmpty ? '(Sem fornecedor)' : nome;
-      final raw = m['amount'] ?? m['valor'] ?? 0;
-      final v = raw is num ? raw.toDouble() : double.tryParse('$raw') ?? 0;
-      final cur = agg[key] ?? (total: 0.0, n: 0);
-      agg[key] = (total: cur.total + v, n: cur.n + 1);
-    }
-    final totalGeral = agg.values.fold<double>(0, (a, e) => a + e.total);
-    final rows = agg.entries.toList()
-      ..sort((a, b) => b.value.total.compareTo(a.value.total));
-    final data = rows.map((e) {
-      final pct = totalGeral > 0 ? (e.value.total / totalGeral * 100) : 0.0;
-      return [
-        e.key,
-        e.value.total.toStringAsFixed(2),
-        '${e.value.n}',
-        '${pct.toStringAsFixed(1)}%',
-      ];
-    }).toList();
-    final pdf = await PdfSuperPremiumTheme.newPdfDocument();
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4.landscape,
-        margin: PdfSuperPremiumTheme.pageMargin,
-        header: (ctx) => pw.Padding(
-          padding: const pw.EdgeInsets.only(bottom: 12),
-          child: PdfSuperPremiumTheme.header(
-            'Despesas por fornecedor',
-            branding: branding,
-            extraLines: [
-              ...filterSummaryLines,
-              if (filterSummaryLines.isNotEmpty) '---',
-              'Total despesas: R\$${totalGeral.toStringAsFixed(2)}',
-              'Fornecedores distintos: ${agg.length}',
-            ],
-          ),
-        ),
-        footer: (ctx) => PdfSuperPremiumTheme.footer(
-          ctx,
-          churchName: branding.churchName,
-        ),
-        build: (ctx) => [
-          PdfSuperPremiumTheme.fromTextArray(
-            headers: const [
-              'Fornecedor',
-              'Total (R\$)',
-              'Lançamentos',
-              '% do total',
-            ],
-            data: data,
-            accent: branding.accent,
-            columnWidths: {
-              0: const pw.FlexColumnWidth(3.2),
-              1: const pw.FlexColumnWidth(1.1),
-              2: const pw.FlexColumnWidth(0.95),
-              3: const pw.FlexColumnWidth(0.85),
-            },
-          ),
-          pw.SizedBox(height: 22),
-          PdfSuperPremiumTheme.reportDualSignatureAttestation(
-            accent: branding.accent,
-            leftSignerName: leftSignerName,
-            rightSignerName: rightSignerName,
-            leftSignatureImageBytes: leftSignatureBytes,
-            rightSignatureImageBytes: rightSignatureBytes,
-            showDigitalSignatures: showDigitalSignatures,
-            leftDigitalStamp: leftDigitalStamp,
-            rightDigitalStamp: rightDigitalStamp,
-          ),
-        ],
-      ),
-    );
-    final bytes = Uint8List.fromList(await pdf.save());
-    if (context.mounted) {
-      await showPdfActions(context, bytes: bytes, filename: filename);
-    }
-  } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao exportar PDF: $e')),
-      );
-    }
-  }
-}
-
-Future<void> showFinanceTenantMetasEditor(
-  BuildContext context, {
-  required String tenantId,
-  required FinanceTenantSettings initial,
-}) async {
-  await showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (ctx) => _FinanceMetasEditorSheet(
-      tenantId: tenantId,
-      initial: initial,
-    ),
-  );
-}
-
-class _FinanceMetasEditorSheet extends StatefulWidget {
-  final String tenantId;
-  final FinanceTenantSettings initial;
-
-  const _FinanceMetasEditorSheet({
-    required this.tenantId,
-    required this.initial,
+  const FinanceScreen({
+    super.key,
+    required this.uid,
+    required this.profile,
+    this.onNavigateTo,
+    this.isShellVisible = true,
+    this.shellScrollController,
   });
 
   @override
-  State<_FinanceMetasEditorSheet> createState() =>
-      _FinanceMetasEditorSheetState();
+  State<FinanceScreen> createState() => _FinanceScreenState();
 }
 
-class _FinanceMetasEditorSheetState extends State<_FinanceMetasEditorSheet> {
-  late final TextEditingController _limiteCtrl;
-  final List<({TextEditingController cat, TextEditingController valor})> _rows =
-      [];
-  List<String> _catsDespesa = [];
-  bool _loadingCats = true;
-  bool _saving = false;
+class _FinanceScreenState extends State<FinanceScreen> {
+  static const Color _kPdfActionOrange = Color(0xFFEA580C);
 
-  @override
-  void initState() {
-    super.initState();
-    _limiteCtrl = TextEditingController(
-      text: widget.initial.limiteAprovacaoDespesa > 0
-          ? formatBrCurrencyInitial(widget.initial.limiteAprovacaoDespesa)
-          : '',
-    );
-    for (final e in widget.initial.orcamentosDespesa.entries) {
-      _rows.add((
-        cat: TextEditingController(text: e.key),
-        valor: TextEditingController(
-          text: e.value > 0 ? formatBrCurrencyInitial(e.value) : '',
-        ),
-      ));
+  /// Filtro de período simples: Mensal, Anual ou Por período.
+  static const List<String> _periods = ['Mensal', 'Anual', 'Por período'];
+  String _selectedPeriod = 'Mensal';
+  DateTime? _customRangeStart;
+  DateTime? _customRangeEnd;
+
+  /// Datas do período atual (inicializadas em sync com Anual).
+  late DateTime _from;
+  late DateTime _to;
+
+  /// Padrão: despesas pagas e receitas recebidas (usuário pode alterar para Todos/Pendente).
+  String _statusFilter = 'paid';
+
+  /// `all` | `income` | `expense` — filtra a lista e os totais do período na tela.
+  String _typeFilter = 'all';
+
+  /// Filtro rápido da grid principal: Todos / Despesas / Receitas (só visualização).
+  String _gridListTypeFilter = 'all';
+  FinanceFaturaTxSortMode _gridSortMode = FinanceFaturaTxSortMode.dateDesc;
+  String? _categoryFilter;
+  late Future<List<String>> _categoryFilterOptionsFuture;
+  bool _categoryFilterOptionsPrimed = false;
+  String _search = '';
+  final _searchCtrl = TextEditingController();
+  Timer? _searchDebounceTimer;
+
+  /// true = cabeçalho premium + botões; false = só barra compacta (mais espaço para a lista).
+  bool _topoExpandido = false;
+
+  /// Período, status e pesquisa — inicia fechado a cada entrada no módulo (novo State ao trocar de aba).
+  bool _filtrosPainelAberto = false;
+
+  /// IDs com confirmação otimista: UI mostra "Pago" na hora; gravação em segundo plano.
+  final Set<String> _optimisticPaidIds = {};
+
+  /// Patch otimista de edição por docId (evita sensação de lentidão ao salvar).
+  final Map<String, Map<String, dynamic>> _optimisticEditedTxById = {};
+  Timer? _delayedMainPeriodReloadTimer;
+
+  /// Força refresh das faixas de pendentes após mudança remota (debounced).
+  /// Cache do saldo de abertura por período (igual painel e relatórios).
+  String _saldoAberturaKey = '';
+
+  /// Saldo em memória — evita FutureBuilder piscar (valor estável + refresh suave).
+  ({double total, Map<String, double> byAccount})? _saldoAberturaCached;
+
+  /// Modo seleção na grid de lançamentos: permite excluir vários de uma vez.
+  bool _gridSelectionMode = false;
+  final Set<String> _gridSelectedIds = {};
+  StreamSubscription<List<FinanceAccount>>? _financeAccSub;
+  List<FinanceAccount> _financeAccounts = [];
+
+  /// null = lista completa; id = só lançamentos daquela conta.
+  String? _financeAccountFilterId;
+  StreamSubscription<bool>? _stripHideZeroSub;
+  bool _stripHideZeroBalances = false;
+  bool _financeAccountsStreamPrimed = false;
+
+  /// Lista principal: evita renderizar milhares de cards de uma vez.
+  static const int _txPageSize = 150;
+  int _txDisplayLimit = _txPageSize;
+
+  /// Força nova subscrição ao `snapshots()` (ex.: após erro, ou mudança de plano/PRO).
+  int _txStreamRetryKey = 0;
+
+  /// Carregamento do período em páginas (lista principal — não bloqueia até ao último batch).
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _mainPeriodDocs = [];
+  bool _mainPeriodLoading = true;
+
+  /// Barra «A sincronizar…» só no pull-to-refresh explícito (não em mutações nem sync em background).
+  bool _mainPeriodPullRefreshing = false;
+  Object? _mainPeriodLoadError;
+  int _mainPeriodLoadedCount = 0;
+  String _mainPeriodScheduledLoadKey = '';
+  int _mainPeriodLoadGeneration = 0;
+
+  /// Lista com menos dados na rede: [limit] + [startAfter] quando filtros cabem em [where] no Firestore.
+  static const int _kMainPeriodFirestorePageSize = 200;
+  DocumentSnapshot<Map<String, dynamic>>? _mainPeriodFirestoreCursor;
+  bool _mainPeriodHasMoreServer = false;
+  bool _mainPeriodServerPagingActive = false;
+  ({double income, double expense})? _mainPeriodServerKpis;
+  ({double income, double expense})? _periodMergedKpis;
+  bool _mainPeriodLoadingMore = false;
+
+  /// Lista principal paginada no Firestore: só ~200 docs em memória — saldos por
+  /// conta precisam de leitura completa do período (batched) para bater com os lançamentos.
+  Map<String, double> _serverPagingStripPaidNetByAccount = const {};
+  int _serverPagingStripNetForGen = -1;
+
+  /// Chave período+filtros — só zera KPIs/saldos por conta quando isto muda (não no pull-to-refresh).
+  String _financeBalanceContextKeyApplied = '';
+  StreamSubscription<fa.User?>? _authStateSub;
+
+  /// Evita abrir streams de contas antes de [FirebaseAuth] ter `currentUser` (regras exigem `request.auth`).
+  bool _financeUserStreamsBound = false;
+
+  /// Último uid com que as subscrições de contas foram abertas (troca de conta = reabrir).
+  String? _lastBoundFinanceAuthUid;
+  String? _lastBoundFinanceDataUid;
+
+  /// Só força novo carregamento da lista quando o uid da sessão muda — `authStateChanges` pode repetir o mesmo utilizador e apagava a UI à bruta.
+  String? _lastAuthUidForFinancePeriodReset;
+
+  /// Último uid válido — evita tela «offline» quando o Auth emite null transitório no resume.
+  String? _lastKnownGoodFinanceUid;
+  Timer? _financeSessionBootstrapTimer;
+  bool _financeBootstrapDone = false;
+  bool _pdfWarmupScheduled = false;
+
+  // PERF (Fase 2 — Financeiro): os streams de pendentes/preferências eram
+  // recriados a CADA build (novo listener Firestore por rebuild) e a query de
+  // despesas pendentes tinha 3 assinaturas. Agora cada query é assinada UMA vez
+  // (broadcast) e reaproveitada por todos os StreamBuilders.
+  //
+  // Segurança contra "piscar/vazio": um "tracker" interno guarda o último valor
+  // emitido; os StreamBuilders recebem esse valor via `initialData`, então quando
+  // uma faixa desmonta/remonta (ex.: troca de aba do shell) ela renderiza na hora
+  // o último dado conhecido — sem flash de carregamento e sem perder eventos.
+  //
+  // Como dependem só do uid, ficam válidos por toda a vida da tela; em troca de
+  // uid (didUpdateWidget) são descartados e recriados sob demanda.
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _pendingTransactionsStreamCache;
+  String? _pendingStreamsUid;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+      _pendingTransactionsTrackerSub;
+  QuerySnapshot<Map<String, dynamic>>? _lastPendingTransactionsSnap;
+
+  /// Uma query `status`+`date` (índice já no projeto) — filtra `type` em memória nas faixas.
+  Stream<QuerySnapshot<Map<String, dynamic>>> get _pendingTransactionsStream {
+    final uid = firestoreUserDocIdForModuleReads(widget.uid);
+    if (uid.isEmpty) {
+      return const Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
     }
-    if (_rows.isEmpty) {
-      _rows.add((
-        cat: TextEditingController(),
-        valor: TextEditingController(),
-      ));
+    if (_pendingTransactionsStreamCache != null && _pendingStreamsUid == uid) {
+      return _pendingTransactionsStreamCache!;
     }
-    unawaited(_loadCats());
+    if (_pendingStreamsUid != uid) _resetPendingStreamCaches();
+    _pendingStreamsUid = uid;
+    final s = _txRefPendingAll()
+        .snapshots(includeMetadataChanges: true)
+        .asBroadcastStream();
+    _pendingTransactionsStreamCache = s;
+    _pendingTransactionsTrackerSub = s
+        .listen((snap) => _lastPendingTransactionsSnap = snap, onError: (_) {});
+    return _pendingTransactionsStreamCache!;
   }
 
-  Future<void> _loadCats() async {
-    try {
-      final list = await getCategoriasDespesaForTenant(widget.tenantId);
-      if (!mounted) return;
+  Stream<QuerySnapshot<Map<String, dynamic>>> get _pendingExpensesStream =>
+      _pendingTransactionsStream;
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> get _pendingIncomesStream =>
+      _pendingTransactionsStream;
+
+  // Preferências (receitas/despesas fixas) — também eram reassinadas a cada build.
+  Stream<Map<String, dynamic>>? _fixedIncomePrefsStreamCache;
+  Stream<Map<String, dynamic>>? _fixedExpensePrefsStreamCache;
+  StreamSubscription<Map<String, dynamic>>? _fixedIncomePrefsTrackerSub;
+  StreamSubscription<Map<String, dynamic>>? _fixedExpensePrefsTrackerSub;
+  Map<String, dynamic>? _lastFixedIncomePrefs;
+  Map<String, dynamic>? _lastFixedExpensePrefs;
+
+  Stream<Map<String, dynamic>> get _fixedIncomePrefsStream {
+    if (_fixedIncomePrefsStreamCache == null) {
+      final s = FixedIncomePreferencesService()
+          .watch(firestoreUserDocIdForAppShell(widget.uid))
+          .asBroadcastStream();
+      _fixedIncomePrefsStreamCache = s;
+      _fixedIncomePrefsTrackerSub =
+          s.listen((v) => _lastFixedIncomePrefs = v, onError: (_) {});
+    }
+    return _fixedIncomePrefsStreamCache!;
+  }
+
+  Stream<Map<String, dynamic>> get _fixedExpensePrefsStream {
+    if (_fixedExpensePrefsStreamCache == null) {
+      final s = FixedExpensePreferencesService()
+          .watch(firestoreUserDocIdForAppShell(widget.uid))
+          .asBroadcastStream();
+      _fixedExpensePrefsStreamCache = s;
+      _fixedExpensePrefsTrackerSub =
+          s.listen((v) => _lastFixedExpensePrefs = v, onError: (_) {});
+    }
+    return _fixedExpensePrefsStreamCache!;
+  }
+
+  void _resetPendingStreamCaches() {
+    _pendingTransactionsTrackerSub?.cancel();
+    _fixedIncomePrefsTrackerSub?.cancel();
+    _fixedExpensePrefsTrackerSub?.cancel();
+    _pendingTransactionsTrackerSub = null;
+    _fixedIncomePrefsTrackerSub = null;
+    _fixedExpensePrefsTrackerSub = null;
+    _pendingTransactionsStreamCache = null;
+    _pendingStreamsUid = null;
+    _fixedIncomePrefsStreamCache = null;
+    _fixedExpensePrefsStreamCache = null;
+    _lastPendingTransactionsSnap = null;
+    _lastFixedIncomePrefs = null;
+    _lastFixedExpensePrefs = null;
+  }
+
+  /// Após mudança de plano/licença, o token Firestore às vezes ainda reflete a sessão antiga — reabre a lista.
+  Future<void> _onRetryLoadTransactions() async {
+    await FirestoreSessionGuard.stabilizeAfterAppResume();
+    if (mounted) {
       setState(() {
-        _catsDespesa = list;
-        _loadingCats = false;
+        _mainPeriodLoadError = null;
+        _txStreamRetryKey++;
       });
-    } catch (_) {
-      if (mounted) {
-        setState(() => _loadingCats = false);
-      }
     }
   }
 
-  static double? _parseMoneyField(String raw) {
-    final t = raw.trim();
-    if (t.isEmpty) return 0;
-    return parseBrCurrencyInput(t);
-  }
-
-  void _addRow() {
-    setState(() {
-      _rows.add((
-        cat: TextEditingController(),
-        valor: TextEditingController(),
-      ));
+  void _scheduleFinanceSessionBootstrap() {
+    _financeSessionBootstrapTimer?.cancel();
+    _financeSessionBootstrapTimer =
+        Timer(const Duration(milliseconds: 350), () async {
+      if (!mounted || _effectiveFinanceSessionUid != null) return;
+      await FirestoreSessionGuard.waitForCurrentUser();
+      await FirestoreSessionGuard.refreshAuthSession();
+      if (!mounted) return;
+      setState(() {});
+      final sid = _effectiveFinanceSessionUid;
+      if (sid != null && widget.isShellVisible) {
+        _requestMainPeriodReload();
+      }
     });
   }
 
-  Future<void> _salvar() async {
-    setState(() => _saving = true);
-    try {
-      await _ensureFinanceWriteReady();
-      await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-      final lim = _parseMoneyField(_limiteCtrl.text) ?? 0.0;
-      final orc = <String, double>{};
-      for (final r in _rows) {
-        final k = r.cat.text.trim();
-        if (k.isEmpty) continue;
-        final v = _parseMoneyField(r.valor.text) ?? 0.0;
-        if (v > 0) orc[k] = v;
-      }
-      await FinanceTenantSettings(
-        limiteAprovacaoDespesa: lim,
-        orcamentosDespesa: orc,
-      ).save(widget.tenantId);
-      if (!mounted) return;
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar('Metas e orçamentos salvos.'),
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
+  /// Cache local corrompido. Na Web: F5 (sem `terminate` — derruba todos os módulos).
+  Future<void> _onClearCacheAndRetry() async {
+    if (!mounted) return;
+    if (kIsWeb) {
+      FirestoreWebGuard.hardReloadWebApp(reason: 'finance_clear_cache');
+      return;
     }
+    setState(() {
+      _mainPeriodLoadError = null;
+      _mainPeriodLoading = true;
+    });
+    try {
+      await FirebaseFirestore.instance.terminate();
+    } catch (_) {}
+    try {
+      await FirebaseFirestore.instance.clearPersistence();
+    } catch (_) {}
+    await _onRetryLoadTransactions();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Cache local limpo. Buscando do servidor…'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  /// Só recarrega saldo de abertura quando o lançamento pode alterá-lo (antes do período).
+  void _invalidateRealtimeBalances({DateTime? transactionEffectiveDate}) {
+    if (transactionEffectiveDate != null) {
+      final d = DateTime(
+        transactionEffectiveDate.year,
+        transactionEffectiveDate.month,
+        transactionEffectiveDate.day,
+      );
+      final start = DateTime(_from.year, _from.month, _from.day);
+      if (!d.isBefore(start)) return;
+    }
+    _forceRefreshSaldoAberturaBundle();
+  }
+
+  void _forceRefreshSaldoAberturaBundle() {
+    _saldoAberturaKey = '';
+    _saldoAberturaCached = null;
+    FinanceOpeningBalanceService.invalidateForUser(widget.uid);
+    _ensureSaldoAberturaForPeriod(_from);
+  }
+
+  /// Fase 1: total (buckets). Fase 2: saldos por conta em background.
+  void _ensureSaldoAberturaForPeriod(DateTime periodStart) {
+    final key = '${periodStart.year}-${periodStart.month}-${periodStart.day}';
+    if (_saldoAberturaKey == key && _saldoAberturaCached != null) return;
+    _saldoAberturaKey = key;
+    final peek = FinanceOpeningBalanceService.peekCached(
+      uid: widget.uid,
+      periodStart: periodStart,
+      loadAccounts: false,
+    );
+    if (peek != null) {
+      _saldoAberturaCached = peek;
+    }
+    unawaited(_loadSaldoAberturaIntoState(periodStart));
+  }
+
+  Future<void> _loadSaldoAberturaIntoState(DateTime periodStart) async {
+    final fast =
+        await _loadSaldoAberturaBundle(periodStart, withAccounts: false);
+    if (!mounted) return;
+    setState(() => _saldoAberturaCached = fast);
+    final full =
+        await _loadSaldoAberturaBundle(periodStart, withAccounts: true);
+    if (!mounted) return;
+    setState(() => _saldoAberturaCached = full);
+  }
+
+  /// Insere na lista do período os docs recém-gravados (cache local) para saldos na hora.
+  /// Retorna true se atualizou a lista sem precisar recarregar o período inteiro.
+  Future<bool> _mergeSavedTransactionsIntoMainPeriod(
+      Iterable<String> docIds) async {
+    final uid = _effectiveFinanceSessionUid;
+    if (uid == null || docIds.isEmpty || !mounted) return false;
+    final col = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('transactions');
+    final ids =
+        docIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList();
+    if (ids.isEmpty) return false;
+    final incoming = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    for (var i = 0; i < ids.length; i += 30) {
+      final end = i + 30 > ids.length ? ids.length : i + 30;
+      final chunk = ids.sublist(i, end);
+      try {
+        // Recém-gravados: prioriza servidor (cache local pode ainda não ter o doc).
+        var qSnap = await col
+            .where(FieldPath.documentId, whereIn: chunk)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 4));
+        final found = qSnap.docs.map((d) => d.id).toSet();
+        final missing = chunk.where((id) => !found.contains(id)).toList();
+        if (missing.isNotEmpty) {
+          try {
+            final cached = await col
+                .where(FieldPath.documentId, whereIn: missing)
+                .get(const GetOptions(source: Source.cache))
+                .timeout(const Duration(milliseconds: 800));
+            incoming.addAll([...qSnap.docs, ...cached.docs]);
+          } catch (_) {
+            incoming.addAll(qSnap.docs);
+          }
+        } else {
+          incoming.addAll(qSnap.docs);
+        }
+      } catch (_) {}
+    }
+    if (!mounted || incoming.isEmpty) return false;
+    setState(() {
+      final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{
+        for (final d in _mainPeriodDocs) d.id: d,
+      };
+      for (final d in incoming) {
+        if (_mainPeriodDocMatchesCurrentFilters(d)) byId[d.id] = d;
+      }
+      _mainPeriodDocs = byId.values.toList();
+      _mainPeriodDocs = FinanceFaturaTransactionSort.sortedDocs(
+        _mainPeriodDocs,
+        FinanceFaturaTxSortMode.dateDesc,
+      );
+      _mainPeriodLoadedCount = _mainPeriodDocs.length;
+      _mainPeriodLoading = false;
+    });
+    return true;
+  }
+
+  /// Sincroniza saldos/lista só pelos lançamentos afetados (criar, editar, excluir, pagar).
+  /// Sem recarregar o período inteiro nem barra «A sincronizar…».
+  Future<void> _applyFinanceMutationSync({
+    Iterable<String>? docIds,
+    Iterable<String>? removedDocIds,
+    DateTime? transactionEffectiveDate,
+  }) async {
+    if (!mounted) return;
+    _invalidateRealtimeBalances(
+        transactionEffectiveDate: transactionEffectiveDate);
+
+    final removeSet = (removedDocIds ?? const [])
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    if (removeSet.isNotEmpty && mounted) {
+      setState(() {
+        _mainPeriodDocs.removeWhere((d) => removeSet.contains(d.id));
+        for (final id in removeSet) {
+          _optimisticEditedTxById.remove(id);
+          _optimisticPaidIds.remove(id);
+        }
+      });
+    }
+
+    final ids = (docIds ?? const [])
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (ids.isNotEmpty) {
+      await _mergeSavedTransactionsIntoMainPeriod(ids);
+      if (mounted) {
+        _pruneOptimisticEditedTxAgainstDocs(_mainPeriodDocs);
+      }
+    }
+
+    if (!mounted) return;
+    _notifyFinanceTransactionsChanged(effectiveDate: transactionEffectiveDate);
+    unawaited(_refreshMainPeriodServerKpis());
+  }
+
+  void _recomputeMainPeriodKpisFromVisibleDocs() {
+    if (!_mainPeriodServerPagingActive) return;
+    if (_mainPeriodHasMoreServer) return;
+    // Lista paginada por `date` pode omitir effectiveDate — KPIs vêm do agregado mesclado.
+    unawaited(_refreshMainPeriodServerKpis());
+  }
+
+  /// Identifica período + filtros que definem receitas/despesas/saldos exibidos.
+  String _financeBalanceContextKey() {
+    final from = DateTime(_from.year, _from.month, _from.day);
+    final to = DateTime(_to.year, _to.month, _to.day);
+    return '${from.toIso8601String()}|${to.toIso8601String()}|$_statusFilter|$_typeFilter|'
+        '${_search.trim().toLowerCase()}|${_categoryFilter ?? ''}|${_financeAccountFilterId ?? ''}';
+  }
+
+  /// Limpa agregados só quando o contexto de saldo mudou (mês/filtro), nunca só por sync/pull.
+  void _resetFinanceBalanceAggregatesIfContextChanged() {
+    final key = _financeBalanceContextKey();
+    if (key == _financeBalanceContextKeyApplied) return;
+    _financeBalanceContextKeyApplied = key;
+    _mainPeriodServerKpis = null;
+    _periodMergedKpis = null;
+    _serverPagingStripPaidNetByAccount = const {};
+    _serverPagingStripNetForGen = -1;
+  }
+
+  bool _mainPeriodDocMatchesCurrentFilters(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final d = doc.data();
+    final fromDay = DateTime(_from.year, _from.month, _from.day);
+    final toDay = DateTime(_to.year, _to.month, _to.day, 23, 59, 59);
+    final effective = FinanceLineOpening.effectiveDateTimeFromMap(d);
+    if (effective == null ||
+        effective.isBefore(fromDay) ||
+        effective.isAfter(toDay)) {
+      return false;
+    }
+    if (!_mainPeriodServerPagingActive) {
+      if (_statusFilter != 'all' &&
+          (d['status'] ?? 'paid').toString() != _statusFilter) {
+        return false;
+      }
+      if (_typeFilter != 'all' &&
+          (d['type'] ?? 'expense').toString() != _typeFilter) {
+        return false;
+      }
+    }
+    final accountFilter = _financeAccountFilterId?.trim();
+    if (accountFilter != null && accountFilter.isNotEmpty) {
+      final aid = (d['financeAccountId'] ?? '').toString().trim();
+      if (aid != accountFilter) return false;
+    }
+    return true;
+  }
+
+  void _onShellFinanceAccountFilterRequest() {
+    final raw = FinanceShellNavigation.pendingAccountId.value;
+    if (raw == null || !mounted) return;
+    FinanceShellNavigation.pendingAccountId.value = null;
+    _applyFinanceAccountFilter(raw.isEmpty ? null : raw);
   }
 
   @override
   void dispose() {
-    _limiteCtrl.dispose();
-    for (final r in _rows) {
-      r.cat.dispose();
-      r.valor.dispose();
-    }
+    DelegateAccessService.sessionRevision
+        .removeListener(_onDelegateSessionChanged);
+    FinanceShellNavigation.pendingAccountId
+        .removeListener(_onShellFinanceAccountFilterRequest);
+    _authStateSub?.cancel();
+    _financeAccSub?.cancel();
+    _stripHideZeroSub?.cancel();
+    _pendingTransactionsTrackerSub?.cancel();
+    _fixedIncomePrefsTrackerSub?.cancel();
+    _fixedExpensePrefsTrackerSub?.cancel();
+    _searchDebounceTimer?.cancel();
+    _delayedMainPeriodReloadTimer?.cancel();
+    _financeSessionBootstrapTimer?.cancel();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final bottom = MediaQuery.viewInsetsOf(context).bottom;
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottom),
-      child: Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.92,
-        ),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(
-            top: Radius.circular(ThemeCleanPremium.radiusLg),
-          ),
-        ),
-        child: Column(
-          children: [
-            const SizedBox(height: 8),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Metas do financeiro',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                children: [
-                  Text(
-                    'Acima deste valor (R\$), despesas de tesoureiro/líderes exigem aprovação de gestor/pastor (quando aplicável).',
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _limiteCtrl,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [BrCurrencyInputFormatter()],
-                    decoration: const InputDecoration(
-                      labelText: 'Limite para segunda aprovação (R\$)',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Text(
-                        'Orçamento por categoria (despesa)',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 15,
-                          color: Colors.grey.shade800,
-                        ),
-                      ),
-                      const Spacer(),
-                      TextButton.icon(
-                        onPressed: _addRow,
-                        icon: const Icon(Icons.add_rounded, size: 18),
-                        label: const Text('Linha'),
-                      ),
-                    ],
-                  ),
-                  if (_loadingCats)
-                    const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: LinearProgressIndicator(),
-                    ),
-                  if (_catsDespesa.isNotEmpty)
-                    Text(
-                      'Dica: use o mesmo nome da categoria dos lançamentos.',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    ),
-                  ..._rows.asMap().entries.map((ie) {
-                    final i = ie.key;
-                    final r = ie.value;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            flex: 3,
-                            child: TextField(
-                              controller: r.cat,
-                              decoration: InputDecoration(
-                                labelText: 'Categoria (despesa)',
-                                border: const OutlineInputBorder(),
-                                hintText: _catsDespesa.isEmpty
-                                    ? null
-                                    : _catsDespesa.take(3).join(', '),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            flex: 2,
-                            child: TextField(
-                              controller: r.valor,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [BrCurrencyInputFormatter()],
-                              decoration: const InputDecoration(
-                                labelText: 'Teto (R\$)',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: 'Remover',
-                            onPressed: _rows.length <= 1
-                                ? null
-                                : () => setState(() {
-                                      r.cat.dispose();
-                                      r.valor.dispose();
-                                      _rows.removeAt(i);
-                                    }),
-                            icon: const Icon(Icons.delete_outline_rounded,
-                                color: Color(0xFFDC2626)),
-                          ),
-                        ],
-                      ),
-                    );
-                  }),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: _saving ? null : _salvar,
-                    icon: _saving
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.save_rounded),
-                    label: Text(_saving ? 'Salvando…' : 'Salvar'),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ───────────────────────────────────────────────────────────────────────────────
-// FinancePage — Módulo Financeiro Completo (Controle Total)
-// ───────────────────────────────────────────────────────────────────────────────
-class FinancePage extends StatefulWidget {
-  final String tenantId;
-  final String role;
-  final String? cpf;
-
-  /// Gestor liberou financeiro para este membro (role membro).
-  final bool? podeVerFinanceiro;
-  final List<String>? permissions;
-
-  /// Aba inicial (0–7): Resumo, Lançamentos, Despesas fixas, Receitas fixas, Conciliação, Categorias, Contas, Relatórios.
-  final int? initialTabIndex;
-
-  /// Abre o editor deste lançamento após entrar na página (ex.: painel → despesa).
-  final String? openLancamentoId;
-
-  /// Dentro de [IgrejaCleanShell]: sem título duplicado nas abas e [SafeArea] ajustado.
-  final bool embeddedInShell;
-
-  /// Voltar ao Painel no shell mobile (full screen).
-  final VoidCallback? onShellBack;
-
-  const FinancePage({
-    super.key,
-    required this.tenantId,
-    required this.role,
-    this.cpf,
-    this.podeVerFinanceiro,
-    this.permissions,
-    this.initialTabIndex,
-    this.openLancamentoId,
-    this.embeddedInShell = false,
-    this.onShellBack,
-  });
-
-  @override
-  State<FinancePage> createState() => _FinancePageState();
-}
-
-class _FinancePageState extends State<FinancePage>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabCtrl;
-  String? _firestoreTenantId;
-  bool _financeBootstrapDone = false;
-  /// Doc canónico `igrejas/{churchId}` — produção Firebase/Storage.
-  String get _tid {
-    final hint = (_firestoreTenantId ?? '').trim().isNotEmpty
-        ? _firestoreTenantId!.trim()
-        : widget.tenantId.trim();
-    final resolved = ChurchPanelTenant.forFirestore(hint);
-    return resolved.isNotEmpty ? resolved : hint;
+  /// Lista já carregada para o período (sem paginação incompleta): filtro por conta só em memória.
+  bool _financeCanFilterAccountClientSide() {
+    if (_search.trim().isNotEmpty) return false;
+    final cat = _categoryFilter?.trim() ?? '';
+    if (cat.isNotEmpty) return false;
+    if (_mainPeriodDocs.isEmpty) return false;
+    if (_mainPeriodServerPagingActive && _mainPeriodHasMoreServer) return false;
+    return true;
   }
 
-  DocumentReference<Map<String, dynamic>> get _tenantRef =>
-      ChurchUiCollections.churchDoc(_tid);
+  /// Troca de conta / «Todas»: atualiza lista e saldos sem esvaziar a tela (evita “piscar” / voltar ao Início).
+  void _applyFinanceAccountFilter(String? accountId) {
+    final trimmed = accountId?.trim() ?? '';
+    final next = trimmed.isEmpty ? null : trimmed;
+    if (_financeAccountFilterId == next) return;
 
-  CollectionReference<Map<String, dynamic>> get _financeCol =>
-      ChurchUiCollections.financeiro(_tid);
-
-  /// Incrementado após salvar/excluir lançamento — atualiza Resumo + Lançamentos.
-  int _financeRevision = 0;
-  final List<StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>
-      _financeRealtimeSubs = <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
-  Timer? _financeRealtimeDebounce;
-
-  Future<void> _warmupBankBrandingAssets() async {
-    if (!mounted) return;
-    final paths = <String>{};
-    for (final b in kBrasilBancosComuns) {
-      final p =
-          (brasilBancoBrandingFor(codigo: b.codigo, nome: b.nome).miniLogoAssetPath ?? '')
-              .trim();
-      if (p.isNotEmpty) paths.add(p);
-    }
-    for (final p in paths) {
-      try {
-        await precacheImage(AssetImage(p), context);
-      } catch (_) {}
-    }
-  }
-
-  void _notifyFinanceChanged({bool invalidateCache = true}) {
-    if (!mounted) return;
-    if (invalidateCache) {
-      unawaited(ChurchFinanceRealtimeService.onFinanceMutation(_tid));
-    } else {
-      ChurchFinanceRealtimeService.mutationEpoch.value++;
-    }
-    setState(() => _financeRevision++);
-  }
-
-  void _prewarmFinanceCaches(String tenantId) {
-    final tid = tenantId.trim();
-    if (tid.isEmpty) return;
-    unawaited(
-      ChurchRepository.listCacheFirst(
-        module: ChurchRepository.financeiro,
-        churchIdHint: tid,
-        limit: YahwehPerformanceV4.financeChartsSampleLimit,
-      ),
-    );
-    unawaited(ChurchTenantResilientReads.contas(tid));
-  }
-
-  void _scheduleFinanceRealtimeRefresh() {
-    _financeRealtimeDebounce?.cancel();
-    _financeRealtimeDebounce = Timer(const Duration(seconds: 2), () {
-      if (!mounted) return;
-      _notifyFinanceChanged(invalidateCache: false);
+    final clientOnly = _financeCanFilterAccountClientSide();
+    setState(() {
+      _financeAccountFilterId = next;
+      _resetTxPagination();
     });
-  }
 
-  void _startFinanceRealtimeSync() {
-    if (kIsWeb) return;
-    for (final s in _financeRealtimeSubs) {
-      unawaited(s.cancel());
-    }
-    _financeRealtimeSubs.clear();
-    // Web: um único listener (limit 1) — actualiza extrato/gráficos sem F5.
-    _financeRealtimeSubs.add(
-      _financeCol.limit(1).watchSafe().listen((_) => _scheduleFinanceRealtimeRefresh()),
-    );
-    _financeRealtimeSubs.addAll([
-      ChurchUiCollections.churchDoc(_tid)
-          .collection('contas')
-          .limit(1)
-          .watchSafe()
-          .listen((_) => _scheduleFinanceRealtimeRefresh()),
-      ChurchUiCollections.churchDoc(_tid)
-          .collection('despesas_fixas')
-          .limit(1)
-          .watchSafe()
-          .listen((_) => _scheduleFinanceRealtimeRefresh()),
-      ChurchUiCollections.churchDoc(_tid)
-          .collection('receitas_recorrentes')
-          .limit(1)
-          .watchSafe()
-          .listen((_) => _scheduleFinanceRealtimeRefresh()),
-    ]);
-  }
-
-  Future<void> _bootstrapFirestoreTenant() async {
-    if (!mounted) return;
-    final churchId = ChurchPanelTenant.forFirestore(widget.tenantId);
-    if (churchId.isEmpty) {
-      setState(() {
-        _firestoreTenantId = null;
-        _financeBootstrapDone = true;
-      });
+    if (clientOnly) {
+      _notifyFinanceTransactionsChanged();
       return;
     }
-    setState(() {
-      _firestoreTenantId = churchId;
-      _financeBootstrapDone = true;
-    });
-    _startFinanceRealtimeSync();
-    unawaited(_warmFinanceData(churchId));
-    unawaited(
-      FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(churchId),
+
+    _mainPeriodScheduledLoadKey = '';
+    _scheduleMainPeriodReloadAfterMutationDebounced(
+      immediate: true,
+      preserveExistingDocs: true,
+      accountFilterOnly: true,
     );
   }
 
-  Future<void> _warmFinanceData(String tenantId) async {
-    final tid = tenantId.trim();
-    if (tid.isEmpty) return;
-    unawaited(FinanceChurchBootstrapService.ensureForChurch(tid));
-    try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      }
-      final results = await Future.wait([
-        ChurchFinanceLoadService.loadLancamentos(
-          seedTenantId: tid,
-          limit: YahwehPerformanceV4.financeChartsSampleLimit,
-        ),
-        ChurchFinanceLoadService.loadContas(seedTenantId: tid),
-      ]);
-      unawaited(
-        FinanceComprovantePublishService.reconcileStuckComprovantes(
-          tenantId: tid,
-          docs: results[0].docs,
-        ),
-      );
-      ChurchModuleQueryProbe.logSuccess(
-        module: 'Financeiro',
-        churchId: ChurchFinanceLoadService.resolveChurchId(tid),
-        path: FirebasePaths.finance(ChurchFinanceLoadService.resolveChurchId(tid)),
-        totalDocs: results[0].docs.length,
-      );
-    } catch (e) {
-      ChurchModuleQueryProbe.logError(
-        module: 'Financeiro',
-        churchId: ChurchFinanceLoadService.resolveChurchId(tid),
-        path: FirebasePaths.finance(ChurchFinanceLoadService.resolveChurchId(tid)),
-        error: '$e',
-      );
-    }
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    logYahwehModuleScreen('financeiro');
-    unawaited(_ensureFinanceWriteReady().catchError((_) {}));
-    final rawTab = widget.initialTabIndex ?? 0;
-    final idx = rawTab < 0 ? 0 : (rawTab > 7 ? 7 : rawTab);
-    _tabCtrl = TabController(length: 8, vsync: this, initialIndex: idx);
-    unawaited(_bootstrapFirestoreTenant());
-    _prewarmFinanceCaches(ChurchPanelTenant.forFirestore(widget.tenantId));
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(_warmupBankBrandingAssets());
-    });
-    final openId = widget.openLancamentoId?.trim();
-    if (openId != null && openId.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _openPendingLancamento(openId));
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant FinancePage oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.tenantId != widget.tenantId) {
-      setState(() {
-        _firestoreTenantId = null;
-        _financeBootstrapDone = false;
-      });
-      unawaited(_bootstrapFirestoreTenant());
-    }
-  }
-
-  Future<void> _openPendingLancamento(String id) async {
+  /// Atualiza faixas pendentes, KPIs e saldos do carrossel após criar/editar/excluir/confirmar.
+  void _notifyFinanceTransactionsChanged({DateTime? effectiveDate}) {
     if (!mounted) return;
+    final deduped = _dedupeMainPeriodDocs(_mainPeriodDocs);
+    final paid = _sumPeriodTotalsFromDocs(deduped, statusFilter: 'paid');
+    final strip = _netByFinanceAccountIdPaidEffective(deduped, _from, _to);
+    setState(() {
+      if (deduped.isNotEmpty) {
+        _mainPeriodServerKpis = (income: paid.income, expense: paid.expense);
+        _periodMergedKpis = (income: paid.income, expense: paid.expense);
+        _serverPagingStripPaidNetByAccount = strip;
+        _serverPagingStripNetForGen = _mainPeriodLoadGeneration;
+      }
+    });
+    _recomputeMainPeriodKpisFromVisibleDocs();
+    // Limpa cache do calendário na hora — Agenda/Escalas não ficam com mês stale.
+    FinanceMonthCache.clearUid(widget.uid);
+    FinanceTransactionsHub.notifyMutated(
+      uid: widget.uid,
+      effectiveDate: effectiveDate,
+      invalidateOpeningBalance: false,
+    );
+    final uid = _effectiveFinanceSessionUid;
+    if (uid == null) return;
+    unawaited(
+        _refreshMainPeriodStripAccountNets(uid, _mainPeriodLoadGeneration));
+  }
+
+  /// Toque no cartão: crédito abre preview isolado (sem filtrar a lista principal).
+  void _onFinanceStripCardTap(BuildContext context, FinanceAccount? account) {
+    if (account == null) {
+      if (_financeAccountFilterId != null) {
+        _applyFinanceAccountFilter(null);
+      } else {
+        _openAllAccountsCategoryBreakdown(context);
+      }
+      return;
+    }
+    if (account.isCreditCardProduct) {
+      _openCreditCardFaturaSheet(context, account);
+      return;
+    }
+    final id = account.id;
+    if (_financeAccountFilterId != id) {
+      _applyFinanceAccountFilter(id);
+    }
+    _openFinanceAccountCategoryBreakdown(context, account);
+  }
+
+  Future<void> _confirmarPagamentoFaturaCartao(
+    BuildContext context,
+    List<String> docIds, {
+    required FinanceConfirmPaymentSheetResult result,
+    required String cardAccountId,
+  }) async {
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
+    }
+    final unique = docIds.toSet().where((e) => e.trim().isNotEmpty).toList();
+    if (unique.isEmpty) return;
+
+    final payDay = DateTime(
+      result.paymentDate.year,
+      result.paymentDate.month,
+      result.paymentDate.day,
+    );
+    final todayDay = DateTime(
+      DateTime.now().year,
+      DateTime.now().month,
+      DateTime.now().day,
+    );
+    final isScheduledFuture =
+        result.faturaSchedule != null && payDay.isAfter(todayDay);
+
+    if (!isScheduledFuture) {
+      setState(() {
+        for (final id in unique) {
+          _optimisticPaidIds.add(id);
+        }
+      });
+    }
+
     try {
-      await _bootstrapFirestoreTenant();
-      final doc = await _financeCol.doc(id).get();
-      if (!doc.exists || !mounted) return;
-      _tabCtrl.index = 1;
-      final ok = await showFinanceLancamentoEditorForTenant(context,
-          tenantId: _tid,
-          existingDoc: doc,
-          panelRole: widget.role);
-      if (ok && mounted) _notifyFinanceChanged();
+      await commitFinanceConfirmPaymentBatch(
+        txCol: _txRef(),
+        docIds: unique,
+        uid: widget.uid,
+        result: result,
+        creditCardFaturaPayment: true,
+      );
+      if (!mounted) return;
+      if (!isScheduledFuture) {
+        final confTs = Timestamp.fromDate(result.paymentDate);
+        final paidFrom = result.financeAccountId?.trim() ?? '';
+        setState(() {
+          for (final id in unique) {
+            _optimisticPaidIds.remove(id);
+            final prev = _optimisticEditedTxById[id];
+            _optimisticEditedTxById[id] = {
+              ...?prev,
+              'status': 'paid',
+              'paidAt': confTs,
+              'effectiveDate': confTs,
+              'financeAccountId': cardAccountId,
+              if (paidFrom.isNotEmpty) 'paidFromFinanceAccountId': paidFrom,
+            };
+          }
+          _invalidateRealtimeBalances(
+              transactionEffectiveDate: result.paymentDate);
+        });
+      } else {
+        setState(() {});
+      }
+      unawaited(_applyFinanceMutationSync(
+        docIds: unique,
+        transactionEffectiveDate: result.paymentDate,
+      ));
+      HapticFeedback.mediumImpact();
+      if (context.mounted) {
+        final df = DateFormat('dd/MM/yyyy');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isScheduledFuture
+                  ? (result.faturaSchedule!.autoDebitOnDueDate
+                      ? 'Fechamento agendado: débito automático em ${df.format(result.paymentDate)}.'
+                      : 'Fechamento registrado: confirme o pagamento em ${df.format(result.paymentDate)}.')
+                  : (unique.length > 1
+                      ? 'Fatura: ${unique.length} lançamentos pagos.'
+                      : 'Pagamento da fatura confirmado.'),
+            ),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          for (final id in unique) {
+            _optimisticPaidIds.remove(id);
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:
+                Text('Erro ao pagar fatura: ${e.toString().split('\n').first}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  void _openCreditCardFaturaSheet(BuildContext context, FinanceAccount card) {
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
+    }
+    FinanceCreditCardFaturaSheet.show(
+      context,
+      uid: widget.uid,
+      profile: widget.profile,
+      cardAccount: card,
+      allAccounts: _financeAccounts,
+      optimisticPaidIds: _optimisticPaidIds,
+      onConfirmFaturaPayment: _confirmarPagamentoFaturaCartao,
+      onEditTransaction: _editTx,
+      onDeleteTransaction: _deleteTx,
+      onDeleteBatch: _deleteTxBatch,
+      onAttachReceipt: _attachReceipt,
+    );
+  }
+
+  /// Débitos de fatura agendados cuja data já passou.
+  Future<void> _processDueFaturaScheduledPayments() async {
+    if (!mounted || !widget.isShellVisible) return;
+    try {
+      final n = await processDueFaturaScheduledPayments(
+        txCol: _txRef(),
+        uid: widget.uid,
+      );
+      if (n > 0 && mounted) {
+        _notifyFinanceTransactionsChanged();
+      }
+    } catch (e, st) {
+      debugPrint('_processDueFaturaScheduledPayments: $e\n$st');
+    }
+  }
+
+  FinanceFaturaSheetHandlers get _faturaSheetHandlers =>
+      FinanceFaturaSheetHandlers(
+        onConfirmFaturaPayment: _confirmarPagamentoFaturaCartao,
+        onEditTransaction: _editTx,
+        onDeleteTransaction: _deleteTx,
+        onDeleteBatch: _deleteTxBatch,
+        onAttachReceipt: _attachReceipt,
+      );
+
+  void _openFaturaEmAbertoHub(
+    BuildContext context,
+    Map<String, double> faturaByCard,
+  ) {
+    unawaited(
+      FinanceFaturaEmAbertoHub.open(
+        context,
+        uid: widget.uid,
+        profile: widget.profile,
+        allAccounts: _financeAccounts,
+        faturaByCardId: faturaByCard,
+        handlers: _faturaSheetHandlers,
+        optimisticPaidIds: _optimisticPaidIds,
+      ),
+    );
+  }
+
+  Widget _buildFaturaEmAbertoBand(BuildContext context) {
+    if (!widget.isShellVisible) return const SizedBox.shrink();
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _pendingExpensesStream,
+      initialData: _lastPendingTransactionsSnap,
+      builder: (context, snap) {
+        final docs = snap.data?.docs ?? const [];
+        final faturaByCard = FinanceAccountBalanceUtils.faturaAbertaByCardId(
+          docs,
+          creditCardIds: _creditCardAccountIds,
+        );
+        final total =
+            FinanceAccountBalanceUtils.totalFaturaEmAberto(faturaByCard);
+        final ccIds = _creditCardAccountIds;
+        final count =
+            FinanceAccountBalanceUtils.countPendingExpensesOnCreditCards(
+                docs, ccIds);
+        final cards =
+            FinanceAccountBalanceUtils.creditCardProducts(_financeAccounts);
+        return FinanceFaturaEmAbertoBand(
+          totalFatura: total,
+          lancamentoCount: count,
+          cartaoCount: cards.length,
+          compact: true,
+          onTap: snap.hasError
+              ? () {}
+              : () => _openFaturaEmAbertoHub(context, faturaByCard),
+        );
+      },
+    );
+  }
+
+  /// Mesmas ações da lista principal, reutilizadas na rota em tela cheia (uma instância por ciclo de vida do State).
+  late final FinanceFullscreenHandlers _fullscreenTxHandlers =
+      FinanceFullscreenHandlers.fromFinanceScreen(
+    editTx: _editTx,
+    deleteTx: _deleteTx,
+    confirmarPagamento: _confirmarPagamento,
+    attachReceipt: _attachReceipt,
+    deleteTxBatch: _deleteTxBatch,
+  );
+
+  void _bindFinanceUserDataStreams() {
+    if (!mounted) return;
+    final cu = fa.FirebaseAuth.instance.currentUser;
+    if (cu == null) {
+      _financeAccSub?.cancel();
+      _stripHideZeroSub?.cancel();
+      _financeAccSub = null;
+      _stripHideZeroSub = null;
+      _financeUserStreamsBound = false;
+      _lastBoundFinanceAuthUid = null;
+      if (mounted) {
+        setState(() {
+          _financeAccounts = const [];
+          _financeAccountsStreamPrimed = false;
+        });
+      }
+      return;
+    }
+    final fsUid = firestoreUserDocIdForAppShell(widget.uid);
+    if (_financeUserStreamsBound &&
+        _lastBoundFinanceAuthUid == cu.uid &&
+        _lastBoundFinanceDataUid == fsUid) {
+      return;
+    }
+    _financeAccSub?.cancel();
+    _stripHideZeroSub?.cancel();
+    _financeAccSub = null;
+    _stripHideZeroSub = null;
+    _financeUserStreamsBound = true;
+    _lastBoundFinanceAuthUid = cu.uid;
+    _lastBoundFinanceDataUid = fsUid;
+    unawaited(FinanceAccountsService().ensureVaultAccount(fsUid));
+    _financeAccSub = FinanceAccountsService().streamAccounts(fsUid).listen(
+      (list) {
+        if (!mounted) return;
+        setState(() {
+          _financeAccounts = list;
+          _financeAccountsStreamPrimed = true;
+          if (_financeAccountFilterId != null &&
+              !list.any((a) => a.id == _financeAccountFilterId)) {
+            _financeAccountFilterId = null;
+          }
+        });
+      },
+      onError: (Object e, StackTrace st) {
+        debugPrint('FinanceAccountsStream: $e\n$st');
+        if (!mounted) return;
+        setState(() {
+          _financeAccounts = const [];
+          _financeAccountsStreamPrimed = true;
+        });
+      },
+    );
+    _stripHideZeroSub = FinanceAdvancedSettingsService()
+        .watchStripHideZeroBalances(fsUid)
+        .listen(
+      (v) {
+        if (!mounted) return;
+        setState(() => _stripHideZeroBalances = v);
+      },
+      onError: (Object e, StackTrace st) {
+        debugPrint('FinanceAdvancedSettingsStream: $e\n$st');
+      },
+    );
+  }
+
+  String _mainPeriodLoadScheduleKey(String sessionUid) {
+    final key = '${_from.millisecondsSinceEpoch}';
+    return '${sessionUid}_${key}_${_to.millisecondsSinceEpoch}_$_txStreamRetryKey|$_statusFilter|$_typeFilter|${_categoryFilter ?? ''}|${_financeAccountFilterId ?? ''}';
+  }
+
+  /// Primeira pintura: lista do cache local (sem skeleton) quando filtros permitem paginação no servidor.
+  Future<void> _primeMainPeriodFromFirestoreCache() async {
+    final sessionUid = _effectiveFinanceSessionUid;
+    if (sessionUid == null || !mounted) return;
+    if (!financeMainPeriodCanServerPage(
+      searchLowerTrim: _search,
+      statusFilter: _statusFilter,
+      categoryFilter: _categoryFilter,
+      financeAccountFilterId: _financeAccountFilterId,
+    )) {
+      return;
+    }
+    try {
+      final q = financeMainPeriodFirestoreQuery(
+        sessionUid: sessionUid,
+        from: _from,
+        to: _to,
+        statusFilter: _statusFilter,
+        typeFilter: _typeFilter,
+      ).limit(_kMainPeriodFirestorePageSize);
+      final snap = await q.get(const GetOptions(source: Source.cache));
+      if (!mounted || snap.docs.isEmpty) return;
+      setState(() {
+        _mainPeriodDocs = snap.docs;
+        _mainPeriodFirestoreCursor = snap.docs.last;
+        _mainPeriodHasMoreServer =
+            snap.docs.length >= _kMainPeriodFirestorePageSize;
+        _mainPeriodLoadedCount = snap.docs.length;
+        _mainPeriodLoading = false;
+        _mainPeriodServerPagingActive = true;
+        _mainPeriodLoadError = null;
+      });
+      unawaited(_refreshMainPeriodServerKpis());
     } catch (_) {}
   }
 
-  @override
-  void dispose() {
-    _financeRealtimeDebounce?.cancel();
-    for (final s in _financeRealtimeSubs) {
-      unawaited(s.cancel());
+  void _scheduleMainPeriodLoadForCurrentFilters(String sessionUid) {
+    final lk = _mainPeriodLoadScheduleKey(sessionUid);
+    if (_mainPeriodScheduledLoadKey != lk) {
+      _mainPeriodScheduledLoadKey = lk;
+      _mainPeriodLoadGeneration++;
+      final gen = _mainPeriodLoadGeneration;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_executeMainPeriodLoad(gen, sessionUid));
+      });
     }
-    _financeRealtimeSubs.clear();
-    _tabCtrl.dispose();
-    super.dispose();
   }
 
-  static const _financeTabs = <Widget>[
-    Tab(text: 'Resumo'),
-    Tab(text: 'Lançamentos'),
-    Tab(text: 'Despesas Fixas'),
-    Tab(text: 'Receitas Fixas'),
-    Tab(text: 'Conciliação'),
-    Tab(text: 'Categorias'),
-    Tab(text: 'Contas'),
-    Tab(text: 'Relatórios'),
-  ];
+  /// Contas + «ocultar saldo zero» em paralelo ao stream; primeira pintura mais rápida.
+  Future<void> _primeFinanceBootstrap() async {
+    if (!mounted || firestoreUserDocIdStrictFromSession().isEmpty) return;
+    try {
+      final results = await Future.wait<Object>([
+        FinanceAccountsService().listOnce(widget.uid),
+        FinanceAdvancedSettingsService()
+            .getStripHideZeroBalancesOnce(widget.uid),
+      ]);
+      final accounts = results[0] as List<FinanceAccount>;
+      final stripHide = results[1] as bool;
+      if (!mounted) return;
+      setState(() {
+        _financeAccounts = accounts;
+        _stripHideZeroBalances = stripHide;
+        _financeAccountsStreamPrimed = true;
+      });
+    } catch (e, st) {
+      debugPrint('_primeFinanceBootstrap: $e\n$st');
+    }
+  }
+
+  void _onDelegateSessionChanged() {
+    if (!mounted) return;
+    if (!widget.isShellVisible) return;
+    _resumeFinanceHeavyWork();
+    setState(() => _mainPeriodScheduledLoadKey = '');
+    _requestMainPeriodReload();
+  }
+
+  void _scrollFinanceModuleToTop() {
+    final c = widget.shellScrollController;
+    if (c == null || !c.hasClients) return;
+    c.jumpTo(0);
+  }
+
+  void _resetFinanceEntryUiState() {
+    if (!_topoExpandido && !_filtrosPainelAberto) return;
+    setState(() {
+      _topoExpandido = false;
+      _filtrosPainelAberto = false;
+    });
+  }
+
+  void _pauseFinanceHeavyWork() {
+    _financeAccSub?.cancel();
+    _financeAccSub = null;
+    _stripHideZeroSub?.cancel();
+    _stripHideZeroSub = null;
+    _financeUserStreamsBound = false;
+  }
+
+  void _ensureCategoryFilterOptionsLoaded() {
+    if (_categoryFilterOptionsPrimed) return;
+    _categoryFilterOptionsPrimed = true;
+    _categoryFilterOptionsFuture = _loadCategoryFilterOptions();
+  }
+
+  void _resumeFinanceHeavyWork() {
+    if (!mounted || !widget.isShellVisible) return;
+    _ensureCategoryFilterOptionsLoaded();
+    _bindFinanceUserDataStreams();
+    if (!_financeBootstrapDone) {
+      _financeBootstrapDone = true;
+      unawaited(_primeFinanceBootstrap());
+    }
+    // Firestore/KPIs no frame seguinte — pinta o módulo antes do trabalho pesado.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !widget.isShellVisible) return;
+      unawaited(FinanceOpeningBalanceService.ensureServerBucketsRebuildIfNeeded(
+          widget.uid));
+      unawaited(_primeMainPeriodFromFirestoreCache());
+      unawaited(_processDueFaturaScheduledPayments());
+      _requestMainPeriodReload();
+      if (!_pdfWarmupScheduled) {
+        _pdfWarmupScheduled = true;
+        Future.delayed(const Duration(seconds: 8), () {
+          if (mounted && widget.isShellVisible) {
+            unawaited(RelatorioService.warmUpPdfAssets());
+          }
+        });
+      }
+    });
+  }
+
+  void _syncFinanceShellVisibility({bool scrollToTop = false}) {
+    if (!mounted) return;
+    if (!widget.isShellVisible) {
+      _pauseFinanceHeavyWork();
+      return;
+    }
+    if (scrollToTop) {
+      _resetFinanceEntryUiState();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !widget.isShellVisible) return;
+        _scrollFinanceModuleToTop();
+      });
+    }
+    _resumeFinanceHeavyWork();
+    final peekOpen = FinanceOpeningBalanceService.peekCached(
+      uid: widget.uid,
+      periodStart: _from,
+      loadAccounts: true,
+    );
+    if (peekOpen != null) {
+      _saldoAberturaCached = peekOpen;
+      _saldoAberturaKey = '${_from.year}-${_from.month}-${_from.day}';
+    }
+    if (fa.FirebaseAuth.instance.currentUser != null) {
+      _ensureSaldoAberturaForPeriod(_from);
+    }
+  }
+
+  void _requestMainPeriodReload() {
+    if (!mounted || !widget.isShellVisible) return;
+    final sid = _effectiveFinanceSessionUid;
+    if (sid == null) return;
+    _mainPeriodScheduledLoadKey = '';
+    _scheduleMainPeriodLoadForCurrentFilters(sid);
+  }
 
   @override
-  Widget build(BuildContext context) {
-    final isMobile = ThemeCleanPremium.isMobile(context);
-    final canPop = Navigator.canPop(context);
-    final showAppBar = !isMobile || canPop;
-    final moduleEntry = kChurchShellNavEntries[ChurchShellIndices.financeiro];
-    final moduleAccent = moduleEntry.accent;
-    final shellChrome = widget.onShellBack != null && isMobile;
+  void initState() {
+    super.initState();
+    DelegateAccessService.sessionRevision
+        .addListener(_onDelegateSessionChanged);
+    FinanceShellNavigation.pendingAccountId
+        .addListener(_onShellFinanceAccountFilterRequest);
+    final (f, t) = _rangeForPeriod();
+    _from = f;
+    _to = t;
+    _lastAuthUidForFinancePeriodReset =
+        fa.FirebaseAuth.instance.currentUser?.uid;
+    _lastKnownGoodFinanceUid = _lastAuthUidForFinancePeriodReset;
+    _authStateSub = fa.FirebaseAuth.instance.authStateChanges().listen((u) {
+      if (!mounted) return;
+      final id = u?.uid;
+      if (id != null && id.isNotEmpty) {
+        _lastKnownGoodFinanceUid = id;
+        _resetPendingStreamCaches();
+      }
+      if (id == _lastAuthUidForFinancePeriodReset) {
+        if (widget.isShellVisible) _resumeFinanceHeavyWork();
+        return;
+      }
+      if (id != null && id.isNotEmpty) {
+        _lastAuthUidForFinancePeriodReset = id;
+        setState(() {
+          _mainPeriodScheduledLoadKey = '';
+        });
+        if (widget.isShellVisible) _requestMainPeriodReload();
+        return;
+      }
+      // Auth null transitório (resume) — não apagar lista; refrescar token.
+      unawaited(FirestoreSessionGuard.refreshAuthSession().then((_) {
+        if (mounted) setState(() {});
+      }));
+    });
+    _categoryFilterOptionsFuture = Future.value(const <String>[]);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _onShellFinanceAccountFilterRequest();
+      _syncFinanceShellVisibility(scrollToTop: true);
+    });
+  }
 
-    if (!_financeBootstrapDone) {
-      return Scaffold(
-        backgroundColor: ThemeCleanPremium.surfaceVariant,
-        appBar: showAppBar
-            ? AppBar(
-                leading: canPop
-                    ? IconButton(
-                        icon: const Icon(Icons.arrow_back_rounded),
-                        onPressed: () => Navigator.maybePop(context),
-                        tooltip: 'Voltar')
-                    : null,
-                elevation: 0,
-                backgroundColor: ThemeCleanPremium.primary,
-                foregroundColor: Colors.white,
-                title: const Text('Financeiro'),
-              )
-            : null,
-        body: const ChurchPanelLoadingBody(),
-      );
+  @override
+  void didUpdateWidget(covariant FinanceScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.uid != widget.uid) {
+      // Troca de conta/delegação: descarta os streams cacheados para reabrir no uid novo.
+      _resetPendingStreamCaches();
     }
-
-    if (_tid.trim().isEmpty) {
-      return Scaffold(
-        backgroundColor: ThemeCleanPremium.surfaceVariant,
-        appBar: showAppBar
-            ? AppBar(
-                leading: canPop
-                    ? IconButton(
-                        icon: const Icon(Icons.arrow_back_rounded),
-                        onPressed: () => Navigator.maybePop(context),
-                        tooltip: 'Voltar')
-                    : null,
-                elevation: 0,
-                backgroundColor: ThemeCleanPremium.primary,
-                foregroundColor: Colors.white,
-                title: const Text('Financeiro'),
-              )
-            : null,
-        body: Padding(
-          padding: ThemeCleanPremium.pagePadding(context),
-          child: const ChurchPanelResilientLoadBanner(
-            hasLocalData: false,
-            isSyncing: false,
-            errorTitle: 'Igreja não identificada',
-            error: 'Não foi possível resolver o churchId da sessão atual.',
-          ),
-        ),
-      );
+    if (oldWidget.isShellVisible != widget.isShellVisible ||
+        oldWidget.uid != widget.uid) {
+      _syncFinanceShellVisibility(scrollToTop: widget.isShellVisible);
+      return;
     }
-
-    if (!AppPermissions.canViewFinance(
-      widget.role,
-      memberCanViewFinance: widget.podeVerFinanceiro,
-      permissions: widget.permissions,
-    )) {
-      return Scaffold(
-        backgroundColor: ThemeCleanPremium.surfaceVariant,
-        appBar: !showAppBar
-            ? null
-            : AppBar(
-                leading: canPop
-                    ? IconButton(
-                        icon: const Icon(Icons.arrow_back_rounded),
-                        onPressed: () => Navigator.maybePop(context),
-                        tooltip: 'Voltar')
-                    : null,
-                elevation: 0,
-                scrolledUnderElevation: 0,
-                surfaceTintColor: Colors.transparent,
-                backgroundColor: Colors.transparent,
-                foregroundColor: Colors.white,
-                flexibleSpace: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        ThemeCleanPremium.primary,
-                        Color.lerp(ThemeCleanPremium.primary,
-                            const Color(0xFF1E3A8A), 0.22)!,
-                      ],
-                    ),
-                  ),
-                ),
-                title: const Text('Financeiro',
-                    style: TextStyle(
-                        fontWeight: FontWeight.w800, letterSpacing: -0.3)),
-              ),
-        body: const SafeArea(
-          child: Center(child: Text('Acesso restrito ao módulo financeiro.')),
-        ),
-      );
+    if (oldWidget.profile.plan != widget.profile.plan ||
+        oldWidget.profile.planStatus != widget.profile.planStatus ||
+        oldWidget.profile.hasActiveLicense != widget.profile.hasActiveLicense ||
+        oldWidget.profile.licenseExpiresAt != widget.profile.licenseExpiresAt) {
+      unawaited(_onRetryLoadTransactions());
     }
+  }
 
-    return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
-      appBar: !showAppBar
-          ? null
-          : AppBar(
-              elevation: 0,
-              scrolledUnderElevation: 0,
-              surfaceTintColor: Colors.transparent,
-              shadowColor: Colors.transparent,
-              leading: canPop
-                  ? IconButton(
-                      icon: const Icon(Icons.arrow_back_rounded),
-                      onPressed: () => Navigator.maybePop(context),
-                      tooltip: 'Voltar')
-                  : null,
-              backgroundColor: Colors.transparent,
-              foregroundColor: Colors.white,
-              flexibleSpace: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      ThemeCleanPremium.primary,
-                      Color.lerp(ThemeCleanPremium.primary,
-                          const Color(0xFF1E3A8A), 0.22)!,
-                    ],
-                  ),
-                ),
-              ),
-              title: const Text('Receitas e Despesas',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.35,
-                      fontSize: 18)),
-              actions: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: IconButton(
-                    icon: const Icon(Icons.picture_as_pdf_rounded),
-                    tooltip: 'Exportar PDF',
-                    style: IconButton.styleFrom(
-                      backgroundColor:
-                          Colors.white.withValues(alpha: 0.2),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shadowColor: Colors.transparent,
-                      minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
-                          ThemeCleanPremium.minTouchTarget),
-                    ),
-                    onPressed: () => _exportarPdf(context),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: IconButton(
-                    icon: const Icon(Icons.download_rounded),
-                    tooltip: 'Exportar CSV',
-                    style: IconButton.styleFrom(
-                      backgroundColor:
-                          Colors.white.withValues(alpha: 0.2),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shadowColor: Colors.transparent,
-                      minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
-                          ThemeCleanPremium.minTouchTarget),
-                    ),
-                    onPressed: () => _exportarCSV(context),
-                  ),
-                ),
-              ],
-            ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'fab_finance',
-        backgroundColor: moduleAccent,
-        foregroundColor: Colors.white,
-        elevation: 6,
-        highlightElevation: 10,
-        icon: const Icon(Icons.add_rounded, size: 24),
-        label: const Text(
-          'Lançamento Rápido',
-          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
-        ),
-        onPressed: () => unawaited(_showLancamentoDialog(context)),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+  Future<List<String>> _loadCategoryFilterOptions() async {
+    final x = await UserCategoriesService()
+        .load(firestoreUserDocIdForAppShell(widget.uid));
+    return UserCategoriesService.sortedWithoutIncluirNova([
+      ...x.income,
+      ...x.expense,
+    ]);
+  }
+
+  void _refreshCategoryFilterOptions() {
+    _categoryFilterOptionsPrimed = true;
+    setState(() {
+      _categoryFilterOptionsFuture = _loadCategoryFilterOptions();
+    });
+  }
+
+  InputDecoration _financeFilterDropdownDecoration(
+      String label, IconData icon) {
+    return InputDecoration(
+      labelText: label,
+      labelStyle: TextStyle(
+        fontWeight: FontWeight.w700,
+        fontSize: 13,
+        color: context.appTextPrimary.withValues(alpha: 0.9),
+      ),
+      prefixIcon: Icon(icon,
+          size: 20, color: AppColors.primary.withValues(alpha: 0.85)),
+      filled: true,
+      fillColor: Theme.of(context).inputDecorationTheme.fillColor,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide:
+            BorderSide(color: AppColors.primary.withValues(alpha: 0.12)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide:
+            BorderSide(color: AppColors.primary.withValues(alpha: 0.12)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(16),
+        borderSide: BorderSide(
+            color: AppColors.primary.withValues(alpha: 0.45), width: 1.5),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    );
+  }
+
+  Future<void> _openCategoryFilterPicker() async {
+    final options = await _categoryFilterOptionsFuture;
+    if (!mounted) return;
+    final picked = await pickFinanceCategoryForFilter(
+      context: context,
+      uid: firestoreUserDocIdForAppShell(widget.uid),
+      typeFilter: _typeFilter,
+      currentFilter: _categoryFilter,
+      periodExtraCategories: options,
+    );
+    if (!mounted || picked == null) return;
+    setState(() {
+      _categoryFilter = picked;
+      _resetTxPagination();
+    });
+  }
+
+  void _openFullscreenLancamentos(BuildContext context) {
+    Navigator.of(context)
+        .push<FinanceFullscreenFilterSnapshot?>(
+      MaterialPageRoute<FinanceFullscreenFilterSnapshot?>(
+        builder: (ctx) => FinanceTransactionsFullscreenPage(
+          uid: firestoreUserDocIdForAppShell(widget.uid),
+          profile: widget.profile,
+          initialFrom: _from,
+          initialTo: _to,
+          initialStatusFilter: _statusFilter,
+          initialTypeFilter: _typeFilter,
+          initialCategory: _categoryFilter,
+          initialSearch: _searchCtrl.text,
+          initialFinanceAccountId: _financeAccountFilterId,
+          handlers: _fullscreenTxHandlers,
         ),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      body: DecoratedBox(
-        decoration: churchModuleBodyGradient(moduleAccent),
-        child: SafeArea(
-        top: widget.onShellBack == null && !widget.embeddedInShell,
+    )
+        .then((snap) {
+      if (!mounted || snap == null) return;
+      _applyFullscreenFilterSnapshot(snap);
+    });
+  }
+
+  void _applyFullscreenFilterSnapshot(FinanceFullscreenFilterSnapshot snap) {
+    _searchDebounceTimer?.cancel();
+    setState(() {
+      _selectedPeriod = snap.selectedPeriod;
+      _customRangeStart = snap.customRangeStart;
+      _customRangeEnd = snap.customRangeEnd;
+      _statusFilter = snap.statusFilter;
+      _typeFilter = snap.typeFilter;
+      _categoryFilter = snap.categoryFilter;
+      _financeAccountFilterId = snap.financeAccountFilterId;
+      _searchCtrl.text = snap.searchText;
+      _search = snap.searchText.toLowerCase().trim();
+    });
+    _applyPeriod();
+  }
+
+  /// Valor monetário de um lançamento Firestore (evita cast quebrando o PDF se vier string/Int).
+  double _financeAmountToDouble(dynamic v) {
+    if (v == null) return 0;
+    if (v is num) return v.toDouble();
+    final t = v.toString().trim();
+    if (t.isEmpty) return 0;
+    return double.tryParse(t.replaceAll(',', '.')) ?? 0;
+  }
+
+  String? _filenameAccountSuffix() {
+    if (_financeAccountFilterId == null) return null;
+    for (final a in _financeAccounts) {
+      if (a.id == _financeAccountFilterId) {
+        var s =
+            a.displayName.replaceAll(RegExp(r'[<>:"/\\|?*\n\r]'), '_').trim();
+        if (s.isEmpty) s = 'conta';
+        return s.length > 48 ? s.substring(0, 48) : s;
+      }
+    }
+    return 'conta';
+  }
+
+  String? _selectedFinanceAccountLabel() {
+    if (_financeAccountFilterId == null) return null;
+    for (final a in _financeAccounts) {
+      if (a.id == _financeAccountFilterId) {
+        return a.displayName.trim();
+      }
+    }
+    return null;
+  }
+
+  List<FinanceAccount> _visibleAccountsForStrip(
+    Map<String, double> netByAcc, {
+    Map<String, double> faturaByCard = const {},
+  }) {
+    if (!_stripHideZeroBalances) return _financeAccounts;
+    return _financeAccounts.where((a) {
+      if (a.isCreditCardProduct) {
+        return (faturaByCard[a.id] ?? 0).abs() > 0.0001;
+      }
+      return (netByAcc[a.id] ?? 0).abs() > 0.0001;
+    }).toList();
+  }
+
+  /// Aplica reorder do carrossel preservando a posição relativa das contas
+  /// **ocultas** (filtro «Ocultar saldo zero»): só os ids visíveis trocam de
+  /// posição entre si; cada conta oculta mantém o slot global onde já estava.
+  /// "Todas as contas" não entra na lista — fica fixa no header.
+  Future<void> _reorderFinanceAccountsStrip(
+    List<FinanceAccount> visible,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    if (oldIndex < 0 || oldIndex >= visible.length) return;
+    if (newIndex < 0 || newIndex > visible.length) return;
+    final visibleIds = visible.map((a) => a.id).toList();
+    final movedId = visibleIds.removeAt(oldIndex);
+    visibleIds.insert(newIndex, movedId);
+    final visibleSet = visible.map((a) => a.id).toSet();
+    final newOrder = <String>[];
+    var vIdx = 0;
+    for (final acc in _financeAccounts) {
+      if (visibleSet.contains(acc.id) && vIdx < visibleIds.length) {
+        newOrder.add(visibleIds[vIdx]);
+        vIdx++;
+      } else {
+        newOrder.add(acc.id);
+      }
+    }
+    // Atualiza a UI imediatamente (otimista) — depois o stream do Firestore
+    // re-emite a ordem definitiva.
+    final reordered = <FinanceAccount>[];
+    for (final id in newOrder) {
+      final acc = _financeAccounts.firstWhere(
+        (a) => a.id == id,
+        orElse: () => _financeAccounts.first,
+      );
+      reordered.add(acc);
+    }
+    if (mounted) {
+      setState(() => _financeAccounts = reordered);
+    }
+    HapticFeedback.selectionClick();
+    try {
+      await FinanceAccountsService().setAccountOrder(
+        firestoreUserDocIdForAppShell(widget.uid),
+        newOrder,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Não foi possível salvar a nova ordem: $e')),
+      );
+    }
+  }
+
+  int _countTxSemConta(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    var n = 0;
+    for (final doc in docs) {
+      final d = doc.data();
+      if ((d['financeAccountId'] ?? '').toString().trim().isNotEmpty) continue;
+      n++;
+    }
+    return n;
+  }
+
+  Future<void> _openStripLongPressMenu(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      useSafeArea: true,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(
+            20, 16, 20, 16 + MediaQuery.paddingOf(ctx).bottom),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (shellChrome)
-              ChurchModuleShellChrome(
-                onBack: widget.onShellBack!,
-                title: 'Financeiro',
-                icon: moduleEntry.icon,
-                accent: moduleAccent,
-                subtitle: 'Receitas · despesas · contas',
-                tabController: _tabCtrl,
-                tabs: _financeTabs,
-              ),
-            Expanded(
-              child: NestedScrollView(
-          // Abas + visão por conta sobem com o scroll do conteúdo (web e mobile).
-          headerSliverBuilder: (BuildContext context, bool innerBoxIsScrolled) {
-            return [
-              if (isMobile && !widget.embeddedInShell && !shellChrome)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg,
-                        ThemeCleanPremium.spaceSm, ThemeCleanPremium.spaceLg, 0),
-                    child: Row(
-                      children: [
-                        const Expanded(
-                          child: Text('Financeiro',
-                              style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                  color: ThemeCleanPremium.onSurface)),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.picture_as_pdf_rounded),
-                          tooltip: 'Exportar PDF',
-                          style: IconButton.styleFrom(
-                            backgroundColor: ThemeCleanPremium.cardBackground,
-                            foregroundColor: ThemeCleanPremium.primary,
-                            elevation: 0,
-                            shadowColor: Colors.transparent,
-                            side: BorderSide(
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.2),
-                            ),
-                            minimumSize: const Size(48, 48),
-                          ),
-                          onPressed: () => _exportarPdf(context),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.download_rounded),
-                          tooltip: 'Exportar CSV',
-                          style: IconButton.styleFrom(
-                            backgroundColor: ThemeCleanPremium.cardBackground,
-                            foregroundColor: ThemeCleanPremium.primary,
-                            elevation: 0,
-                            shadowColor: Colors.transparent,
-                            side: BorderSide(
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.2),
-                            ),
-                            minimumSize: const Size(48, 48),
-                          ),
-                          onPressed: () => _exportarCSV(context),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              if (!shellChrome)
-                SliverToBoxAdapter(
-                  child: isMobile &&
-                          widget.embeddedInShell &&
-                          widget.onShellBack == null
-                      ? DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                moduleAccent,
-                                Color.lerp(moduleAccent, Colors.white, 0.2)!,
-                              ],
-                            ),
-                          ),
-                          child: ChurchPanelPillTabBar(
-                            controller: _tabCtrl,
-                            accentColor: moduleAccent,
-                            tabs: _financeTabs,
-                          ),
-                        )
-                      : Container(
-                          margin: EdgeInsets.symmetric(
-                              horizontal: ThemeCleanPremium.spaceLg,
-                              vertical: ThemeCleanPremium.spaceSm),
-                          decoration: BoxDecoration(
-                            color: ThemeCleanPremium.cardBackground,
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusLg),
-                            boxShadow: [
-                              ...ThemeCleanPremium.softUiCardShadow,
-                              BoxShadow(
-                                color: ThemeCleanPremium.primary
-                                    .withValues(alpha: 0.06),
-                                blurRadius: 24,
-                                offset: const Offset(0, 8),
-                                spreadRadius: -4,
-                              ),
-                            ],
-                            border:
-                                Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: TabBar(
-                            controller: _tabCtrl,
-                            isScrollable: true,
-                            tabAlignment: TabAlignment.start,
-                            splashBorderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm),
-                            labelColor: ThemeCleanPremium.primary,
-                            unselectedLabelColor:
-                                ThemeCleanPremium.onSurfaceVariant,
-                            labelStyle: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13.5,
-                                letterSpacing: -0.2),
-                            unselectedLabelStyle: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                                letterSpacing: -0.15),
-                            indicatorSize: TabBarIndicatorSize.tab,
-                            indicator: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.14),
-                                  ThemeCleanPremium.primary
-                                      .withValues(alpha: 0.06),
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm),
-                              border: Border.all(
-                                color: ThemeCleanPremium.primary
-                                    .withValues(alpha: 0.22),
-                              ),
-                            ),
-                            dividerColor: Colors.transparent,
-                            tabs: _financeTabs,
-                          ),
-                        ),
-                ),
-            ];
-          },
-          body: TabBarView(
-            controller: _tabCtrl,
-            children: [
-              _ResumoTab(
-                key: ValueKey('resumo_$_tid'),
-                financeCol: _financeCol,
-                tenantId: _tid,
-                role: widget.role,
-                financeRevision: _financeRevision,
-                onFinanceChanged: _notifyFinanceChanged,
-              ),
-              _LancamentosTab(
-                key: ValueKey('lanc_$_tid'),
-                financeCol: _financeCol,
-                tenantId: _tid,
-                role: widget.role,
-                financeRevision: _financeRevision,
-                onFinanceChanged: _notifyFinanceChanged,
-              ),
-              _DespesasFixasTab(
-                key: ValueKey('desp_fixas_$_tid'),
-                tenantId: _tid,
-                role: widget.role,
-              ),
-              FinanceReceitasFixasTab(
-                key: ValueKey('rec_fixas_$_tid'),
-                tenantId: _tid,
-                role: widget.role,
-              ),
-              FinanceConciliacaoTab(
-                tenantId: _tid,
-                role: widget.role,
-              ),
-              _FinanceCategoriasTab(tenantId: _tid),
-              _FinanceContasTab(
-                tenantId: _tid,
-                role: widget.role,
-                onEditLancamento: (ctx, doc) =>
-                    _showLancamentoDialog(ctx, doc: doc),
-              ),
-              RelatorioFinanceiroPage(
-                tenantId: _tid,
-                embeddedInFinanceModule: true,
-                onEmbeddedBackToResumo: () {
-                  if (_tabCtrl.index != 0) {
-                    _tabCtrl.animateTo(0);
-                  }
-                },
-              ),
-            ],
-          ),
-        ),
+            Text('Opções do painel de contas',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+            SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text('Ocultar contas com saldo zero'),
+              subtitle: Text('No período atual, no carrossel de contas.'),
+              value: _stripHideZeroBalances,
+              onChanged: widget.profile.hasActiveLicense
+                  ? (v) async {
+                      await FinanceAdvancedSettingsService()
+                          .setStripHideZeroBalances(
+                              firestoreUserDocIdForAppShell(widget.uid), v);
+                      if (mounted) setState(() {});
+                      if (ctx.mounted) Navigator.pop(ctx);
+                    }
+                  : null,
             ),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: Text('Fechar')),
           ],
         ),
-      ),
       ),
     );
   }
 
-  // ─── Lançamento Rápido (Receita / Despesa / Transferência) ────────────────────
-  Future<void> _showLancamentoDialog(BuildContext context,
-      {DocumentSnapshot<Map<String, dynamic>>? doc,
-      String? presetNovoTipo}) async {
-    final tid = ChurchContextService.panelChurchId(_tid);
-    if (tid.isEmpty) {
+  /// Retorna (início, fim) do período selecionado. Fim do período completo (mês/ano) para incluir despesas com data futura no período (paga antecipada).
+  (DateTime, DateTime) _rangeForPeriod() {
+    final now = DateTime.now();
+    switch (_selectedPeriod) {
+      case 'Mensal':
+        // Mês completo (1º ao último dia) para incluir despesas com data futura no mês (paga antecipada).
+        return (
+          DateTime(now.year, now.month, 1),
+          DateTime(now.year, now.month + 1, 0, 23, 59, 59)
+        );
+      case 'Anual':
+        // Ano completo para incluir despesas com data no ano (ex.: paga antecipada); alinhado ao painel inicial.
+        return (
+          DateTime(now.year, 1, 1),
+          DateTime(now.year, 12, 31, 23, 59, 59)
+        );
+      case 'Por período':
+        final start = _customRangeStart ?? DateTime(now.year, now.month, 1);
+        final end = _customRangeEnd ?? now;
+        final endNorm = end.isBefore(start) ? start : end;
+        return (
+          DateTime(start.year, start.month, start.day),
+          DateTime(endNorm.year, endNorm.month, endNorm.day, 23, 59, 59)
+        );
+      default:
+        return (
+          DateTime(now.year, 1, 1),
+          DateTime(now.year, now.month + 1, 0, 23, 59, 59)
+        );
+    }
+  }
+
+  void _resetTxPagination() {
+    _txDisplayLimit = _txPageSize;
+  }
+
+  Future<void> _executeMainPeriodLoad(
+    int myGen,
+    String sessionUid, {
+    bool preserveExistingDocs = false,
+    bool accountFilterOnly = false,
+  }) async {
+    if (!mounted || myGen != _mainPeriodLoadGeneration) return;
+
+    final useServerPage = financeMainPeriodCanServerPage(
+      searchLowerTrim: _search,
+      statusFilter: _statusFilter,
+      categoryFilter: _categoryFilter,
+      financeAccountFilterId: _financeAccountFilterId,
+    );
+
+    final silentReload = preserveExistingDocs && _mainPeriodDocs.isNotEmpty;
+
+    setState(() {
+      // Não limpar _optimisticEditedTxById aqui: o ramo com paginação no servidor
+      // pinta primeiro o cache Firestore (stale) e apagava o patch antes da lista
+      // refletir o update — a lista parecia não gravar (ex.: descrição). Remover
+      // patches só depois que os documentos carregados batem com o servidor (_prune…).
+      _mainPeriodLoading = !silentReload;
+      _mainPeriodLoadError = null;
+      if (!preserveExistingDocs) {
+        // Sempre esvazia lista antes de recarregar — evita duplicar docId.
+        _mainPeriodDocs = [];
+        _mainPeriodLoadedCount = 0;
+        _mainPeriodServerPagingActive = useServerPage;
+        _mainPeriodFirestoreCursor = null;
+        _mainPeriodHasMoreServer = false;
+        _mainPeriodLoadingMore = false;
+        _resetFinanceBalanceAggregatesIfContextChanged();
+      } else if (accountFilterOnly) {
+        _mainPeriodServerPagingActive = useServerPage;
+      }
+    });
+
+    try {
+      if (useServerPage) {
+        final q = financeMainPeriodFirestoreQuery(
+          sessionUid: sessionUid,
+          from: _from,
+          to: _to,
+          statusFilter: _statusFilter,
+          typeFilter: _typeFilter,
+        );
+        final firstPageQuery = q.limit(_kMainPeriodFirestorePageSize);
+        try {
+          final cachedSnap =
+              await firstPageQuery.get(const GetOptions(source: Source.cache));
+          if (mounted &&
+              myGen == _mainPeriodLoadGeneration &&
+              cachedSnap.docs.isNotEmpty) {
+            setState(() {
+              _mainPeriodDocs = cachedSnap.docs;
+              _mainPeriodFirestoreCursor = cachedSnap.docs.last;
+              _mainPeriodHasMoreServer =
+                  cachedSnap.docs.length >= _kMainPeriodFirestorePageSize;
+              _mainPeriodLoadedCount = cachedSnap.docs.length;
+            });
+          }
+        } catch (_) {
+          // Cache pode estar vazio/indisponível; segue para servidor.
+        }
+        try {
+          final snap =
+              await firstPageQuery.get().timeout(const Duration(seconds: 4));
+          if (!mounted || myGen != _mainPeriodLoadGeneration) return;
+          setState(() {
+            _mainPeriodDocs = snap.docs;
+            _mainPeriodFirestoreCursor =
+                snap.docs.isEmpty ? null : snap.docs.last;
+            _mainPeriodHasMoreServer =
+                snap.docs.length >= _kMainPeriodFirestorePageSize;
+            _mainPeriodLoadedCount = snap.docs.length;
+            _mainPeriodLoading = false;
+            _pruneOptimisticEditedTxAgainstDocs(_mainPeriodDocs);
+          });
+          unawaited(_refreshMainPeriodServerKpis());
+          unawaited(_refreshMainPeriodStripAccountNets(sessionUid, myGen));
+          unawaited(_mergeMainPeriodDocsFromEffectiveDate(sessionUid, myGen));
+          _notifyFinanceTransactionsChanged();
+          return;
+        } on TimeoutException {
+          if (!mounted || myGen != _mainPeriodLoadGeneration) return;
+          if (_mainPeriodDocs.isEmpty) {
+            final cached = await financePeriodMergedDocumentsCollect(
+              uid: sessionUid,
+              from: _from,
+              to: _to,
+              statusFilter: _statusFilter,
+              typeFilter: _typeFilter,
+              financeAccountId: _financeAccountFilterId,
+            );
+            if (mounted &&
+                myGen == _mainPeriodLoadGeneration &&
+                cached.isNotEmpty) {
+              setState(() {
+                _mainPeriodDocs = cached;
+                _mainPeriodLoadedCount = cached.length;
+                _mainPeriodLoading = false;
+                _mainPeriodServerPagingActive = false;
+              });
+              return;
+            }
+          }
+          setState(() {
+            _mainPeriodLoading = false;
+            _mainPeriodLoadError = null;
+          });
+          _scheduleMainPeriodReloadAfterMutationDebounced(immediate: true);
+          return;
+        }
+      }
+
+      final merged = await financePeriodMergedDocumentsCollect(
+        uid: sessionUid,
+        from: _from,
+        to: _to,
+        statusFilter: _statusFilter,
+        typeFilter: _typeFilter,
+        financeAccountId: _financeAccountFilterId,
+      );
+      if (!mounted || myGen != _mainPeriodLoadGeneration) return;
+      setState(() {
+        _mainPeriodDocs = merged;
+        _mainPeriodLoadedCount = merged.length;
+        _mainPeriodLoading = false;
+        _mainPeriodServerPagingActive = false;
+        _mainPeriodHasMoreServer = false;
+        _mainPeriodFirestoreCursor = null;
+        _pruneOptimisticEditedTxAgainstDocs(_mainPeriodDocs);
+      });
+      unawaited(_refreshMainPeriodStripAccountNets(sessionUid, myGen));
+      unawaited(_refreshMainPeriodServerKpis());
+      _notifyFinanceTransactionsChanged();
+    } catch (e, st) {
+      debugPrint('_executeMainPeriodLoad: $e\n$st');
+      if (mounted && myGen == _mainPeriodLoadGeneration) {
+        if (_mainPeriodDocs.isNotEmpty) {
+          setState(() {
+            _mainPeriodLoading = false;
+            _mainPeriodLoadError = null;
+            _mainPeriodServerPagingActive = false;
+            _mainPeriodHasMoreServer = false;
+          });
+          _scheduleMainPeriodReloadAfterMutationDebounced();
+          return;
+        }
+        if (kIsWeb && FirestoreWebGuard.isTerminatedClientError(e)) {
+          FirestoreWebGuard.handleFatalWebFirestoreIfNeeded(e);
+        }
+        if (kIsWeb && FirestoreWebGuard.isInternalAssertionError(e)) {
+          FirestoreWebGuard.handleFatalWebFirestoreIfNeeded(e);
+        }
+        setState(() {
+          _mainPeriodLoading = false;
+          _mainPeriodLoadError = e;
+          _mainPeriodServerPagingActive = false;
+          _mainPeriodHasMoreServer = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _refreshMainPeriodServerKpis() async {
+    if (!mounted) return;
+    try {
+      final r = await FinancePeriodSummary.load(
+        uid: firestoreUserDocIdForAppShell(widget.uid),
+        from: _from,
+        to: _to,
+        statusFilter: _statusFilter,
+        typeFilter: _typeFilter,
+      );
+      if (!mounted) return;
+      setState(() {
+        _mainPeriodServerKpis = (income: r.income, expense: r.expense);
+        _periodMergedKpis = (income: r.income, expense: r.expense);
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _refreshPeriodMergedKpis() => _refreshMainPeriodServerKpis();
+
+  /// Completa a lista paginada por [date] com lançamentos cuja [effectiveDate] cai no período.
+  Future<void> _mergeMainPeriodDocsFromEffectiveDate(
+      String sessionUid, int generation) async {
+    if (!mounted || generation != _mainPeriodLoadGeneration) return;
+    try {
+      final merged = await financePeriodMergedDocumentsCollect(
+        uid: sessionUid,
+        from: _from,
+        to: _to,
+        statusFilter: _statusFilter,
+        typeFilter: _typeFilter,
+        financeAccountId: _financeAccountFilterId,
+      );
+      if (!mounted || generation != _mainPeriodLoadGeneration) return;
+      setState(() {
+        _mainPeriodDocs = merged;
+        _mainPeriodLoadedCount = merged.length;
+        _mainPeriodHasMoreServer = false;
+        _mainPeriodFirestoreCursor = null;
+        _mainPeriodServerPagingActive = false;
+        _pruneOptimisticEditedTxAgainstDocs(_mainPeriodDocs);
+      });
+      unawaited(_refreshMainPeriodServerKpis());
+      final m = _netByFinanceAccountIdPaidEffective(merged, _from, _to);
+      if (!mounted || generation != _mainPeriodLoadGeneration) return;
+      setState(() {
+        _serverPagingStripPaidNetByAccount = m;
+        _serverPagingStripNetForGen = generation;
+      });
+    } catch (e, st) {
+      debugPrint('_mergeMainPeriodDocsFromEffectiveDate: $e\n$st');
+    }
+  }
+
+  /// Saldo líquido **pago** por conta no período (evita 2ª varredura quando 1 página cobre o período).
+  Future<void> _refreshMainPeriodStripAccountNets(
+      String sessionUid, int generation) async {
+    if (!mounted) return;
+    if (generation != _mainPeriodLoadGeneration) return;
+    try {
+      if (_mainPeriodServerPagingActive) {
+        final all = await financePeriodMergedDocumentsCollect(
+          uid: sessionUid,
+          from: _from,
+          to: _to,
+          statusFilter: _statusFilter,
+          typeFilter: _typeFilter,
+          financeAccountId: _financeAccountFilterId,
+        ).timeout(const Duration(seconds: 45));
+        if (!mounted || generation != _mainPeriodLoadGeneration) return;
+        final m = _netByFinanceAccountIdPaidEffective(all, _from, _to);
+        setState(() {
+          _serverPagingStripPaidNetByAccount = m;
+          _serverPagingStripNetForGen = generation;
+        });
+        return;
+      }
+      final m =
+          _netByFinanceAccountIdPaidEffective(_mainPeriodDocs, _from, _to);
+      setState(() {
+        _serverPagingStripPaidNetByAccount = m;
+        _serverPagingStripNetForGen = generation;
+      });
+    } catch (e, st) {
+      debugPrint('_refreshMainPeriodStripAccountNets: $e\n$st');
+    }
+  }
+
+  Future<void> _loadMoreMainPeriodFirestore(String sessionUid) async {
+    if (!_mainPeriodServerPagingActive || !_mainPeriodHasMoreServer) return;
+    final cursor = _mainPeriodFirestoreCursor;
+    if (cursor == null) return;
+    final gen = _mainPeriodLoadGeneration;
+    if (!mounted) return;
+    setState(() => _mainPeriodLoadingMore = true);
+    try {
+      final q = financeMainPeriodFirestoreQuery(
+        sessionUid: sessionUid,
+        from: _from,
+        to: _to,
+        statusFilter: _statusFilter,
+        typeFilter: _typeFilter,
+      ).startAfterDocument(cursor).limit(_kMainPeriodFirestorePageSize);
+      final snap = await q.get();
+      if (!mounted || gen != _mainPeriodLoadGeneration) return;
+      setState(() {
+        _mainPeriodDocs = [..._mainPeriodDocs, ...snap.docs];
+        _mainPeriodFirestoreCursor =
+            snap.docs.isEmpty ? cursor : snap.docs.last;
+        _mainPeriodHasMoreServer =
+            snap.docs.length >= _kMainPeriodFirestorePageSize;
+        _mainPeriodLoadedCount = _mainPeriodDocs.length;
+        _mainPeriodLoadingMore = false;
+        _pruneOptimisticEditedTxAgainstDocs(_mainPeriodDocs);
+      });
+    } catch (e, st) {
+      debugPrint('_loadMoreMainPeriodFirestore: $e\n$st');
+      if (mounted && gen == _mainPeriodLoadGeneration) {
+        setState(() => _mainPeriodLoadingMore = false);
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(
+            content:
+                Text('Não foi possível carregar mais: ${friendlyMessage(e)}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+    }
+  }
+
+  /// PDF/CSV com período = tela e filtros «servidor»: se a lista ainda tem mais páginas no Firestore, lê o período completo uma vez.
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+      _resolveExportTxSnapshots(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    DateTime from,
+    DateTime to,
+  ) async {
+    final sid = _effectiveFinanceSessionUid;
+    if (sid == null || sid.isEmpty) return docs;
+    if (!financeMainPeriodCanServerPage(
+      searchLowerTrim: _search,
+      statusFilter: _statusFilter,
+      categoryFilter: _categoryFilter,
+      financeAccountFilterId: _financeAccountFilterId,
+    )) {
+      return docs;
+    }
+    if (!_mainPeriodServerPagingActive || !_mainPeriodHasMoreServer) {
+      return docs;
+    }
+    final f0 = DateTime(from.year, from.month, from.day);
+    final f1 = DateTime(_from.year, _from.month, _from.day);
+    final t0 = DateTime(to.year, to.month, to.day);
+    final t1 = DateTime(_to.year, _to.month, _to.day);
+    if (f0 != f1 || t0 != t1) return docs;
+    try {
+      final q = financeMainPeriodFirestoreQuery(
+        sessionUid: sid,
+        from: from,
+        to: to,
+        statusFilter: _statusFilter,
+        typeFilter: _typeFilter,
+      );
+      return await firestoreQueryCollectDocumentsBatched(q);
+    } catch (_) {
+      return docs;
+    }
+  }
+
+  Future<void> _reloadMainPeriodDocsPull() async {
+    final uid = _effectiveFinanceSessionUid;
+    if (uid == null) return;
+    // Pull-to-refresh explícito: sincroniza lista; saldos só mudam se houver diferença real.
+    _mainPeriodLoadGeneration++;
+    final g = _mainPeriodLoadGeneration;
+    if (mounted) setState(() => _mainPeriodPullRefreshing = true);
+    try {
+      await _executeMainPeriodLoad(g, uid, preserveExistingDocs: true);
+    } finally {
+      if (mounted) setState(() => _mainPeriodPullRefreshing = false);
+    }
+  }
+
+  void _scheduleMainPeriodReloadAfterMutation({
+    DateTime? transactionEffectiveDate,
+    Iterable<String>? savedDocIds,
+  }) {
+    unawaited(_applyFinanceMutationSync(
+      docIds: savedDocIds,
+      transactionEffectiveDate: transactionEffectiveDate,
+    ));
+  }
+
+  void _scheduleMainPeriodReloadAfterMutationDebounced({
+    bool immediate = false,
+    bool preserveExistingDocs = true,
+    bool accountFilterOnly = false,
+  }) {
+    final uid = _effectiveFinanceSessionUid;
+    if (uid == null || !mounted) return;
+    void runReload() {
+      if (!mounted) return;
+      _mainPeriodLoadGeneration++;
+      final g = _mainPeriodLoadGeneration;
+      unawaited(
+        _executeMainPeriodLoad(
+          g,
+          uid,
+          preserveExistingDocs: preserveExistingDocs,
+          accountFilterOnly: accountFilterOnly,
+        ),
+      );
+    }
+
+    _delayedMainPeriodReloadTimer?.cancel();
+    if (immediate) {
+      runReload();
+      return;
+    }
+    _delayedMainPeriodReloadTimer = Timer(
+      const Duration(milliseconds: 380),
+      runReload,
+    );
+  }
+
+  /// UID do documento `users/{id}/…` (titular quando sub-login).
+  String? get _effectiveFinanceSessionUid {
+    final dataUid = firestoreUserDocIdStrictFromSession();
+    if (dataUid.isNotEmpty) return dataUid;
+    final shellUid = firestoreUserDocIdForModuleReads(widget.uid);
+    if (shellUid.isNotEmpty) return shellUid;
+    final last = _lastKnownGoodFinanceUid;
+    if (last != null && last.isNotEmpty) return last;
+    return null;
+  }
+
+  /// Saldos por conta no carrossel: mapa do período completo (paginação servidor).
+  /// Mantém último valor conhecido durante reload — saldo não «pula» no pull.
+  Map<String, double>? get _stripPeriodNetPaidOverride =>
+      _serverPagingStripPaidNetByAccount.isNotEmpty
+          ? _serverPagingStripPaidNetByAccount
+          : null;
+
+  Map<String, dynamic> _txDataForMainPeriodDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final patch = _optimisticEditedTxById[doc.id];
+    if (patch == null || patch.isEmpty) return doc.data();
+    return {...doc.data(), ...patch};
+  }
+
+  static bool _financeTxOptimisticFieldEqual(
+      dynamic serverVal, dynamic patchVal) {
+    if (serverVal == patchVal) return true;
+    if (serverVal is Timestamp && patchVal is Timestamp) {
+      return serverVal.seconds == patchVal.seconds &&
+          serverVal.nanoseconds == patchVal.nanoseconds;
+    }
+    if (serverVal is num && patchVal is num) {
+      return (serverVal.toDouble() - patchVal.toDouble()).abs() < 1e-9;
+    }
+    final s = (serverVal ?? '').toString();
+    final p = (patchVal ?? '').toString();
+    return s == p;
+  }
+
+  /// Remove patches quando o snapshot já reflete o que foi gravado (evita overlay eterno).
+  void _pruneOptimisticEditedTxAgainstDocs(
+      Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    if (_optimisticEditedTxById.isEmpty) return;
+    final byId = <String, Map<String, dynamic>>{
+      for (final d in docs) d.id: d.data(),
+    };
+    for (final id in _optimisticEditedTxById.keys.toList()) {
+      final patch = _optimisticEditedTxById[id];
+      if (patch == null || patch.isEmpty) continue;
+      final server = byId[id];
+      if (server == null) continue;
+      var matches = true;
+      for (final e in patch.entries) {
+        final k = e.key;
+        if (k == 'type') continue;
+        if (k == 'financeAccountId') {
+          final sa = (server[k] ?? '').toString().trim();
+          final pa = (e.value ?? '').toString().trim();
+          if (sa != pa) matches = false;
+          continue;
+        }
+        if (!_financeTxOptimisticFieldEqual(server[k], e.value)) {
+          matches = false;
+        }
+      }
+      if (matches) _optimisticEditedTxById.remove(id);
+    }
+  }
+
+  /// IDs selecionados na grelha que ainda estão pendentes (para confirmar em lote).
+  List<String> _gridSelectedPendingIdsAmong(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docsVisible) {
+    final out = <String>[];
+    for (final doc in docsVisible) {
+      if (!_gridSelectedIds.contains(doc.id)) continue;
+      final d = _txDataForMainPeriodDoc(doc);
+      if ((d['status'] ?? 'paid').toString() == 'pending') out.add(doc.id);
+    }
+    return out;
+  }
+
+  void _applyPeriod() {
+    final (f, t) = _rangeForPeriod();
+    setState(() {
+      _from = f;
+      _to = t;
+      _invalidateRealtimeBalances();
+      _resetTxPagination();
+    });
+  }
+
+  (DateTime, DateTime) _previousPeriodSameLength() {
+    final f = DateTime(_from.year, _from.month, _from.day);
+    final t = DateTime(_to.year, _to.month, _to.day, 23, 59, 59);
+    final prevEnd = f.subtract(const Duration(days: 1));
+    final days = t.difference(f).inDays + 1;
+    final prevStart = DateTime(prevEnd.year, prevEnd.month, prevEnd.day)
+        .subtract(Duration(days: days - 1));
+    return (
+      prevStart,
+      DateTime(prevEnd.year, prevEnd.month, prevEnd.day, 23, 59, 59)
+    );
+  }
+
+  List<MapEntry<String, double>> _topExpenseCategories(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+      {int n = 3}) {
+    final m = <String, double>{};
+    final rs = DateTime(_from.year, _from.month, _from.day);
+    final re = DateTime(_to.year, _to.month, _to.day, 23, 59, 59);
+    for (final doc in docs) {
+      final d = doc.data();
+      if ((d['type'] ?? 'expense').toString() != 'expense') continue;
+      final effective = FinanceLineOpening.effectiveDateTimeFromMap(d);
+      if (effective == null || effective.isBefore(rs) || effective.isAfter(re)) {
+        continue;
+      }
+      final cat = (d['category'] ?? '').toString().trim();
+      final key = cat.isEmpty ? 'Sem categoria' : cat;
+      m[key] = (m[key] ?? 0) + (d['amount'] ?? 0).toDouble().abs();
+    }
+    final list = m.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    return list.take(n).toList();
+  }
+
+  List<double> _sparklineForAccount(String accountId,
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    final byDay = <DateTime, double>{};
+    for (final doc in docs) {
+      final d = doc.data();
+      if ((d['financeAccountId'] ?? '').toString().trim() != accountId) {
+        continue;
+      }
+      final ts = d['date'];
+      if (ts is! Timestamp) continue;
+      final dt = ts.toDate();
+      final day = DateTime(dt.year, dt.month, dt.day);
+      final amt = (d['amount'] ?? 0).toDouble();
+      final delta = d['type'] == 'income' ? amt : -amt;
+      byDay[day] = (byDay[day] ?? 0) + delta;
+    }
+    final keys = byDay.keys.toList()..sort();
+    if (keys.length < 2) return <double>[];
+    final take = keys.length > 14 ? keys.sublist(keys.length - 14) : keys;
+    var run = 0.0;
+    final out = <double>[];
+    for (final k in take) {
+      run += byDay[k] ?? 0;
+      out.add(run);
+    }
+    return out.length >= 2 ? out : <double>[];
+  }
+
+  static const int _kFinancePdfPrepYieldEvery = 120;
+  static const int _kFinanceHeavyDocsThreshold = 80;
+  static const int _kFinanceHeavyDaysThreshold = 180;
+  String _dataStrExport(dynamic ts) {
+    if (ts == null) return '';
+    if (ts is DateTime) return DateTimeFormats.dateBR.format(ts);
+    if (ts is Timestamp) return DateTimeFormats.dateBR.format(ts.toDate());
+    return '';
+  }
+
+  int _sortMsForExport(dynamic ts) {
+    if (ts == null) return 0;
+    if (ts is DateTime) return ts.millisecondsSinceEpoch;
+    if (ts is Timestamp) return ts.toDate().millisecondsSinceEpoch;
+    return 0;
+  }
+
+  bool _isHeavyFinanceExport(int docsCount, DateTime from, DateTime to) {
+    final f = DateTime(from.year, from.month, from.day);
+    final t = DateTime(to.year, to.month, to.day);
+    final daysSpan = t.difference(f).inDays + 1;
+    return docsCount > _kFinanceHeavyDocsThreshold ||
+        daysSpan > _kFinanceHeavyDaysThreshold;
+  }
+
+  /// Overlay bloqueante durante operações de exportação.
+  Future<T> _runWithBlockingDialog<T>({
+    required String message,
+    required Future<T> Function() action,
+  }) async {
+    var dialogShown = false;
+    if (mounted) {
+      dialogShown = true;
+      unawaited(
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          useRootNavigator: true,
+          builder: (_) => PopScope(
+            canPop: false,
+            child: AlertDialog(
+              content: Row(
+                children: [
+                  SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      message,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    try {
+      return await action();
+    } finally {
+      if (dialogShown && mounted) {
+        final nav = Navigator.of(context, rootNavigator: true);
+        if (nav.canPop()) {
+          nav.pop();
+        }
+      }
+    }
+  }
+
+  Future<(Uint8List, String, bool)> _buildFinancePdfBytes({
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    required double saldoAbertura,
+    required double totalIncome,
+    required double totalExpense,
+    required DateTime from,
+    required DateTime to,
+    required String? filenameSuffix,
+  }) async {
+    final heavyExport = _isHeavyFinanceExport(docs.length, from, to);
+    final periodo =
+        '${DateTimeFormats.dateBR.format(from)} a ${DateTimeFormats.dateBR.format(to)}';
+    final filenameBase = RelatorioService.reportFilenameFromPeriod(
+      'despesa_receita',
+      from,
+      to,
+      filenameSuffix != null && filenameSuffix.isNotEmpty
+          ? '— $filenameSuffix'
+          : null,
+    );
+
+    final txRows = <Map<String, dynamic>>[];
+    for (var i = 0; i < docs.length; i++) {
+      if (i > 0 && i % _kFinancePdfPrepYieldEvery == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      final e = docs[i].data();
+      final cat = (e['category'] ?? '').toString().trim();
+      final desc = (e['description'] ?? '').toString().trim();
+      final isInc = (e['type'] ?? 'expense').toString() == 'income';
+      final tituloLinha =
+          desc.isNotEmpty ? desc : (isInc ? 'Receita' : 'Despesa');
+      txRows.add({
+        'sortMs': _sortMsForExport(e['date']),
+        'data': _dataStrExport(e['date']),
+        'categoria': cat,
+        'titulo': tituloLinha,
+        'descricao': RelatorioService.sanitizeForReport(
+          (cat.isNotEmpty ? 'Categoria: $cat' : '') +
+              (cat.isNotEmpty && desc.isNotEmpty ? ' — ' : '') +
+              (desc.isNotEmpty
+                  ? 'Descricao: $desc'
+                  : (cat.isEmpty ? (isInc ? 'Receita' : 'Despesa') : '')),
+        ),
+        'tipo': isInc ? 'receita' : 'despesa',
+        'valor': _financeAmountToDouble(e['amount']),
+      });
+    }
+    txRows.sort((a, b) => (a['sortMs'] as int).compareTo(b['sortMs'] as int));
+
+    final logo = await RelatorioService.loadPdfLogoBytesOnce();
+    final bytes = await gerarPdfFinanceiroSuperExtrato(
+      transacoes: txRows,
+      nomeUsuario: widget.profile.name,
+      conta: _selectedFinanceAccountLabel() ?? 'Todas as contas',
+      periodo: periodo,
+      saldoAbertura: saldoAbertura,
+      totalReceitas: totalIncome,
+      totalDespesas: totalExpense,
+      logoPngBytes: logo,
+    );
+    return (bytes, filenameBase, heavyExport);
+  }
+
+  /// Exporta o período para PDF (padrão relatórios: preview → imprimir, compartilhar WhatsApp, salvar).
+  /// [reportFrom] / [reportTo] permitem emitir relatório de outro intervalo (menu Relatórios financeiros).
+  /// Totais de receita/despesa são recalculados a partir dos documentos (inclui leitura completa se a lista usava paginação no Firestore).
+  Future<void> _exportPdf(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    double saldoAbertura, {
+    DateTime? reportFrom,
+    DateTime? reportTo,
+    String? pdfFilenameAccountSuffix,
+    bool filenameFromMainListFilter = true,
+    bool showProgressOverlay = true,
+  }) async {
+    if (docs.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          const SnackBar(content: Text('Nenhum lançamento para exportar.')),
+        );
+      }
+      return;
+    }
+
+    final from = reportFrom ?? _from;
+    final to = reportTo ?? _to;
+    final resolved = await _resolveExportTxSnapshots(docs, from, to);
+    if (resolved.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nenhum lançamento para exportar.')),
+        );
+      }
+      return;
+    }
+    if (resolved.length > kFinancePdfCsvExportMaxDocs) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
             content: Text(
-              'Igreja não vinculada. Saia e entre novamente no painel.',
+              'Exportação limitada a $kFinancePdfCsvExportMaxDocs lançamentos. Reduza o período ou os filtros.',
             ),
+            backgroundColor: AppColors.error,
           ),
         );
       }
       return;
     }
+    double ti = 0;
+    double te = 0;
+    for (final doc in resolved) {
+      final d = doc.data();
+      final amount = _financeAmountToDouble(d['amount']);
+      if (d['type'] == 'income') ti += amount;
+      if (d['type'] == 'expense') te += amount;
+    }
+
+    String? suffix;
+    if (filenameFromMainListFilter) {
+      suffix = _filenameAccountSuffix();
+    } else {
+      suffix = pdfFilenameAccountSuffix;
+      if (suffix != null && suffix.isNotEmpty) {
+        suffix = suffix.replaceAll(RegExp(r'[<>:"/\\|?*\n\r]'), '_').trim();
+        if (suffix.isEmpty) suffix = 'conta';
+        if (suffix.length > 48) suffix = suffix.substring(0, 48);
+      }
+    }
+
     try {
-      final ok = await showFinanceLancamentoEditorForTenant(
-        context,
-        tenantId: tid,
-        existingDoc: doc,
-        panelRole: widget.role,
-        presetNovoTipo: presetNovoTipo,
+      final (bytes, filenameBase, heavyExport) = showProgressOverlay
+          ? await _runWithBlockingDialog(
+              message: 'Gerando PDF…\nAguarde um instante.',
+              action: () => _buildFinancePdfBytes(
+                docs: resolved,
+                saldoAbertura: saldoAbertura,
+                totalIncome: ti,
+                totalExpense: te,
+                from: from,
+                to: to,
+                filenameSuffix: suffix,
+              ),
+            )
+          : await _buildFinancePdfBytes(
+              docs: resolved,
+              saldoAbertura: saldoAbertura,
+              totalIncome: ti,
+              totalExpense: te,
+              from: from,
+              to: to,
+              filenameSuffix: suffix,
+            );
+
+      if (bytes.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  'O PDF ficou vazio — verifique filtros ou tente novamente.'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) =>
+              ReportPreviewScreen(bytes: bytes, filename: filenameBase),
+        ),
       );
-      if (ok && mounted) _notifyFinanceChanged();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(formatFirebaseErrorForUser(e)),
-            backgroundColor: ThemeCleanPremium.error,
-          ),
+              content: Text('Erro ao exportar PDF: ${friendlyMessage(e)}'),
+              backgroundColor: AppColors.error),
         );
       }
     }
   }
 
-  // ─── Exportar CSV ────────────────────────────────────────────────────────────
-  Future<void> _exportarCSV(BuildContext context) async {
-    final snap = await ChurchTenantResilientReads.financeRecentNetwork(
-      _tid,
-      limit: 2000,
-    );
-    if (!mounted) return;
-    if (snap.docs.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nenhum lançamento para exportar.')));
-      return;
-    }
-    final buffer = StringBuffer(
-        'Tipo,Categoria,CentroCusto,Descrição,Valor,Data,Conciliado,RefExtrato,Fornecedor,Membro,AprovacaoPendente\n');
-    for (final d in snap.docs) {
-      final data = d.data();
-      final tipo = (data['type'] ?? 'entrada').toString();
-      final cat = (data['categoria'] ?? '').toString();
-      final cc = (data['centroCusto'] ?? '').toString();
-      final desc = (data['descricao'] ?? '').toString().replaceAll(',', ' ');
-      final valor = (data['amount'] ?? data['valor'] ?? 0).toString();
-      final conc = data['conciliado'] == true ? 'sim' : 'nao';
-      final ext = (data['extratoRef'] ?? '').toString().replaceAll(',', ' ');
-      final forn = (data['fornecedorNome'] ?? '').toString().replaceAll(',', ' ');
-      final memb = (data['membroNome'] ?? '').toString().replaceAll(',', ' ');
-      final ap = data['aprovacaoPendente'] == true ? 'sim' : 'nao';
-      String dataStr = '';
-      final ts = data['createdAt'];
-      if (ts is Timestamp) {
-        final dt = ts.toDate();
-        dataStr =
-            '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-      }
-      buffer.writeln(
-          '$tipo,$cat,$cc,$desc,$valor,$dataStr,$conc,$ext,$forn,$memb,$ap');
-    }
-    await showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Exportar CSV'),
-        content: const Text('Arquivo CSV gerado com sucesso.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Fechar')),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _exportarPdf(BuildContext context) async {
-    final signers =
-        await _pickFinancePdfSigners(context, tenantId: _tid);
-    if (!mounted || signers == null) return;
-    final snap = await ChurchTenantResilientReads.financeRecentNetwork(
-      _tid,
-      limit: 500,
-    );
-    if (!mounted) return;
-    await exportFinanceiroRelatorioPdf(
-      context: context,
-      tenantId: _tid,
-      docs: snap.docs,
-      filename: 'financeiro_relatorio.pdf',
-      leftSignerName: signers.leftName,
-      rightSignerName: signers.rightName,
-      leftSignatureBytes: signers.leftSignatureBytes,
-      rightSignatureBytes: signers.rightSignatureBytes,
-      showDigitalSignatures: signers.showDigitalSignatures,
-      leftDigitalStamp: signers.leftDigitalStamp,
-      rightDigitalStamp: signers.rightDigitalStamp,
-    );
-  }
-}
-
-String _financeDonationKindLabel(Map<String, dynamic> m) {
-  final kindRaw = (m['donationKindLabel'] ?? m['donationKind'] ?? '')
-      .toString()
-      .toLowerCase()
-      .trim();
-  if (kindRaw.contains('ofert')) return 'Oferta';
-  if (kindRaw.contains('diz') || kindRaw.contains('díz')) return 'Dízimo';
-  final cat = (m['categoria'] ?? '').toString().toLowerCase();
-  if (cat.contains('ofert')) return 'Oferta';
-  if (cat.contains('diz') || cat.contains('díz')) return 'Dízimo';
-  final desc = (m['descricao'] ?? '').toString().toLowerCase();
-  if (desc.contains('oferta')) return 'Oferta';
-  if (desc.contains('dizimo') || desc.contains('dízimo')) return 'Dízimo';
-  return '';
-}
-
-bool _financeIsDonationLancamento(Map<String, dynamic> m) {
-  return _financeDonationKindLabel(m).isNotEmpty;
-}
-
-/// Totais de entradas/saídas no mês por conta (inclui transferências como crédito/débito).
-class _TotaisContaMesResumo {
-  final double receitas;
-  final double despesas;
-  double get saldo => receitas - despesas;
-  const _TotaisContaMesResumo({required this.receitas, required this.despesas});
-}
-
-Map<String, _TotaisContaMesResumo> _totaisReceitaDespesaPorContaNoMes(
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  DateTime mesRef,
-) {
-  final start = DateTime(mesRef.year, mesRef.month, 1);
-  final end = DateTime(mesRef.year, mesRef.month + 1, 0, 23, 59, 59);
-  bool inMes(DateTime dt) => !dt.isBefore(start) && !dt.isAfter(end);
-
-  final receitas = <String, double>{};
-  final despesas = <String, double>{};
-
-  void addR(String cid, double v) {
-    if (cid.isEmpty) return;
-    receitas[cid] = (receitas[cid] ?? 0) + v;
-  }
-
-  void addD(String cid, double v) {
-    if (cid.isEmpty) return;
-    despesas[cid] = (despesas[cid] ?? 0) + v;
-  }
-
-  for (final d in docs) {
-    final data = d.data();
-    final dt = _financeLancamentoInstant(data);
-    if (!inMes(dt)) continue;
-    if (!financeLancamentoEfetivadoParaSaldo(data)) continue;
-    final tipo = financeInferTipo(data);
-    final valor = _parseValor(data['amount'] ?? data['valor']);
-    if (valor == 0) continue;
-
-    if (tipo == 'transferencia') {
-      addR((data['contaDestinoId'] ?? '').toString(), valor);
-      addD((data['contaOrigemId'] ?? '').toString(), valor);
-    } else if (tipo.contains('entrada') || tipo.contains('receita')) {
-      addR(financeContaDestinoReceitaId(data), valor);
-    } else if (tipo.contains('saida') ||
-        tipo.contains('saída') ||
-        tipo.contains('despesa')) {
-      addD((data['contaOrigemId'] ?? '').toString(), valor);
-    }
-  }
-
-  final ids = {...receitas.keys, ...despesas.keys};
-  final out = <String, _TotaisContaMesResumo>{};
-  for (final id in ids) {
-    out[id] = _TotaisContaMesResumo(
-      receitas: receitas[id] ?? 0,
-      despesas: despesas[id] ?? 0,
-    );
-  }
-  return out;
-}
-
-/// Resumo por conta: lista vertical (todas as contas visíveis) + cartão “Resumo geral”; toque abre extrato.
-class _FinanceContasResumoStrip extends StatelessWidget {
-  final String tenantId;
-  final String role;
-  final CollectionReference<Map<String, dynamic>> financeCol;
-  final VoidCallback onFinanceChanged;
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> financeDocs;
-  final List<QueryDocumentSnapshot<Map<String, dynamic>>> contasDocs;
-  final Map<String, double> saldoAtualPorConta;
-
-  const _FinanceContasResumoStrip({
-    super.key,
-    required this.tenantId,
-    required this.role,
-    required this.financeCol,
-    required this.onFinanceChanged,
-    required this.financeDocs,
-    required this.contasDocs,
-    this.saldoAtualPorConta = const {},
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final mesRef = DateTime(DateTime.now().year, DateTime.now().month, 1);
-    final mesLabel = DateFormat('MMMM yyyy', 'pt_BR').format(mesRef);
-
-    final totais = _totaisReceitaDespesaPorContaNoMes(financeDocs, mesRef);
-    final contasAtivas =
-        contasDocs.where((c) => c.data()['ativo'] != false).toList();
-
-    double gReceitas = 0, gDespesas = 0, gSaldoBancos = 0;
-    for (final t in totais.values) {
-      gReceitas += t.receitas;
-      gDespesas += t.despesas;
-    }
-    if (saldoAtualPorConta.isNotEmpty) {
-      gSaldoBancos =
-          saldoAtualPorConta.values.fold(0.0, (a, b) => a + b);
-    }
-    final gSaldo = saldoAtualPorConta.isNotEmpty
-        ? gSaldoBancos
-        : gReceitas - gDespesas;
-    final nf = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
-
-    Future<void> openExtrato({String? contaId, required String title}) async {
-          await Navigator.push<void>(
-            context,
-            MaterialPageRoute(
-              builder: (_) => _MovimentacoesContaPage(
-                financeCol: financeCol,
-                tenantId: tenantId,
-                role: role,
-                contaId: contaId,
-                title: title,
-                extratoMes: mesRef,
-                onEdit: (ctx, doc) async {
-                  await showFinanceLancamentoEditorForTenant(
-                    ctx,
-                    tenantId: tenantId,
-                    existingDoc: doc,
-                    panelRole: role,
-                  );
-                },
-              ),
-            ),
-          );
-          onFinanceChanged();
-        }
-
-        final deep = Color.lerp(ThemeCleanPremium.primary, const Color(0xFF0F172A), 0.38)!;
-
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          ThemeCleanPremium.primary.withValues(alpha: 0.2),
-                          ThemeCleanPremium.primary.withValues(alpha: 0.06),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(Icons.dashboard_customize_rounded,
-                        size: 20, color: ThemeCleanPremium.primary),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Visão por conta · $mesLabel',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -0.25,
-                          ),
-                        ),
-                        Text(
-                          'Todas as contas visíveis — toque para abrir o extrato',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey.shade600,
-                            height: 1.25,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(20),
-                  onTap: () => openExtrato(
-                    contaId: null,
-                    title: 'Resumo geral · $mesLabel',
-                  ),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          ThemeCleanPremium.primary,
-                          deep,
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                        ...ThemeCleanPremium.softUiCardShadow,
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(11),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.22),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: const Icon(Icons.summarize_rounded,
-                              color: Colors.white, size: 24),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Resumo geral (todas as contas)',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 14,
-                                  letterSpacing: -0.2,
-                                  color: Colors.white.withValues(alpha: 0.98),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 14,
-                                runSpacing: 6,
-                                children: [
-                                  _stripInlineLight(
-                                    'Receitas',
-                                    nf.format(gReceitas),
-                                    valueColor: const Color(0xFFBBF7D0),
-                                  ),
-                                  _stripInlineLight(
-                                    'Despesas',
-                                    nf.format(gDespesas),
-                                    valueColor: const Color(0xFFFECDD3),
-                                  ),
-                                  _stripInlineLight(
-                                    saldoAtualPorConta.isNotEmpty
-                                        ? 'Saldo bancos'
-                                        : 'Saldo mês',
-                                    nf.format(gSaldo),
-                                    strong: true,
-                                    valueColor: gSaldo >= 0
-                                        ? const Color(0xFF86EFAC)
-                                        : const Color(0xFFFCA5A5),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        Icon(Icons.open_in_new_rounded,
-                            size: 20, color: Colors.white.withValues(alpha: 0.85)),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              if (contasAtivas.isNotEmpty) ...[
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Icon(Icons.account_balance_wallet_rounded,
-                        size: 18, color: ThemeCleanPremium.primary),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Contas (${contasAtivas.length})',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.grey.shade800,
-                        letterSpacing: -0.1,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                FinanceContasBrandGrid(
-                  itemCount: contasAtivas.length,
-                  minCardHeight: 210,
-                  itemBuilder: (context, i) {
-                    final c = contasAtivas[i];
-                    final id = c.id;
-                    final contaData = c.data();
-                    final nome = _financeContaDisplayName(contaData);
-                    final bancoNome = _financeContaBancoNome(contaData);
-                    final tipoConta =
-                        _financeTipoContaLabel(contaData['tipoConta']?.toString());
-                    final t = totais[id] ??
-                        const _TotaisContaMesResumo(receitas: 0, despesas: 0);
-                    final saldoAtual = saldoAtualPorConta[id] ?? t.saldo;
-                    final tipoRaw =
-                        (contaData['tipoConta'] ?? '').toString().toLowerCase();
-                    final isCartao = tipoRaw == 'cartao_credito' ||
-                        tipoRaw == 'cartao';
-                    return FinanceBankBrandCard(
-                      nome: nome,
-                      bancoNome: bancoNome,
-                      tipoContaLabel: tipoConta,
-                      bancoCodigo: (contaData['bancoCodigo'] ?? '').toString(),
-                      saldoAtual: saldoAtual,
-                      receitasMes: t.receitas,
-                      despesasMes: t.despesas,
-                      isCreditCard: isCartao,
-                      onTap: () => openExtrato(
-                        contaId: id,
-                        title: '$nome · $mesLabel',
-                      ),
-                      onTransfer: () async {
-                        final ok = await showFinanceLancamentoEditorForTenant(
-                          context,
-                          tenantId: tenantId,
-                          panelRole: role,
-                          presetNovoTipo: 'transferencia',
-                          presetContaOrigemId: id,
-                        );
-                        if (ok) onFinanceChanged();
-                      },
-                    );
-                  },
-                ),
-              ],
-            ],
-          ),
-        );
-  }
-
-  /// Barra fina Receitas vs Despesas no mês (visual premium; o saldo fica na linha de cima).
-  static Widget _fluxoReceitaDespesaMiniBar(double receitas, double despesas) {
-    final total = receitas + despesas;
-    if (total <= 0) return const SizedBox.shrink();
-    final rFrac = (receitas / total).clamp(0.04, 0.96);
-    final g = (rFrac * 1000).round().clamp(1, 999);
-    final b = (1000 - g).clamp(1, 999);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(999),
-      child: SizedBox(
-        height: 6,
-        child: Row(
-          children: [
-            Expanded(
-              flex: g,
-              child: ColoredBox(
-                color: _financeEntradas.withValues(alpha: 0.9),
-              ),
-            ),
-            Expanded(
-              flex: b,
-              child: ColoredBox(
-                color: _financeSaidas.withValues(alpha: 0.9),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Totais no cartão “Resumo geral” (fundo gradiente escuro).
-  static Widget _stripInlineLight(
-    String k,
-    String v, {
-    bool strong = false,
-    Color? valueColor,
-  }) {
-    final vc = valueColor ?? Colors.white;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          '$k: ',
-          style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w700,
-            color: Colors.white.withValues(alpha: 0.78),
-          ),
-        ),
-        Text(
-          v,
-          style: TextStyle(
-            fontSize: strong ? 14 : 12.5,
-            fontWeight: FontWeight.w900,
-            color: vc,
-            letterSpacing: -0.25,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// TAB 1 — Resumo (gráficos + totalizadores)
-// ═══════════════════════════════════════════════════════════════════════════════
-class _ResumoTab extends StatefulWidget {
-  final CollectionReference<Map<String, dynamic>> financeCol;
-  final String tenantId;
-  final String role;
-  final int financeRevision;
-  final VoidCallback onFinanceChanged;
-
-  const _ResumoTab({
-    super.key,
-    required this.financeCol,
-    required this.tenantId,
-    required this.role,
-    required this.financeRevision,
-    required this.onFinanceChanged,
-  });
-
-  @override
-  State<_ResumoTab> createState() => _ResumoTabState();
-}
-
-class _ResumoTabState extends State<_ResumoTab> {
-  late Future<QuerySnapshot<Map<String, dynamic>>> _future;
-  late Future<QuerySnapshot<Map<String, dynamic>>> _futureContas;
-  late Future<FinanceTenantSettings> _futureSettings;
-  late Future<List<dynamic>> _combinedFuture;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedFinanceDocs;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedContasDocs;
-  String? _loadHint;
-  bool _fetching = false;
-  bool _showingStaleCache = false;
-  Timer? _webLoadCap;
-  String _periodFilter = 'mes_atual';
-  DateTime? _periodStart;
-  DateTime? _periodEnd;
-
-  static DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
-  static DateTime _endOfDay(DateTime d) =>
-      DateTime(d.year, d.month, d.day, 23, 59, 59);
-  static DateTime _startOfMonth(DateTime d) => DateTime(d.year, d.month, 1);
-  static DateTime _endOfMonth(DateTime d) =>
-      DateTime(d.year, d.month + 1, 0, 23, 59, 59);
-  static DateTime _startOfYear(DateTime d) => DateTime(d.year, 1, 1);
-  static DateTime _endOfYear(DateTime d) =>
-      DateTime(d.year, 12, 31, 23, 59, 59);
-
-  /// Fim do intervalo do filtro atual — usado para saldo cumulativo por conta (até essa data).
-  DateTime _periodEndForSaldo() {
-    final now = DateTime.now();
-    switch (_periodFilter) {
-      case 'mes_anterior':
-        return _endOfMonth(DateTime(now.year, now.month - 1));
-      case 'mes_atual':
-        return _endOfMonth(now);
-      case 'diario':
-        return _endOfDay(now);
-      case 'semanal':
-        return _endOfDay(now);
-      case 'anual':
-        return _endOfYear(now);
-      case 'periodo':
-        if (_periodStart != null && _periodEnd != null) {
-          return _endOfDay(_periodEnd!);
-        }
-        return _endOfMonth(now);
-      default:
-        return _endOfMonth(now);
-    }
-  }
-
-  bool _inRange(DateTime? dt) {
-    if (dt == null) return false;
-    final now = DateTime.now();
-    switch (_periodFilter) {
-      case 'mes_anterior':
-        final prev = DateTime(now.year, now.month - 1);
-        return !dt.isBefore(_startOfMonth(prev)) &&
-            !dt.isAfter(_endOfMonth(prev));
-      case 'mes_atual':
-        return !dt.isBefore(_startOfMonth(now)) &&
-            !dt.isAfter(_endOfMonth(now));
-      case 'diario':
-        return !dt.isBefore(_startOfDay(now)) && !dt.isAfter(_endOfDay(now));
-      case 'semanal':
-        final weekStart = now.subtract(Duration(days: now.weekday - 1));
-        return !dt.isBefore(_startOfDay(weekStart)) &&
-            !dt.isAfter(_endOfDay(now));
-      case 'anual':
-        return !dt.isBefore(_startOfYear(now)) && !dt.isAfter(_endOfYear(now));
-      case 'periodo':
-        if (_periodStart != null && _periodEnd != null) {
-          return !dt.isBefore(_startOfDay(_periodStart!)) &&
-              !dt.isAfter(_endOfDay(_periodEnd!));
-        }
-        return true;
-      default:
-        return true;
-    }
-  }
-
-  bool _resumoHasLocalData(PanelFinanceAccountsSnapshot accountsCache) =>
-      (_seedFinanceDocs?.isNotEmpty ?? false) ||
-      (_seedContasDocs?.isNotEmpty ?? false) ||
-      accountsCache.hasData;
-
-  bool _resumoShouldShowStaleBanner({bool fromCache = false}) {
-    if (!AppConnectivityService.instance.isOnline) {
-      return fromCache ||
-          (_seedFinanceDocs?.isNotEmpty ?? false) ||
-          (_seedContasDocs?.isNotEmpty ?? false);
-    }
-    return false;
-  }
-
-  void _startResumoWebCap() {
-    if (!kIsWeb) return;
-    _webLoadCap?.cancel();
-    _webLoadCap = Timer(const Duration(seconds: 12), () {
-      if (!mounted || !_fetching) return;
-      final hadLocal =
-          _resumoHasLocalData(const PanelFinanceAccountsSnapshot());
-      setState(() {
-        _fetching = false;
-        if (hadLocal) {
-          _showingStaleCache = _resumoShouldShowStaleBanner(fromCache: true);
-          _loadHint = null;
-        } else {
-          _loadHint ??=
-              'Tempo esgotado ao carregar o resumo financeiro na Web.';
-        }
-      });
-    });
-  }
-
-  Widget _buildResumoResilienceBanner({
-    required Object? error,
-    required PanelFinanceAccountsSnapshot accountsCache,
-    VoidCallback? onRetry,
-  }) {
-    return ChurchPanelResilientLoadBanner(
-      hasLocalData: _resumoHasLocalData(accountsCache),
-      isSyncing: _fetching && _resumoHasLocalData(accountsCache),
-      showStaleCache: _showingStaleCache && !_fetching,
-      errorTitle: 'Não foi possível carregar o resumo financeiro',
-      error: error,
-      onRetry: onRetry ?? _refresh,
-      staleMessage:
-          'Modo offline — resumo com últimos dados guardados. Puxe para atualizar.',
-      syncMessage:
-          'Sincronizando financeiro… a mostrar dados guardados enquanto atualiza.',
-    );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _reloadFutures();
-  }
-
-  @override
-  void dispose() {
-    _webLoadCap?.cancel();
-    super.dispose();
-  }
-
-  Future<List<dynamic>> _loadFinanceBundle({
-    required bool forceFresh,
-    bool forceServer = false,
-  }) async {
-    final tid = ChurchPanelTenant.forFirestore(widget.tenantId);
-    if (kIsWeb) {
-      try {
-        await FirestoreWebGuard.ensurePanelReadReady().timeout(
-          ChurchPanelReadTimeouts.readReadyCap,
-        );
-      } catch (_) {}
-    }
-    final limit = YahwehPerformanceV4.financeChartsSampleLimit;
-    final queryCap = kIsWeb
-        ? const Duration(seconds: 12)
-        : PanelResilientLoad.queryCap;
-    final results = await Future.wait<Object>([
-      ChurchFinanceLoadService.loadLancamentos(
-        seedTenantId: tid,
-        limit: limit,
-        forceRefresh: forceFresh,
-        forceServer: forceServer,
-      ).timeout(queryCap),
-      ChurchFinanceLoadService.loadContas(
-        seedTenantId: tid,
-        forceRefresh: forceFresh,
-        forceServer: forceServer,
-      ).timeout(queryCap),
-      FinanceTenantSettings.load(tid).timeout(queryCap),
-    ]);
-    final l = results[0] as ChurchFinanceLoadResult;
-    final c = results[1] as ChurchFinanceLoadResult;
-    final s = results[2] as FinanceTenantSettings;
-    unawaited(
-      FinanceComprovantePublishService.reconcileStuckComprovantes(
-        tenantId: tid,
-        docs: l.docs,
-      ),
-    );
-    if (mounted) {
-      final hadLocal = (_seedFinanceDocs?.isNotEmpty ?? false) ||
-          (_seedContasDocs?.isNotEmpty ?? false);
-      if (l.docs.isNotEmpty || c.docs.isNotEmpty) {
-        _loadHint = null;
-        _showingStaleCache = _resumoShouldShowStaleBanner(fromCache: l.fromCache);
-      } else if (l.softError != null && l.softError!.trim().isNotEmpty) {
-        final ui = PanelResilientLoad.afterFetch(
-          hadLocalData: hadLocal,
-          newItems: l.docs,
-          fromCache: l.fromCache,
-          softError: l.softError,
-          forceFresh: forceFresh,
-        );
-        if (!hadLocal) _loadHint = ui.loadError;
-        _showingStaleCache = ui.showingStaleCache &&
-            !AppConnectivityService.instance.isOnline;
-      } else {
-        _loadHint = null;
-        _showingStaleCache = false;
-      }
-    }
-    return [l.snapshot, c.snapshot, s];
-  }
-
-  void _seedFinanceCaches(int limit) {
-    final churchId = ChurchPanelTenant.forFirestore(widget.tenantId);
-    _seedFinanceDocs =
-        ChurchFinanceLoadService.peekLancamentosRamAny(churchId) ??
-            ChurchFinanceLoadService.peekLancamentosRam(churchId, limit: limit) ??
-            const [];
-    _seedContasDocs =
-        ChurchFinanceLoadService.peekContasRam(churchId) ?? const [];
-  }
-
-  void _reloadFutures({bool forceFresh = false, bool forceServer = false}) {
-    final limit = YahwehPerformanceV4.financeChartsSampleLimit;
-
-    if (!forceFresh) {
-      _seedFinanceCaches(limit);
-    } else {
-      _seedFinanceDocs ??= const [];
-      _seedContasDocs ??= const [];
-    }
-
-    final hadLocal = (_seedFinanceDocs?.isNotEmpty ?? false) ||
-        (_seedContasDocs?.isNotEmpty ?? false);
-    _fetching = !hadLocal;
-    if (!forceFresh && hadLocal) {
-      _showingStaleCache = _resumoShouldShowStaleBanner(fromCache: true);
-    }
-    if (forceFresh) {
-      _loadHint = null;
-      _showingStaleCache = false;
-    }
-    _startResumoWebCap();
-
-    final instantBundle = <dynamic>[
-      MergedFirestoreQuerySnapshot(_seedFinanceDocs!),
-      MergedFirestoreQuerySnapshot(_seedContasDocs!),
-      const FinanceTenantSettings(),
-    ];
-    _combinedFuture = Future.value(instantBundle);
-
-    unawaited(_loadFinanceBundle(forceFresh: forceFresh, forceServer: forceServer).then((fresh) {
-      if (!mounted) return;
-      _webLoadCap?.cancel();
-      setState(() {
-        final fs = fresh[0] as QuerySnapshot<Map<String, dynamic>>;
-        final cs = fresh[1] as QuerySnapshot<Map<String, dynamic>>;
-        final freshFinance = fs.docs;
-        _seedFinanceDocs = freshFinance.isNotEmpty
-            ? freshFinance
-            : (_seedFinanceDocs?.isNotEmpty == true
-                ? _seedFinanceDocs!
-                : freshFinance);
-        _seedContasDocs = cs.docs.isNotEmpty
-            ? cs.docs
-            : (_seedContasDocs?.isNotEmpty == true
-                ? _seedContasDocs!
-                : cs.docs);
-        _combinedFuture = Future.value(<dynamic>[
-          MergedFirestoreQuerySnapshot(_seedFinanceDocs!),
-          MergedFirestoreQuerySnapshot(_seedContasDocs!),
-          fresh[2],
-        ]);
-        _fetching = false;
-        // Preservar softError de _loadFinanceBundle — não apagar se rede falhou/vazio.
-        final stillEmpty = (_seedFinanceDocs?.isEmpty ?? true) &&
-            (_seedContasDocs?.isEmpty ?? true);
-        if (!stillEmpty) {
-          _showingStaleCache = false;
-          _loadHint = null;
-        } else if (_loadHint == null || _loadHint!.trim().isEmpty) {
-          _showingStaleCache = false;
-        }
-      });
-    }).catchError((e) {
-      if (!mounted) return;
-      _webLoadCap?.cancel();
-      final hadLocalData = (_seedFinanceDocs?.isNotEmpty ?? false) ||
-          (_seedContasDocs?.isNotEmpty ?? false);
-      final ui = PanelResilientLoad.afterError(
-        hadLocalData: hadLocalData,
-        error: e,
-      );
-      setState(() {
-        _fetching = ui.fetching;
-        _showingStaleCache = ui.showingStaleCache &&
-            !AppConnectivityService.instance.isOnline;
-        if (!hadLocalData) _loadHint = ui.loadError;
-      });
-    }));
-
-    _future = _combinedFuture.then(
-      (v) => v[0] as QuerySnapshot<Map<String, dynamic>>,
-    );
-    _futureContas = _combinedFuture.then(
-      (v) => v[1] as QuerySnapshot<Map<String, dynamic>>,
-    );
-    _futureSettings = _combinedFuture.then(
-      (v) => v[2] as FinanceTenantSettings,
-    );
-  }
-
-  @override
-  void didUpdateWidget(covariant _ResumoTab oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.tenantId != widget.tenantId) {
-      setState(() => _reloadFutures());
-      return;
-    }
-    if (oldWidget.financeRevision != widget.financeRevision) {
-      setState(() => _reloadFutures(forceFresh: false));
-    }
-  }
-
-  Future<void> _refresh() async {
-    setState(() => _reloadFutures(forceFresh: true, forceServer: true));
-  }
-
-  Widget _buildPieChart(List<MapEntry<String, double>> entries, double total,
-      List<Color> cores, String title) {
-    if (entries.isEmpty || total <= 0) {
-      return _ChartCard(
-        title: title,
-        icon: Icons.pie_chart_rounded,
-        child: SizedBox(
-            height: 180,
-            child: Center(
-                child: Text('Sem dados para o período.',
-                    style:
-                        TextStyle(color: Colors.grey.shade600, fontSize: 13)))),
-      );
-    }
-    final sections = entries.asMap().entries.map((e) {
-      final pct = e.value.value / total;
-      return PieChartSectionData(
-        value: pct,
-        title: '',
-        color: cores[e.key % cores.length],
-        radius: 60,
-        titleStyle: const TextStyle(fontSize: 0),
-      );
-    }).toList();
-    return _ChartCard(
-      title: title,
-      icon: Icons.pie_chart_rounded,
-      child: SizedBox(
-        height: 220,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              flex: 1,
-              child: Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                        NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$')
-                            .format(total),
-                        style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF1E293B),
-                            letterSpacing: -0.3)),
-                    const SizedBox(height: 4),
-                    Text('Total',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey.shade600)),
-                    const SizedBox(height: 16),
-                    ...entries.take(6).toList().asMap().entries.map((ie) {
-                      final e = ie.value;
-                      final idx = ie.key;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                                width: 10,
-                                height: 10,
-                                decoration: BoxDecoration(
-                                    color: cores[idx % cores.length],
-                                    borderRadius: BorderRadius.circular(3))),
-                            const SizedBox(width: 8),
-                            Flexible(
-                                child: Text(
-                                    '${e.key}: ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(e.value)}',
-                                    style: TextStyle(
-                                        fontSize: 11,
-                                        color:
-                                            ThemeCleanPremium.onSurfaceVariant),
-                                    overflow: TextOverflow.ellipsis)),
-                          ],
-                        ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-            ),
-            Expanded(
-              flex: 1,
-              child: SizedBox(
-                height: 180,
-                child: PieChart(
-                  PieChartData(
-                    sections: sections,
-                    sectionsSpace: 3,
-                    centerSpaceRadius: 36,
-                  ),
-                  swapAnimationDuration: const Duration(milliseconds: 400),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    Widget resumoBody(PanelFinanceAccountsSnapshot accountsCache) {
-      return FutureBuilder<List<dynamic>>(
-      future: _combinedFuture,
-      builder: (context, snap) {
-        final loadError = snap.hasError ? snap.error : _loadHint;
-        final hasLocal = _resumoHasLocalData(accountsCache) ||
-            (snap.data != null &&
-                snap.data!.isNotEmpty &&
-                (((snap.data![0] as QuerySnapshot<Map<String, dynamic>>)
-                            .docs
-                            .isNotEmpty) ||
-                    (snap.data!.length > 1 &&
-                        (snap.data![1] as QuerySnapshot<Map<String, dynamic>>)
-                            .docs
-                            .isNotEmpty)));
-        if (snap.connectionState == ConnectionState.waiting &&
-            !snap.hasData &&
-            !hasLocal) {
-          return const ChurchPanelLoadingBody();
-        }
-        if (!hasLocal && loadError != null) {
-          return _buildResumoResilienceBanner(
-            error: loadError,
-            accountsCache: accountsCache,
-          );
-        }
-        final showResilienceBanner =
-            loadError != null || _fetching || _showingStaleCache;
-        final financeSnap = snap.data != null && snap.data!.isNotEmpty
-            ? snap.data![0] as QuerySnapshot<Map<String, dynamic>>
-            : null;
-        final contasSnap = snap.data != null && snap.data!.length > 1
-            ? snap.data![1] as QuerySnapshot<Map<String, dynamic>>
-            : null;
-        final settings = snap.data != null && snap.data!.length > 2
-            ? snap.data![2] as FinanceTenantSettings
-            : const FinanceTenantSettings();
-        final allDocs = financeSnap?.docs ?? _seedFinanceDocs ?? [];
-        final docs = allDocs.where((d) {
-          final dt = financeLancamentoDate(d.data());
-          return _inRange(dt);
-        }).toList();
-        final contasDocs = contasSnap?.docs.isNotEmpty == true
-            ? contasSnap!.docs
-            : (_seedContasDocs ?? contasSnap?.docs ?? []);
-        double totalReceitas = 0, totalDespesas = 0;
-        final now = DateTime.now();
-
-        final receitasMerger = FinanceCategoryMerger();
-        final despesasMerger = FinanceCategoryMerger();
-        final receitasPorCat = <String, double>{};
-        final despesasPorCat = <String, double>{};
-        for (final d in docs) {
-          final data = d.data();
-          final tipo = financeInferTipo(data);
-          if (tipo == 'transferencia') continue;
-          if (!financeLancamentoEfetivadoParaSaldo(data)) continue;
-          final valor = _parseValor(data['amount'] ?? data['valor']);
-          final cat = (data['categoria'] ?? 'Outros').toString().trim();
-          final isEntrada = financeIsEntrada(data);
-
-          if (isEntrada) {
-            totalReceitas += valor;
-            receitasMerger.addAmount(receitasPorCat, cat, valor,
-                emptyLabel: 'Outros');
-          } else {
-            totalDespesas += valor;
-            despesasMerger.addAmount(despesasPorCat, cat, valor,
-                emptyLabel: 'Outros');
-          }
-
-        }
-
-        final saldo = totalReceitas - totalDespesas;
-
-        double aReceberPendente = 0, aPagarPendente = 0;
-        for (final d in docs) {
-          final data = d.data();
-          final tipo = financeInferTipo(data);
-          if (tipo == 'transferencia') continue;
-          final valor = _parseValor(data['amount'] ?? data['valor']);
-          if (financeLancamentoPendenteRecebimento(data)) {
-            aReceberPendente += valor;
-          }
-          if (financeLancamentoPendentePagamento(data)) {
-            aPagarPendente += valor;
-          }
-        }
-        final fluxoPrevistoResumo = saldo + aReceberPendente - aPagarPendente;
-
-        // Saldo por conta até o fim do período filtrado (inclui saldo arrastado dos meses anteriores).
-        final periodEndSaldo = _periodEndForSaldo();
-        final idsAtivos = <String>{};
-        for (final c in contasDocs) {
-          if (c.data()['ativo'] == false) continue;
-          idsAtivos.add(c.id);
-        }
-        final saldoPorConta = financeSaldoPorContaAteInclusive(
-          contaIdsAtivas: idsAtivos,
-          lancamentos: allDocs.map((d) => d.data()),
-          ateInclusive: periodEndSaldo,
-        );
-        final saldoAtualPorConta = allDocs.isNotEmpty
-            ? saldoPorConta
-            : (accountsCache.hasData
-                ? accountsCache.saldoPorConta
-                : saldoPorConta);
-
-        final saldoTotalContas = saldoAtualPorConta.values
-            .fold(0.0, (a, b) => a + b);
-        final cutoff30 = DateTime(now.year, now.month, now.day)
-            .subtract(const Duration(days: 30));
-        double net30 = 0;
-        for (final d in allDocs) {
-          final data = d.data();
-          final tipo = (data['type'] ?? 'entrada').toString().toLowerCase();
-          if (tipo == 'transferencia') continue;
-          if (!financeLancamentoEfetivadoParaSaldo(data)) continue;
-          final dt = _parseDate(data['createdAt'] ?? data['date']);
-          final day = DateTime(dt.year, dt.month, dt.day);
-          if (day.isBefore(cutoff30)) {
-            continue;
-          }
-          final valor = _parseValor(data['amount'] ?? data['valor']);
-          final isEntrada =
-              tipo.contains('entrada') || tipo.contains('receita');
-          if (isEntrada) {
-            net30 += valor;
-          } else {
-            net30 -= valor;
-          }
-        }
-        final previsao30 = saldoTotalContas + net30;
-
-        final orcamentoAlerts = <({String cat, double gasto, double teto, double pct})>[];
-        for (final e in settings.orcamentosDespesa.entries) {
-          if (e.value <= 0) continue;
-          var gasto = 0.0;
-          for (final de in despesasPorCat.entries) {
-            if (FinanceCategoryMerger.sameCategoryGroup(
-              de.key,
-              e.key,
-              emptyLabel: 'Outros',
-            )) {
-              gasto += de.value;
-            }
-          }
-          final pct = e.value > 0 ? gasto / e.value : 0.0;
-          orcamentoAlerts
-              .add((cat: e.key, gasto: gasto, teto: e.value, pct: pct));
-        }
-        orcamentoAlerts.sort((a, b) => b.pct.compareTo(a.pct));
-
-        final canMetas =
-            AppPermissions.canManageFinanceTenantSettings(widget.role);
-
-        final contasAtivas =
-            contasDocs.where((c) => c.data()['ativo'] != false).toList();
-
-        final padH = ThemeCleanPremium.isNarrow(context) ? 10.0 : ThemeCleanPremium.spaceLg;
-        return SingleChildScrollView(
-          primary: false,
-          padding: EdgeInsets.symmetric(
-              horizontal: padH, vertical: ThemeCleanPremium.spaceXl),
-          child: Column(
-            children: [
-              if (showResilienceBanner)
-                Padding(
-                  padding:
-                      const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
-                  child: _buildResumoResilienceBanner(
-                    error: loadError,
-                    accountsCache: accountsCache,
-                  ),
-                ),
-              _FinanceContasResumoStrip(
-                key: ValueKey(
-                    'fin_strip_${widget.tenantId}_${widget.financeRevision}_'
-                    '${accountsCache.updatedAt?.millisecondsSinceEpoch ?? 0}'),
-                tenantId: widget.tenantId,
-                role: widget.role,
-                financeCol: widget.financeCol,
-                onFinanceChanged: widget.onFinanceChanged,
-                financeDocs: allDocs,
-                contasDocs: contasDocs,
-                saldoAtualPorConta: saldoAtualPorConta,
-              ),
-              const SizedBox(height: ThemeCleanPremium.spaceLg),
-              // Filtros por período
-              SingleChildScrollView(
-                primary: false,
-                scrollDirection: Axis.horizontal,
-                padding:
-                    const EdgeInsets.only(bottom: ThemeCleanPremium.spaceMd),
-                child: Row(
-                  children: [
-                    _FilterChipPeriod(
-                      label: 'Mês anterior',
-                      selected: _periodFilter == 'mes_anterior',
-                      onTap: () =>
-                          setState(() => _periodFilter = 'mes_anterior'),
-                    ),
-                    const SizedBox(width: 10),
-                    _FilterChipPeriod(
-                      label: 'Mês atual',
-                      selected: _periodFilter == 'mes_atual',
-                      onTap: () => setState(() => _periodFilter = 'mes_atual'),
-                    ),
-                    const SizedBox(width: 10),
-                    _FilterChipPeriod(
-                      label: 'Diário',
-                      selected: _periodFilter == 'diario',
-                      onTap: () => setState(() => _periodFilter = 'diario'),
-                    ),
-                    const SizedBox(width: 10),
-                    _FilterChipPeriod(
-                      label: 'Semanal',
-                      selected: _periodFilter == 'semanal',
-                      onTap: () => setState(() => _periodFilter = 'semanal'),
-                    ),
-                    const SizedBox(width: 10),
-                    _FilterChipPeriod(
-                      label: 'Anual',
-                      selected: _periodFilter == 'anual',
-                      onTap: () => setState(() => _periodFilter = 'anual'),
-                    ),
-                    const SizedBox(width: 10),
-                    _FilterChipPeriod(
-                      label: _periodFilter == 'periodo' &&
-                              _periodStart != null &&
-                              _periodEnd != null
-                          ? '${_periodStart!.day}/${_periodStart!.month} - ${_periodEnd!.day}/${_periodEnd!.month}'
-                          : 'Por período',
-                      selected: _periodFilter == 'periodo',
-                      onTap: () async {
-                        final start = await showDatePicker(
-                          context: context,
-                          initialDate: DateTime.now(),
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime(2035),
-                        );
-                        if (start == null || !mounted) return;
-                        final end = await showDatePicker(
-                          context: context,
-                          initialDate: start,
-                          firstDate: start,
-                          lastDate: DateTime(2035),
-                        );
-                        if (mounted && end != null) {
-                          setState(() {
-                            _periodFilter = 'periodo';
-                            _periodStart = start;
-                            _periodEnd = end;
-                          });
-                        }
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              // Totalizadores (Receitas e Despesas clicáveis → lista com editar/remover/comprovantes)
-              LayoutBuilder(builder: (context, c) {
-                final narrow = c.maxWidth < 500;
-                final cardReceitas = _TotalizadorCard(
-                  label: 'Receitas',
-                  valor: totalReceitas,
-                  icon: Icons.trending_up_rounded,
-                  color: _financeEntradas,
-                  onTap: () async {
-                    await Navigator.push<void>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => _ListaLancamentosPorTipoPage(
-                          financeCol: widget.financeCol,
-                          tenantId: widget.tenantId,
-                          role: widget.role,
-                          tipo: 'entrada',
-                          titulo: 'Receitas',
-                          onEdit: (ctx, doc) async {
-                            await showFinanceLancamentoEditorForTenant(ctx,
-                                tenantId: widget.tenantId,
-                                existingDoc: doc,
-                                panelRole: widget.role);
-                          },
-                        ),
-                      ),
-                    );
-                    if (mounted) _refresh();
-                  },
-                );
-                final cardDespesas = _TotalizadorCard(
-                  label: 'Despesas',
-                  valor: totalDespesas,
-                  icon: Icons.trending_down_rounded,
-                  color: _financeSaidas,
-                  onTap: () async {
-                    await Navigator.push<void>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => _ListaLancamentosPorTipoPage(
-                          financeCol: widget.financeCol,
-                          tenantId: widget.tenantId,
-                          role: widget.role,
-                          tipo: 'saida',
-                          titulo: 'Despesas',
-                          onEdit: (ctx, doc) async {
-                            await showFinanceLancamentoEditorForTenant(ctx,
-                                tenantId: widget.tenantId,
-                                existingDoc: doc,
-                                panelRole: widget.role);
-                          },
-                        ),
-                      ),
-                    );
-                    if (mounted) _refresh();
-                  },
-                );
-                final cardSaldo = _TotalizadorCard(
-                  label: 'Saldo',
-                  valor: saldo,
-                  icon: Icons.account_balance_rounded,
-                  color: saldo >= 0
-                      ? _financeSaldoPositivo
-                      : _financeSaldoNegativo,
-                  onTap: () async {
-                    await Navigator.push<void>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => _MovimentacoesContaPage(
-                          financeCol: widget.financeCol,
-                          tenantId: widget.tenantId,
-                          role: widget.role,
-                          contaId: null,
-                          title: 'Extrato · Saldo',
-                          extratoMes: null,
-                          onEdit: (ctx, doc) async {
-                            await showFinanceLancamentoEditorForTenant(
-                              ctx,
-                              tenantId: widget.tenantId,
-                              existingDoc: doc,
-                              panelRole: widget.role,
-                            );
-                          },
-                        ),
-                      ),
-                    );
-                    if (mounted) _refresh();
-                  },
-                );
-                final cards = [cardReceitas, cardDespesas, cardSaldo];
-                if (narrow) {
-                  return Column(children: [
-                    for (final c in cards) ...[c, const SizedBox(height: 12)],
-                  ]);
-                }
-                return Row(children: [
-                  for (var i = 0; i < cards.length; i++) ...[
-                    if (i > 0) const SizedBox(width: 12),
-                    Expanded(child: cards[i]),
-                  ],
-                ]);
-              }),
-              if (canMetas ||
-                  settings.limiteAprovacaoDespesa > 0 ||
-                  orcamentoAlerts.isNotEmpty) ...[
-                SizedBox(height: ThemeCleanPremium.spaceMd),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Orçamento e metas',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: ThemeCleanPremium.onSurfaceVariant,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                    ),
-                    if (canMetas)
-                      TextButton.icon(
-                        onPressed: () async {
-                          await showFinanceTenantMetasEditor(
-                            context,
-                            tenantId: widget.tenantId,
-                            initial: settings,
-                          );
-                          if (mounted) {
-                            _refresh();
-                          }
-                        },
-                        icon: const Icon(Icons.tune_rounded, size: 18),
-                        label: const Text('Configurar'),
-                      ),
-                  ],
-                ),
-                if (settings.limiteAprovacaoDespesa > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      'Despesas acima de ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(settings.limiteAprovacaoDespesa)} podem exigir segunda aprovação.',
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                    ),
-                  ),
-                for (final a in orcamentoAlerts) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                a.cat,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              '${(a.pct * 100).clamp(0, 999).toStringAsFixed(0)}%',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 12,
-                                color: a.pct >= 1.0
-                                    ? const Color(0xFFB91C1C)
-                                    : (a.pct >= 0.8
-                                        ? const Color(0xFFCA8A04)
-                                        : Colors.grey.shade700),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: LinearProgressIndicator(
-                            minHeight: 8,
-                            value: a.pct > 1 ? 1.0 : a.pct,
-                            backgroundColor: Colors.grey.shade200,
-                            color: a.pct >= 1.0
-                                ? const Color(0xFFFCA5A5)
-                                : (a.pct >= 0.8
-                                    ? const Color(0xFFFDE047)
-                                    : ThemeCleanPremium.primary
-                                        .withValues(alpha: 0.55)),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Gasto no período: ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(a.gasto)} · Teto: ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(a.teto)}',
-                          style:
-                              TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                        ),
-                        if (a.pct >= 1.0)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              'Orçamento ultrapassado para esta categoria.',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.red.shade800,
-                              ),
-                            ),
-                          )
-                        else if (a.pct >= 0.8)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              'Atenção: próximo do limite.',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.amber.shade900,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-              Padding(
-                padding: const EdgeInsets.only(top: 4, bottom: 4),
-                child: Material(
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                  child: InkWell(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                    onTap: null,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        border: Border.all(
-                          color:
-                              ThemeCleanPremium.primary.withValues(alpha: 0.18),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.auto_graph_rounded,
-                                  size: 20, color: ThemeCleanPremium.primary),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Projeção de caixa (30 dias)',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 14,
-                                  color: ThemeCleanPremium.onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Saldo atual nas contas + resultado líquido dos últimos 30 dias.',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey.shade700),
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 16,
-                            runSpacing: 8,
-                            children: [
-                              Text(
-                                'Saldo nas contas: ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(saldoTotalContas)}',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600, fontSize: 13),
-                              ),
-                              Text(
-                                'Líquido 30 dias: ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(net30)}',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w600, fontSize: 13),
-                              ),
-                              Text(
-                                'Projeção: ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(previsao30)}',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 13,
-                                  color: previsao30 >= 0
-                                      ? const Color(0xFF0D9488)
-                                      : const Color(0xFFB91C1C),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              if (aReceberPendente > 0.009 || aPagarPendente > 0.009) ...[
-                SizedBox(height: ThemeCleanPremium.spaceMd),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Previsão (em aberto no período)',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: ThemeCleanPremium.onSurfaceVariant,
-                      letterSpacing: -0.2,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Receitas não confirmadas e despesas não pagas.',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-                const SizedBox(height: 12),
-                LayoutBuilder(builder: (context, c) {
-                  final narrow = c.maxWidth < 520;
-                  Widget wArec = _TotalizadorCard(
-                    label: 'A receber',
-                    valor: aReceberPendente,
-                    icon: Icons.schedule_send_rounded,
-                    color: const Color(0xFF0891B2),
-                  );
-                  Widget wApag = _TotalizadorCard(
-                    label: 'A pagar',
-                    valor: aPagarPendente,
-                    icon: Icons.pending_actions_rounded,
-                    color: const Color(0xFFEA580C),
-                  );
-                  Widget wFluxo = _TotalizadorCard(
-                    label: 'Saldo + previsão',
-                    valor: fluxoPrevistoResumo,
-                    icon: Icons.insights_rounded,
-                    color: fluxoPrevistoResumo >= 0
-                        ? const Color(0xFF0D9488)
-                        : const Color(0xFFB91C1C),
-                  );
-                  if (narrow) {
-                    return Column(
-                      children: [
-                        wArec,
-                        const SizedBox(height: 12),
-                        wApag,
-                        const SizedBox(height: 12),
-                        wFluxo,
-                      ],
-                    );
-                  }
-                  return Row(
-                    children: [
-                      Expanded(child: wArec),
-                      const SizedBox(width: 12),
-                      Expanded(child: wApag),
-                      const SizedBox(width: 12),
-                      Expanded(child: wFluxo),
-                    ],
-                  );
-                }),
-              ],
-              SizedBox(height: ThemeCleanPremium.spaceLg),
-              FinanceResumoChartsSection(
-                allLancamentos: allDocs,
-                receitasPorCat: receitasPorCat,
-                despesasPorCat: despesasPorCat,
-                totalReceitas: totalReceitas,
-                totalDespesas: totalDespesas,
-                chartYear: now.year,
-              ),
-              // Saldos das contas (clicável → movimentações)
-              if (contasAtivas.isNotEmpty) ...[
-                SizedBox(height: ThemeCleanPremium.spaceLg + 4),
-                Padding(
-                  padding:
-                      const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                            color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm)),
-                        child: Icon(Icons.account_balance_wallet_rounded,
-                            size: 20, color: ThemeCleanPremium.primary),
-                      ),
-                      const SizedBox(width: 12),
-                      Text('Saldos das contas',
-                          style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                              color: ThemeCleanPremium.onSurface,
-                              letterSpacing: -0.2)),
-                    ],
-                  ),
-                ),
-                LayoutBuilder(builder: (context, cx) {
-                  final narrow = cx.maxWidth < 400;
-                  return Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: contasAtivas.map((c) {
-                      final id = c.id;
-                      final nome = _financeContaDisplayName(c.data());
-                      final saldoConta = saldoAtualPorConta[id] ?? 0.0;
-                      return SizedBox(
-                        width: narrow ? double.infinity : 180,
-                        child: _ContaSaldoCard(
-                          nome: nome,
-                          saldo: saldoConta,
-                          onTap: () async {
-                            await Navigator.push<void>(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => _MovimentacoesContaPage(
-                                  financeCol: widget.financeCol,
-                                  tenantId: widget.tenantId,
-                                  role: widget.role,
-                                  contaId: id,
-                                  title: nome,
-                                  extratoMes: null,
-                                  onEdit: (ctx, doc) async {
-                                    await showFinanceLancamentoEditorForTenant(
-                                        ctx,
-                                        tenantId: widget.tenantId,
-                                        existingDoc: doc,
-                                        panelRole: widget.role);
-                                  },
-                                ),
-                              ),
-                            );
-                            if (mounted) _refresh();
-                          },
-                        ),
-                      );
-                    }).toList(),
-                  );
-                }),
-              ],
-              const SizedBox(height: 80),
-            ],
-          ),
-        );
-      },
-    );
-    }
-
-    if (kIsWeb) {
-      return FutureBuilder<PanelFinanceAccountsSnapshot>(
-        future: PanelFinanceAccountsSnapshotService.readOnce(widget.tenantId),
-        builder: (context, accountsSnap) {
-          final accountsCache =
-              accountsSnap.data ?? const PanelFinanceAccountsSnapshot();
-          return resumoBody(accountsCache);
-        },
-      );
-    }
-    return StreamBuilder<PanelFinanceAccountsSnapshot>(
-      stream: ChurchFinanceRealtimeService.watchAccountBalances(widget.tenantId),
-      builder: (context, accountsSnap) {
-        final accountsCache =
-            accountsSnap.data ?? const PanelFinanceAccountsSnapshot();
-        return resumoBody(accountsCache);
-      },
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Card de saldo da conta (Resumo) — clicável para ver movimentações
-// ═══════════════════════════════════════════════════════════════════════════════
-class _ContaSaldoCard extends StatelessWidget {
-  final String nome;
-  final double saldo;
-  final VoidCallback onTap;
-
-  const _ContaSaldoCard(
-      {required this.nome, required this.saldo, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final cor = saldo >= 0 ? _financeSaldoPositivo : _financeSaldoNegativo;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-          decoration: BoxDecoration(
-            color: ThemeCleanPremium.cardBackground,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
-            boxShadow: [
-              ...ThemeCleanPremium.softUiCardShadow,
-              BoxShadow(
-                  color: cor.withValues(alpha: 0.06),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4))
-            ],
-            border: Border.all(color: cor.withValues(alpha: 0.2)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                    color: cor.withValues(alpha: 0.12),
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                child:
-                    Icon(Icons.account_balance_rounded, color: cor, size: 24),
-              ),
-              const SizedBox(width: ThemeCleanPremium.spaceMd),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(nome,
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: ThemeCleanPremium.onSurface),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                    const SizedBox(height: 4),
-                    Text('R\$ ${saldo.toStringAsFixed(2)}',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
-                            color: cor)),
-                  ],
-                ),
-              ),
-              Icon(Icons.arrow_forward_ios_rounded,
-                  size: 14, color: Colors.grey.shade400),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Movimentações da conta: receitas (conta destino), despesas (conta origem) e transferências.
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/// Filtros do extrato — chips premium coloridos (mobile-first).
-Widget _financeExtratoPremiumChip({
-  required String label,
-  required IconData icon,
-  required Color accent,
-  required bool selected,
-  required VoidCallback onTap,
-}) {
-  return FinancePremiumFilterChip(
-    label: label,
-    icon: icon,
-    accent: accent,
-    selected: selected,
-    onTap: onTap,
-  );
-}
-
-bool _financeLancamentoEnvolveConta(Map<String, dynamic> data, String contaId) {
-  if (contaId.isEmpty) return false;
-  final origem = (data['contaOrigemId'] ?? '').toString().trim();
-  final destino = financeContaDestinoReceitaId(data);
-  final tipo = financeInferTipo(data);
-  if (tipo == 'transferencia') {
-    final destinoTransf = (data['contaDestinoId'] ?? '').toString().trim();
-    return origem == contaId || destinoTransf == contaId;
-  }
-  if (tipo.contains('entrada') || tipo.contains('receita')) {
-    return destino == contaId;
-  }
-  if (tipo.contains('saida') ||
-      tipo.contains('saída') ||
-      tipo.contains('despesa')) {
-    return origem == contaId;
-  }
-  return origem == contaId || destino == contaId;
-}
-
-class _MovimentacoesContaPage extends StatefulWidget {
-  final CollectionReference<Map<String, dynamic>> financeCol;
-  final String tenantId;
-  final String role;
-  /// Uma conta específica, ou `null` para todas (extrato geral).
-  final String? contaId;
-  final String title;
-  /// Se não nulo, restringe ao mês civil (extrato mensal).
-  final DateTime? extratoMes;
-  final Future<void> Function(
-      BuildContext context, DocumentSnapshot<Map<String, dynamic>> doc) onEdit;
-
-  const _MovimentacoesContaPage({
-    required this.financeCol,
-    required this.tenantId,
-    required this.role,
-    required this.contaId,
-    required this.title,
-    this.extratoMes,
-    required this.onEdit,
-  });
-
-  @override
-  State<_MovimentacoesContaPage> createState() =>
-      _MovimentacoesContaPageState();
-}
-
-class _MovimentacoesContaPageState extends State<_MovimentacoesContaPage> {
-  late Future<QuerySnapshot<Map<String, dynamic>>> _future;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedDocs;
-  bool _fetching = false;
-  bool _movHasMore = true;
-  bool _movLoadingMore = false;
-  static const int _movPageSize = YahwehPerformanceV4.defaultPageSize;
-  /// Mês do extrato (sempre mês calendário).
-  late DateTime _mesRefM;
-  /// todos | entrada | saida | transferencia
-  String _filtroMovimento = 'todos';
-  /// Filtro adicional: dízimo vs oferta (receitas de doação / MP).
-  String _filtroDoacao = 'todos';
-  /// Só com extrato geral (`contaId` null); null = todas as contas.
-  String? _filtroContaExtratoGeral;
-
-  void _seedMovimentacoesFromRam() {
-    final churchId = ChurchRepository.churchId(widget.tenantId);
-    _seedDocs = ChurchFinanceLoadService.peekLancamentosRamAny(churchId) ??
-        ChurchFinanceLoadService.peekLancamentosRam(
-          churchId,
-          limit: _movPageSize,
-        ) ??
-        const [];
-  }
-
-  void _reloadMovimentacoesFuture({bool reset = true}) {
-    if (reset) {
-      _movHasMore = true;
-      _seedMovimentacoesFromRam();
-    }
-    final hadLocal = _seedDocs?.isNotEmpty ?? false;
-    _fetching = !hadLocal;
-    final initialLimit =
-        widget.contaId != null ? YahwehPerformanceV4.defaultPageSize * 4 : _movPageSize;
-    _future = Future.value(
-      MergedFirestoreQuerySnapshot(_seedDocs ?? const []),
-    );
-
-    unawaited(
-      ChurchFinanceLoadService.loadLancamentos(
-        seedTenantId: widget.tenantId,
-        limit: initialLimit,
-      )
-          .timeout(
-            kIsWeb
-                ? const Duration(seconds: 12)
-                : PanelResilientLoad.queryCap,
-          )
-          .then((result) {
-        if (!mounted) return;
-        setState(() {
-          if (result.docs.isNotEmpty) {
-            _seedDocs = result.docs;
-            _movHasMore = result.docs.length >= initialLimit;
-          } else if (_seedDocs == null || _seedDocs!.isEmpty) {
-            _movHasMore = false;
-          }
-          _fetching = false;
-          _future = Future.value(
-            MergedFirestoreQuerySnapshot(_seedDocs ?? const []),
-          );
-        });
-      }).catchError((e) {
-        if (!mounted) return;
-        final ui = PanelResilientLoad.afterError(
-          hadLocalData: (_seedDocs?.isNotEmpty ?? false),
-          error: e,
-        );
-        setState(() {
-          _fetching = ui.fetching;
-          _future = Future.value(
-            MergedFirestoreQuerySnapshot(_seedDocs ?? const []),
-          );
-        });
-      }),
-    );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    final em = widget.extratoMes;
-    if (em != null) {
-      _mesRefM = DateTime(em.year, em.month, 1);
-    } else {
-      final n = DateTime.now();
-      _mesRefM = DateTime(n.year, n.month, 1);
-    }
-    _seedMovimentacoesFromRam();
-    _reloadMovimentacoesFuture();
-  }
-
-  void _loadMoreLancamentos() {
-    if (_movLoadingMore || !_movHasMore) return;
-    final current = _seedDocs ?? [];
-    if (current.isEmpty) return;
-    setState(() => _movLoadingMore = true);
-    unawaited(
-      ChurchTenantResilientReads.financeRecentPage(
-        widget.tenantId,
-        limit: _movPageSize,
-        startAfter: current.last,
-      )
-          .timeout(PanelResilientLoad.queryCap)
-          .then((snap) {
-        if (!mounted) return;
-        setState(() {
-          _movLoadingMore = false;
-          if (snap.docs.isEmpty) {
-            _movHasMore = false;
-            return;
-          }
-          _seedDocs = [...current, ...snap.docs];
-          _movHasMore = snap.docs.length >= _movPageSize;
-          _future = Future.value(MergedFirestoreQuerySnapshot(_seedDocs!));
-        });
-      }).catchError((e) {
-        if (!mounted) return;
-        setState(() => _movLoadingMore = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao carregar mais: $e')),
-        );
-      }),
-    );
-  }
-
-  void _refresh() {
-    setState(_reloadMovimentacoesFuture);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final tenantId = ChurchRepository.churchId(widget.tenantId.trim());
-    return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: ThemeCleanPremium.primary,
-        foregroundColor: Colors.white,
-        title: Text(widget.title,
-            style: const TextStyle(
-                fontWeight: FontWeight.w700, letterSpacing: -0.2)),
-        leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => Navigator.pop(context),
-            style: IconButton.styleFrom(
-                minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
-                    ThemeCleanPremium.minTouchTarget))),
-      ),
-      body: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        future: _future,
-        builder: (context, snap) {
-          final loadError = snap.hasError ? snap.error : null;
-          final rawDocs = snap.data?.docs ?? _seedDocs ?? [];
-          final hasLocal = rawDocs.isNotEmpty;
-          if (snap.connectionState == ConnectionState.waiting &&
-              !snap.hasData &&
-              !hasLocal) {
-            return const ChurchPanelLoadingBody();
-          }
-          if (!hasLocal && loadError != null) {
-            return ChurchPanelResilientLoadBanner(
-              hasLocalData: false,
-              isSyncing: _fetching,
-              errorTitle: 'Não foi possível carregar os lançamentos',
-              error: loadError,
-              onRetry: _refresh,
-            );
-          }
-          final inicio = DateTime(_mesRefM.year, _mesRefM.month, 1);
-          final fim = DateTime(_mesRefM.year, _mesRefM.month + 1, 0, 23, 59, 59);
-          var docs = rawDocs;
-          docs = docs.where((d) {
-            final data = d.data();
-            final t = financeLancamentoDate(data) ?? _financeLancamentoInstant(data);
-            if (t.isBefore(inicio) || t.isAfter(fim)) {
-              return false;
-            }
-            final fix = widget.contaId;
-            if (fix != null && fix.isNotEmpty) {
-              if (!_financeLancamentoEnvolveConta(data, fix)) {
-                return false;
-              }
-            } else {
-              final fc = _filtroContaExtratoGeral;
-              if (fc != null &&
-                  fc.isNotEmpty &&
-                  !_financeLancamentoEnvolveConta(data, fc)) {
-                return false;
-              }
-            }
-            if (_filtroMovimento != 'todos') {
-              final typ = financeInferTipo(data);
-              if (_filtroMovimento == 'transferencia' && typ != 'transferencia') {
-                return false;
-              }
-              if (_filtroMovimento == 'entrada' &&
-                  !typ.contains('entrada') &&
-                  !typ.contains('receita')) {
-                return false;
-              }
-              if (_filtroMovimento == 'saida' &&
-                  !typ.contains('saida') &&
-                  !typ.contains('despesa') &&
-                  !typ.contains('saída')) {
-                return false;
-              }
-            }
-            if (_filtroDoacao != 'todos') {
-              if (!_financeIsDonationLancamento(data)) return false;
-              final lbl = _financeDonationKindLabel(data);
-              if (_filtroDoacao == 'dizimo' && lbl != 'Dízimo') return false;
-              if (_filtroDoacao == 'oferta' && lbl != 'Oferta') return false;
-            }
-            return true;
-          }).toList();
-
-          final nf = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
-          final mesStr =
-              DateFormat("MMMM 'de' y", 'pt_BR').format(_mesRefM);
-          final allMaps = rawDocs.map((e) => e.data()).toList();
-          String? ctaId = widget.contaId;
-          double? saldoIni, recMes, desMes, saldoFim;
-          if (ctaId != null && ctaId.isNotEmpty) {
-            final fimAnt =
-                DateTime(_mesRefM.year, _mesRefM.month, 0, 23, 59, 59);
-            final sSaldoInicio = financeSaldoPorContaAteInclusive(
-              contaIdsAtivas: {ctaId},
-              lancamentos: allMaps,
-              ateInclusive: fimAnt,
-            )[ctaId] ??
-                0.0;
-            saldoIni = sSaldoInicio;
-            final totM = _totaisReceitaDespesaPorContaNoMes(
-                rawDocs, _mesRefM);
-            final rM = totM[ctaId]?.receitas ?? 0.0;
-            final dM = totM[ctaId]?.despesas ?? 0.0;
-            recMes = rM;
-            desMes = dM;
-            saldoFim = sSaldoInicio + rM - dM;
-          }
-
-          return Column(
-            children: [
-              if (loadError != null || _fetching)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                  child: ChurchPanelResilientLoadBanner(
-                    hasLocalData: hasLocal,
-                    isSyncing: _fetching && hasLocal,
-                    errorTitle: 'Não foi possível carregar os lançamentos',
-                    error: loadError,
-                    onRetry: _refresh,
-                  ),
-                ),
-              SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        IconButton(
-                            onPressed: () {
-                              setState(() {
-                                _mesRefM = DateTime(
-                                    _mesRefM.year, _mesRefM.month - 1, 1);
-                              });
-                            },
-                            icon: const Icon(Icons.chevron_left_rounded)),
-                        Expanded(
-                          child: Center(
-                            child: Text(
-                              mesStr[0].toUpperCase() + mesStr.substring(1),
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                            onPressed: () {
-                              setState(() {
-                                _mesRefM = DateTime(
-                                    _mesRefM.year, _mesRefM.month + 1, 1);
-                              });
-                            },
-                            icon: const Icon(Icons.chevron_right_rounded)),
-                      ],
-                    ),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _financeExtratoPremiumChip(
-                          label: 'Todas',
-                          icon: Icons.receipt_long_rounded,
-                          accent: ThemeCleanPremium.primary,
-                          selected: _filtroMovimento == 'todos',
-                          onTap: () => setState(() => _filtroMovimento = 'todos'),
-                        ),
-                        _financeExtratoPremiumChip(
-                          label: 'Receitas',
-                          icon: Icons.trending_up_rounded,
-                          accent: const Color(0xFF16A34A),
-                          selected: _filtroMovimento == 'entrada',
-                          onTap: () => setState(() => _filtroMovimento = 'entrada'),
-                        ),
-                        _financeExtratoPremiumChip(
-                          label: 'Despesas',
-                          icon: Icons.trending_down_rounded,
-                          accent: const Color(0xFFDC2626),
-                          selected: _filtroMovimento == 'saida',
-                          onTap: () => setState(() => _filtroMovimento = 'saida'),
-                        ),
-                        _financeExtratoPremiumChip(
-                          label: 'Transfer.',
-                          icon: Icons.swap_horiz_rounded,
-                          accent: const Color(0xFF7C3AED),
-                          selected: _filtroMovimento == 'transferencia',
-                          onTap: () => setState(() => _filtroMovimento = 'transferencia'),
-                        ),
-                      ],
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 10),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Doações (dízimo / oferta)',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.grey.shade700,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              _financeExtratoPremiumChip(
-                                label: 'Todas',
-                                icon: Icons.filter_list_rounded,
-                                accent: const Color(0xFF0D9488),
-                                selected: _filtroDoacao == 'todos',
-                                onTap: () => setState(() => _filtroDoacao = 'todos'),
-                              ),
-                              _financeExtratoPremiumChip(
-                                label: 'Dízimo',
-                                icon: Icons.church_rounded,
-                                accent: const Color(0xFF2563EB),
-                                selected: _filtroDoacao == 'dizimo',
-                                onTap: () => setState(() => _filtroDoacao = 'dizimo'),
-                              ),
-                              _financeExtratoPremiumChip(
-                                label: 'Oferta',
-                                icon: Icons.volunteer_activism_rounded,
-                                accent: const Color(0xFF9333EA),
-                                selected: _filtroDoacao == 'oferta',
-                                onTap: () => setState(() => _filtroDoacao = 'oferta'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (widget.contaId == null || widget.contaId!.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          future: ChurchUiCollections.churchDoc(tenantId)
-                              .collection('contas')
-                              .orderBy('nome')
-                              .get(),
-                          builder: (ctx, cs) {
-                            if (!cs.hasData) {
-                              return const SizedBox(height: 2);
-                            }
-                            final cdocs = cs.data!.docs
-                                .where((c) => c.data()['ativo'] != false)
-                                .toList();
-                            return DropdownButtonFormField<String>(
-                              isExpanded: true,
-                              initialValue: cdocs.any((c) => c.id == _filtroContaExtratoGeral)
-                                  ? _filtroContaExtratoGeral
-                                  : null,
-                              hint: const Text('Todas as contas (extrato geral)'),
-                              items: [
-                                const DropdownMenuItem(
-                                  value: null,
-                                  child: Text('Todas as contas',
-                                      overflow: TextOverflow.ellipsis),
-                                ),
-                                ...cdocs.map(
-                                  (c) => DropdownMenuItem(
-                                    value: c.id,
-                                    child: Text(
-                                        _financeContaDisplayName(c.data()),
-                                        overflow: TextOverflow.ellipsis),
-                                  ),
-                                ),
-                              ],
-                              onChanged: (v) =>
-                                  setState(() => _filtroContaExtratoGeral = v),
-                            );
-                          },
-                        ),
-                      ),
-                    if (ctaId != null && ctaId.isNotEmpty && saldoIni != null) ...[
-                      const SizedBox(height: 6),
-                      FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                        future: ChurchUiCollections.churchDoc(tenantId)
-                            .collection('contas')
-                            .doc(ctaId)
-                            .get(),
-                        builder: (c, s) {
-                          final accent = s.hasData
-                              ? _financeContaBancoColor(s.data!.data() ?? const {})
-                              : ThemeCleanPremium.primary;
-                          return Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 12, horizontal: 12),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [accent, Color.lerp(accent, const Color(0xFF0F172A), 0.4)!],
-                              ),
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                const Text('Resumo do mês',
-                                    style: TextStyle(
-                                        color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w700)),
-                                const SizedBox(height: 6),
-                                _linhaResumoExtrato(
-                                    'Saldo no início do mês', saldoIni!, nf),
-                                _linhaResumoExtrato(
-                                    'Receitas (mês)', recMes ?? 0, nf),
-                                _linhaResumoExtrato('Despesas (mês)', desMes ?? 0, nf,
-                                    neg: true),
-                                const Divider(color: Colors.white30, height: 14),
-                                _linhaResumoExtrato('Saldo ao fim (estimado)',
-                                    saldoFim ?? 0, nf,
-                                    strong: true),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                          '${docs.length} movimentação(ões) no mês e filtros',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey.shade700,
-                          )),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () async {
-                    _refresh();
-                    await _future;
-                  },
-                  child: docs.isEmpty
-                      ? ListView(
-                          padding: const EdgeInsets.fromLTRB(32, 48, 32, 80),
-                          children: [
-                            Icon(Icons.receipt_long_rounded,
-                                size: 64, color: Colors.grey.shade400),
-                            const SizedBox(height: 16),
-                            Text(
-                                'Nenhum lançamento com estes filtros e mês selecionado.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    fontSize: 16, color: Colors.grey.shade600)),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Ajuste o mês, o tipo (receita/despesa) ou a conta. '
-                              'Receitas, despesas e transferências vinculadas aparecem aqui.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                  fontSize: 13, color: Colors.grey.shade500),
-                            ),
-                          ],
-                        )
-                      : ListView.builder(
-                    padding: EdgeInsets.fromLTRB(
-                        ThemeCleanPremium.spaceLg,
-                        ThemeCleanPremium.spaceSm,
-                        ThemeCleanPremium.spaceLg,
-                        80),
-                    itemCount: docs.length + (_movHasMore ? 1 : 0),
-                    itemBuilder: (context, i) {
-                      if (i >= docs.length) {
-                        return LazyLoadMoreFooter(
-                          label: _movLoadingMore
-                              ? 'A carregar…'
-                              : 'Carregar mais lançamentos',
-                          onLoadMore: _loadMoreLancamentos,
-                        );
-                      }
-                      return _LancamentoCard(
-                      doc: docs[i],
-                      tenantId: widget.tenantId,
-                      role: widget.role,
-                      onEdit: () async {
-                        await widget.onEdit(context, docs[i]);
-                        if (mounted) _refresh();
-                      },
-                      onDelete: () => _excluirLancamento(docs[i]),
-                      onApprove: () async {
-                        try {
-                          await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
-                              force: true);
-                          await docs[i].reference.update({
-                            'aprovacaoPendente': false,
-                            'aprovadoPorUid':
-                                firebaseDefaultAuth.currentUser?.uid ?? '',
-                            'aprovadoEm': FieldValue.serverTimestamp(),
-                          });
-                          if (mounted) _refresh();
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Erro: $e')));
-                          }
-                        }
-                      },
-                    );
-                    },
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Future<void> _excluirLancamento(
-      DocumentSnapshot<Map<String, dynamic>> doc) async {
-    if (!_financeUiCanDeleteLancamento(widget.role)) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(
-            'Sem permissão para excluir lançamentos financeiros.',
-          ),
-        );
+  /// PDF do mesmo conjunto do sheet «conta / todas as contas» (período e filtro de status do sheet).
+  Future<void> _exportPdfFromAccountSheet(
+    BuildContext sheetContext,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    FinanceAccount? account,
+    DateTime from,
+    DateTime to,
+  ) async {
+    if (!widget.profile.hasActiveLicense) {
+      if (sheetContext.mounted) {
+        mostrarAvisoSeLicencaInativa(sheetContext, widget.profile);
       }
       return;
     }
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Row(
-          children: [
-            Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626)),
-            SizedBox(width: 10),
-            Text('Excluir lançamento',
-                style: TextStyle(fontWeight: FontWeight.w800)),
-          ],
-        ),
-        content:
-            const Text('Tem certeza que deseja excluir este lançamento?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
-          FilledButton(
-              style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFDC2626)),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Excluir')),
-        ],
-      ),
-    );
-    if (confirm != true || !mounted) return;
+    if (docs.isEmpty) {
+      if (sheetContext.mounted) {
+        ScaffoldMessenger.of(sheetContext).showSnackBar(
+            const SnackBar(content: Text('Nenhum lançamento para exportar.')));
+      }
+      return;
+    }
+    final f = DateTime(from.year, from.month, from.day);
+    final tEnd = DateTime(to.year, to.month, to.day, 23, 59, 59);
     try {
-      await _excluirLancamentoComAuditoria(doc, widget.tenantId);
+      final saldoAbertura = await _loadSaldoAberturaFor(f);
+      if (!mounted) return;
+      String? suffix;
+      if (account != null) {
+        var s = account.displayName
+            .replaceAll(RegExp(r'[<>:"/\\|?*\n\r]'), '_')
+            .trim();
+        if (s.isEmpty) s = 'conta';
+        suffix = s.length > 48 ? s.substring(0, 48) : s;
+      }
+      await _exportPdf(
+        docs,
+        saldoAbertura,
+        reportFrom: f,
+        reportTo: tEnd,
+        pdfFilenameAccountSuffix: suffix,
+        filenameFromMainListFilter: false,
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao excluir: $e')),
+          SnackBar(
+              content: Text('Erro ao exportar PDF: ${friendlyMessage(e)}'),
+              backgroundColor: AppColors.error),
         );
       }
+    }
+  }
+
+  static const String _kRelatorioSemCategoria = '__sem_categoria__';
+
+  bool _docMatchesExportCategory(
+      Map<String, dynamic> d, String? categoryExact) {
+    if (categoryExact == null || categoryExact.isEmpty) return true;
+    final cat = (d['category'] ?? '').toString().trim();
+    if (categoryExact == _kRelatorioSemCategoria) return cat.isEmpty;
+    return FinanceCategoryMerger.sameCategoryGroup(cat, categoryExact);
+  }
+
+  /// Mesmos filtros da lista principal (status, tipo, categoria, pesquisa, conta) + [categoryExact] do fluxo «Relatórios premium» (merge de grupo).
+  bool _txMatchesPdfFilters(Map<String, dynamic> d, {String? categoryExact}) {
+    if (_statusFilter != 'all') {
+      final status = (d['status'] ?? 'paid').toString();
+      if (status != _statusFilter) return false;
+    }
+    if (_typeFilter != 'all' &&
+        (d['type'] ?? 'expense').toString() != _typeFilter) {
+      return false;
+    }
+    if (categoryExact != null && categoryExact.isNotEmpty) {
+      if (!_docMatchesExportCategory(d, categoryExact)) return false;
+    } else if (_categoryFilter != null) {
+      final c = (d['category'] ?? '').toString().trim();
+      if (!FinanceCategoryMerger.sameCategoryGroup(c, _categoryFilter!)) {
+        return false;
+      }
+    }
+    if (_search.isNotEmpty) {
+      final accLabel = _financeAccountLabelForTx(d) ?? '';
+      final text = '${d['category'] ?? ''} ${d['description'] ?? ''} $accLabel'
+          .toLowerCase();
+      if (!text.contains(_search)) return false;
+    }
+    if (_financeAccountFilterId != null) {
+      final aid = (d['financeAccountId'] ?? '').toString().trim();
+      if (aid != _financeAccountFilterId) return false;
+    }
+    return true;
+  }
+
+  /// Busca lançamentos no intervalo, aplica o mesmo filtro de status da tela e categoria opcional; abre preview do PDF.
+  Future<void> _exportFinancialReportForRange(
+    DateTime from,
+    DateTime to, {
+    String? categoryExact,
+  }) async {
+    if (!widget.profile.hasActiveLicense) {
+      if (mounted) mostrarAvisoSeLicencaInativa(context, widget.profile);
       return;
     }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Lançamento excluído.',
-              style: TextStyle(color: Colors.white)),
-          backgroundColor: Colors.green));
-      _refresh();
-    }
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Lista de Receitas ou Despesas (ao clicar no card no Resumo) — editar, remover, comprovantes
-// ═══════════════════════════════════════════════════════════════════════════════
-class _ListaLancamentosPorTipoPage extends StatefulWidget {
-  final CollectionReference<Map<String, dynamic>> financeCol;
-  final String tenantId;
-  final String role;
-  final String tipo;
-  final String titulo;
-  final Future<void> Function(
-      BuildContext context, DocumentSnapshot<Map<String, dynamic>> doc) onEdit;
-
-  const _ListaLancamentosPorTipoPage({
-    required this.financeCol,
-    required this.tenantId,
-    required this.role,
-    required this.tipo,
-    required this.titulo,
-    required this.onEdit,
-  });
-
-  @override
-  State<_ListaLancamentosPorTipoPage> createState() =>
-      _ListaLancamentosPorTipoPageState();
-}
-
-class _ListaLancamentosPorTipoPageState
-    extends State<_ListaLancamentosPorTipoPage> {
-  late Future<QuerySnapshot<Map<String, dynamic>>> _future;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedDocs;
-  bool _fetching = false;
-  /// Filtro dízimo / oferta (somente receitas).
-  String _filtroDoacao = 'todos';
-
-  void _seedFromRam() {
-    final churchId = ChurchRepository.churchId(widget.tenantId);
-    _seedDocs = ChurchFinanceLoadService.peekLancamentosRamAny(churchId) ??
-        ChurchFinanceLoadService.peekLancamentosRam(
-          churchId,
-          limit: YahwehPerformanceV4.financeChartsSampleLimit,
-        ) ??
-        const [];
-  }
-
-  void _reloadFuture({bool forceFresh = false}) {
-    if (!forceFresh) {
-      _seedFromRam();
-    }
-    final hadLocal = _seedDocs?.isNotEmpty ?? false;
-    // Só "sincronizando" quando não há dados locais para pintar.
-    _fetching = !hadLocal;
-    _future = Future.value(MergedFirestoreQuerySnapshot(_seedDocs ?? const []));
-
-    unawaited(() async {
-      try {
-        if (kIsWeb) {
-          try {
-            await FirestoreWebGuard.ensurePanelReadReady().timeout(
-              ChurchPanelReadTimeouts.readReadyCap,
-            );
-          } catch (_) {}
+    final f = DateTime(from.year, from.month, from.day);
+    var tEnd = DateTime(to.year, to.month, to.day, 23, 59, 59);
+    if (tEnd.isBefore(f)) tEnd = DateTime(f.year, f.month, f.day, 23, 59, 59);
+    try {
+      Query<Map<String, dynamic>> baseRangeQuery() {
+        Query<Map<String, dynamic>> q = _txRef()
+            .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(f))
+            .where('date', isLessThanOrEqualTo: Timestamp.fromDate(tEnd))
+            .orderBy('date', descending: false);
+        if (_statusFilter != 'all') {
+          q = q.where('status', isEqualTo: _statusFilter);
         }
-        final queryCap = kIsWeb
-            ? const Duration(seconds: 12)
-            : PanelResilientLoad.queryCap;
-        final result = await ChurchFinanceLoadService.loadLancamentos(
-          seedTenantId: ChurchRepository.churchId(widget.tenantId),
-          limit: YahwehPerformanceV4.financeChartsSampleLimit * 2,
-          forceRefresh: forceFresh,
-          forceServer: forceFresh,
-        ).timeout(queryCap);
-        if (!mounted) return;
-        setState(() {
-          if (result.docs.isNotEmpty) {
-            _seedDocs = result.docs;
-          }
-          _fetching = false;
-          _future = Future.value(
-            MergedFirestoreQuerySnapshot(_seedDocs ?? const []),
-          );
-        });
-      } catch (e) {
-        if (!mounted) return;
-        final ui = PanelResilientLoad.afterError(
-          hadLocalData: (_seedDocs?.isNotEmpty ?? false),
-          error: e,
-        );
-        setState(() {
-          _fetching = ui.fetching;
-          _future = Future.value(
-            MergedFirestoreQuerySnapshot(_seedDocs ?? const []),
-          );
-        });
+        if (_typeFilter != 'all') {
+          q = q.where('type', isEqualTo: _typeFilter);
+        }
+        if (_financeAccountFilterId != null) {
+          q = q.where('financeAccountId', isEqualTo: _financeAccountFilterId);
+        }
+        // Categoria: sempre refinado em [_txMatchesPdfFilters] (case-insensitive / grupo).
+        return q;
       }
-    }());
-  }
 
-  @override
-  void initState() {
-    super.initState();
-    _seedFromRam();
-    _reloadFuture();
-  }
-
-  void _refresh() {
-    setState(() => _reloadFuture(forceFresh: true));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor:
-            widget.tipo == 'entrada' ? _financeEntradas : _financeSaidas,
-        foregroundColor: Colors.white,
-        title: Text(widget.titulo,
-            style: const TextStyle(
-                fontWeight: FontWeight.w700, letterSpacing: -0.2)),
-        leading: IconButton(
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => Navigator.pop(context),
-            style: IconButton.styleFrom(
-                minimumSize: const Size(ThemeCleanPremium.minTouchTarget,
-                    ThemeCleanPremium.minTouchTarget))),
-      ),
-      body: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        future: _future,
-        builder: (context, snap) {
-          final loadError = snap.hasError ? snap.error : null;
-          final rawDocs = snap.data?.docs ?? _seedDocs ?? [];
-          final hasLocal = rawDocs.isNotEmpty;
-          if (snap.connectionState == ConnectionState.waiting &&
-              !snap.hasData &&
-              !hasLocal) {
-            return const ChurchPanelLoadingBody();
-          }
-          if (!hasLocal && loadError != null) {
-            return ChurchPanelResilientLoadBanner(
-              hasLocalData: false,
-              isSyncing: _fetching,
-              errorTitle: 'Não foi possível carregar os lançamentos',
-              error: loadError,
-              onRetry: _refresh,
-            );
-          }
-          var docs = rawDocs;
-          docs = docs.where((d) {
-            final t = (d.data()['type'] ?? '').toString().toLowerCase();
-            if (widget.tipo == 'entrada') {
-              if (!t.contains('entrada') && !t.contains('receita')) {
-                return false;
-              }
-            } else {
-              if (!t.contains('saida') && !t.contains('despesa')) {
-                return false;
-              }
-            }
-            if (widget.tipo == 'entrada' && _filtroDoacao != 'todos') {
-              if (!_financeIsDonationLancamento(d.data())) return false;
-              final lbl = _financeDonationKindLabel(d.data());
-              if (_filtroDoacao == 'dizimo' && lbl != 'Dízimo') return false;
-              if (_filtroDoacao == 'oferta' && lbl != 'Oferta') return false;
-            }
-            return true;
+      // Um único overlay: busca Firestore + geração PDF (evita 2.ª fase «Gerando PDF…» a ficar pendente na Web se as fontes ou o save atrasarem).
+      final (bytes, filenameBase, _) = await _runWithBlockingDialog(
+        message:
+            'A preparar o PDF…\nPeríodo da tela: ${_formatPeriodLabelForExport(f, tEnd)}. Filtros de status, tipo, categoria, pesquisa e conta aplicados.',
+        action: () async {
+          final saldoAbertura = await _loadSaldoAberturaFor(f);
+          final allDocs = await firestoreQueryCollectDocumentsBatched(
+            baseRangeQuery(),
+          ).timeout(
+            const Duration(minutes: 3),
+            onTimeout: () => throw TimeoutException(
+              'Lançamentos do período: tempo esgotado. Verifique a conexão.',
+            ),
+          );
+          final docs = allDocs.where((doc) {
+            return _txMatchesPdfFilters(doc.data(),
+                categoryExact: categoryExact);
           }).toList();
-
+          if (docs.length > kFinancePdfCsvExportMaxDocs) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Exportação limitada a $kFinancePdfCsvExportMaxDocs lançamentos. Reduza o período ou os filtros.',
+                  ),
+                  backgroundColor: AppColors.error,
+                ),
+              );
+            }
+            return (Uint8List(0), '', false);
+          }
           if (docs.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                      widget.tipo == 'entrada'
-                          ? Icons.trending_up_rounded
-                          : Icons.trending_down_rounded,
-                      size: 64,
-                      color: Colors.grey.shade400),
-                  const SizedBox(height: ThemeCleanPremium.spaceMd),
-                  Text('Nenhuma ${widget.titulo.toLowerCase()} encontrada.',
-                      style:
-                          TextStyle(fontSize: 16, color: Colors.grey.shade600)),
-                ],
-              ),
-            );
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                      'Nenhum lançamento para o PDF: ajuste o período ou os filtros da tela.'),
+                ),
+              );
+            }
+            return (Uint8List(0), '', false);
           }
-
-          final rows = _buildLancamentosGroupedByDay(docs);
-
-          return Column(
-            children: [
-              if (loadError != null || _fetching)
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    ThemeCleanPremium.spaceLg,
-                    ThemeCleanPremium.spaceSm,
-                    ThemeCleanPremium.spaceLg,
-                    0,
-                  ),
-                  child: ChurchPanelResilientLoadBanner(
-                    hasLocalData: hasLocal,
-                    isSyncing: _fetching && hasLocal,
-                    errorTitle: 'Não foi possível carregar os lançamentos',
-                    error: loadError,
-                    onRetry: _refresh,
-                  ),
-                ),
-              if (widget.tipo == 'entrada')
-                Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    ThemeCleanPremium.spaceLg,
-                    ThemeCleanPremium.spaceSm,
-                    ThemeCleanPremium.spaceLg,
-                    0,
-                  ),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        _FilterChipPeriod(
-                          label: 'Todas receitas',
-                          selected: _filtroDoacao == 'todos',
-                          onTap: () => setState(() => _filtroDoacao = 'todos'),
-                        ),
-                        const SizedBox(width: 8),
-                        _FilterChipPeriod(
-                          label: 'Dízimos',
-                          selected: _filtroDoacao == 'dizimo',
-                          onTap: () => setState(() => _filtroDoacao = 'dizimo'),
-                        ),
-                        const SizedBox(width: 8),
-                        _FilterChipPeriod(
-                          label: 'Ofertas',
-                          selected: _filtroDoacao == 'oferta',
-                          onTap: () => setState(() => _filtroDoacao = 'oferta'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              Padding(
-                padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg,
-                    ThemeCleanPremium.spaceSm, ThemeCleanPremium.spaceLg, 4),
-                child: Text('${docs.length} lançamento(s)',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey.shade700)),
-              ),
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () async {
-                    _refresh();
-                    await _future;
-                  },
-                  child: ListView.builder(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: EdgeInsets.fromLTRB(
-                        ThemeCleanPremium.spaceLg,
-                        ThemeCleanPremium.spaceSm,
-                        ThemeCleanPremium.spaceLg,
-                        80),
-                    itemCount: rows.length,
-                    itemBuilder: (context, i) {
-                      final row = rows[i];
-                      if (row.isHeader) {
-                        return _FinanceDayHeaderTile(day: row.day!);
-                      }
-                      final doc = row.doc!;
-                      return _LancamentoCard(
-                        doc: doc,
-                        tenantId: widget.tenantId,
-                        role: widget.role,
-                        onEdit: () async {
-                          await widget.onEdit(context, doc);
-                          if (mounted) _refresh();
-                        },
-                        onDelete: () => _excluirLancamento(doc),
-                        onApprove: () async {
-                          try {
-                            await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
-                                force: true);
-                            await doc.reference.update({
-                              'aprovacaoPendente': false,
-                              'aprovadoPorUid':
-                                  firebaseDefaultAuth.currentUser?.uid ?? '',
-                              'aprovadoEm': FieldValue.serverTimestamp(),
-                            });
-                            if (mounted) _refresh();
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Erro: $e')));
-                            }
-                          }
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ],
+          double totalIncome = 0;
+          double totalExpense = 0;
+          for (var i = 0; i < docs.length; i++) {
+            if (i > 0 && i % _kFinancePdfPrepYieldEvery == 0) {
+              await Future<void>.delayed(Duration.zero);
+            }
+            final d = docs[i].data();
+            final amount = _financeAmountToDouble(d['amount']);
+            if (d['type'] == 'income') totalIncome += amount;
+            if (d['type'] == 'expense') totalExpense += amount;
+          }
+          return _buildFinancePdfBytes(
+            docs: docs,
+            saldoAbertura: saldoAbertura,
+            totalIncome: totalIncome,
+            totalExpense: totalExpense,
+            from: f,
+            to: tEnd,
+            filenameSuffix: _filenameAccountSuffix(),
           );
         },
-      ),
-    );
-  }
-
-  Future<void> _excluirLancamento(
-      DocumentSnapshot<Map<String, dynamic>> doc) async {
-    if (!_financeUiCanDeleteLancamento(widget.role)) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(
-            'Sem permissão para excluir lançamentos financeiros.',
-          ),
-        );
-      }
-      return;
-    }
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Row(
-          children: [
-            Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626)),
-            SizedBox(width: 10),
-            Text('Excluir lançamento',
-                style: TextStyle(fontWeight: FontWeight.w800)),
-          ],
+      );
+      if (bytes.isEmpty) return;
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) =>
+              ReportPreviewScreen(bytes: bytes, filename: filenameBase),
         ),
-        content: const Text(
-            'Tem certeza que deseja excluir este lançamento? Esta ação não pode ser desfeita.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFDC2626)),
-            child: const Text('Excluir'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true || !mounted) return;
-    try {
-      await _excluirLancamentoComAuditoria(doc, widget.tenantId);
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao excluir: $e')),
+          SnackBar(
+              content: Text('Erro ao preparar o PDF: ${friendlyMessage(e)}'),
+              backgroundColor: AppColors.error),
         );
       }
-      return;
-    }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Lançamento excluído.',
-              style: TextStyle(color: Colors.white)),
-          backgroundColor: Colors.green));
-      _refresh();
     }
   }
-}
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// TAB 2 — Lançamentos (lista completa com edição, exclusão, comprovantes)
-// ═══════════════════════════════════════════════════════════════════════════════
-class _LancamentosTab extends StatefulWidget {
-  final CollectionReference<Map<String, dynamic>> financeCol;
-  final String tenantId;
-  final String role;
-  final int financeRevision;
-  final VoidCallback? onFinanceChanged;
-
-  const _LancamentosTab({
-    super.key,
-    required this.financeCol,
-    required this.tenantId,
-    required this.role,
-    this.financeRevision = 0,
-    this.onFinanceChanged,
-  });
-
-  @override
-  State<_LancamentosTab> createState() => _LancamentosTabState();
-}
-
-class _LancamentosTabState extends State<_LancamentosTab> {
-  String _filtroTipo = 'todos';
-  /// todos | dizimo | oferta_missionaria
-  String _filtroDoacaoKind = 'todos';
-  String _filtroCategoria = 'todas';
-  /// todos | pendente_aprovacao | nao_conciliados | a_pagar | pagos | a_receber | recebidos | futuras_despesas | futuras_receitas
-  String _filtroExtra = 'todos';
-  /// `__geral__` ou id da conta em `contas`.
-  String _filtroContaId = '__geral__';
-  late Future<QuerySnapshot<Map<String, dynamic>>> _future;
-  late Future<QuerySnapshot<Map<String, dynamic>>> _futureContas;
-  late Future<List<dynamic>> _combinedFuture;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedFinanceDocs;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedContasDocs;
-  String? _loadHint;
-  bool _fetching = false;
-  bool _showingStaleCache = false;
-  Timer? _webLoadCap;
-  bool _financeHasMore = true;
-  bool _financeLoadingMore = false;
-  static const int _financePageSize = YahwehPerformanceV4.financeListPageStep;
-
-  bool get _lancamentosHasLocalData =>
-      (_seedFinanceDocs?.isNotEmpty ?? false) ||
-      (_seedContasDocs?.isNotEmpty ?? false);
-
-  void _startLancamentosWebCap() {
-    if (!kIsWeb) return;
-    _webLoadCap?.cancel();
-    _webLoadCap = Timer(const Duration(seconds: 12), () {
-      if (!mounted || !_fetching) return;
-      setState(() {
-        _fetching = false;
-        if (_lancamentosHasLocalData) {
-          _showingStaleCache = !AppConnectivityService.instance.isOnline;
-          _loadHint = null;
-        } else {
-          _loadHint ??=
-              'Tempo esgotado ao carregar lançamentos na Web.';
-        }
-      });
-    });
+  String _formatPeriodLabelForExport(DateTime from, DateTime to) {
+    final a = DateTimeFormats.dateBR.format(from);
+    final b = DateTimeFormats.dateBR.format(to);
+    return '$a a $b';
   }
 
-  Widget _buildLancamentosResilienceBanner({Object? error}) {
-    return ChurchPanelResilientLoadBanner(
-      hasLocalData: _lancamentosHasLocalData,
-      isSyncing: _fetching && _lancamentosHasLocalData,
-      showStaleCache: _showingStaleCache && !_fetching,
-      errorTitle: 'Não foi possível carregar os lançamentos',
-      error: error,
-      onRetry: _refresh,
-      staleMessage:
-          'Modo offline — lançamentos com últimos dados guardados. Puxe para atualizar.',
-      syncMessage:
-          'Sincronizando lançamentos… a mostrar dados guardados enquanto atualiza.',
-    );
-  }
-
-  Future<List<dynamic>> _loadLancamentosBundle({
-    required bool forceFresh,
-    bool forceServer = false,
+  Future<void> _exportCsvFinancialReportForRange(
+    DateTime from,
+    DateTime to, {
+    String? categoryExact,
   }) async {
-    final tid = ChurchPanelTenant.forFirestore(widget.tenantId);
-    if (kIsWeb) {
-      try {
-        await FirestoreWebGuard.ensurePanelReadReady().timeout(
-          ChurchPanelReadTimeouts.readReadyCap,
-        );
-      } catch (_) {}
-    }
-    final queryCap = kIsWeb
-        ? const Duration(seconds: 12)
-        : PanelResilientLoad.queryCap;
-    final results = await Future.wait([
-      ChurchFinanceLoadService.loadLancamentos(
-        seedTenantId: tid,
-        limit: _financePageSize,
-        forceRefresh: forceFresh,
-        forceServer: forceServer,
-      ).timeout(queryCap),
-      ChurchFinanceLoadService.loadContas(
-        seedTenantId: tid,
-        forceRefresh: forceFresh,
-        forceServer: forceServer,
-      ).timeout(queryCap),
-    ]);
-    final l = results[0];
-    final c = results[1];
-    if (mounted) {
-      final hadLocal = _lancamentosHasLocalData;
-      if (l.docs.isNotEmpty) {
-        _loadHint = null;
-      } else if (l.softError != null) {
-        final ui = PanelResilientLoad.afterFetch(
-          hadLocalData: hadLocal,
-          newItems: l.docs,
-          fromCache: l.fromCache,
-          softError: l.softError,
-          forceFresh: forceFresh,
-        );
-        if (!hadLocal) _loadHint = ui.loadError;
-        _showingStaleCache =
-            ui.showingStaleCache && !AppConnectivityService.instance.isOnline;
-      }
-    }
-    return [l.snapshot, c.snapshot];
-  }
-
-  void _seedLancamentosCaches() {
-    final churchId = ChurchPanelTenant.forFirestore(widget.tenantId);
-    _seedFinanceDocs =
-        ChurchFinanceLoadService.peekLancamentosRamAny(churchId) ??
-            ChurchFinanceLoadService.peekLancamentosRam(
-              churchId,
-              limit: _financePageSize,
-            ) ??
-            const [];
-    _seedContasDocs =
-        ChurchFinanceLoadService.peekContasRam(churchId) ?? const [];
-  }
-
-  void _reloadFutures({bool forceFresh = false, bool forceServer = false}) {
-    if (!forceFresh) {
-      _seedLancamentosCaches();
-    } else {
-      _seedFinanceDocs ??= const [];
-      _seedContasDocs ??= const [];
-      _financeHasMore = true;
-    }
-
-    final hadLocal = _lancamentosHasLocalData;
-    _fetching = !hadLocal;
-    // Banner "stale" só offline — online o refresh em background é silencioso.
-    if (!forceFresh && hadLocal) {
-      _showingStaleCache = !AppConnectivityService.instance.isOnline;
-    } else if (forceFresh) {
-      _showingStaleCache = false;
-      _loadHint = null;
-    }
-    _startLancamentosWebCap();
-
-    final instantBundle = <dynamic>[
-      MergedFirestoreQuerySnapshot(_seedFinanceDocs!),
-      MergedFirestoreQuerySnapshot(_seedContasDocs!),
-    ];
-    _combinedFuture = Future.value(instantBundle);
-
-    unawaited(_loadLancamentosBundle(forceFresh: forceFresh, forceServer: forceServer)
-        .timeout(PanelResilientLoad.queryCap)
-        .then((fresh) {
-      if (!mounted) return;
-      _webLoadCap?.cancel();
-      setState(() {
-        final fs = fresh[0] as QuerySnapshot<Map<String, dynamic>>;
-        final cs = fresh[1] as QuerySnapshot<Map<String, dynamic>>;
-        final freshFinance = fs.docs;
-        _seedFinanceDocs = freshFinance.isNotEmpty
-            ? freshFinance
-            : (_seedFinanceDocs?.isNotEmpty == true
-                ? _seedFinanceDocs!
-                : freshFinance);
-        _seedContasDocs = cs.docs.isNotEmpty
-            ? cs.docs
-            : (_seedContasDocs?.isNotEmpty == true
-                ? _seedContasDocs!
-                : cs.docs);
-        _financeHasMore = _seedFinanceDocs!.length >= _financePageSize;
-        _combinedFuture = Future.value(<dynamic>[
-          MergedFirestoreQuerySnapshot(_seedFinanceDocs!),
-          MergedFirestoreQuerySnapshot(_seedContasDocs!),
-        ]);
-        _fetching = false;
-        _showingStaleCache = false;
-        _loadHint = null;
-      });
-    }).catchError((e) {
-      if (!mounted) return;
-      _webLoadCap?.cancel();
-      final ui = PanelResilientLoad.afterError(
-        hadLocalData: _lancamentosHasLocalData,
-        error: e,
-      );
-      setState(() {
-        _fetching = ui.fetching;
-        _showingStaleCache = ui.showingStaleCache;
-        if (!_lancamentosHasLocalData) _loadHint = ui.loadError;
-      });
-    }));
-
-    _future = _combinedFuture.then(
-      (v) => v[0] as QuerySnapshot<Map<String, dynamic>>,
-    );
-    _futureContas = _combinedFuture.then(
-      (v) => v[1] as QuerySnapshot<Map<String, dynamic>>,
-    );
-  }
-
-  @override
-  void dispose() {
-    _webLoadCap?.cancel();
-    super.dispose();
-  }
-
-  void _loadMoreFinanceLancamentos() {
-    if (_financeLoadingMore || !_financeHasMore) return;
-    final current = _seedFinanceDocs ?? [];
-    if (current.isEmpty) return;
-    final startAfter = current.last;
-    setState(() => _financeLoadingMore = true);
-    unawaited(
-      ChurchFinanceLoadService.loadLancamentosPage(
-        seedTenantId: ChurchPanelTenant.forFirestore(widget.tenantId),
-        limit: _financePageSize,
-        startAfter: startAfter,
-      )
-          .timeout(PanelResilientLoad.queryCap)
-          .then((page) {
-        if (!mounted) return;
-        setState(() {
-          _financeLoadingMore = false;
-          if (page.isEmpty) {
-            _financeHasMore = false;
-            return;
-          }
-          _seedFinanceDocs = [...current, ...page];
-          _financeHasMore = page.length >= _financePageSize;
-          _combinedFuture = Future.value(<dynamic>[
-            MergedFirestoreQuerySnapshot(_seedFinanceDocs!),
-            MergedFirestoreQuerySnapshot(_seedContasDocs ?? const []),
-          ]);
-        });
-      }).catchError((e) {
-        if (!mounted) return;
-        setState(() => _financeLoadingMore = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao carregar mais: $e')),
-        );
-      }),
-    );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _reloadFutures();
-  }
-
-  @override
-  void didUpdateWidget(covariant _LancamentosTab oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.tenantId != widget.tenantId ||
-        oldWidget.financeCol.path != widget.financeCol.path) {
-      setState(() => _reloadFutures());
+    if (!widget.profile.hasActiveLicense) {
+      if (mounted) mostrarAvisoSeLicencaInativa(context, widget.profile);
       return;
     }
-    if (oldWidget.financeRevision != widget.financeRevision) {
-      setState(() => _reloadFutures(forceFresh: false));
-    }
-  }
-
-  void _refresh() {
-    setState(() => _reloadFutures(forceFresh: true, forceServer: true));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<List<dynamic>>(
-      future: _combinedFuture,
-      builder: (context, snap) {
-        final loadError = snap.hasError ? snap.error : _loadHint;
-        final hasLocal = _lancamentosHasLocalData ||
-            (snap.data != null &&
-                snap.data!.isNotEmpty &&
-                ((snap.data![0] as QuerySnapshot<Map<String, dynamic>>)
-                        .docs
-                        .isNotEmpty ||
-                    (snap.data!.length > 1 &&
-                        (snap.data![1] as QuerySnapshot<Map<String, dynamic>>)
-                            .docs
-                            .isNotEmpty)));
-        if (snap.connectionState == ConnectionState.waiting &&
-            !snap.hasData &&
-            !hasLocal) {
-          return const ChurchPanelLoadingBody();
-        }
-        if (!hasLocal && loadError != null) {
-          return _buildLancamentosResilienceBanner(error: loadError);
-        }
-        final showResilienceBanner =
-            loadError != null || _fetching || _showingStaleCache;
-        final financeSnap = snap.data != null && snap.data!.isNotEmpty
-            ? snap.data![0] as QuerySnapshot<Map<String, dynamic>>
-            : null;
-        final contasSnap = snap.data != null && snap.data!.length > 1
-            ? snap.data![1] as QuerySnapshot<Map<String, dynamic>>
-            : null;
-        var docs = financeSnap?.docs ?? _seedFinanceDocs ?? [];
-        final allLancsSnapshot = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
-        final contasAtivasDocs = (contasSnap?.docs ?? _seedContasDocs ?? [])
-            .where((c) => c.data()['ativo'] != false)
-            .toList();
-
-        if (docs.isEmpty) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Container(
-                constraints: const BoxConstraints(maxWidth: 420),
-                padding: const EdgeInsets.all(28),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      ThemeCleanPremium.cardBackground,
-                      ThemeCleanPremium.primary.withValues(alpha: 0.04),
-                    ],
-                  ),
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusXl),
-                  border: Border.all(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.15),
-                  ),
-                  boxShadow: ThemeCleanPremium.softUiCardShadow,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(
-                          colors: [
-                            ThemeCleanPremium.primary.withValues(alpha: 0.14),
-                            ThemeCleanPremium.primary.withValues(alpha: 0.05),
-                          ],
-                        ),
-                        border: Border.all(
-                          color:
-                              ThemeCleanPremium.primary.withValues(alpha: 0.2),
-                        ),
-                      ),
-                      child: Icon(Icons.receipt_long_rounded,
-                          size: 44, color: ThemeCleanPremium.primary),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      'Nenhum lançamento ainda',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.3,
-                        color: ThemeCleanPremium.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Use o botão Lançamento Rápido para registrar receitas, despesas ou transferências.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 14,
-                        height: 1.4,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ),
+    final f = DateTime(from.year, from.month, from.day);
+    var tEnd = DateTime(to.year, to.month, to.day, 23, 59, 59);
+    if (tEnd.isBefore(f)) tEnd = DateTime(f.year, f.month, f.day, 23, 59, 59);
+    try {
+      final allDocs = await firestoreQueryCollectDocumentsBatched(
+        _txRef()
+            .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(f))
+            .where('date', isLessThanOrEqualTo: Timestamp.fromDate(tEnd))
+            .orderBy('date', descending: false),
+      );
+      final docs = allDocs.where((doc) {
+        return _txMatchesPdfFilters(doc.data(), categoryExact: categoryExact);
+      }).toList();
+      if (docs.length > kFinancePdfCsvExportMaxDocs) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Exportação CSV limitada a $kFinancePdfCsvExportMaxDocs lançamentos. Reduza o período ou os filtros.',
               ),
+              backgroundColor: AppColors.error,
             ),
           );
         }
-
-        // Filtros
-        if (_filtroTipo != 'todos') {
-          docs = docs.where((d) {
-            final tipo = (d.data()['type'] ?? '').toString().toLowerCase();
-            if (_filtroTipo == 'entrada') {
-              return tipo.contains('entrada') || tipo.contains('receita');
-            }
-            return tipo.contains('saida') || tipo.contains('despesa');
-          }).toList();
+        return;
+      }
+      if (docs.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Nenhum lançamento para exportar.')));
         }
-        if (_filtroDoacaoKind != 'todos') {
-          docs = docs.where((d) {
-            final data = d.data();
-            if (!_financeIsDonationLancamento(data)) return false;
-            final kind = _financeDonationKindLabel(data).toLowerCase();
-            if (_filtroDoacaoKind == 'dizimo') return kind.contains('díz') || kind.contains('diz');
-            return kind.contains('oferta');
-          }).toList();
-        }
-        if (_filtroContaId != '__geral__' && _filtroContaId.isNotEmpty) {
-          docs = docs
-              .where((d) =>
-                  _financeLancamentoEnvolveConta(d.data(), _filtroContaId))
-              .toList();
-        }
-        final docsPorTipo = docs;
-        final distinctCats = docsPorTipo
-            .map((d) => (d.data()['categoria'] ?? '').toString())
-            .where((s) => s.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
-        if (_filtroCategoria != 'todas') {
-          docs = docs
-              .where((d) => (d.data()['categoria'] ?? '') == _filtroCategoria)
-              .toList();
-        }
-        if (_filtroExtra == 'pendente_aprovacao') {
-          docs = docs
-              .where((d) => d.data()['aprovacaoPendente'] == true)
-              .toList();
-        } else if (_filtroExtra == 'nao_conciliados') {
-          docs = docs.where((d) {
-            final tipo = (d.data()['type'] ?? '').toString().toLowerCase();
-            if (tipo == 'transferencia') return false;
-            return d.data()['conciliado'] != true;
-          }).toList();
-        } else if (_filtroExtra == 'a_pagar') {
-          docs = docs
-              .where((d) => financeLancamentoPendentePagamento(d.data()))
-              .toList();
-        } else if (_filtroExtra == 'pagos') {
-          docs = docs.where((d) {
-            final data = d.data();
-            final tipo = (data['type'] ?? '').toString().toLowerCase();
-            if (tipo == 'transferencia') return false;
-            if (!tipo.contains('saida') && !tipo.contains('despesa')) {
-              return false;
-            }
-            return !financeLancamentoPendentePagamento(data);
-          }).toList();
-        } else if (_filtroExtra == 'a_receber') {
-          docs = docs
-              .where((d) => financeLancamentoPendenteRecebimento(d.data()))
-              .toList();
-        } else if (_filtroExtra == 'recebidos') {
-          docs = docs.where((d) {
-            final data = d.data();
-            final tipo = (data['type'] ?? '').toString().toLowerCase();
-            if (tipo == 'transferencia') return false;
-            if (!tipo.contains('entrada') && !tipo.contains('receita')) {
-              return false;
-            }
-            return !financeLancamentoPendenteRecebimento(data);
-          }).toList();
-        } else if (_filtroExtra == 'futuras_despesas') {
-          final hoje =
-              DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
-          docs = docs.where((d) {
-            final data = d.data();
-            final tipo = (data['type'] ?? '').toString().toLowerCase();
-            if (!tipo.contains('saida') && !tipo.contains('despesa')) {
-              return false;
-            }
-            if (!financeLancamentoPendentePagamento(data)) return false;
-            final dia = _financeLancamentoDiaSomente(data);
-            return dia.isAfter(hoje);
-          }).toList();
-        } else if (_filtroExtra == 'futuras_receitas') {
-          final hoje =
-              DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
-          docs = docs.where((d) {
-            final data = d.data();
-            final tipo = (data['type'] ?? '').toString().toLowerCase();
-            if (!tipo.contains('entrada') && !tipo.contains('receita')) {
-              return false;
-            }
-            if (!financeLancamentoPendenteRecebimento(data)) return false;
-            final dia = _financeLancamentoDiaSomente(data);
-            return dia.isAfter(hoje);
-          }).toList();
-        }
-
-        final rows = _buildLancamentosGroupedByDay(docs);
-        final filtroVazio = allLancsSnapshot.isNotEmpty && docs.isEmpty;
-        double aReceberAbertoFiltro = 0, aPagarAbertoFiltro = 0;
-        if (filtroVazio) {
-          for (final d in allLancsSnapshot) {
-            final data = d.data();
-            final tipo = (data['type'] ?? '').toString().toLowerCase();
-            if (tipo == 'transferencia') continue;
-            final valor = _parseValor(data['amount'] ?? data['valor']);
-            if (financeLancamentoPendenteRecebimento(data)) {
-              aReceberAbertoFiltro += valor;
-            }
-            if (financeLancamentoPendentePagamento(data)) {
-              aPagarAbertoFiltro += valor;
-            }
-          }
-        }
-
-        return RefreshIndicator(
-          onRefresh: () async {
-            _refresh();
-            await _future;
-          },
-          child: CustomScrollView(
-            primary: true,
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              if (showResilienceBanner)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      ThemeCleanPremium.spaceLg,
-                      ThemeCleanPremium.spaceSm,
-                      ThemeCleanPremium.spaceLg,
-                      0,
-                    ),
-                    child: _buildLancamentosResilienceBanner(error: loadError),
-                  ),
-                ),
-              SliverToBoxAdapter(
-                child: Padding(
-              padding: EdgeInsets.symmetric(
-                  horizontal: ThemeCleanPremium.spaceLg,
-                  vertical: ThemeCleanPremium.spaceSm),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: ThemeCleanPremium.spaceSm,
-                    vertical: ThemeCleanPremium.spaceSm),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      ThemeCleanPremium.cardBackground,
-                      ThemeCleanPremium.primary.withValues(alpha: 0.03),
-                    ],
-                  ),
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                  boxShadow: [
-                    ...ThemeCleanPremium.softUiCardShadow,
-                    BoxShadow(
-                      color: ThemeCleanPremium.primary.withValues(alpha: 0.05),
-                      blurRadius: 18,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                          border: Border.all(
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.12)),
-                        ),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: contasAtivasDocs.any((c) => c.id == _filtroContaId)
-                                ? _filtroContaId
-                                : '__geral__',
-                            isExpanded: true,
-                            icon: const Icon(
-                                Icons.account_balance_wallet_rounded, size: 20),
-                            items: [
-                              const DropdownMenuItem(
-                                value: '__geral__',
-                                child: Text('Geral (todas as contas)'),
-                              ),
-                              ...contasAtivasDocs.map(
-                                (c) => DropdownMenuItem(
-                                  value: c.id,
-                                  child: Text(
-                                    _financeContaDisplayName(c.data()),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ),
-                            ],
-                            onChanged: (v) =>
-                                setState(() => _filtroContaId = v ?? '__geral__'),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Container(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 12),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF8FAFC),
-                                  borderRadius: BorderRadius.circular(
-                                      ThemeCleanPremium.radiusSm),
-                                  border: Border.all(
-                                      color: ThemeCleanPremium.primary
-                                          .withValues(alpha: 0.12)),
-                                ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    value: _filtroDoacaoKind,
-                                    isExpanded: true,
-                                    icon: const Icon(
-                                        Icons.volunteer_activism_rounded,
-                                        size: 20),
-                                    items: const [
-                                      DropdownMenuItem(
-                                          value: 'todos',
-                                          child: Text('Todas doações')),
-                                      DropdownMenuItem(
-                                          value: 'dizimo', child: Text('Dízimo')),
-                                      DropdownMenuItem(
-                                          value: 'oferta_missionaria',
-                                          child: Text('Oferta Missionária')),
-                                    ],
-                                    onChanged: (v) => setState(
-                                        () => _filtroDoacaoKind = v ?? 'todos'),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'Tipo de movimento',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.grey.shade700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: [
-                              FinancePremiumFilterChip(
-                                label: 'Todos',
-                                icon: Icons.receipt_long_rounded,
-                                accent: ThemeCleanPremium.primary,
-                                selected: _filtroTipo == 'todos',
-                                onTap: () => setState(() => _filtroTipo = 'todos'),
-                                compact: true,
-                              ),
-                              const SizedBox(width: 8),
-                              FinancePremiumFilterChip(
-                                label: 'Receitas',
-                                icon: Icons.trending_up_rounded,
-                                accent: const Color(0xFF16A34A),
-                                selected: _filtroTipo == 'entrada',
-                                onTap: () => setState(() => _filtroTipo = 'entrada'),
-                                compact: true,
-                              ),
-                              const SizedBox(width: 8),
-                              FinancePremiumFilterChip(
-                                label: 'Despesas',
-                                icon: Icons.trending_down_rounded,
-                                accent: const Color(0xFFDC2626),
-                                selected: _filtroTipo == 'saida',
-                                onTap: () => setState(() => _filtroTipo = 'saida'),
-                                compact: true,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF8FAFC),
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm),
-                            border: Border.all(
-                                color: ThemeCleanPremium.primary
-                                    .withValues(alpha: 0.12)),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                              value: _filtroCategoria,
-                              isExpanded: true,
-                              icon: const Icon(Icons.category_rounded, size: 20),
-                              items: [
-                                const DropdownMenuItem(
-                                    value: 'todas',
-                                    child: Text('Todas categorias')),
-                                ...distinctCats.map(
-                                  (c) => DropdownMenuItem(
-                                      value: c,
-                                      child: Text(c,
-                                          overflow: TextOverflow.ellipsis)),
-                                ),
-                              ],
-                              onChanged: (v) => setState(
-                                  () => _filtroCategoria = v ?? 'todas'),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Situação',
-                          style: TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.grey.shade700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        FinancePremiumExtraStatusFilters(
-                          selected: _filtroExtra,
-                          onChanged: (v) => setState(() => _filtroExtra = v),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 0,
-                      ThemeCleanPremium.spaceLg, 8),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          final ok = await Navigator.push<bool>(
-                            context,
-                            MaterialPageRoute<bool>(
-                              fullscreenDialog: true,
-                              builder: (_) => FinanceSmartInputPage(
-                                tenantId: widget.tenantId,
-                                panelRole: widget.role,
-                              ),
-                            ),
-                          );
-                          if (ok == true) {
-                            _refresh();
-                            widget.onFinanceChanged?.call();
-                          }
-                        },
-                        icon: const Icon(Icons.content_paste_go_rounded,
-                            size: 18),
-                        label: const Text('Importar / colar extrato'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          await Navigator.push<void>(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => FinanceBulkAssignPage(
-                                tenantId: widget.tenantId,
-                                role: widget.role,
-                              ),
-                            ),
-                          );
-                          _refresh();
-                          widget.onFinanceChanged?.call();
-                        },
-                        icon: const Icon(Icons.swap_horiz_rounded, size: 18),
-                        label: const Text('Migrar lançamentos'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-              padding:
-                  EdgeInsets.symmetric(horizontal: ThemeCleanPremium.spaceLg),
-              child: Row(
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color:
-                            ThemeCleanPremium.primary.withValues(alpha: 0.22),
-                      ),
-                    ),
-                    child: Text(
-                      '${docs.length} lançamento${docs.length == 1 ? '' : 's'}',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.2,
-                        color: ThemeCleanPremium.primary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-                ),
-              const SliverToBoxAdapter(child: SizedBox(height: 4)),
-              if (filtroVazio)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 8,
-                        ThemeCleanPremium.spaceLg, 100),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (aReceberAbertoFiltro > 0.009 || aPagarAbertoFiltro > 0.009) ...[
-                          Text(
-                            'Lançamentos em aberto (visão geral)',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                              color: ThemeCleanPremium.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Ajuste os filtros abaixo ou toque em «Limpar filtros» para ver a lista completa.',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                          ),
-                          const SizedBox(height: 12),
-                          LayoutBuilder(
-                            builder: (context, c) {
-                              final wA = _TotalizadorCard(
-                                label: 'A receber',
-                                valor: aReceberAbertoFiltro,
-                                icon: Icons.schedule_send_rounded,
-                                color: const Color(0xFF0891B2),
-                                semanticsLabel:
-                                    'A receber em aberto, ${aReceberAbertoFiltro.toStringAsFixed(2)} reais',
-                              );
-                              final wP = _TotalizadorCard(
-                                label: 'A pagar',
-                                valor: aPagarAbertoFiltro,
-                                icon: Icons.pending_actions_rounded,
-                                color: const Color(0xFFEA580C),
-                                semanticsLabel:
-                                    'A pagar em aberto, ${aPagarAbertoFiltro.toStringAsFixed(2)} reais',
-                              );
-                              if (c.maxWidth < 520) {
-                                return Column(
-                                  children: [
-                                    wA,
-                                    const SizedBox(height: 10),
-                                    wP,
-                                  ],
-                                );
-                              }
-                              return Row(
-                                children: [
-                                  Expanded(child: wA),
-                                  const SizedBox(width: 12),
-                                  Expanded(child: wP),
-                                ],
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 24),
-                        ],
-                        Icon(Icons.filter_alt_off_rounded, size: 48, color: Colors.grey.shade400),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Nenhum lançamento com estes filtros.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: ThemeCleanPremium.onSurface,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Troque o extra (pendente, a pagar, conciliado, etc.), a conta ou a categoria, ou mostre tudo de novo.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 14, color: Colors.grey.shade600, height: 1.35),
-                        ),
-                        const SizedBox(height: 20),
-                        Center(
-                          child: FilledButton.icon(
-                            onPressed: () {
-                              setState(() {
-                                _filtroTipo = 'todos';
-                                _filtroCategoria = 'todas';
-                                _filtroContaId = '__geral__';
-                                _filtroDoacaoKind = 'todos';
-                                _filtroExtra = 'todos';
-                              });
-                            },
-                            icon: const Icon(Icons.clear_all_rounded, size: 20),
-                            label: const Text('Limpar filtros'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: ThemeCleanPremium.primary,
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else
-                SliverPadding(
-                padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceLg, 4,
-                    ThemeCleanPremium.spaceLg, 100),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, i) {
-                    final row = rows[i];
-                    if (row.isHeader) {
-                      return _FinanceDayHeaderTile(day: row.day!);
-                    }
-                    final doc = row.doc!;
-                    return _LancamentoCard(
-                      doc: doc,
-                      tenantId: widget.tenantId,
-                      role: widget.role,
-                      onEdit: () => _editarLancamento(doc),
-                      onDelete: () => _excluirLancamento(doc),
-                      onApprove: () async {
-                        try {
-                          await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
-                              force: true);
-                          await doc.reference.update({
-                            'aprovacaoPendente': false,
-                            'aprovadoPorUid':
-                                firebaseDefaultAuth.currentUser?.uid ?? '',
-                            'aprovadoEm': FieldValue.serverTimestamp(),
-                          });
-                          if (mounted) _refresh();
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Erro: $e')));
-                          }
-                        }
-                      },
-                    );
-                  },
-                  childCount: rows.length,
-                ),
-              ),
-            ),
-              if (_financeHasMore)
-                SliverToBoxAdapter(
-                  child: LazyLoadMoreFooter(
-                    label: _financeLoadingMore
-                        ? 'A carregar…'
-                        : 'Carregar mais lançamentos',
-                    onLoadMore: _loadMoreFinanceLancamentos,
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _editarLancamento(
-      DocumentSnapshot<Map<String, dynamic>> doc) async {
-    if (!mounted) return;
-    var loadingOpen = false;
-    try {
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        useRootNavigator: true,
-        builder: (_) => const PopScope(
-          canPop: false,
-          child: Center(
-            child: Card(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 14),
-                    Text('A abrir editor…'),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
+        return;
+      }
+      final csv = FinanceExportCsv.buildFromFirestoreDocs(docs,
+          accounts: _financeAccounts);
+      final accSuf = _filenameAccountSuffix();
+      final base = RelatorioService.reportFilenameFromPeriod(
+        'despesa_receita',
+        f,
+        tEnd,
+        accSuf != null && accSuf.isNotEmpty ? '— $accSuf' : null,
       );
-      loadingOpen = true;
-      final ok = await showFinanceLancamentoEditorForTenant(context,
-          tenantId: widget.tenantId,
-          existingDoc: doc,
-          panelRole: widget.role);
-      if (ok && mounted) {
-        widget.onFinanceChanged?.call();
-      }
-    } finally {
-      if (loadingOpen && mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-    }
-  }
-
-  Future<void> _excluirLancamento(
-      DocumentSnapshot<Map<String, dynamic>> doc) async {
-    if (!_financeUiCanDeleteLancamento(widget.role)) {
+      await FinanceExportCsv.saveOrShare('$base.csv', csv);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(
-            'Sem permissão para excluir lançamentos financeiros.',
-          ),
-        );
-      }
-      return;
-    }
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Row(
-          children: [
-            Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626)),
-            SizedBox(width: 10),
-            Text('Excluir Lançamento',
-                style: TextStyle(fontWeight: FontWeight.w800)),
-          ],
-        ),
-        content: const Text(
-            'Tem certeza que deseja excluir este lançamento? Esta ação não pode ser desfeita.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFDC2626)),
-            child: const Text('Excluir'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true || !mounted) return;
-    try {
-      await _excluirLancamentoComAuditoria(doc, widget.tenantId);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao excluir: $e')),
-        );
-      }
-      return;
-    }
-    if (mounted) {
-      widget.onFinanceChanged?.call();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Lançamento excluído.',
-              style: TextStyle(color: Colors.white)),
-          backgroundColor: Colors.green));
-    }
-  }
-}
-
-// ─── Card de Lançamento Individual ────────────────────────────────────────────
-class _LancamentoCard extends StatelessWidget {
-  final DocumentSnapshot<Map<String, dynamic>> doc;
-  final String tenantId;
-  final String role;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-  final VoidCallback onApprove;
-
-  const _LancamentoCard(
-      {required this.doc,
-      required this.tenantId,
-      required this.role,
-      required this.onEdit,
-      required this.onDelete,
-      required this.onApprove});
-
-  @override
-  Widget build(BuildContext context) {
-    final data = doc.data() ?? {};
-    final tipo = (data['type'] ?? 'entrada').toString().toLowerCase();
-    final isTransfer = tipo == 'transferencia';
-    final isEntrada =
-        !isTransfer && (tipo.contains('entrada') || tipo.contains('receita'));
-    final isDonation = !isTransfer && isEntrada && _financeIsDonationLancamento(data);
-    final donationLabel = _financeDonationKindLabel(data);
-    final valor = _parseValor(data['amount'] ?? data['valor']);
-    final categoria =
-        (data['categoria'] ?? data['title'] ?? 'Sem categoria').toString();
-    final descricao = (data['descricao'] ?? '').toString();
-    final donorNm = (data['donorName'] ?? '').toString().trim();
-    final origemNome = (data['contaOrigemNome'] ?? '').toString();
-    final destinoNome = (data['contaDestinoNome'] ?? '').toString();
-    final dt = _parseDate(data['createdAt'] ?? data['date']);
-    final dataStr =
-        '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-    final hasComprovanteAnexo =
-        FinanceComprovanteAttachService.hasComprovanteReady(data);
-    // Upload CT = silencioso (sem spinner/faixa «A trocar comprovante…»).
-    final pendenteRecorrencia = data['pendenteConciliacaoRecorrencia'] == true;
-    final pendenteAprovacao = data['aprovacaoPendente'] == true;
-    final conciliadoOk = data['conciliado'] == true;
-    final centroCusto =
-        (data['centroCusto'] ?? '').toString().trim();
-    final vinculoLinha = financeLancamentoVinculoLabel(data);
-    final podeAprovar = pendenteAprovacao &&
-        AppPermissions.canApproveFinanceDespesaPendente(role);
-
-    final color = isTransfer
-        ? _financeTransferencia
-        : (isEntrada ? _financeEntradas : _financeSaidas);
-    final titulo = isTransfer
-        ? 'Transferência'
-        : (isDonation ? donationLabel : categoria);
-    final subtitulo = isTransfer
-        ? (origemNome.isNotEmpty && destinoNome.isNotEmpty
-            ? '$origemNome → $destinoNome'
-            : descricao)
-        : (isDonation
-            ? (donorNm.isNotEmpty
-                ? donorNm
-                : (descricao.isNotEmpty ? descricao : categoria))
-            : descricao);
-
-    final baseBorder = const Color(0xFFE8EEF4);
-    return Container(
-      margin: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-      decoration: BoxDecoration(
-        color: pendenteRecorrencia
-            ? const Color(0xFFFFFBF0)
-            : ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-        boxShadow: [
-          ...ThemeCleanPremium.softUiCardShadow,
-          BoxShadow(
-            color: color.withValues(alpha: 0.07),
-            blurRadius: 14,
-            offset: const Offset(0, 4),
-            spreadRadius: -2,
-          ),
-        ],
-        border: Border(
-          left: BorderSide(color: color, width: 3.5),
-          top: BorderSide(
-              color: pendenteRecorrencia ? Colors.amber.shade300 : baseBorder),
-          right: BorderSide(
-              color: pendenteRecorrencia ? Colors.amber.shade300 : baseBorder),
-          bottom: BorderSide(
-              color: pendenteRecorrencia ? Colors.amber.shade300 : baseBorder),
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-          onTap: () async {
-            final compUrl =
-                await FinanceComprovantePublishService.resolveComprovanteUrl(
-                    data);
-            if (!context.mounted) return;
-            showFinanceLancamentoDetailsBottomSheet(context,
-                data: data,
-                comprovanteUrl: compUrl,
-                dataStr: dataStr,
-                isEntrada: isEntrada,
-                isTransfer: isTransfer,
-                color: color,
-                valor: valor,
-                titulo: titulo,
-                subtitulo: subtitulo);
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        gradient: pendenteRecorrencia
-                            ? null
-                            : LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  color.withValues(alpha: 0.2),
-                                  color.withValues(alpha: 0.08),
-                                ],
-                              ),
-                        color:
-                            pendenteRecorrencia ? Colors.amber.shade100 : null,
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                        border: Border.all(
-                          color: pendenteRecorrencia
-                              ? Colors.amber.shade300
-                              : color.withValues(alpha: 0.2),
-                        ),
-                      ),
-                      child: Icon(
-                        pendenteRecorrencia
-                            ? Icons.schedule_rounded
-                            : (isTransfer
-                                ? Icons.swap_horiz_rounded
-                                : (isEntrada
-                                    ? Icons.trending_up_rounded
-                                    : Icons.trending_down_rounded)),
-                        color: pendenteRecorrencia
-                            ? Colors.amber.shade900
-                            : color,
-                        size: 24,
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(titulo,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.w700, fontSize: 14)),
-                          if (subtitulo.isNotEmpty)
-                            Text(subtitulo,
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis),
-                          if (vinculoLinha != null && !isTransfer)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: FinancePremiumVinculoPill(
-                                label: vinculoLinha,
-                                isMembro: vinculoLinha.startsWith('Membro'),
-                              ),
-                            ),
-                          if (centroCusto.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                'Projeto: $centroCusto',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    color: ThemeCleanPremium.primary,
-                                    fontWeight: FontWeight.w600),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      isTransfer
-                          ? 'R\$ ${valor.toStringAsFixed(2)}'
-                          : '${isEntrada ? '+' : '-'} R\$ ${valor.toStringAsFixed(2)}',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                          color: color),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Text(dataStr,
-                        style: TextStyle(
-                            fontSize: 11, color: Colors.grey.shade500)),
-                    if (pendenteRecorrencia)
-                      const FinancePremiumStatusPill(
-                        label: 'Conciliar',
-                        icon: Icons.sync_problem_rounded,
-                        colors: [Color(0xFFD97706), Color(0xFFFBBF24)],
-                      ),
-                    if (hasComprovanteAnexo)
-                      FinancePremiumStatusPill(
-                        label: 'Comprovante',
-                        icon: Icons.receipt_long_rounded,
-                        colors: [
-                          ThemeCleanPremium.success,
-                          ThemeCleanPremium.success.withValues(alpha: 0.7),
-                        ],
-                      ),
-                    if (pendenteAprovacao)
-                      const FinancePremiumStatusPill(
-                        label: 'Aprovar',
-                        icon: Icons.gavel_rounded,
-                        colors: [Color(0xFFEA580C), Color(0xFFFB923C)],
-                      ),
-                    if (!isTransfer && !conciliadoOk)
-                      const FinancePremiumStatusPill(
-                        label: 'Não conciliado',
-                        icon: Icons.receipt_long_outlined,
-                        colors: [Color(0xFF2563EB), Color(0xFF60A5FA)],
-                      ),
-                    if (!isTransfer &&
-                        isEntrada &&
-                        isDonation &&
-                        donationLabel.isNotEmpty)
-                      FinancePremiumStatusPill(
-                        label: donationLabel,
-                        icon: donationLabel == 'Dízimo'
-                            ? Icons.volunteer_activism_rounded
-                            : Icons.favorite_rounded,
-                        colors: donationLabel == 'Dízimo'
-                            ? const [Color(0xFF2563EB), Color(0xFF60A5FA)]
-                            : const [Color(0xFF7C3AED), Color(0xFFA78BFA)],
-                      ),
-                    if (!isTransfer &&
-                        isEntrada &&
-                        data['recebimentoConfirmado'] == false)
-                      const FinancePremiumStatusPill(
-                        label: 'Pendente',
-                        icon: Icons.schedule_rounded,
-                        colors: [Color(0xFFD97706), Color(0xFFFBBF24)],
-                      ),
-                    if (!isTransfer &&
-                        !isEntrada &&
-                        data['pagamentoConfirmado'] == false)
-                      const FinancePremiumStatusPill(
-                        label: 'A pagar',
-                        icon: Icons.schedule_rounded,
-                        colors: [Color(0xFFDC2626), Color(0xFFF87171)],
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Listener(
-                  behavior: HitTestBehavior.opaque,
-                  onPointerDown: (_) {},
-                  child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Wrap(
-                    spacing: 6,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      if (podeAprovar)
-                        FinancePremiumIconAction(
-                          icon: Icons.verified_rounded,
-                          color: const Color(0xFF059669),
-                          onTap: onApprove,
-                          tooltip: 'Aprovar despesa',
-                        ),
-                      FinancePremiumIconAction(
-                        icon: Icons.edit_rounded,
-                        color: ThemeCleanPremium.primary,
-                        onTap: onEdit,
-                        tooltip: 'Editar',
-                      ),
-                      if (_financeUiCanDeleteLancamento(role))
-                        FinancePremiumIconAction(
-                          icon: Icons.delete_outline_rounded,
-                          color: const Color(0xFFDC2626),
-                          onTap: onDelete,
-                          tooltip: 'Excluir',
-                        ),
-                      if (hasComprovanteAnexo) ...[
-                        FinancePremiumIconAction(
-                          icon: Icons.visibility_rounded,
-                          color: const Color(0xFF0D9488),
-                          onTap: () => FinanceComprovanteAttachService
-                              .viewFromDoc(context, data),
-                          tooltip: 'Ver comprovante',
-                        ),
-                        FinancePremiumIconAction(
-                          icon: Icons.link_off_rounded,
-                          color: const Color(0xFFDC2626),
-                          onTap: () => removeFinanceComprovanteForLancamento(
-                            context,
-                            tenantId: tenantId,
-                            doc: doc,
-                          ),
-                          tooltip: 'Remover comprovante',
-                        ),
-                      ] else
-                        FinancePremiumIconAction(
-                          icon: Icons.visibility_rounded,
-                          color: Colors.grey.shade400,
-                          onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Este lançamento ainda não tem comprovante.',
-                                ),
-                              ),
-                            );
-                          },
-                          tooltip: 'Sem comprovante',
-                        ),
-                      FinancePremiumIconAction(
-                        icon: hasComprovanteAnexo
-                            ? Icons.sync_rounded
-                            : Icons.photo_camera_rounded,
-                        color: const Color(0xFF7C3AED),
-                        tooltip: hasComprovanteAnexo
-                            ? 'Trocar comprovante'
-                            : 'Anexar comprovante',
-                        onTap: () => uploadFinanceComprovanteForLancamento(
-                          context,
-                          tenantId: tenantId,
-                          doc: doc,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// TAB 3 — Despesas Fixas
-// ═══════════════════════════════════════════════════════════════════════════════
-class _DespesasFixasTab extends StatefulWidget {
-  final String tenantId;
-  final String role;
-
-  const _DespesasFixasTab({
-    super.key,
-    required this.tenantId,
-    required this.role,
-  });
-
-  @override
-  State<_DespesasFixasTab> createState() => _DespesasFixasTabState();
-}
-
-class _DespesasFixasTabState extends State<_DespesasFixasTab> {
-  CollectionReference<Map<String, dynamic>> get _col =>
-                ChurchUiCollections.churchDoc(widget.tenantId)
-          .collection('despesas_fixas');
-
-  late Future<QuerySnapshot<Map<String, dynamic>>> _future;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _cachedDocs;
-  bool _fetching = false;
-
-  void _reloadFuture() {
-    final hadLocal = _cachedDocs?.isNotEmpty ?? false;
-    _fetching = !hadLocal;
-    _future = Future.value(
-      MergedFirestoreQuerySnapshot(_cachedDocs ?? const []),
-    );
-    unawaited(
-      ChurchTenantResilientReads.despesasFixas(widget.tenantId)
-          .timeout(
-            kIsWeb
-                ? const Duration(seconds: 12)
-                : PanelResilientLoad.queryCap,
-          )
-          .then((snap) {
-        if (!mounted) return;
-        setState(() {
-          if (snap.docs.isNotEmpty) _cachedDocs = snap.docs;
-          _fetching = false;
-          _future = Future.value(
-            MergedFirestoreQuerySnapshot(_cachedDocs ?? const []),
-          );
-        });
-      }).catchError((e) {
-        if (!mounted) return;
-        final ui = PanelResilientLoad.afterError(
-          hadLocalData: (_cachedDocs?.isNotEmpty ?? false),
-          error: e,
-        );
-        setState(() {
-          _fetching = ui.fetching;
-          _future = Future.value(
-            MergedFirestoreQuerySnapshot(_cachedDocs ?? const []),
-          );
-        });
-      }),
-    );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _reloadFuture();
-  }
-
-  @override
-  void didUpdateWidget(covariant _DespesasFixasTab oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.tenantId != widget.tenantId) {
-      setState(_reloadFuture);
-    }
-  }
-
-  void _refresh() {
-    setState(_reloadFuture);
-  }
-
-  Future<void> _gerarPendentes() async {
-    try {
-      final n = await gerarDespesasFixasPendentes(widget.tenantId);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            n == 0
-                ? 'Nada novo a gerar (já existem ou fora do período).'
-                : '$n despesa(s) projetada(s) no caixa.',
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao gerar: $e')),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      future: _future,
-      builder: (context, snap) {
-        final loadError = snap.hasError ? snap.error : null;
-        final docs = snap.data?.docs ?? _cachedDocs ?? [];
-        final hasLocal = docs.isNotEmpty;
-        if (snap.connectionState == ConnectionState.waiting &&
-            !snap.hasData &&
-            !hasLocal) {
-          return const ChurchPanelLoadingBody();
-        }
-        if (!hasLocal && loadError != null) {
-          return ChurchPanelResilientLoadBanner(
-            hasLocalData: false,
-            isSyncing: _fetching,
-            errorTitle: 'Não foi possível carregar as despesas fixas',
-            error: loadError,
-            onRetry: _refresh,
-          );
-        }
-
-        return Column(
-          children: [
-            if (loadError != null || _fetching)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                child: ChurchPanelResilientLoadBanner(
-                  hasLocalData: hasLocal,
-                  isSyncing: _fetching && hasLocal,
-                  errorTitle: 'Não foi possível carregar as despesas fixas',
-                  error: loadError,
-                  onRetry: _refresh,
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Despesas mensais recorrentes (${docs.length}) — lançamentos pendentes até confirmar pagamento.',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey.shade600,
-                          fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: _gerarPendentes,
-                    icon: const Icon(Icons.refresh_rounded, size: 18),
-                    label: const Text('Gerar no caixa'),
-                  ),
-                  const SizedBox(width: 4),
-                  FilledButton.icon(
-                    onPressed: () => _addOuEditar(context, onSaved: _refresh),
-                    icon: const Icon(Icons.add_rounded, size: 18),
-                    label: const Text('Adicionar'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: ThemeCleanPremium.primary,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 10),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (snap.connectionState == ConnectionState.waiting &&
-                !snap.hasData)
-              const Expanded(child: ChurchPanelLoadingBody())
-            else if (docs.isEmpty)
-              Expanded(
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.repeat_rounded,
-                          size: 64, color: Colors.grey.shade400),
-                      const SizedBox(height: 16),
-                      Text('Nenhuma despesa fixa cadastrada.',
-                          style: TextStyle(
-                              fontSize: 16, color: Colors.grey.shade600)),
-                      const SizedBox(height: 8),
-                      Text(
-                          'Adicione despesas recorrentes como Água, Luz, Aluguel, etc.',
-                          style: TextStyle(
-                              fontSize: 13, color: Colors.grey.shade500)),
-                    ],
-                  ),
-                ),
-              )
-            else
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () async => _refresh(),
-                  child: ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                    itemCount: docs.length,
-                    itemBuilder: (context, i) {
-                      final d = docs[i].data();
-                      final desc = (d['descricao'] ?? '').toString();
-                      final titularLinha = titularNomeFinanceFixo(d);
-                      final vt = (d['vinculoTipo'] ?? 'nenhum').toString();
-                      final valor = _parseValor(d['valor']);
-                      final vencimento = (d['diaVencimento'] ?? '').toString();
-                      final ativo = d['ativo'] != false;
-                      DateTime? di;
-                      DateTime? df;
-                      try {
-                        final ti = d['dataInicio'];
-                        if (ti is Timestamp) di = ti.toDate();
-                        final tf = d['dataFim'];
-                        if (tf is Timestamp) df = tf.toDate();
-                      } catch (_) {}
-                      final totalParcelas = (d['totalParcelas'] is int)
-                          ? d['totalParcelas'] as int?
-                          : int.tryParse('${d['totalParcelas']}');
-                      final aPartir = (d['aPartirDaParcela'] is int)
-                          ? d['aPartirDaParcela'] as int?
-                          : int.tryParse('${d['aPartirDaParcela']}');
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                          boxShadow: ThemeCleanPremium.softUiCardShadow,
-                          border: Border.all(color: const Color(0xFFF1F5F9)),
-                        ),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
-                          leading: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFEF2F2),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(Icons.repeat_rounded,
-                                color: Color(0xFFDC2626), size: 22),
-                          ),
-                          title: Text(desc,
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w700)),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (titularLinha.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 8, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: vt == 'fornecedor'
-                                              ? const Color(0xFFF3E8FF)
-                                              : const Color(0xFFEFF6FF),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                        ),
-                                        child: Text(
-                                          vt == 'fornecedor'
-                                              ? 'Fornecedor'
-                                              : 'Membro',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w800,
-                                            color: vt == 'fornecedor'
-                                                ? const Color(0xFF7C3AED)
-                                                : const Color(0xFF2563EB),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          titularLinha,
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600,
-                                            color: Colors.grey.shade800,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              Text('R\$ ${valor.toStringAsFixed(2)} / mês',
-                                  style: TextStyle(
-                                      fontSize: 13,
-                                      color: Colors.grey.shade700)),
-                              if (vencimento.isNotEmpty)
-                                Text('Vencimento: dia $vencimento',
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade500)),
-                              if (di != null && df != null)
-                                Text(
-                                    'Período: ${DateFormat('dd/MM/yyyy').format(di)} a ${DateFormat('dd/MM/yyyy').format(df)}',
-                                    style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey.shade500)),
-                              if (totalParcelas != null && totalParcelas > 0)
-                                Text(
-                                    'Parcelas: total $totalParcelas${aPartir != null && aPartir >= 1 ? ", controlar a partir da $aPartirª" : ""}',
-                                    style: TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.grey.shade500)),
-                            ],
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: ativo
-                                      ? const Color(0xFFF0FDF4)
-                                      : const Color(0xFFFEF2F2),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Text(
-                                  ativo ? 'Ativa' : 'Inativa',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: ativo
-                                          ? const Color(0xFF16A34A)
-                                          : const Color(0xFFDC2626)),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              PopupMenuButton<String>(
-                                icon: const Icon(Icons.more_vert_rounded,
-                                    size: 20),
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12)),
-                                onSelected: (v) async {
-                                  if (v == 'edit') {
-                                    _addOuEditar(context,
-                                        doc: docs[i], onSaved: _refresh);
-                                  }
-                                  if (v == 'toggle') {
-                                    await docs[i]
-                                        .reference
-                                        .update({'ativo': !ativo});
-                                    if (mounted) _refresh();
-                                  }
-                                  if (v == 'delete') {
-                                    _excluir(context, docs[i],
-                                        onDeleted: _refresh);
-                                  }
-                                  if (v == 'lancar') {
-                                    _lancarDespesaFixa(context, d);
-                                  }
-                                },
-                                itemBuilder: (_) => [
-                                  const PopupMenuItem(
-                                      value: 'lancar',
-                                      child: Row(children: [
-                                        Icon(Icons.add_circle_rounded,
-                                            size: 18),
-                                        SizedBox(width: 8),
-                                        Text('Lançar este mês')
-                                      ])),
-                                  const PopupMenuItem(
-                                      value: 'edit',
-                                      child: Row(children: [
-                                        Icon(Icons.edit_rounded, size: 18),
-                                        SizedBox(width: 8),
-                                        Text('Editar')
-                                      ])),
-                                  PopupMenuItem(
-                                      value: 'toggle',
-                                      child: Row(children: [
-                                        Icon(
-                                            ativo
-                                                ? Icons.pause_rounded
-                                                : Icons.play_arrow_rounded,
-                                            size: 18),
-                                        SizedBox(width: 8),
-                                        Text(ativo ? 'Desativar' : 'Ativar')
-                                      ])),
-                                  const PopupMenuItem(
-                                      value: 'delete',
-                                      child: Row(children: [
-                                        Icon(Icons.delete_outline_rounded,
-                                            size: 18, color: Color(0xFFDC2626)),
-                                        SizedBox(width: 8),
-                                        Text('Excluir',
-                                            style: TextStyle(
-                                                color: Color(0xFFDC2626)))
-                                      ])),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _addOuEditar(BuildContext context,
-      {DocumentSnapshot<Map<String, dynamic>>? doc,
-      VoidCallback? onSaved}) async {
-    final isEdit = doc != null;
-    final data = doc?.data();
-    final descCtrl =
-        TextEditingController(text: isEdit ? (data?['descricao'] ?? '') : '');
-    final valorCtrl = TextEditingController(
-        text: isEdit ? formatBrCurrencyInitial(_parseValor(data?['valor'])) : '');
-    final diaCtrl = TextEditingController(
-        text: isEdit ? (data?['diaVencimento'] ?? '').toString() : '');
-    final parcelasCtrl = TextEditingController(
-        text: isEdit ? (data?['totalParcelas'] ?? '').toString() : '');
-    final aPartirCtrl = TextEditingController(
-        text: isEdit ? (data?['aPartirDaParcela'] ?? '').toString() : '1');
-    String categoria = isEdit ? (data?['categoria'] ?? '') : '';
-    DateTime? dataInicio;
-    DateTime? dataFim;
-    try {
-      final ti = data?['dataInicio'];
-      if (ti is Timestamp) dataInicio = ti.toDate();
-      final tf = data?['dataFim'];
-      if (tf is Timestamp) dataFim = tf.toDate();
-    } catch (_) {}
-
-    final di0 = dataInicio ?? DateTime.now();
-    final dataInicioCtrl = TextEditingController(
-      text: formatBrDateDdMmYyyy(di0),
-    );
-    final dataFimCtrl = TextEditingController(
-      text: dataFim == null ? '' : formatBrDateDdMmYyyy(dataFim),
-    );
-
-    final categoriasList =
-        await getCategoriasDespesaForTenant(widget.tenantId);
-    if (categoria.isNotEmpty && !categoriasList.contains(categoria)) {
-      categoria = '';
-    }
-
-    var vinculoTipo = 'nenhum';
-    String? membroId;
-    var membroNome = '';
-    String? fornecedorId;
-    var fornecedorNome = '';
-    if (isEdit) {
-      vinculoTipo = (data?['vinculoTipo'] ?? '').toString();
-      if (vinculoTipo.isEmpty) {
-        final mid0 = (data?['membroId'] ?? '').toString().trim();
-        final fid0 = (data?['fornecedorId'] ?? '').toString().trim();
-        if (fid0.isNotEmpty) {
-          vinculoTipo = 'fornecedor';
-        } else if (mid0.isNotEmpty) {
-          vinculoTipo = 'membro';
-        } else {
-          vinculoTipo = 'nenhum';
-        }
-      }
-      membroId = (data?['membroId'] ?? '').toString();
-      if (membroId.isEmpty) membroId = null;
-      membroNome = (data?['membroNome'] ?? '').toString();
-      fornecedorId = (data?['fornecedorId'] ?? '').toString();
-      if (fornecedorId.isEmpty) fornecedorId = null;
-      fornecedorNome = (data?['fornecedorNome'] ?? '').toString();
-    }
-
-    final result = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => AlertDialog(
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-          title: Row(
-            children: [
-              Icon(isEdit ? Icons.edit_rounded : Icons.add_circle_rounded,
-                  color: ThemeCleanPremium.primary),
-              const SizedBox(width: 10),
-              Text(isEdit ? 'Editar Despesa Fixa' : 'Nova Despesa Fixa',
-                  style: const TextStyle(fontWeight: FontWeight.w800)),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<String>(
-                  initialValue: categoria.isNotEmpty ? categoria : null,
-                  decoration: InputDecoration(
-                    labelText: 'Categoria',
-                    border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                    prefixIcon: const Icon(Icons.category_rounded),
-                  ),
-                  items: categoriasList
-                      .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                      .toList(),
-                  onChanged: (v) => setDlgState(() {
-                    categoria = v ?? '';
-                    if (descCtrl.text.isEmpty) descCtrl.text = categoria;
-                  }),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: descCtrl,
-                  decoration: InputDecoration(
-                    labelText: 'Descrição',
-                    border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                    prefixIcon: const Icon(Icons.notes_rounded),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                FinanceFixoVinculoSegmentDespesa(
-                  value: vinculoTipo,
-                  onChanged: (v) => setDlgState(() {
-                    vinculoTipo = v;
-                    if (v == 'nenhum') {
-                      membroId = null;
-                      membroNome = '';
-                      fornecedorId = null;
-                      fornecedorNome = '';
-                    } else if (v == 'membro') {
-                      fornecedorId = null;
-                      fornecedorNome = '';
-                    } else {
-                      membroId = null;
-                      membroNome = '';
-                    }
-                  }),
-                ),
-                if (vinculoTipo != 'nenhum') ...[
-                  const SizedBox(height: 12),
-                  FinanceFixoTitularCard(
-                    vinculoTipo: vinculoTipo,
-                    tituloPlaceholder: vinculoTipo == 'membro'
-                        ? 'Titular (membro)'
-                        : 'Titular (fornecedor)',
-                    nomeExibicao:
-                        vinculoTipo == 'membro' ? membroNome : fornecedorNome,
-                    onTap: () async {
-                      if (vinculoTipo == 'membro') {
-                        final picked = await showFinancePremiumMemberPicker(
-                          context,
-                          tenantId: widget.tenantId,
-                        );
-                        if (picked == null) return;
-                        setDlgState(() {
-                          membroId = picked.$1;
-                          membroNome = picked.$2;
-                        });
-                      } else {
-                        final picked = await showFinancePremiumFornecedorPicker(
-                          context,
-                          tenantId: widget.tenantId,
-                        );
-                        if (picked == null) return;
-                        setDlgState(() {
-                          fornecedorId = picked.$1;
-                          fornecedorNome = picked.$2;
-                        });
-                      }
-                    },
-                  ),
-                ],
-                const SizedBox(height: 12),
-                TextField(
-                  controller: valorCtrl,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [BrCurrencyInputFormatter()],
-                  decoration: InputDecoration(
-                    labelText: r'Valor mensal (R$)',
-                    border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                    prefixIcon: const Icon(Icons.attach_money_rounded),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: diaCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: 'Dia de vencimento (1-31)',
-                    border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm)),
-                    prefixIcon: const Icon(Icons.calendar_today_rounded),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text('Período (início e fim)',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey.shade800)),
-                const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: dataInicioCtrl,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [BrDateDdMmYyyyInputFormatter()],
-                        decoration: InputDecoration(
-                          labelText: 'Data início (DD/MM/AAAA)',
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm)),
-                          prefixIcon:
-                              const Icon(Icons.event_rounded, size: 18),
-                          suffixIcon: IconButton(
-                            icon: const Icon(Icons.calendar_month_rounded),
-                            onPressed: () async {
-                              final d = await showDatePicker(
-                                  context: ctx,
-                                  initialDate: dataInicio ?? DateTime.now(),
-                                  firstDate: DateTime(2020),
-                                  lastDate: DateTime(2030));
-                              if (d != null) {
-                                setDlgState(() {
-                                  dataInicio = d;
-                                  dataFim = d.add(const Duration(days: 365));
-                                  dataInicioCtrl.text =
-                                      formatBrDateDdMmYyyy(d);
-                                  dataFimCtrl.text =
-                                      formatBrDateDdMmYyyy(dataFim!);
-                                });
-                              }
-                            },
-                          ),
-                        ),
-                        onChanged: (v) {
-                          final p = parseBrDateDdMmYyyy(v.trim());
-                          if (p != null) setDlgState(() => dataInicio = p);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextField(
-                        controller: dataFimCtrl,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [BrDateDdMmYyyyInputFormatter()],
-                        decoration: InputDecoration(
-                          labelText: 'Data fim (DD/MM/AAAA)',
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm)),
-                          prefixIcon:
-                              const Icon(Icons.event_rounded, size: 18),
-                          suffixIcon: IconButton(
-                            icon: const Icon(Icons.calendar_month_rounded),
-                            onPressed: () async {
-                              final d = await showDatePicker(
-                                  context: ctx,
-                                  initialDate: dataFim ??
-                                      dataInicio?.add(
-                                          const Duration(days: 365)) ??
-                                      DateTime.now()
-                                          .add(const Duration(days: 365)),
-                                  firstDate: dataInicio ?? DateTime(2020),
-                                  lastDate: DateTime(2030));
-                              if (d != null) {
-                                setDlgState(() {
-                                  dataFim = d;
-                                  dataFimCtrl.text = formatBrDateDdMmYyyy(d);
-                                });
-                              }
-                            },
-                          ),
-                        ),
-                        onChanged: (v) {
-                          final p = parseBrDateDdMmYyyy(v.trim());
-                          if (p != null) setDlgState(() => dataFim = p);
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                if (dataInicio != null && dataFim != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Text(
-                        'Ao marcar início, fim = 1 ano depois. Ajuste se precisar.',
-                        style: TextStyle(
-                            fontSize: 11, color: Colors.grey.shade600)),
-                  ),
-                const SizedBox(height: 16),
-                Text('Controle por parcelas',
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey.shade800)),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: parcelasCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          labelText: 'Total parcelas',
-                          hintText: 'Ex: 12',
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm)),
-                          prefixIcon:
-                              const Icon(Icons.format_list_numbered_rounded),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: aPartirCtrl,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          labelText: 'Controlar a partir da parcela',
-                          hintText: 'Ex: 1',
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm)),
-                          prefixIcon: const Icon(Icons.play_arrow_rounded),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                      'Ex.: total 12 parcelas, controlar a partir da 3ª',
-                      style:
-                          TextStyle(fontSize: 11, color: Colors.grey.shade600)),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancelar')),
-            FilledButton.icon(
-              onPressed: () {
-                final valor = parseBrCurrencyInput(valorCtrl.text);
-                if (descCtrl.text.trim().isEmpty || valor <= 0) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
-                      content: Text('Preencha descrição e valor.')));
-                  return;
-                }
-                if (vinculoTipo == 'membro' &&
-                    (membroId == null || membroId!.isEmpty)) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
-                      content: Text('Selecione um membro ou mude o vínculo.')));
-                  return;
-                }
-                if (vinculoTipo == 'fornecedor' &&
-                    (fornecedorId == null || fornecedorId!.isEmpty)) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
-                      content:
-                          Text('Selecione um fornecedor ou mude o vínculo.')));
-                  return;
-                }
-                final di = parseBrDateDdMmYyyy(dataInicioCtrl.text.trim());
-                if (di == null) {
-                  ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
-                      content:
-                          Text('Informe a data de início (DD/MM/AAAA).')));
-                  return;
-                }
-                final df = parseBrDateDdMmYyyy(dataFimCtrl.text.trim());
-                final payload = <String, dynamic>{
-                  'descricao': descCtrl.text.trim(),
-                  'valor': valor,
-                  'categoria': categoria,
-                  'diaVencimento': int.tryParse(diaCtrl.text) ?? 0,
-                  'ativo': true,
-                  'vinculoTipo': vinculoTipo,
-                };
-                if (vinculoTipo == 'nenhum') {
-                  payload['titularNome'] = FieldValue.delete();
-                  payload['membroId'] = FieldValue.delete();
-                  payload['membroNome'] = FieldValue.delete();
-                  payload['fornecedorId'] = FieldValue.delete();
-                  payload['fornecedorNome'] = FieldValue.delete();
-                } else if (vinculoTipo == 'membro') {
-                  payload['membroId'] = membroId;
-                  payload['membroNome'] = membroNome;
-                  payload['titularNome'] = membroNome;
-                  payload['fornecedorId'] = FieldValue.delete();
-                  payload['fornecedorNome'] = FieldValue.delete();
-                } else {
-                  payload['fornecedorId'] = fornecedorId;
-                  payload['fornecedorNome'] = fornecedorNome;
-                  payload['titularNome'] = fornecedorNome;
-                  payload['membroId'] = FieldValue.delete();
-                  payload['membroNome'] = FieldValue.delete();
-                }
-                payload['dataInicio'] =
-                    Timestamp.fromDate(DateTime(di.year, di.month, di.day));
-                if (df != null) {
-                  payload['dataFim'] =
-                      Timestamp.fromDate(DateTime(df.year, df.month, df.day));
-                }
-                final tot = int.tryParse(parcelasCtrl.text);
-                if (tot != null && tot > 0) payload['totalParcelas'] = tot;
-                final part = int.tryParse(aPartirCtrl.text);
-                if (part != null && part >= 1) {
-                  payload['aPartirDaParcela'] = part;
-                }
-                Navigator.pop(ctx, payload);
-              },
-              icon: const Icon(Icons.save_rounded),
-              label: const Text('Salvar'),
-              style: FilledButton.styleFrom(
-                  backgroundColor: ThemeCleanPremium.primary),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    valorCtrl.dispose();
-    descCtrl.dispose();
-    diaCtrl.dispose();
-    parcelasCtrl.dispose();
-    aPartirCtrl.dispose();
-    dataInicioCtrl.dispose();
-    dataFimCtrl.dispose();
-
-    if (result == null) return;
-    await _ensureFinanceWriteReady();
-    await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
-    if (isEdit) {
-      await doc.reference.set(result, SetOptions(merge: true));
-    } else {
-      final clean = Map<String, dynamic>.from(result)
-        ..removeWhere((_, v) => v is FieldValue);
-      await _col.add(clean);
-    }
-    if (context.mounted) {
-      onSaved?.call();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(
-              isEdit ? 'Despesa fixa atualizada!' : 'Despesa fixa adicionada!',
-              style: const TextStyle(color: Colors.white)),
-          backgroundColor: Colors.green));
-    }
-  }
-
-  Future<void> _excluir(BuildContext context, DocumentSnapshot doc,
-      {VoidCallback? onDeleted}) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Row(children: [
-          Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626)),
-          SizedBox(width: 10),
-          Text('Excluir Despesa Fixa')
-        ]),
-        content:
-            const Text('Tem certeza que deseja excluir esta despesa fixa?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFDC2626)),
-            child: const Text('Excluir'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
-    await doc.reference.delete();
-    if (context.mounted) {
-      onDeleted?.call();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Despesa fixa excluída.',
-              style: TextStyle(color: Colors.white)),
-          backgroundColor: Colors.green));
-    }
-  }
-
-  Future<void> _lancarDespesaFixa(
-      BuildContext context, Map<String, dynamic> despesa) async {
-    final now = DateTime.now();
-    final start = despesa['dataInicio'] is Timestamp
-        ? (despesa['dataInicio'] as Timestamp).toDate()
-        : null;
-    final end = despesa['dataFim'] is Timestamp
-        ? (despesa['dataFim'] as Timestamp).toDate()
-        : null;
-    final totalParcelas = (despesa['totalParcelas'] is int)
-        ? despesa['totalParcelas'] as int?
-        : int.tryParse('${despesa['totalParcelas']}');
-    final aPartir = (despesa['aPartirDaParcela'] is int)
-        ? (despesa['aPartirDaParcela'] as int?)
-        : int.tryParse('${despesa['aPartirDaParcela']}') ?? 1;
-
-    if (start != null) {
-      final startMonth = DateTime(now.year, now.month);
-      final rangeStart = DateTime(start.year, start.month);
-      if (startMonth.isBefore(rangeStart)) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(
-                    'Despesa só pode ser lançada a partir de ${_mesesAbrev[start.month - 1]}/${start.year}.')),
-          );
-        }
-        return;
-      }
-    }
-    if (end != null) {
-      final startMonth = DateTime(now.year, now.month);
-      final rangeEnd = DateTime(end.year, end.month);
-      if (startMonth.isAfter(rangeEnd)) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(
-                    'Período da despesa terminou em ${_mesesAbrev[end.month - 1]}/${end.year}.')),
-          );
-        }
-        return;
-      }
-    }
-    if (start != null && totalParcelas != null && totalParcelas > 0) {
-      final mesesDesdeInicio =
-          (now.year - start.year) * 12 + (now.month - start.month) + 1;
-      if (mesesDesdeInicio < (aPartir ?? 1)) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(
-                    'Controle a partir da parcela ${aPartir ?? 1}. Este mês = parcela $mesesDesdeInicio.')),
-          );
-        }
-        return;
-      }
-      if (mesesDesdeInicio > totalParcelas) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content:
-                    Text('Total de $totalParcelas parcelas já foi atingido.')),
-          );
-        }
-        return;
-      }
-    }
-
-    final vt =
-        (despesa['vinculoTipo'] ?? 'nenhum').toString();
-    final lanc = <String, dynamic>{
-      'type': 'saida',
-      'amount': despesa['valor'] ?? 0,
-      'categoria': despesa['categoria'] ?? despesa['descricao'] ?? '',
-      'descricao': '${despesa['descricao'] ?? ''} (Despesa Fixa)',
-      'createdAt': Timestamp.fromDate(now),
-    };
-    final tn = (despesa['titularNome'] ?? '').toString().trim();
-    if (tn.isNotEmpty) lanc['titularNome'] = tn;
-    if (vt != 'nenhum') lanc['vinculoTipo'] = vt;
-    if (vt == 'membro') {
-      final mid = (despesa['membroId'] ?? '').toString().trim();
-      if (mid.isNotEmpty) {
-        lanc['membroId'] = mid;
-        lanc['membroNome'] = (despesa['membroNome'] ?? '').toString();
-      }
-    } else if (vt == 'fornecedor') {
-      final fid = (despesa['fornecedorId'] ?? '').toString().trim();
-      if (fid.isNotEmpty) {
-        lanc['fornecedorId'] = fid;
-        lanc['fornecedorNome'] = (despesa['fornecedorNome'] ?? '').toString();
-      }
-    }
-    final op = ChurchRepository.churchId(widget.tenantId.trim());
-    await         ChurchUiCollections.financeiro(op)
-        .add(lanc);
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(
-                'Despesa "${despesa['descricao']}" lançada em ${_mesesAbrev[now.month - 1]}/${now.year}!')),
-      );
-    }
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// TAB — Categorias (Despesas e Receitas) — listagem, adicionar, remover
-// ═══════════════════════════════════════════════════════════════════════════════
-class _FinanceCategoriasTab extends StatelessWidget {
-  final String tenantId;
-
-  const _FinanceCategoriasTab({required this.tenantId});
-
-  @override
-  Widget build(BuildContext context) {
-    final ref = ChurchUiCollections.churchDoc(tenantId);
-    final colDespesas = ref.collection('categorias_despesas');
-    final colReceitas = ref.collection('categorias_receitas');
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _CategoriasSection(
-            title: 'Despesas',
-            color: const Color(0xFFDC2626),
-            collection: colDespesas,
-            tenantId: tenantId,
-            padrao: kCategoriasDespesaPadrao,
-          ),
-          const SizedBox(height: 24),
-          _CategoriasSection(
-            title: 'Receitas',
-            color: _financeEntradas,
-            collection: colReceitas,
-            tenantId: tenantId,
-            padrao: _categoriasReceitaPadrao,
-          ),
-          const SizedBox(height: 80),
-        ],
-      ),
-    );
-  }
-}
-
-class _CategoriasSection extends StatefulWidget {
-  final String title;
-  final Color color;
-  final CollectionReference<Map<String, dynamic>> collection;
-  final String tenantId;
-  final List<String> padrao;
-
-  const _CategoriasSection({
-    required this.title,
-    required this.color,
-    required this.collection,
-    required this.tenantId,
-    required this.padrao,
-  });
-
-  @override
-  State<_CategoriasSection> createState() => _CategoriasSectionState();
-}
-
-class _CategoriasSectionState extends State<_CategoriasSection> {
-  int _categoriasStreamRetry = 0;
-
-  Future<void> _seedIfEmpty() async {
-    final snap = await widget.collection.orderBy('nome').get();
-    if (snap.docs.isEmpty) {
-      for (final nome in widget.padrao) {
-        await widget.collection
-            .add({'nome': nome, 'ordem': widget.padrao.indexOf(nome)});
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      key: ValueKey('cat_stream_${widget.title}_$_categoriasStreamRetry'),
-      stream: widget.collection.orderBy('nome').watchSafe(),
-      builder: (context, snap) {
-        final loadError = snap.hasError ? snap.error : null;
-        final docsRaw = snap.data?.docs ?? [];
-        final hasLocal = docsRaw.isNotEmpty;
-        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-          return Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              boxShadow: ThemeCleanPremium.softUiCardShadow,
-            ),
-            child: const ChurchPanelLoadingBody(),
-          );
-        }
-        if (!hasLocal && loadError != null) {
-          return Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              boxShadow: ThemeCleanPremium.softUiCardShadow,
-            ),
-            child: ChurchPanelResilientLoadBanner(
-              hasLocalData: false,
-              isSyncing: snap.connectionState == ConnectionState.waiting,
-              errorTitle: 'Não foi possível carregar as categorias',
-              error: loadError,
-              onRetry: () => setState(() => _categoriasStreamRetry++),
-            ),
-          );
-        }
-        // Remove duplicatas por nome (mantém primeiro doc de cada nome).
-        final seenNomes = <String>{};
-        final docs = docsRaw.where((d) {
-          final nome = (d.data()['nome'] ?? '').toString().trim();
-          return nome.isNotEmpty && seenNomes.add(nome);
-        }).toList();
-        // Ordenação alfabética (despesas e receitas).
-        docs.sort((a, b) {
-          final na = (a.data()['nome'] ?? '').toString().trim().toLowerCase();
-          final nb = (b.data()['nome'] ?? '').toString().trim().toLowerCase();
-          return na.compareTo(nb);
-        });
-        if (docs.isEmpty) {
-          return Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              boxShadow: ThemeCleanPremium.softUiCardShadow,
-              border: Border.all(color: widget.color.withValues(alpha: 0.2)),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('Nenhuma categoria de ${widget.title.toLowerCase()}.',
-                    style:
-                        TextStyle(fontSize: 14, color: Colors.grey.shade700)),
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: () async {
-                    await _seedIfEmpty();
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                          content: Text('Categorias padrão carregadas.',
-                              style: TextStyle(color: Colors.white)),
-                          backgroundColor: Colors.green));
-                    }
-                  },
-                  icon: const Icon(Icons.add_circle_outline_rounded, size: 20),
-                  label: const Text('Carregar categorias padrão'),
-                  style: FilledButton.styleFrom(backgroundColor: widget.color),
-                ),
-              ],
-            ),
-          );
-        }
-        return Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-            border: Border.all(color: widget.color.withValues(alpha: 0.2)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: widget.color.withValues(alpha: 0.12),
-                  borderRadius: const BorderRadius.vertical(
-                      top: Radius.circular(ThemeCleanPremium.radiusMd)),
-                ),
-                child: Row(
-                  children: [
-                    Text(
-                      widget.title,
-                      style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: widget.color),
-                    ),
-                    const Spacer(),
-                    OutlinedButton.icon(
-                      onPressed: () => _showAddCategoria(context),
-                      icon: const Icon(Icons.add_rounded, size: 18),
-                      label: const Text('ADICIONAR'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: widget.color,
-                        side: BorderSide(color: widget.color),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: docs.length,
-                separatorBuilder: (_, _) =>
-                    Divider(height: 1, color: Colors.grey.shade200),
-                itemBuilder: (context, i) {
-                  final d = docs[i];
-                  final nome = (d.data()['nome'] ?? '').toString();
-                  return ListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    title: Text(nome,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
-                    trailing: IconButton(
-                      icon: Icon(Icons.delete_outline_rounded,
-                          color: Colors.grey.shade600, size: 22),
-                      onPressed: () =>
-                          _confirmarExcluir(context, d.reference, nome),
-                      style:
-                          IconButton.styleFrom(minimumSize: const Size(48, 48)),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<void> _showAddCategoria(BuildContext context) async {
-    final ctrl = TextEditingController();
-    final nome = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: Text('Nova categoria - ${widget.title}'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Nome da categoria',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-            style: FilledButton.styleFrom(
-                backgroundColor: ThemeCleanPremium.primary),
-            child: const Text('Adicionar'),
-          ),
-        ],
-      ),
-    );
-    if (nome != null && nome.isNotEmpty && context.mounted) {
-      await widget.collection.add({'nome': nome, 'ordem': 999});
-      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Categoria adicionada.',
-                style: TextStyle(color: Colors.white)),
-            backgroundColor: Colors.green));
+            content: Text('CSV gerado. Escolha onde salvar ou compartilhar.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Erro CSV: ${friendlyMessage(e)}'),
+            backgroundColor: AppColors.error));
       }
     }
   }
 
-  Future<void> _confirmarExcluir(
-      BuildContext context, DocumentReference ref, String nome) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Excluir categoria'),
-        content: Text(
-            'Excluir "$nome"? Lançamentos que usam esta categoria não serão alterados.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFDC2626)),
-            child: const Text('Excluir'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      await ref.delete();
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Categoria excluída.',
-                style: TextStyle(color: Colors.white)),
-            backgroundColor: Colors.green));
-      }
+  Future<void> _openFinancialReportsPremiumSheet() async {
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
     }
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// TAB — Contas (cadastro para transferências)
-// ═══════════════════════════════════════════════════════════════════════════════
-class _FinanceContasTab extends StatefulWidget {
-  final String tenantId;
-  final String role;
-  final Future<void> Function(
-          BuildContext context, DocumentSnapshot<Map<String, dynamic>> doc)
-      onEditLancamento;
-
-  const _FinanceContasTab({
-    required this.tenantId,
-    required this.role,
-    required this.onEditLancamento,
-  });
-
-  @override
-  State<_FinanceContasTab> createState() => _FinanceContasTabState();
-}
-
-class _FinanceContasTabState extends State<_FinanceContasTab> {
-  CollectionReference<Map<String, dynamic>> get _col =>
-      ChurchUiCollections.contas(widget.tenantId);
-
-  CollectionReference<Map<String, dynamic>> get _financeCol =>
-                ChurchUiCollections.financeiro(widget.tenantId);
-
-  static String _contaSubtitle(Map<String, dynamic> d) {
-    final tipo = _financeTipoContaLabel(d['tipoConta']?.toString());
-    final banco = (d['bancoNome'] ?? '').toString().trim();
-    final ag = (d['agencia'] ?? '').toString().trim();
-    final nc = (d['numeroConta'] ?? '').toString().trim();
-    final parts = <String>[tipo];
-    if (banco.isNotEmpty) parts.add(banco);
-    if (ag.isNotEmpty) parts.add('Ag. $ag');
-    if (nc.isNotEmpty) parts.add('Conta $nc');
-    return parts.join(' · ');
-  }
-
-  late Future<QuerySnapshot<Map<String, dynamic>>> _future;
-  List<QueryDocumentSnapshot<Map<String, dynamic>>>? _seedContasDocs;
-  String? _loadHint;
-  bool _fetching = false;
-  bool _showingStaleCache = false;
-  Timer? _webLoadCap;
-
-  bool get _contasHasLocalData => (_seedContasDocs?.isNotEmpty ?? false);
-
-  void _startContasWebCap() {
-    if (!kIsWeb) return;
-    _webLoadCap?.cancel();
-    _webLoadCap = Timer(const Duration(seconds: 12), () {
-      if (!mounted || !_fetching) return;
-      setState(() {
-        _fetching = false;
-        if (_contasHasLocalData) {
-          _showingStaleCache = !AppConnectivityService.instance.isOnline;
-          _loadHint = null;
-        } else {
-          _loadHint ??= 'Tempo esgotado ao carregar contas na Web.';
-        }
-      });
-    });
-  }
-
-  Widget _buildContasResilienceBanner({Object? error}) {
-    return ChurchPanelResilientLoadBanner(
-      hasLocalData: _contasHasLocalData,
-      isSyncing: _fetching && _contasHasLocalData,
-      showStaleCache: _showingStaleCache && !_fetching,
-      errorTitle: 'Não foi possível carregar as contas',
-      error: error,
-      onRetry: _refresh,
-      staleMessage:
-          'Modo offline — contas com últimos dados guardados. Puxe para atualizar.',
-      syncMessage:
-          'Sincronizando contas… a mostrar dados guardados enquanto atualiza.',
-    );
-  }
-
-  void _seedContasCache() {
-    final churchId = ChurchRepository.churchId(widget.tenantId);
-    _seedContasDocs =
-        ChurchFinanceLoadService.peekContasRam(churchId) ?? const [];
-  }
-
-  Future<QuerySnapshot<Map<String, dynamic>>> _loadContasBundle({
-    required bool forceFresh,
-  }) async {
-    final tid = ChurchRepository.churchId(widget.tenantId);
-    final result = await ChurchFinanceLoadService.loadContas(
-      seedTenantId: tid,
-      forceRefresh: forceFresh,
-      forceServer: forceFresh,
-    ).timeout(PanelResilientLoad.queryCap);
-    if (mounted) {
-      final hadLocal = _contasHasLocalData;
-      if (result.docs.isNotEmpty) {
-        _loadHint = null;
-      } else if (result.softError != null) {
-        final ui = PanelResilientLoad.afterFetch(
-          hadLocalData: hadLocal,
-          newItems: result.docs,
-          fromCache: false,
-          softError: result.softError,
-          forceFresh: forceFresh,
-        );
-        if (!hadLocal) _loadHint = ui.loadError;
-        _showingStaleCache = ui.showingStaleCache;
-      }
-    }
-    return result.snapshot;
-  }
-
-  void _reloadFuture({bool forceFresh = false}) {
-    if (!forceFresh) {
-      _seedContasCache();
-    } else {
-      _seedContasDocs ??= const [];
-    }
-
-    final hadLocal = _contasHasLocalData;
-    _fetching = !hadLocal;
-    if (!forceFresh && hadLocal) {
-      _showingStaleCache = !AppConnectivityService.instance.isOnline;
-    } else if (forceFresh) {
-      _showingStaleCache = false;
-      _loadHint = null;
-    }
-    _startContasWebCap();
-
-    _future = Future.value(MergedFirestoreQuerySnapshot(_seedContasDocs!));
-
-    unawaited(
-      _loadContasBundle(forceFresh: forceFresh).then((fresh) {
-        if (!mounted) return;
-        _webLoadCap?.cancel();
-        setState(() {
-          _seedContasDocs = fresh.docs.isNotEmpty
-              ? fresh.docs
-              : (_seedContasDocs?.isNotEmpty == true
-                  ? _seedContasDocs!
-                  : fresh.docs);
-          _future = Future.value(MergedFirestoreQuerySnapshot(_seedContasDocs!));
-          _fetching = false;
-          _showingStaleCache = false;
-          _loadHint = null;
-        });
-      }).catchError((e) {
-        if (!mounted) return;
-        _webLoadCap?.cancel();
-        final ui = PanelResilientLoad.afterError(
-          hadLocalData: _contasHasLocalData,
-          error: e,
-        );
-        setState(() {
-          _fetching = ui.fetching;
-          _showingStaleCache = ui.showingStaleCache;
-          if (!_contasHasLocalData) _loadHint = ui.loadError;
-        });
-      }),
-    );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _reloadFuture();
-  }
-
-  @override
-  void dispose() {
-    _webLoadCap?.cancel();
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(covariant _FinanceContasTab oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.tenantId != widget.tenantId) {
-      setState(() => _reloadFuture());
-    }
-  }
-
-  void _refresh() {
-    setState(() => _reloadFuture(forceFresh: true));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      future: _future,
-      builder: (context, snap) {
-        final loadError = snap.hasError ? snap.error : _loadHint;
-        final hasLocal = _contasHasLocalData ||
-            (snap.data?.docs.isNotEmpty ?? false);
-        if (snap.connectionState == ConnectionState.waiting &&
-            !snap.hasData &&
-            !hasLocal) {
-          return const ChurchPanelLoadingBody();
-        }
-        if (!hasLocal && loadError != null) {
-          return _buildContasResilienceBanner(error: loadError);
-        }
-        final showResilienceBanner =
-            loadError != null || _fetching || _showingStaleCache;
-        final docsRaw = snap.data?.docs ?? _seedContasDocs ?? [];
-        final docs = dedupeContasDocuments(docsRaw);
-        return Column(
-          children: [
-            if (showResilienceBanner)
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  ThemeCleanPremium.spaceLg,
-                  ThemeCleanPremium.spaceSm,
-                  ThemeCleanPremium.spaceLg,
-                  0,
-                ),
-                child: _buildContasResilienceBanner(error: loadError),
-              ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                  ThemeCleanPremium.spaceLg,
-                  ThemeCleanPremium.spaceSm,
-                  ThemeCleanPremium.spaceLg,
-                  ThemeCleanPremium.spaceSm),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Contas, bancos e caixas (transferências e extrato)',
-                      style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade800,
-                          fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  FilledButton.icon(
-                    onPressed: () =>
-                        _showAddConta(context, _col, onSaved: _refresh),
-                    icon: const Icon(Icons.add_rounded, size: 20),
-                    label: const Text('Nova conta'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: ThemeCleanPremium.primary,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: ThemeCleanPremium.spaceLg, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                              ThemeCleanPremium.radiusSm)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (snap.connectionState == ConnectionState.waiting &&
-                !snap.hasData)
-              const Expanded(child: ChurchPanelLoadingBody())
-            else if (docs.isEmpty)
-              Expanded(
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.account_balance_wallet_outlined,
-                          size: 64, color: Colors.grey.shade400),
-                      const SizedBox(height: 16),
-                      Text('Nenhuma conta cadastrada.',
-                          style: TextStyle(
-                              fontSize: 16, color: Colors.grey.shade600)),
-                      const SizedBox(height: 8),
-                      Text(
-                          'Adicione contas (ex.: Caixa da Tesouraria, Caixa de Eventos) para usar em transferências.',
-                          style: TextStyle(
-                              fontSize: 13, color: Colors.grey.shade500)),
-                    ],
-                  ),
-                ),
-              )
-            else
-              Expanded(
-                child: ListView(
-                  padding: EdgeInsets.fromLTRB(
-                      ThemeCleanPremium.spaceLg,
-                      ThemeCleanPremium.spaceSm,
-                      ThemeCleanPremium.spaceLg,
-                      100),
-                  children: [
-                    FinanceContasBrandGrid(
-                      itemCount: docs.length,
-                      minCardHeight: 168,
-                      itemBuilder: (context, i) {
-                        final d = docs[i];
-                        final data = d.data();
-                        final nome = _financeContaDisplayName(data);
-                        final bancoNome = _financeContaBancoNome(data);
-                        final tipoConta =
-                            _financeTipoContaLabel(data['tipoConta']?.toString());
-                        final tipoRaw =
-                            (data['tipoConta'] ?? '').toString().toLowerCase();
-                        final isCartao = tipoRaw == 'cartao_credito' ||
-                            tipoRaw == 'cartao';
-                        final saldo = financeParseValorBr(
-                            data['saldo'] ?? data['saldoAtual'] ?? 0);
-                        return Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            FinanceBankBrandCard(
-                              nome: nome,
-                              bancoNome: bancoNome,
-                              tipoContaLabel: tipoConta,
-                              bancoCodigo:
-                                  (data['bancoCodigo'] ?? '').toString(),
-                              saldoAtual: saldo,
-                              isCreditCard: isCartao,
-                              compact: true,
-                              onTap: () async {
-                                await Navigator.push<void>(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => _MovimentacoesContaPage(
-                                      financeCol: _financeCol,
-                                      tenantId: widget.tenantId,
-                                      role: widget.role,
-                                      contaId: d.id,
-                                      title: nome.isNotEmpty ? nome : 'Conta',
-                                      extratoMes: null,
-                                      onEdit: (ctx, doc) =>
-                                          widget.onEditLancamento(ctx, doc),
-                                    ),
-                                  ),
-                                );
-                                if (mounted) _refresh();
-                              },
-                              onTransfer: () async {
-                                final ok =
-                                    await showFinanceLancamentoEditorForTenant(
-                                  context,
-                                  tenantId: widget.tenantId,
-                                  panelRole: widget.role,
-                                  presetNovoTipo: 'transferencia',
-                                  presetContaOrigemId: d.id,
-                                );
-                                if (ok && mounted) _refresh();
-                              },
-                            ),
-                            Positioned(
-                              top: 6,
-                              right: 6,
-                              child: Material(
-                                color: Colors.black.withValues(alpha: 0.22),
-                                shape: const CircleBorder(),
-                                child: PopupMenuButton<String>(
-                                  icon: const Icon(Icons.more_vert_rounded,
-                                      color: Colors.white, size: 20),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12)),
-                                  onSelected: (v) async {
-                                    if (v == 'edit') {
-                                      _showEditConta(context, _col, d,
-                                          onSaved: _refresh);
-                                    }
-                                    if (v == 'migrate') {
-                                      await Navigator.push<void>(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => FinanceBulkAssignPage(
-                                            tenantId: widget.tenantId,
-                                            role: widget.role,
-                                            initialSourceAccountId: d.id,
-                                          ),
-                                        ),
-                                      );
-                                      if (mounted) _refresh();
-                                    }
-                                    if (v == 'toggle') {
-                                      final ativo = data['ativo'] != false;
-                                      await d.reference
-                                          .update({'ativo': !ativo});
-                                      if (mounted) _refresh();
-                                    }
-                                    if (v == 'delete') {
-                                      await _confirmarExcluirConta(
-                                          context, d.reference, nome,
-                                          onDeleted: _refresh);
-                                    }
-                                  },
-                                  itemBuilder: (_) => const [
-                                    PopupMenuItem(
-                                        value: 'edit',
-                                        child: Row(children: [
-                                          Icon(Icons.edit_rounded, size: 18),
-                                          SizedBox(width: 8),
-                                          Text('Editar')
-                                        ])),
-                                    PopupMenuItem(
-                                        value: 'migrate',
-                                        child: Row(children: [
-                                          Icon(Icons.swap_horiz_rounded,
-                                              size: 18),
-                                          SizedBox(width: 8),
-                                          Text('Migrar lançamentos')
-                                        ])),
-                                    PopupMenuItem(
-                                        value: 'toggle',
-                                        child: Row(children: [
-                                          Icon(Icons.pause_rounded, size: 18),
-                                          SizedBox(width: 8),
-                                          Text('Ativar/Desativar')
-                                        ])),
-                                    PopupMenuItem(
-                                        value: 'delete',
-                                        child: Row(children: [
-                                          Icon(Icons.delete_outline_rounded,
-                                              size: 18,
-                                              color: Color(0xFFDC2626)),
-                                          SizedBox(width: 8),
-                                          Text('Excluir',
-                                              style: TextStyle(
-                                                  color: Color(0xFFDC2626)))
-                                        ])),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _showAddConta(
-      BuildContext context, CollectionReference<Map<String, dynamic>> col,
-      {VoidCallback? onSaved}) async {
-    await _showContaEditor(context, col, null, onSaved: onSaved);
-  }
-
-  Future<void> _showEditConta(
-      BuildContext context,
-      CollectionReference<Map<String, dynamic>> col,
-      DocumentSnapshot<Map<String, dynamic>> doc,
-      {VoidCallback? onSaved}) async {
-    await _showContaEditor(context, col, doc, onSaved: onSaved);
-  }
-
-  Future<void> _showContaEditor(
-    BuildContext context,
-    CollectionReference<Map<String, dynamic>> col,
-    DocumentSnapshot<Map<String, dynamic>>? existing, {
-    VoidCallback? onSaved,
-  }) async {
-    final d = existing?.data();
-    final nomeCtrl = TextEditingController(text: (d?['nome'] ?? '').toString());
-    final agenciaCtrl = TextEditingController(text: (d?['agencia'] ?? '').toString());
-    final contaCtrl = TextEditingController(text: (d?['numeroConta'] ?? '').toString());
-    final obsCtrl = TextEditingController(text: (d?['observacao'] ?? '').toString());
-
-    var bancoSel = kBrasilBancosComuns.first;
-    final cod = (d?['bancoCodigo'] ?? '').toString();
-    final nm = (d?['bancoNome'] ?? '').toString();
-    if (nm.isNotEmpty || cod.isNotEmpty) {
-      final ix = kBrasilBancosComuns.indexWhere(
-        (o) =>
-            o.codigo == cod && o.nome.toLowerCase() == nm.toLowerCase(),
-      );
-      if (ix >= 0) {
-        bancoSel = kBrasilBancosComuns[ix];
-      } else {
-        bancoSel = BrasilBancoOption(
-            codigo: cod, nome: nm.isNotEmpty ? nm : 'Instituição');
-      }
-    }
-
-    String tipoConta = (d?['tipoConta'] ?? 'corrente').toString().toLowerCase();
-    if (!['corrente', 'poupanca', 'caixa', 'cartao_credito'].contains(tipoConta)) {
-      tipoConta = 'corrente';
-    }
-
-    var contaPrincipal = d?['contaPrincipal'] == true;
-
-    final ok = await showModalBottomSheet<bool>(
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setDlg) {
-            final bankOptions = List<BrasilBancoOption>.from(kBrasilBancosComuns);
-            if (!bankOptions.any((o) =>
-                o.codigo == bancoSel.codigo && o.nome == bancoSel.nome)) {
-              bankOptions.insert(0, bancoSel);
-            }
-            return Padding(
-              padding: EdgeInsets.only(
-                left: ThemeCleanPremium.spaceLg,
-                right: ThemeCleanPremium.spaceLg,
-                top: ThemeCleanPremium.spaceMd,
-                bottom: MediaQuery.viewInsetsOf(ctx).bottom + ThemeCleanPremium.spaceLg,
-              ),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade300,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      existing == null ? 'Nova conta ou caixa' : 'Editar conta',
-                      style: const TextStyle(
-                          fontSize: 20, fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Defina banco, tipo e agência para controle e extratos.',
-                      style:
-                          TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: nomeCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'Nome de exibição *',
-                        hintText: 'Ex.: Conta principal, Caixa culto',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.label_rounded),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<BrasilBancoOption>(
-                      initialValue: bankOptions.contains(bancoSel) ? bancoSel : bankOptions.first,
-                      decoration: const InputDecoration(
-                        labelText: 'Banco / instituição',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.account_balance_rounded),
-                      ),
-                      isExpanded: true,
-                      items: bankOptions
-                          .map((b) => DropdownMenuItem(
-                                value: b,
-                                child: Row(
-                                  children: [
-                                    _financeBankMiniLogo(
-                                      bancoCodigo: b.codigo,
-                                      bancoNome: b.nome,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        b.label,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ))
-                          .toList(),
-                      onChanged: (v) {
-                        if (v != null) setDlg(() => bancoSel = v);
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    Text('Tipo', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.grey.shade800)),
-                    const SizedBox(height: 8),
-                    FinancePremiumContaTipoToggle(
-                      selected: tipoConta,
-                      onChanged: (v) => setDlg(() => tipoConta = v),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: agenciaCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Agência',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.store_rounded),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: contaCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Nº conta (opcional)',
-                              border: OutlineInputBorder(),
-                              prefixIcon: Icon(Icons.numbers_rounded),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: obsCtrl,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'Observação (opcional)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.notes_rounded),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Conta principal'),
-                      subtitle: Text(
-                        'Uma conta principal por igreja. Use para padrão em atalhos e novos lançamentos.',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                      ),
-                      value: contaPrincipal,
-                      onChanged: (v) => setDlg(() => contaPrincipal = v),
-                    ),
-                    const SizedBox(height: 20),
-                    FilledButton.icon(
-                      onPressed: () {
-                        final n = nomeCtrl.text.trim();
-                        if (n.isEmpty) {
-                          ScaffoldMessenger.of(ctx).showSnackBar(
-                            const SnackBar(content: Text('Informe o nome da conta.')),
-                          );
-                          return;
-                        }
-                        Navigator.pop(ctx, true);
-                      },
-                      icon: const Icon(Icons.save_rounded),
-                      label: Text(existing == null ? 'Cadastrar' : 'Salvar'),
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        backgroundColor: ThemeCleanPremium.primary,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                ),
-              ),
-            );
+        return _FinanceReportsPremiumSheet(
+          screenFrom: _from,
+          screenTo: _to,
+          uid: firestoreUserDocIdForAppShell(widget.uid),
+          statusFilter: _statusFilter,
+          filenameAccountSuffix: _filenameAccountSuffix(),
+          semCategoriaToken: _kRelatorioSemCategoria,
+          onExportPdf: (opts) {
+            Navigator.of(ctx).pop();
+            unawaited(_exportFinancialReportForRange(
+              opts.from,
+              opts.to,
+              categoryExact: opts.categoryExact,
+            ));
+          },
+          onExportCsv: (opts) {
+            Navigator.of(ctx).pop();
+            unawaited(_exportCsvFinancialReportForRange(opts.from, opts.to,
+                categoryExact: opts.categoryExact));
           },
         );
       },
     );
+  }
 
-    if (ok != true || !context.mounted) return;
+  /// Saldo de abertura: soma de receitas e despesas pagas com data efetiva anterior ao início do período (igual painel e relatórios).
+  Future<double> _loadSaldoAberturaFor(DateTime periodStart) async {
+    final b = await _loadSaldoAberturaBundle(periodStart);
+    return b.total;
+  }
 
-    final nome = nomeCtrl.text.trim();
-    if (nome.isEmpty) return;
-
-    final payload = <String, dynamic>{
-      'nome': nome,
-      'bancoCodigo': bancoSel.codigo,
-      'bancoNome': bancoSel.nome,
-      'bancoBrandSlug':
-          brasilBancoBrandingFor(codigo: bancoSel.codigo, nome: bancoSel.nome).slug,
-      'agencia': agenciaCtrl.text.trim(),
-      'numeroConta': contaCtrl.text.trim(),
-      'tipoConta': tipoConta,
-      'observacao': obsCtrl.text.trim(),
-      'ativo': d?['ativo'] ?? true,
-      'contaPrincipal': contaPrincipal,
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-
-    final dupId = await findDuplicateContaId(
-      col: col,
-      payload: payload,
-      excludeDocId: existing?.id,
+  /// Saldo de abertura: total rápido via [finance_month_buckets] (servidor); contas em 2ª fase se necessário.
+  Future<({double total, Map<String, double> byAccount})>
+      _loadSaldoAberturaBundle(
+    DateTime periodStart, {
+    bool withAccounts = false,
+  }) async {
+    if (fa.FirebaseAuth.instance.currentUser == null) {
+      return (total: 0.0, byAccount: const <String, double>{});
+    }
+    return FinanceOpeningBalanceService.load(
+      uid: widget.uid,
+      periodStart: periodStart,
+      loadAccounts: withAccounts,
+      creditCardIds: _creditCardAccountIds,
     );
-    if (dupId != null && context.mounted) {
-      final proceed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Conta semelhante'),
-          content: const Text(
-            'Já existe uma conta com o mesmo banco, agência ou nome. '
-            'Evite duplicar — use «Migrar lançamentos» se quiser unificar. '
-            'Deseja cadastrar mesmo assim?',
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancelar')),
-            FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Cadastrar')),
-          ],
+  }
+
+  CollectionReference<Map<String, dynamic>> _txRef() {
+    final id = firestoreUserDocIdForModuleReads(widget.uid);
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(id)
+        .collection('transactions');
+  }
+
+  /// Pendentes (receitas + despesas) — índice `status`+`date` em [firestore.indexes.json].
+  static const int _kPendingStreamLimit = 500;
+
+  Query<Map<String, dynamic>> _txRefPendingAll() => _txRef()
+      .where('status', isEqualTo: 'pending')
+      .orderBy('date', descending: false)
+      .limit(_kPendingStreamLimit);
+
+  /// Mesma rota do painel inicial: colar SMS / texto inteligente (evita duplicar blocos gigantes na árvore).
+  Future<void> _abrirLancamentoInteligente() async {
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
+    }
+    if (firestoreUserDocIdStrictFromSession().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content:
+              Text('Sessão a carregar — aguarde um instante e toque de novo.'),
+          behavior: SnackBarBehavior.floating,
         ),
       );
-      if (proceed != true) return;
+      return;
     }
-
-    late final DocumentReference<Map<String, dynamic>> savedRef;
-    if (existing == null) {
-      payload['createdAt'] = FieldValue.serverTimestamp();
-      savedRef = await col.add(payload);
-    } else {
-      savedRef = existing.reference;
-      await savedRef.set(payload, SetOptions(merge: true));
-    }
-
-    if (contaPrincipal) {
-      final snap = await col.get();
-      final batch = firebaseDefaultFirestore.batch();
-      for (final doc in snap.docs) {
-        batch.update(doc.reference, {'contaPrincipal': doc.id == savedRef.id});
-      }
-      await batch.commit();
-    }
-
-    if (!context.mounted) return;
-    onSaved?.call();
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-          existing == null ? 'Conta cadastrada.' : 'Conta atualizada.',
-          style: const TextStyle(color: Colors.white),
+    final result = await Navigator.of(context).push<SmartInputPopResult?>(
+      MaterialPageRoute<SmartInputPopResult?>(
+        builder: (_) => SmartInputScreen(
+          uid: firestoreUserDocIdForAppShell(widget.uid),
+          profile: widget.profile,
         ),
-        backgroundColor: Colors.green));
-  }
-
-  Future<void> _confirmarExcluirConta(
-      BuildContext context, DocumentReference ref, String nome,
-      {VoidCallback? onDeleted}) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-        title: const Text('Excluir conta'),
-        content: Text(
-            'Excluir "$nome"? Transferências já lançadas não serão alteradas.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFDC2626)),
-            child: const Text('Excluir'),
-          ),
-        ],
+        fullscreenDialog: true,
       ),
     );
-    if (ok == true) {
-      await ref.delete();
+    if (result != null && result.hasCreated && mounted) {
+      if (!context.mounted) return;
+      _scheduleMainPeriodReloadAfterMutation(
+        savedDocIds: result.createdTransactionIds,
+      );
+      final n = result.createdTransactionIds.length;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              n > 1 ? '$n lançamentos guardados.' : 'Lançamento guardado.'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(
+            label: 'Desfazer',
+            onPressed: () async {
+              await FinanceService.deleteTransactionsByDocumentIds(
+                uid: firestoreUserDocIdForAppShell(widget.uid),
+                context: context,
+                documentIds: result.createdTransactionIds,
+              );
+              if (context.mounted) {
+                setState(() => _invalidateRealtimeBalances());
+              }
+            },
+          ),
+        ),
+      );
+    }
+  }
+
+  /// Confirma vários pagamentos/recebimentos: mesma data + mesmo banco (sem comprovante em lote).
+  Future<void> _confirmarPagamentoEmLote(
+    BuildContext context,
+    List<String> docIds, {
+    required String successSnackBar,
+    bool? isIncome,
+  }) async {
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
+    }
+    final unique = docIds.toSet().where((e) => e.trim().isNotEmpty).toList();
+    if (unique.isEmpty) return;
+
+    var batchIsIncome = isIncome;
+    double sum = 0;
+    var incomeCount = 0;
+    var expenseCount = 0;
+    for (var i = 0; i < unique.length && i < 30; i++) {
+      final snap = await _txRef().doc(unique[i]).get();
+      final d = snap.data() ?? {};
+      sum += (d['amount'] as num?)?.toDouble() ?? 0;
+      if ((d['type'] ?? 'expense').toString() == 'income') {
+        incomeCount++;
+      } else {
+        expenseCount++;
+      }
+    }
+    batchIsIncome ??= incomeCount >= expenseCount;
+    final totalAmount = sum;
+
+    final financeAccounts = _financeAccounts.isNotEmpty
+        ? List<FinanceAccount>.from(_financeAccounts)
+        : await FinanceAccountsService()
+            .listOnce(firestoreUserDocIdForAppShell(widget.uid));
+    if (!context.mounted) return;
+
+    final result = await showFinanceConfirmPaymentBatchSheet(
+      context: context,
+      isIncome: batchIsIncome,
+      financeAccounts: financeAccounts,
+      itemCount: unique.length,
+      totalAmountPreview: totalAmount,
+    );
+    if (result == null || !mounted) return;
+
+    setState(() {
+      for (final id in unique) {
+        _optimisticPaidIds.add(id);
+      }
+    });
+
+    try {
+      await commitFinanceConfirmPaymentBatch(
+        txCol: _txRef(),
+        docIds: unique,
+        uid: widget.uid,
+        result: result,
+      );
+      if (!mounted) return;
+      final confTs = Timestamp.fromDate(result.paymentDate);
+      final aid = result.financeAccountId?.trim() ?? '';
+      setState(() {
+        for (final id in unique) {
+          _optimisticPaidIds.remove(id);
+          final prev = _optimisticEditedTxById[id];
+          _optimisticEditedTxById[id] = {
+            ...?prev,
+            'status': 'paid',
+            'paidAt': confTs,
+            'effectiveDate': confTs,
+            if (aid.isNotEmpty)
+              'financeAccountId': aid
+            else
+              'financeAccountId': '',
+          };
+        }
+      });
+      unawaited(_applyFinanceMutationSync(
+        docIds: unique,
+        transactionEffectiveDate: result.paymentDate,
+      ));
+      HapticFeedback.mediumImpact();
       if (context.mounted) {
-        onDeleted?.call();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content:
-                Text('Conta excluída.', style: TextStyle(color: Colors.white)),
-            backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(successSnackBar),
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          for (final id in unique) {
+            _optimisticPaidIds.remove(id);
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Erro: ${e.toString().split('\n').first}'),
+          backgroundColor: AppColors.error,
+        ));
       }
     }
   }
-}
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Widgets auxiliares
-// ═══════════════════════════════════════════════════════════════════════════════
+  Future<void> _addTx(BuildContext context, String type) async {
+    if (!context.mounted) return;
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
+    }
+    final result = await Navigator.of(context, rootNavigator: true)
+        .push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        builder: (_) => NovoLancamentoPage(
+          uid: firestoreUserDocIdForAppShell(widget.uid),
+          initialType: type,
+          canAttachReceipt: widget.profile.temAcessoPremium,
+          hasActiveLicense: widget.profile.hasActiveLicense,
+        ),
+        fullscreenDialog: true,
+      ),
+    );
 
-class _TotalizadorCard extends StatelessWidget {
-  final String label;
-  final double valor;
-  final IconData icon;
-  final Color color;
-  final VoidCallback? onTap;
-  /// Acessibilidade: leitores de ecrã (e.g. VoiceOver) — resumo com valor.
-  final String? semanticsLabel;
+    if (result == null || !context.mounted) return;
+    try {
+      final saveResult =
+          await TransactionSaveService.saveFromNovoLancamentoResult(
+        uid: firestoreUserDocIdForAppShell(widget.uid),
+        data: result,
+        context: context,
+      );
+      if (saveResult == null || !mounted) return;
+      final date = result['date'] is DateTime
+          ? result['date'] as DateTime
+          : DateTime.now();
+      final effectiveDate =
+          FinanceLineOpening.effectiveDateTimeFromMap(result) ?? date;
+      setState(() {
+        final d = DateTime(date.year, date.month, date.day);
+        if (d.isBefore(DateTime(_from.year, _from.month, _from.day))) _from = d;
+        if (d.isAfter(DateTime(_to.year, _to.month, _to.day))) _to = d;
+      });
+      _scheduleMainPeriodReloadAfterMutation(
+        transactionEffectiveDate: effectiveDate,
+        savedDocIds: saveResult.docIds,
+      );
+    } catch (e, st) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Erro ao salvar lançamento: ${e.toString().replaceFirst(RegExp(r'^Exception:?\s*'), '')}'),
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+      debugPrint('_addTx save error: $e\n$st');
+    }
+  }
 
-  const _TotalizadorCard({
-    required this.label,
-    required this.valor,
-    required this.icon,
-    required this.color,
-    this.onTap,
-    this.semanticsLabel,
-  });
+  Future<void> _openTransferBetweenAccounts(BuildContext context) async {
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
+    }
+    if (_financeAccounts.length < 2) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'Cadastre ao menos duas contas para transferir valores.')),
+        );
+      }
+      return;
+    }
 
-  @override
-  Widget build(BuildContext context) {
-    final child = Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                color.withValues(alpha: 0.18),
-                color.withValues(alpha: 0.07),
+    final result = await FinanceTransferBottomSheet.show(
+      context,
+      accounts: _financeAccounts,
+      initialFromId: _financeAccounts.first.id,
+      initialToId: _financeAccounts.length > 1
+          ? _financeAccounts[1].id
+          : _financeAccounts.first.id,
+    );
+    if (result == null || !context.mounted) return;
+
+    final fromAcc = _financeAccounts.firstWhere((a) => a.id == result.fromId);
+    final toAcc = _financeAccounts.firstWhere((a) => a.id == result.toId);
+    final transferAt = FinanceTransactionDatetime.mergeCalendarDayWithClockNow(
+        result.selectedCalendarDay);
+
+    try {
+      await FinanceTransferService.instance.createTransfer(
+        uid: widget.uid,
+        fromAcc: fromAcc,
+        toAcc: toAcc,
+        amount: result.amount,
+        selectedCalendarDay: result.selectedCalendarDay,
+        note: result.note,
+        receiptBytes: result.receiptBytes,
+        receiptName: result.receiptName,
+        receiptMime: result.receiptMime,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:
+                Text('Erro ao transferir: ${e.toString().split('\n').first}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (mounted) {
+      _scheduleMainPeriodReloadAfterMutation(
+          transactionEffectiveDate: transferAt);
+    }
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Transferência registrada (${DateFormat('dd/MM/yyyy HH:mm', 'pt_BR').format(transferAt)}): ${CurrencyFormats.formatBRL(result.amount)}',
+          ),
+        ),
+      );
+    }
+  }
+
+  /// Confirma pagamento/recebimento: data, banco/conta (opcional trocar) e comprovante.
+  /// Retorna true se confirmou (para sumir da grid de pendentes na hora).
+  Future<bool> _confirmarPagamento(BuildContext context, String docId) async {
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return false;
+    }
+    if (docId.isEmpty) return false;
+    final preSnap = await _txRef().doc(docId).get();
+    final preData = preSnap.data() ?? {};
+    final txType = (preData['type'] ?? 'expense').toString();
+    final isIncome = txType == 'income';
+    final preEffectiveDate =
+        FinanceLineOpening.effectiveDateTimeFromMap(preData) ??
+            (preData['date'] as Timestamp?)?.toDate();
+    final financeAccounts = _financeAccounts.isNotEmpty
+        ? List<FinanceAccount>.from(_financeAccounts)
+        : await FinanceAccountsService()
+            .listOnce(firestoreUserDocIdForAppShell(widget.uid));
+    final rawAid = (preData['financeAccountId'] ?? '').toString().trim();
+    FinanceAccount? cardAccount;
+    for (final a in financeAccounts) {
+      if (a.id == rawAid && a.isCreditCardProduct) {
+        cardAccount = a;
+        break;
+      }
+    }
+    final isCardFatura = !isIncome &&
+        cardAccount != null &&
+        (preData['status'] ?? 'paid').toString() == 'pending';
+    if (!context.mounted) return false;
+
+    final FinanceConfirmPaymentSheetResult? result;
+    if (isCardFatura) {
+      final debitBanks =
+          FinanceAccountBalanceUtils.debitBankAccounts(financeAccounts);
+      result = await showFinanceConfirmPaymentBatchSheet(
+        context: context,
+        isIncome: false,
+        financeAccounts: debitBanks,
+        itemCount: 1,
+        totalAmountPreview: (preData['amount'] as num?)?.toDouble(),
+        creditCardFaturaPayment: true,
+        cardDisplayName: cardAccount.displayName,
+      );
+    } else {
+      result = await showFinanceConfirmPaymentSheet(
+        context: context,
+        isIncome: isIncome,
+        financeAccounts: financeAccounts,
+        initialFinanceAccountId: rawAid.isEmpty ? null : rawAid,
+        orphanAccountId: rawAid,
+        canAttachReceipt: widget.profile.temAcessoPremium,
+        amountPreview: (preData['amount'] as num?)?.toDouble(),
+        categoryPreview: (preData['category'] ?? '').toString(),
+        descriptionPreview: (preData['description'] ?? '').toString(),
+      );
+    }
+    if (result == null || !mounted) return false;
+    final paymentResult = result;
+
+    setState(() => _optimisticPaidIds.add(docId));
+    try {
+      await commitFinanceConfirmPayment(
+        txRef: _txRef().doc(docId),
+        uid: widget.uid,
+        result: paymentResult,
+        creditCardFaturaPayment: isCardFatura,
+      );
+      if (!mounted) return false;
+      final confTs = Timestamp.fromDate(paymentResult.paymentDate);
+      final aid = paymentResult.financeAccountId?.trim() ?? '';
+      setState(() {
+        _optimisticPaidIds.remove(docId);
+        final prev = _optimisticEditedTxById[docId];
+        _optimisticEditedTxById[docId] = {
+          ...?prev,
+          'status': 'paid',
+          'paidAt': confTs,
+          'effectiveDate': confTs,
+          if (isCardFatura) ...{
+            'financeAccountId': rawAid,
+            if (aid.isNotEmpty) 'paidFromFinanceAccountId': aid,
+          } else if (aid.isNotEmpty)
+            'financeAccountId': aid
+          else
+            'financeAccountId': '',
+        };
+        _invalidateRealtimeBalances(
+          transactionEffectiveDate:
+              preEffectiveDate ?? paymentResult.paymentDate,
+        );
+      });
+      unawaited(_applyFinanceMutationSync(
+        docIds: [docId],
+        transactionEffectiveDate: paymentResult.paymentDate,
+      ));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+            isIncome ? 'Recebimento confirmado.' : 'Pagamento confirmado.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return true;
+    } catch (e) {
+      if (mounted) {
+        setState(() => _optimisticPaidIds.remove(docId));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Erro ao confirmar: ${e.toString().split('\n').first}'),
+          backgroundColor: AppColors.error,
+        ));
+      }
+      return false;
+    }
+  }
+
+  Future<void> _editTx(BuildContext context, String docId,
+      Map<String, dynamic> current, String type, {
+    void Function(String id)? onPendingRemoved,
+    void Function(String id, Map<String, dynamic> patch)? onPendingPatched,
+  }) async {
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
+    }
+    final pairId = (current['transferPairId'] ?? '').toString().trim();
+    if (pairId.isNotEmpty) {
+      final accounts = _financeAccounts.isNotEmpty
+          ? List<FinanceAccount>.from(_financeAccounts)
+          : await FinanceAccountsService()
+              .listOnce(firestoreUserDocIdForAppShell(widget.uid));
+      if (!context.mounted) return;
+      final saved = await FinanceTransferBottomSheet.showEdit(
+        context,
+        uid: widget.uid,
+        profile: widget.profile,
+        pairId: pairId,
+        accounts: accounts,
+        logModulo: 'Financeiro',
+      );
+      if (saved && mounted) {
+        final effectiveDate =
+            FinanceLineOpening.effectiveDateTimeFromMap(current) ??
+                (current['date'] as Timestamp?)?.toDate();
+        unawaited(
+            _applyFinanceMutationSync(transactionEffectiveDate: effectiveDate));
+      }
+      return;
+    }
+    final saved = await showFinanceTransactionEditDialog(
+      context: context,
+      uid: widget.uid,
+      profile: widget.profile,
+      docId: docId,
+      current: current,
+      type: type,
+      financeAccountsPreloaded: _financeAccounts.isNotEmpty
+          ? List<FinanceAccount>.from(_financeAccounts)
+          : null,
+      logModulo: 'Financeiro',
+      onSaved: (id, patch, effectiveDate) {
+        if (!mounted) return;
+        setState(() {
+          _invalidateRealtimeBalances(transactionEffectiveDate: effectiveDate);
+          _optimisticEditedTxById[id] = patch;
+        });
+        unawaited(_applyFinanceMutationSync(
+          docIds: [id],
+          transactionEffectiveDate: effectiveDate,
+        ));
+        final st = (patch['status'] ?? '').toString();
+        if (st != 'pending') {
+          onPendingRemoved?.call(id);
+        } else {
+          onPendingPatched?.call(id, patch);
+        }
+      },
+      onDeleted: (id, effectiveDate) {
+        if (!mounted) return;
+        setState(() {
+          _mainPeriodDocs.removeWhere((d) => d.id == id);
+        });
+        unawaited(_applyFinanceMutationSync(
+          removedDocIds: [id],
+          transactionEffectiveDate: effectiveDate,
+        ));
+        onPendingRemoved?.call(id);
+      },
+    );
+    if (!saved) return;
+  }
+
+  /// Retorna true se excluiu de fato (para atualizar a grid de pendentes na hora).
+  Future<bool> _deleteTx(BuildContext context, String docId) async {
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return false;
+    }
+    final snap = await _txRef().doc(docId).get(
+          const GetOptions(source: Source.serverAndCache),
+        );
+    final data = snap.data() ?? {};
+    final metaInfo = await GoalDepositService.linkedInfoForTransaction(
+      uid: widget.uid,
+      txId: docId,
+      txData: data,
+    );
+    if (!context.mounted) return false;
+    final confirm = await confirmFinanceTransactionDelete(
+      context: context,
+      metaInfo: metaInfo,
+    );
+    if (confirm != true) return false;
+    final type = (data['type'] ?? 'expense').toString();
+    final amount = (data['amount'] ?? 0).toDouble();
+    final category = (data['category'] ?? '').toString();
+    await deleteFinanceTransactionRecord(
+      uid: widget.uid,
+      docId: docId,
+      txData: data,
+      txCol: _txRef(),
+    );
+    if (mounted) {
+      final effectiveDate = FinanceLineOpening.effectiveDateTimeFromMap(data) ??
+          (data['date'] as Timestamp?)?.toDate();
+      setState(() {
+        _mainPeriodDocs.removeWhere((d) => d.id == docId);
+      });
+      unawaited(_applyFinanceMutationSync(
+        removedDocIds: [docId],
+        transactionEffectiveDate: effectiveDate,
+      ));
+    }
+    HapticFeedback.lightImpact();
+    await LogsService().saveLog(
+      modulo: 'Financeiro',
+      acao: type == 'income' ? 'Excluiu receita' : 'Excluiu despesa',
+      detalhes:
+          '${category.isEmpty ? 'Categoria' : category} • ${CurrencyFormats.formatBRL(amount)}',
+    );
+    if (context.mounted) {
+      final extra = metaInfo?.hasWeeksImpact == true
+          ? ' Semanas da meta atualizadas.'
+          : '';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lançamento excluído.$extra')),
+      );
+    }
+    return true;
+  }
+
+  /// Exclui vários lançamentos (confirma uma vez, depois exclui em lote).
+  Future<void> _deleteTxBatch(BuildContext context, List<String> docIds) async {
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
+    }
+    if (docIds.isEmpty) return;
+    final metaInfos = <GoalLinkedTransactionInfo>[];
+    for (final id in docIds) {
+      final snap = await _txRef().doc(id).get();
+      final info = await GoalDepositService.linkedInfoForTransaction(
+        uid: widget.uid,
+        txId: id,
+        txData: snap.data() ?? {},
+      );
+      if (info != null) metaInfos.add(info);
+    }
+    if (!context.mounted) return;
+    final confirm = await confirmFinanceTransactionDelete(
+      context: context,
+      batchCount: docIds.length,
+      batchMetaInfos: metaInfos.isEmpty ? null : metaInfos,
+    );
+    if (confirm != true || !context.mounted) return;
+    var deleted = 0;
+    for (final id in docIds) {
+      try {
+        final snap = await _txRef().doc(id).get();
+        await deleteFinanceTransactionRecord(
+          uid: widget.uid,
+          docId: id,
+          txData: snap.data() ?? {},
+          txCol: _txRef(),
+        );
+        deleted++;
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        _mainPeriodDocs.removeWhere((d) => docIds.contains(d.id));
+      });
+      unawaited(_applyFinanceMutationSync(removedDocIds: docIds));
+    }
+    if (context.mounted) {
+      HapticFeedback.lightImpact();
+      final extra =
+          metaInfos.isNotEmpty ? ' Metas vinculadas atualizadas.' : '';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$deleted lançamento(s) excluído(s).$extra')),
+      );
+    }
+  }
+
+  /// Remove duplicatas por docId (proteção extra se algum reload acumular chunks).
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>
+      _dedupeMainPeriodDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+    for (final d in docs) {
+      byId[d.id] = d;
+    }
+    return byId.values.toList();
+  }
+
+  /// Totais do período a partir dos docs visíveis.
+  ({double income, double expense}) _sumPeriodTotalsFromDocs(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    String? statusFilter,
+  }) {
+    final sf = statusFilter ?? _statusFilter;
+    final rs = DateTime(_from.year, _from.month, _from.day);
+    final re = DateTime(_to.year, _to.month, _to.day, 23, 59, 59);
+    double inc = 0;
+    double exp = 0;
+    final seen = <String>{};
+    for (final doc in docs) {
+      if (!seen.add(doc.id)) continue;
+      final d = _txDataForMainPeriodDoc(doc);
+      if (sf != 'all' && (d['status'] ?? 'paid').toString() != sf) continue;
+      final effective = FinanceLineOpening.effectiveDateTimeFromMap(d);
+      if (effective == null || effective.isBefore(rs) || effective.isAfter(re)) {
+        continue;
+      }
+      final amount = _financeAmountToDouble(d['amount']);
+      final type = (d['type'] ?? 'expense').toString();
+      if (type == 'income') {
+        inc += amount;
+      } else {
+        exp += amount.abs();
+      }
+    }
+    return (income: inc, expense: exp);
+  }
+
+  /// Saldo acumulado consolidado («Todas as contas») — abertura + movimentos pagos do período.
+  /// Regra fixa: abertura + (receitas − despesas) do período; nunca soma só contas com banco
+  /// (excluiria lançamentos sem conta e mudava valor entre refresh e agregado).
+  double _saldoAcumuladoConsolidado({
+    required double saldoAbertura,
+    required double balancePeriodFallback,
+    Map<String, double>? periodNetByAccount,
+    String? accountFilterId,
+    required Map<String, double> openingByAccount,
+  }) {
+    return FinanceAccountBalanceUtils.consolidatedAccumulatedSaldo(
+      openingTotal: saldoAbertura,
+      periodNetTotal: balancePeriodFallback,
+      accountFilterId: accountFilterId,
+      openingByAccount: openingByAccount,
+      periodNetByAccount: periodNetByAccount,
+      periodNetFallbackForAccount: balancePeriodFallback,
+    );
+  }
+
+  /// Movimento líquido pago do período (prioriza agregado mesclado quando lista paginada).
+  double _periodNetPaidConsolidated({
+    required double fallbackFromVisiblePaidDocs,
+    ({double income, double expense})? serverKpis,
+  }) {
+    if (_mainPeriodServerPagingActive && serverKpis != null) {
+      return serverKpis.income - serverKpis.expense;
+    }
+    return fallbackFromVisiblePaidDocs;
+  }
+
+  Set<String> get _creditCardAccountIds =>
+      FinanceAccountBalanceUtils.creditCardAccountIds(_financeAccounts);
+
+  /// Saldo líquido por conta **no período**, só lançamentos pagos com data efetiva.
+  /// Cartão de crédito não movimenta saldo; pagamento de fatura debita [paidFromFinanceAccountId].
+  Map<String, double> _netByFinanceAccountIdPaidEffective(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    DateTime from,
+    DateTime to,
+  ) {
+    return FinanceAccountBalanceUtils.netPaidByAccountEffective(
+      docs: docs,
+      from: from,
+      to: to,
+      creditCardIds: _creditCardAccountIds,
+    );
+  }
+
+  static Map<String, double> _mergeAccountBalances(
+    Map<String, double> openingByAccount,
+    Map<String, double> periodByAccount,
+  ) =>
+      FinanceAccountBalanceUtils.mergeOpeningAndPeriodBalances(
+        openingByAccount,
+        periodByAccount,
+      );
+
+  /// Botões `FilledButton.tonal*` na barra de lançamentos: fundo + contorno explícitos para o rótulo e o ícone
+  /// permanecerem legíveis (Material 3 sem `backgroundColor` pode fundir cor do texto com o preenchimento).
+  ButtonStyle _financeToolbarTonalFilledStyle({
+    EdgeInsetsGeometry? padding,
+    VisualDensity? visualDensity,
+    Size? minimumSize,
+  }) {
+    return FilledButton.styleFrom(
+      foregroundColor: AppColors.primary,
+      backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+      elevation: 0,
+      shadowColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(
+            color: AppColors.primary.withValues(alpha: 0.26), width: 1),
+      ),
+      visualDensity: visualDensity ?? VisualDensity.compact,
+      padding:
+          padding ?? const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      minimumSize: minimumSize ?? const Size(48, 48),
+      tapTargetSize: MaterialTapTargetSize.padded,
+    );
+  }
+
+  Widget _financeAccountMiniCard(
+    BuildContext context, {
+    required bool selected,
+    required String title,
+    required String subtitle,
+    required List<Color> gradient,
+    required IconData icon,
+    FinanceBankPreset? bankPreset,
+    required VoidCallback onTap,
+    VoidCallback? onLongPress,
+    Widget? footer,
+    String? typeBadge,
+    bool creditCardStyle = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          onLongPress: onLongPress,
+          borderRadius: BorderRadius.circular(18),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: 148,
+            height: 108,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: LinearGradient(
+                  colors: gradient,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight),
+              border: Border.all(
+                  color: selected ? Colors.white : Colors.white24,
+                  width: selected ? 2.4 : 0.8),
+              boxShadow: [
+                BoxShadow(
+                  color:
+                      gradient.first.withValues(alpha: selected ? 0.45 : 0.22),
+                  blurRadius: selected ? 12 : 7,
+                  offset: const Offset(0, 3),
+                ),
               ],
             ),
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            border: Border.all(color: color.withValues(alpha: 0.22)),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.12),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Icon(icon, color: color, size: 28),
-        ),
-        const SizedBox(width: ThemeCleanPremium.spaceMd),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label,
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: ThemeCleanPremium.onSurfaceVariant)),
-              const SizedBox(height: 6),
-              Text('R\$ ${valor.toStringAsFixed(2)}',
-                  style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color: color,
-                      letterSpacing: -0.4)),
-            ],
-          ),
-        ),
-      ],
-    );
-    final decoration = BoxDecoration(
-      color: ThemeCleanPremium.cardBackground,
-      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
-      boxShadow: [
-        ...ThemeCleanPremium.softUiCardShadow,
-        BoxShadow(
-            color: color.withValues(alpha: 0.08),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-            spreadRadius: -2),
-      ],
-      border: Border.all(color: color.withValues(alpha: 0.2), width: 1),
-    );
-    Widget w;
-    if (onTap == null) {
-      w = Container(
-          padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-          decoration: decoration,
-          child: child);
-    } else {
-      w = Material(
-          color: Colors.transparent,
-          child: InkWell(
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
-              onTap: onTap,
-              child: Container(
-                  padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
-                  decoration: decoration,
-                  child: child)));
-    }
-    if (semanticsLabel == null || semanticsLabel!.trim().isEmpty) {
-      return w;
-    }
-    return Semantics(
-      label: semanticsLabel!.trim(),
-      container: true,
-      child: w,
-    );
-  }
-}
-
-class _FilterChipPeriod extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _FilterChipPeriod(
-      {required this.label, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-          decoration: BoxDecoration(
-            gradient: selected
-                ? LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      ThemeCleanPremium.primary.withValues(alpha: 0.16),
-                      ThemeCleanPremium.primary.withValues(alpha: 0.07),
+            clipBehavior: Clip.antiAlias,
+            child: Stack(
+              children: [
+                if (creditCardStyle) const FinanceCreditCardPattern(),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        SizedBox(
+                          width: 26,
+                          height: 26,
+                          child: bankPreset != null
+                              ? FinanceBankBrandThumb(
+                                  preset: bankPreset,
+                                  size: 26,
+                                  onBrandGradient: true,
+                                  fallbackIcon: icon,
+                                )
+                              : Icon(icon, color: Colors.white, size: 20),
+                        ),
+                        const Spacer(),
+                        if (selected)
+                          Icon(Icons.check_circle_rounded,
+                              color: Colors.white, size: 18),
+                      ],
+                    ),
+                    if (typeBadge != null) ...[
+                      SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: creditCardStyle
+                              ? const Color(0xFFFBBF24).withValues(alpha: 0.22)
+                              : Colors.white.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: creditCardStyle
+                                ? const Color(0xFFFDE68A)
+                                    .withValues(alpha: 0.45)
+                                : Colors.white.withValues(alpha: 0.28),
+                          ),
+                        ),
+                        child: Text(
+                          typeBadge.toUpperCase(),
+                          style: TextStyle(
+                            color: creditCardStyle
+                                ? const Color(0xFFFDE68A)
+                                : Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 8.5,
+                            letterSpacing: 0.6,
+                          ),
+                        ),
+                      ),
                     ],
-                  )
-                : null,
-            color: selected ? null : Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: selected
-                ? [
-                    BoxShadow(
-                        color: ThemeCleanPremium.primary.withValues(alpha: 0.14),
-                        blurRadius: 14,
-                        offset: const Offset(0, 5))
-                  ]
-                : ThemeCleanPremium.softUiCardShadow,
-            border: Border.all(
-                color: selected
-                    ? ThemeCleanPremium.primary.withValues(alpha: 0.38)
-                    : const Color(0xFFE2E8F0),
-                width: selected ? 1.5 : 1),
+                    SizedBox(height: 3),
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 11.5,
+                        height: 1.12,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.95),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                    if (footer != null) ...[
+                      SizedBox(height: 5),
+                      footer,
+                    ],
+                  ],
+                ),
+              ],
+            ),
           ),
-          child: Text(label,
-              style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                  letterSpacing: -0.15,
-                  color: selected
-                      ? ThemeCleanPremium.primary
-                      : ThemeCleanPremium.onSurfaceVariant)),
         ),
       ),
     );
   }
-}
 
-class _ChartCard extends StatelessWidget {
-  final String title;
-  final Widget child;
-  final IconData? icon;
-
-  const _ChartCard({required this.title, required this.child, this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    final chartIcon = icon ?? Icons.bar_chart_rounded;
-    return Container(
-      padding: const EdgeInsets.all(ThemeCleanPremium.spaceXl),
-      decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
-        boxShadow: [
-          ...ThemeCleanPremium.softUiCardShadow,
-          BoxShadow(
-              color: ThemeCleanPremium.primary.withValues(alpha: 0.05),
-              blurRadius: 22,
-              offset: const Offset(0, 8)),
-        ],
-        border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
+  void _openBulkAssignFromStrip(BuildContext context,
+      {required int semContaNoPainel}) {
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
+    }
+    Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => FinanceBulkAssignScreen(
+          uid: firestoreUserDocIdForAppShell(widget.uid),
+          profile: widget.profile,
+          initialRangeFrom: _from,
+          initialRangeTo: _to,
+          semContaNoPainelFinanceiro: semContaNoPainel,
+          initialSourceAccountId: _financeAccountFilterId,
+        ),
       ),
+    );
+  }
+
+  /// Painel por conta: gráficos por categoria + edição / exclusão (toque no cartão banco/cartão).
+  void _openFinanceAccountCategoryBreakdown(
+      BuildContext context, FinanceAccount account) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => FinanceAccountCategorySheet(
+        uid: firestoreUserDocIdForAppShell(widget.uid),
+        profile: widget.profile,
+        account: account,
+        from: _from,
+        to: _to,
+        statusFilter: _statusFilter,
+        onEditTransaction: _editTx,
+        onDeleteTransaction: _deleteTx,
+        onDeleteBatch: _deleteTxBatch,
+        onConfirmPayment: _confirmarPagamento,
+        onAttachReceipt: _attachReceipt,
+        onExportPdf: (c, docs) =>
+            _exportPdfFromAccountSheet(c, docs, account, _from, _to),
+        onApplyAccountFilter: (id) {
+          if (!mounted) return;
+          _applyFinanceAccountFilter(id);
+        },
+        openingBalanceHint: _saldoAberturaCached?.byAccount[account.id],
+        financeAccounts: _financeAccounts,
+        optimisticPaidIds: _optimisticPaidIds,
+      ),
+    );
+  }
+
+  /// Consolidado **Todas as contas**: mesmos gráficos e edição que um banco/cartão, sem filtrar por conta.
+  void _openAllAccountsCategoryBreakdown(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => FinanceAccountCategorySheet(
+        uid: firestoreUserDocIdForAppShell(widget.uid),
+        profile: widget.profile,
+        account: null,
+        from: _from,
+        to: _to,
+        statusFilter: _statusFilter,
+        onEditTransaction: _editTx,
+        onDeleteTransaction: _deleteTx,
+        onDeleteBatch: _deleteTxBatch,
+        onConfirmPayment: _confirmarPagamento,
+        onAttachReceipt: _attachReceipt,
+        onExportPdf: (c, docs) =>
+            _exportPdfFromAccountSheet(c, docs, null, _from, _to),
+        onApplyAccountFilter: (id) {
+          if (!mounted) return;
+          _applyFinanceAccountFilter(id);
+        },
+        openingBalanceHint: _saldoAberturaCached?.total,
+        financeAccounts: _financeAccounts,
+        optimisticPaidIds: _optimisticPaidIds,
+      ),
+    );
+  }
+
+  List<double> _sparklineTodasContas(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    final byDay = <DateTime, double>{};
+    for (final doc in docs) {
+      final d = doc.data();
+      final ts = d['date'];
+      if (ts is! Timestamp) continue;
+      final dt = ts.toDate();
+      final day = DateTime(dt.year, dt.month, dt.day);
+      final amt = (d['amount'] ?? 0).toDouble();
+      final delta = d['type'] == 'income' ? amt : -amt;
+      byDay[day] = (byDay[day] ?? 0) + delta;
+    }
+    final keys = byDay.keys.toList()..sort();
+    if (keys.length < 2) return <double>[];
+    final take = keys.length > 14 ? keys.sublist(keys.length - 14) : keys;
+    var run = 0.0;
+    final out = <double>[];
+    for (final k in take) {
+      run += byDay[k] ?? 0;
+      out.add(run);
+    }
+    return out.length >= 2 ? out : <double>[];
+  }
+
+  Widget? _sparklineFooterTodas(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    final sp = _sparklineTodasContas(docs);
+    if (sp.length < 2) return null;
+    return FinanceSparkline(
+        values: sp, color: Colors.white.withValues(alpha: 0.92));
+  }
+
+  Widget _buildFinanceAccountsStrip(
+    BuildContext context, {
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    required Map<String, double> openingByAccount,
+
+    /// Igual ao cartão «Saldo (acum.)»: período filtrado + saldo de abertura (meses anteriores ou ano anterior).
+    required double saldoAcumuladoConsolidado,
+    required int semContaCount,
+
+    /// Quando a lista usa paginação no servidor, saldos por conta vêm deste mapa (período completo).
+    Map<String, double>? stripPeriodNetPaidOverride,
+  }) {
+    final byAccPeriod = stripPeriodNetPaidOverride ??
+        _netByFinanceAccountIdPaidEffective(docs, _from, _to);
+    final byAcc = _mergeAccountBalances(openingByAccount, byAccPeriod);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: context.appModuleCardDecoration(radius: 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                      ThemeCleanPremium.primary.withValues(alpha: 0.05),
+                      AppColors.primary,
+                      Color.lerp(AppColors.primary, AppColors.accent, 0.5)!
                     ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                  border: Border.all(
-                    color: ThemeCleanPremium.primary.withValues(alpha: 0.18),
-                  ),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child:
-                    Icon(chartIcon, size: 20, color: ThemeCleanPremium.primary),
+                child: Icon(Icons.pie_chart_outline_rounded,
+                    color: Colors.white, size: 20),
               ),
-              const SizedBox(width: ThemeCleanPremium.spaceSm),
-              Text(title,
-                  style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w800,
-                      color: ThemeCleanPremium.onSurface,
-                      letterSpacing: -0.3)),
+              SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Saldos por conta',
+                      style:
+                          TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                    ),
+                    if (_mainPeriodServerPagingActive &&
+                        _mainPeriodHasMoreServer)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'A lista mostra os lançamentos em páginas — use «Carregar mais do servidor» para ver mais linhas. Os saldos por conta são atualizados com todos os movimentos pagos do período.',
+                          style: TextStyle(
+                              fontSize: 11,
+                              height: 1.3,
+                              color: Colors.orange.shade900,
+                              fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    if (semContaCount > 0) ...[
+                      SizedBox(height: 6),
+                      Material(
+                        color: const Color(0xFFFFF7ED),
+                        borderRadius: BorderRadius.circular(20),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: () => _openBulkAssignFromStrip(context,
+                              semContaNoPainel: semContaCount),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 6),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.shade800,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    '$semContaCount',
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 12),
+                                  ),
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'sem conta',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 12,
+                                      color: Colors.orange.shade900),
+                                ),
+                                Icon(Icons.chevron_right_rounded,
+                                    size: 18, color: Colors.orange.shade800),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: ThemeCleanPremium.spaceLg),
-          child,
+          Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              spacing: 4,
+              runSpacing: 4,
+              alignment: WrapAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: widget.profile.hasActiveLicense
+                      ? () {
+                          Navigator.of(context).push<void>(
+                            MaterialPageRoute<void>(
+                              builder: (_) => FinanceAccountsScreen(
+                                  uid:
+                                      firestoreUserDocIdForAppShell(widget.uid),
+                                  profile: widget.profile),
+                            ),
+                          );
+                        }
+                      : () =>
+                          mostrarAvisoSeLicencaInativa(context, widget.profile),
+                  icon: Icon(Icons.add_card_rounded, size: 18),
+                  label: Text('Bancos e cartões'),
+                ),
+                TextButton.icon(
+                  onPressed: widget.profile.hasActiveLicense
+                      ? () {
+                          Navigator.of(context)
+                              .push<void>(
+                            MaterialPageRoute<void>(
+                              builder: (_) => CategoriesConfigScreen(
+                                  uid: firestoreUserDocIdForAppShell(
+                                      widget.uid)),
+                            ),
+                          )
+                              .then((_) {
+                            if (mounted) _refreshCategoryFilterOptions();
+                          });
+                        }
+                      : () =>
+                          mostrarAvisoSeLicencaInativa(context, widget.profile),
+                  icon: Icon(Icons.category_rounded, size: 18),
+                  label: Text('Categorias'),
+                ),
+                TextButton.icon(
+                  onPressed: widget.profile.hasActiveLicense
+                      ? () => _openBulkAssignFromStrip(context,
+                          semContaNoPainel: semContaCount)
+                      : () =>
+                          mostrarAvisoSeLicencaInativa(context, widget.profile),
+                  icon: Icon(Icons.link_rounded, size: 18),
+                  label: Text('Atribuir em massa'),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 6),
+          Text(
+            'Toque em Todas as contas ou num banco/cartão para ver gráficos e lançamentos. Segure e arraste um banco para reordenar — Todas as contas fica sempre primeiro.',
+            style: TextStyle(
+                fontSize: 12,
+                color: context.appTextMuted,
+                fontWeight: FontWeight.w500,
+                height: 1.35),
+          ),
+          SizedBox(height: 14),
+          if (!_financeAccountsStreamPrimed && _financeAccounts.isEmpty)
+            SizedBox(
+              height: 128,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                physics: const NeverScrollableScrollPhysics(),
+                children: List.generate(
+                  4,
+                  (i) => Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: SkeletonLoader(
+                      width: 152,
+                      height: 128,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          else if (_financeAccounts.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: context.appMutedSurface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: context.appChipIdleBorder),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Cadastre suas contas para ver o saldo de cada uma neste período.',
+                    style: TextStyle(fontSize: 13, height: 1.35),
+                  ),
+                  SizedBox(height: 10),
+                  FilledButton.icon(
+                    onPressed: widget.profile.hasActiveLicense
+                        ? () {
+                            Navigator.of(context).push<void>(
+                              MaterialPageRoute<void>(
+                                builder: (_) => FinanceAccountsScreen(
+                                    uid: firestoreUserDocIdForAppShell(
+                                        widget.uid),
+                                    profile: widget.profile),
+                              ),
+                            );
+                          }
+                        : () => mostrarAvisoSeLicencaInativa(
+                            context, widget.profile),
+                    icon: Icon(Icons.playlist_add_rounded),
+                    label: Text('Cadastrar agora'),
+                  ),
+                ],
+              ),
+            )
+          else
+            SizedBox(
+              height: 128,
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: _pendingExpensesStream,
+                initialData: _lastPendingTransactionsSnap,
+                builder: (context, pendingSnap) {
+                  final faturaByCard =
+                      FinanceAccountBalanceUtils.faturaAbertaByCardId(
+                    pendingSnap.data?.docs ?? const [],
+                    creditCardIds: _creditCardAccountIds,
+                  );
+                  final accountsStrip = _visibleAccountsForStrip(byAcc,
+                      faturaByCard: faturaByCard);
+                  return ReorderableListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    buildDefaultDragHandles: false,
+                    proxyDecorator: (child, index, animation) {
+                      return AnimatedBuilder(
+                        animation: animation,
+                        builder: (ctx, _) {
+                          final t = Curves.easeOut.transform(animation.value);
+                          return Material(
+                            color: Colors.transparent,
+                            elevation: 8 * t,
+                            shadowColor:
+                                Colors.black.withValues(alpha: 0.35 * t),
+                            borderRadius: BorderRadius.circular(18),
+                            child: child,
+                          );
+                        },
+                      );
+                    },
+                    header: _financeAccountMiniCard(
+                      context,
+                      selected: _financeAccountFilterId == null,
+                      title: 'Todas as contas',
+                      subtitle:
+                          CurrencyFormats.formatBRL(saldoAcumuladoConsolidado),
+                      gradient: [AppColors.primary, AppColors.deepBlue],
+                      icon: Icons.dashboard_rounded,
+                      bankPreset: null,
+                      onTap: () => _onFinanceStripCardTap(context, null),
+                      onLongPress: () {
+                        HapticFeedback.mediumImpact();
+                        unawaited(_openStripLongPressMenu(context));
+                      },
+                      footer: _sparklineFooterTodas(docs),
+                    ),
+                    itemCount: accountsStrip.length,
+                    onReorder: (oldIndex, newIndex) async {
+                      if (newIndex > oldIndex) newIndex--;
+                      if (oldIndex == newIndex) return;
+                      await _reorderFinanceAccountsStrip(
+                          accountsStrip, oldIndex, newIndex);
+                    },
+                    itemBuilder: (ctx, i) {
+                      final a = accountsStrip[i];
+                      final net = byAcc[a.id] ?? 0;
+                      final vis = financeAccountVisualFor(a);
+                      final sp = _sparklineForAccount(a.id, docs);
+                      final isCard = a.isCreditCardProduct;
+                      final fatura = faturaByCard[a.id] ?? 0;
+                      final card = _financeAccountMiniCard(
+                        context,
+                        selected: _financeAccountFilterId == a.id,
+                        title: a.displayName,
+                        subtitle: isCard
+                            ? 'Fatura ${CurrencyFormats.formatBRL(fatura)}'
+                            : CurrencyFormats.formatBRL(net),
+                        gradient: vis.gradient,
+                        icon: vis.icon,
+                        bankPreset: a.preset,
+                        typeBadge: vis.badgeLabel,
+                        creditCardStyle: vis.isCreditCardStyle,
+                        onTap: () => _onFinanceStripCardTap(context, a),
+                        footer: sp.length >= 2
+                            ? FinanceSparkline(
+                                values: sp,
+                                color: Colors.white.withValues(alpha: 0.92))
+                            : null,
+                      );
+                      return ReorderableDelayedDragStartListener(
+                        key: ValueKey<String>('strip_${a.id}'),
+                        index: i,
+                        child: Material(
+                          color: Colors.transparent,
+                          child: card,
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          if (_financeAccountFilterId != null) ...[
+            SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              children: [
+                ActionChip(
+                  avatar: Icon(Icons.filter_alt_off_rounded,
+                      size: 18, color: AppColors.primary),
+                  label: Text('Limpar filtro de conta'),
+                  onPressed: () => _applyFinanceAccountFilter(null),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
-}
 
-class _LegendDot extends StatelessWidget {
-  final Color color;
-  final String label;
+  Future<void> _openFinanceInsightSheet({
+    required FinanceInsightScope scope,
+    required DateTime initialFrom,
+    required DateTime initialTo,
+    String? initialCategoryExact,
+  }) async {
+    if (!mounted) return;
+    _ensureSaldoAberturaForPeriod(initialFrom);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => FinanceInsightSheet(
+        uid: firestoreUserDocIdForAppShell(widget.uid),
+        initialScope: scope,
+        initialFrom: initialFrom,
+        initialTo: initialTo,
+        initialCategoryExact: initialCategoryExact,
+        statusFilter: _statusFilter,
+        search: _search,
+        financeAccountFilterId: _financeAccountFilterId,
+        financeAccountFilterLabel: _financeAccountFilterLabelForInsight(),
+        openingBalanceHint: _saldoAberturaCached?.total,
+        openingByAccountHint: _saldoAberturaCached?.byAccount,
+        onEdit: (docId, current, type) =>
+            _editTx(context, docId, current, type),
+        onDelete: (docId) => _deleteTx(context, docId),
+      ),
+    );
+  }
 
-  const _LegendDot({required this.color, required this.label});
+  Future<void> _openFinanceCategoriesFullscreen() async {
+    if (!mounted) return;
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (ctx) => FinanceCategoriesFullscreenPage(
+          uid: firestoreUserDocIdForAppShell(widget.uid),
+          profile: widget.profile,
+          from: _from,
+          to: _to,
+          statusFilter: _statusFilter,
+          financeAccountFilterId: _financeAccountFilterId,
+          searchLower: _search,
+          onCategoryTap: (sheetContext, categoryName) async {
+            await showModalBottomSheet<void>(
+              context: sheetContext,
+              isScrollControlled: true,
+              backgroundColor: Theme.of(context).colorScheme.surface,
+              builder: (_) => FinanceInsightSheet(
+                uid: firestoreUserDocIdForAppShell(widget.uid),
+                initialScope: FinanceInsightScope.expense,
+                initialFrom: _from,
+                initialTo: _to,
+                initialCategoryExact: categoryName,
+                statusFilter: _statusFilter,
+                search: _searchCtrl.text,
+                financeAccountFilterId: _financeAccountFilterId,
+                financeAccountFilterLabel:
+                    _financeAccountFilterLabelForInsight(),
+                openingBalanceHint: _saldoAberturaCached?.total,
+                openingByAccountHint: _saldoAberturaCached?.byAccount,
+                onEdit: (docId, current, type) =>
+                    _editTx(sheetContext, docId, current, type),
+                onDelete: (docId) => _deleteTx(sheetContext, docId),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    return Row(
+  Future<void> _openFinanceAssistantInsightsPage({
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    required double totalIncome,
+    required double totalExpense,
+    required double balancePeriod,
+  }) async {
+    if (!mounted) return;
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => FinanceAssistantInsightsPage(
+          uid: firestoreUserDocIdForAppShell(widget.uid),
+          profile: widget.profile,
+          from: _from,
+          to: _to,
+          statusFilter: _statusFilter,
+          typeFilter: _typeFilter,
+          docs: docs,
+          totalIncome: totalIncome,
+          totalExpense: totalExpense,
+          balancePeriod: balancePeriod,
+        ),
+      ),
+    );
+  }
+
+  /// Estilo compacto das faixas azul/laranja (receitas/despesas pendentes).
+  ({
+    EdgeInsets padding,
+    double iconSize,
+    double iconPad,
+    double titleSize,
+    double subSize,
+    double amountSize,
+    double hGap,
+    double radius,
+    double shadowBlur
+  }) _pendingBandStyle(BuildContext context) {
+    final compact = kIsWeb;
+    return (
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 14 : 20,
+        vertical: compact ? 10 : 16,
+      ),
+      iconSize: compact ? 20 : 24,
+      iconPad: compact ? 8 : 10,
+      titleSize: compact ? 13 : 14,
+      subSize: compact ? 10 : 11,
+      amountSize: compact ? 16 : 18,
+      hGap: compact ? 10 : 14,
+      radius: compact ? 14 : 16,
+      shadowBlur: compact ? 8 : 12,
+    );
+  }
+
+  /// Quadro azul: receitas pendentes. Respeita preferências de receitas fixas (mostrar / próximos meses).
+  Widget _buildReceitasPendentesBand(BuildContext context) {
+    return StreamBuilder<Map<String, dynamic>>(
+      stream: _fixedIncomePrefsStream,
+      initialData: _lastFixedIncomePrefs,
+      builder: (context, prefsSnap) {
+        final showInPending = prefsSnap.data?['showInPending'] as bool? ?? true;
+        final monthsAhead =
+            (prefsSnap.data?['pendingMonthsAhead'] as int?)?.clamp(0, 12) ??
+                AppBusinessRules.pendingMonthsAheadDefault;
+        // Limite exclusivo: 1º dia do mês APÓS o último mês incluído.
+        // Ex.: julho + monthsAhead=1 → inclui julho e agosto → exclusiveEnd = 01/09.
+        // monthsAhead=0 → só mês atual → exclusiveEnd = 1º do mês seguinte.
+        final exclusiveEnd = DateTime(
+            DateTime.now().year, DateTime.now().month + monthsAhead + 1, 1);
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _pendingIncomesStream,
+          initialData: _lastPendingTransactionsSnap,
+          builder: (context, snap) {
+            if (snap.hasError) {
+              return const SizedBox.shrink();
+            }
+            double total = 0;
+            final list = <Map<String, dynamic>>[];
+            final today = DateTime(
+                DateTime.now().year, DateTime.now().month, DateTime.now().day);
+            for (final doc in snap.data?.docs ?? []) {
+              final d = Map<String, dynamic>.from(doc.data());
+              if ((d['type'] ?? '').toString() != 'income') continue;
+              d['id'] = doc.id;
+              if (FinanceAccountBalanceUtils.isOnCreditCardAccount(
+                  d, _creditCardAccountIds)) {
+                continue;
+              }
+              if (!showInPending &&
+                  (d['fixedIncomeId'] ?? '').toString().isNotEmpty) {
+                continue;
+              }
+              final dateTs = d['date'];
+              if (dateTs is Timestamp) {
+                final dt = dateTs.toDate();
+                if (dt.isBefore(today)) {
+                  continue;
+                }
+                if (!dt.isBefore(exclusiveEnd)) {
+                  continue;
+                }
+              }
+              total += (d['amount'] ?? 0).toDouble().abs();
+              list.add(d);
+            }
+            list.sort((a, b) {
+              final ta = (a['date'] as Timestamp?)?.toDate();
+              final tb = (b['date'] as Timestamp?)?.toDate();
+              if (ta == null || tb == null) return 0;
+              return ta.compareTo(tb);
+            });
+            const blueLight = Color(0xFF0EA5E9);
+            const blueLightDark = Color(0xFF0284C7);
+            final band = _pendingBandStyle(context);
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => _abrirListaReceitasPendentes(context, list),
+                borderRadius: BorderRadius.circular(band.radius),
+                child: Container(
+                  padding: band.padding,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        blueLight,
+                        blueLight.withValues(alpha: 0.9),
+                        blueLightDark,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(band.radius),
+                    boxShadow: [
+                      BoxShadow(
+                        color: blueLight.withValues(alpha: 0.35),
+                        blurRadius: band.shadowBlur,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(band.iconPad),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.schedule_rounded,
+                            color: Colors.white, size: band.iconSize),
+                      ),
+                      SizedBox(width: band.hGap),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Receitas pendentes',
+                              style: TextStyle(
+                                fontSize: band.titleSize,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white.withValues(alpha: 0.98),
+                              ),
+                            ),
+                            SizedBox(height: kIsWeb ? 2 : 4),
+                            Text(
+                              '${list.length} lançamento(s) em aberto · Toque para ver',
+                              style: TextStyle(
+                                fontSize: band.subSize,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.white.withValues(alpha: 0.85),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          CurrencyFormats.formatBRL(total),
+                          style: TextStyle(
+                            fontSize: band.amountSize,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Quadro laranja: despesas pendentes. Respeita preferências (mostrar fixas, próximos X meses).
+  Widget _buildDespesasPendentesBand(BuildContext context) {
+    if (!widget.isShellVisible) {
+      return const SizedBox.shrink();
+    }
+    return StreamBuilder<Map<String, dynamic>>(
+      stream: _fixedExpensePrefsStream,
+      initialData: _lastFixedExpensePrefs,
+      builder: (context, prefsSnap) {
+        final showInPending = prefsSnap.data?['showInPending'] as bool? ?? true;
+        final monthsAhead =
+            (prefsSnap.data?['pendingMonthsAhead'] as int?)?.clamp(0, 12) ??
+                AppBusinessRules.pendingMonthsAheadDefault;
+        // Limite exclusivo: 1º dia do mês APÓS o último mês incluído.
+        // Ex.: julho + monthsAhead=1 → inclui julho e agosto → exclusiveEnd = 01/09.
+        // monthsAhead=0 → só mês atual → exclusiveEnd = 1º do mês seguinte.
+        final exclusiveEnd = DateTime(
+            DateTime.now().year, DateTime.now().month + monthsAhead + 1, 1);
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _pendingExpensesStream,
+          initialData: _lastPendingTransactionsSnap,
+          builder: (context, snap) {
+            if (snap.hasError) {
+              return const SizedBox.shrink();
+            }
+            double total = 0;
+            final list = <Map<String, dynamic>>[];
+            final today = DateTime(
+                DateTime.now().year, DateTime.now().month, DateTime.now().day);
+            for (final doc in snap.data?.docs ?? []) {
+              final d = Map<String, dynamic>.from(doc.data());
+              if ((d['type'] ?? '').toString() != 'expense') continue;
+              d['id'] = doc.id;
+              if (FinanceAccountBalanceUtils.isOnCreditCardAccount(
+                  d, _creditCardAccountIds)) {
+                continue;
+              }
+              if (!showInPending &&
+                  (d['fixedExpenseId'] ?? '').toString().isNotEmpty) {
+                continue;
+              }
+              final dateTs = d['date'];
+              if (dateTs is Timestamp) {
+                final dt = dateTs.toDate();
+                if (dt.isBefore(today)) {
+                  continue;
+                }
+                if (!dt.isBefore(exclusiveEnd)) {
+                  continue;
+                }
+              }
+              total += (d['amount'] ?? 0).toDouble().abs();
+              list.add(d);
+            }
+            list.sort((a, b) {
+              final ta = (a['date'] as Timestamp?)?.toDate();
+              final tb = (b['date'] as Timestamp?)?.toDate();
+              if (ta == null || tb == null) return 0;
+              return ta.compareTo(tb);
+            });
+            final band = _pendingBandStyle(context);
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () => _abrirListaDespesasPendentes(context, list),
+                borderRadius: BorderRadius.circular(band.radius),
+                child: Container(
+                  padding: band.padding,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        AppColors.logoOrange,
+                        AppColors.logoOrange.withValues(alpha: 0.85),
+                        const Color(0xFFEA580C),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(band.radius),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.logoOrange.withValues(alpha: 0.35),
+                        blurRadius: band.shadowBlur,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(band.iconPad),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.schedule_rounded,
+                            color: Colors.white, size: band.iconSize),
+                      ),
+                      SizedBox(width: band.hGap),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Despesas pendentes',
+                              style: TextStyle(
+                                fontSize: band.titleSize,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white.withValues(alpha: 0.98),
+                              ),
+                            ),
+                            SizedBox(height: kIsWeb ? 2 : 4),
+                            Text(
+                              '${list.length} lançamento(s) em aberto · Toque para ver',
+                              style: TextStyle(
+                                fontSize: band.subSize,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.white.withValues(alpha: 0.85),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          CurrencyFormats.formatBRL(total),
+                          style: TextStyle(
+                            fontSize: band.amountSize,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// Card "Dica do dia" (rotacionada pelo dia do ano) para educação financeira.
+  Widget _buildDicaDoDiaCard() {
+    final dayOfYear =
+        DateTime.now().difference(DateTime(DateTime.now().year, 1, 1)).inDays;
+    final dica = kFinanceTips[dayOfYear % kFinanceTips.length];
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.lightbulb_outline_rounded,
+              color: AppColors.primary, size: 22),
+          SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Dica do dia',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary)),
+                SizedBox(height: 4),
+                Text(dica,
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: context.appTextPrimary,
+                        height: 1.45)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _abrirListaReceitasPendentes(
+      BuildContext context, List<Map<String, dynamic>> list) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.3,
+        maxChildSize: 0.92,
+        expand: false,
+        builder: (ctx, scrollController) => _PendingListSheetContent(
+          title: 'Receitas pendentes',
+          iconColor: AppColors.financeReceita,
+          list: list,
+          scrollController: scrollController,
+          emptyMessage: 'Nenhuma receita pendente',
+          buildItem: (c, e,
+                  {selectionMode = false,
+                  isSelected = false,
+                  onToggleSelect,
+                  required removeFromSheet,
+                  required patchInSheet}) =>
+              _buildReceitaPendenteListItem(c, e,
+                  selectionMode: selectionMode,
+                  isSelected: isSelected,
+                  onToggleSelect: onToggleSelect,
+                  onPendingRemoved: removeFromSheet,
+                  onPendingPatched: patchInSheet),
+          batchConfirmShortLabel: 'Confirmar recebimento',
+          onConfirmBatch: (sheetCtx, ids) async {
+            await _confirmarPagamentoEmLote(
+              sheetCtx,
+              ids,
+              isIncome: true,
+              successSnackBar: ids.length > 1
+                  ? '${ids.length} recebimentos confirmados.'
+                  : 'Recebimento confirmado.',
+            );
+            if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+          },
+          onDeleteBatch: (ids) async {
+            await _deleteTxBatch(context, ids);
+            if (ctx.mounted) Navigator.pop(ctx);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReceitaPendenteListItem(
+    BuildContext context,
+    Map<String, dynamic> e, {
+    bool selectionMode = false,
+    bool isSelected = false,
+    VoidCallback? onToggleSelect,
+    void Function(String id)? onPendingRemoved,
+    void Function(String id, Map<String, dynamic> patch)? onPendingPatched,
+  }) {
+    final amount = (e['amount'] ?? 0).toDouble().abs();
+    final cat = (e['category'] ?? '').toString().trim();
+    final desc = (e['description'] ?? '').toString().trim();
+    final date = (e['date'] as Timestamp?)?.toDate();
+    final dateStr = date != null
+        ? '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}'
+        : '—';
+    final docId = (e['id'] ?? '').toString();
+    final receipt = Map<String, dynamic>.from(e['receipt'] ?? {});
+    final link = (receipt['webViewLink'] ??
+            receipt['webContentLink'] ??
+            receipt['downloadUrl'] ??
+            '')
+        .toString();
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-                color: color, borderRadius: BorderRadius.circular(3))),
-        const SizedBox(width: 6),
-        Text(label,
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+        Row(
+          children: [
+            if (selectionMode) ...[
+              Checkbox(
+                  value: isSelected,
+                  onChanged: (_) => onToggleSelect?.call(),
+                  materialTapTargetSize: MaterialTapTargetSize.padded),
+              SizedBox(width: 8),
+            ],
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.financeReceita.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.arrow_downward_rounded,
+                  color: AppColors.financeReceita, size: 24),
+            ),
+            SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    cat.isNotEmpty ? cat : 'Receita',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: context.appTextPrimary),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (desc.isNotEmpty)
+                    Text(desc,
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: context.appTextSecondary),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis),
+                  Text(dateStr,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: context.appTextMuted)),
+                ],
+              ),
+            ),
+            if (!selectionMode) ...[
+              Text(
+                CurrencyFormats.formatBRL(amount),
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.financeReceita),
+              ),
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert_rounded),
+                padding: EdgeInsets.zero,
+                tooltip: 'Ações do lançamento',
+                onSelected: (v) async {
+                  if (v == 'edit') {
+                    await _editTx(context, docId, e, 'income',
+                        onPendingRemoved: onPendingRemoved,
+                        onPendingPatched: onPendingPatched);
+                  } else if (v == 'view' && link.isNotEmpty)
+                    mostrarAnexoNaMesmaTela(context,
+                        url: link, fileName: 'Comprovante');
+                  else if (v == 'attach')
+                    _attachReceipt(context, docId);
+                  else if (v == 'delete') {
+                    final ok = await _deleteTx(context, docId);
+                    if (ok) onPendingRemoved?.call(docId);
+                  }
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                      value: 'edit',
+                      child: Row(children: [
+                        Icon(Icons.edit_rounded, size: 20),
+                        SizedBox(width: 8),
+                        Text('Editar')
+                      ])),
+                  if (link.isNotEmpty)
+                    const PopupMenuItem(
+                        value: 'view',
+                        child: Row(children: [
+                          Icon(Icons.visibility_rounded, size: 20),
+                          SizedBox(width: 8),
+                          Text('Ver anexo')
+                        ])),
+                  const PopupMenuItem(
+                      value: 'attach',
+                      child: Row(children: [
+                        Icon(Icons.attach_file_rounded, size: 20),
+                        SizedBox(width: 8),
+                        Text('Anexar comprovante')
+                      ])),
+                  const PopupMenuItem(
+                      value: 'delete',
+                      child: Row(children: [
+                        Icon(Icons.delete_outline_rounded, size: 20),
+                        SizedBox(width: 8),
+                        Text('Excluir')
+                      ])),
+                ],
+              ),
+            ] else
+              Flexible(
+                child: Text(
+                  CurrencyFormats.formatBRL(amount),
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.financeReceita),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
+        ),
+        if (!selectionMode) ...[
+          SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.only(left: 58),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                FilledButton.icon(
+                  onPressed: () async {
+                    final ok = await _confirmarPagamento(context, docId);
+                    if (ok) onPendingRemoved?.call(docId);
+                  },
+                  icon: Icon(Icons.check_circle_rounded, size: 18),
+                  label: Text('Confirmar recebimento',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      minimumSize: const Size(48, 48),
+                      tapTargetSize: MaterialTapTargetSize.padded,
+                      backgroundColor:
+                          AppColors.success.withValues(alpha: 0.15),
+                      foregroundColor: AppColors.success),
+                ),
+                SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final ok = await _deleteTx(context, docId);
+                    if (ok) onPendingRemoved?.call(docId);
+                  },
+                  icon: Icon(Icons.delete_outline_rounded, size: 18),
+                  label: Text('Excluir',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.error,
+                      side: BorderSide(
+                          color: AppColors.error.withValues(alpha: 0.5)),
+                      minimumSize: const Size(48, 48),
+                      tapTargetSize: MaterialTapTargetSize.padded),
+                ),
+              ],
+            ),
+          ),
+        ],
       ],
     );
-  }
-}
-
-/// Lista fornecedores ativos para o dropdown do lançamento.
-Future<List<({String id, String nome})>> _fornecedoresParaFinanceDropdown(
-    String tenantId) async {
-  try {
-    final op = ChurchRepository.churchId(tenantId);
-    final snap = await ChurchUiCollections.fornecedores(op)
-        .orderBy('nome')
-        .limit(500)
-        .get();
-    final out = <({String id, String nome})>[];
-    for (final d in snap.docs) {
-      final m = d.data();
-      if (m['status'] == 'inativo') continue;
-      final n = (m['nome'] ?? '').toString().trim();
-      out.add((id: d.id, nome: n.isEmpty ? d.id : n));
-    }
-    return out;
-  } catch (_) {
-    return const [];
-  }
-}
-
-/// Membros ativos — cache `_panel_cache/members_directory` (rápido; evita scan 3000).
-Future<List<({String id, String nome})>> _membrosParaFinanceDropdown(
-  String tenantId, {
-  bool allowCallableWarm = true,
-}) async {
-  try {
-    final op = ChurchRepository.churchId(tenantId);
-    var snap = await MembersDirectorySnapshotService.readOnce(op);
-    if (!snap.hasEntries && allowCallableWarm) {
-      snap = await MembersDirectorySnapshotService.warmFromCallableIfStale(op)
-          .timeout(const Duration(seconds: 3), onTimeout: () => snap);
-    }
-    final out = <({String id, String nome})>[];
-    for (final e in snap.entries) {
-      final st = e.status.toLowerCase();
-      if (st == 'inativo' ||
-          st == 'recusado' ||
-          st == 'bloqueado' ||
-          st == 'cancelado') {
-        continue;
-      }
-      final n = e.displayName.trim();
-      if (n.isEmpty) continue;
-      out.add((id: e.memberDocId, nome: n));
-    }
-    if (out.isNotEmpty) {
-      out.sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
-      return out;
-    }
-    // Fallback leve se cache ainda não existir.
-    final legacy = await ChurchUiCollections.membros(op)
-        .limit(YahwehPerformanceV4.defaultPageSize * 5)
-        .get();
-    for (final d in legacy.docs) {
-      final m = d.data();
-      final st = (m['STATUS'] ?? m['status'] ?? '').toString().toLowerCase();
-      if (st == 'inativo' ||
-          st == 'recusado' ||
-          st == 'bloqueado' ||
-          st == 'cancelado') {
-        continue;
-      }
-      var n = (m['NOME_COMPLETO'] ?? m['nome'] ?? '').toString().trim();
-      if (n.isEmpty) continue;
-      out.add((id: d.id, nome: n));
-    }
-    out.sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
-    return out;
-  } catch (_) {
-    return const [];
-  }
-}
-
-/// Texto único para cartão / extrato (fornecedor, membro ou doador MP).
-String? financeLancamentoVinculoLabel(Map<String, dynamic> data) {
-  final fn = (data['fornecedorNome'] ?? '').toString().trim();
-  final mnCadastro = (data['membroNome'] ?? '').toString().trim();
-  final membroId = (data['membroId'] ?? '').toString().trim();
-  final donor = (data['donorName'] ?? '').toString().trim();
-  final origem = (data['origem'] ?? '').toString().toLowerCase();
-  final fromMp = origem.contains('mercado_pago') ||
-      (data['mpPaymentId'] ?? '').toString().isNotEmpty;
-
-  if (fn.isEmpty && mnCadastro.isEmpty && donor.isEmpty && membroId.isEmpty) {
-    return null;
-  }
-  if (fn.isNotEmpty && (mnCadastro.isNotEmpty || donor.isNotEmpty)) {
-    final m = mnCadastro.isNotEmpty ? mnCadastro : donor;
-    return 'Fornecedor · $fn · Membro · $m';
-  }
-  if (fn.isNotEmpty) return 'Fornecedor · $fn';
-  if (membroId.isNotEmpty || mnCadastro.isNotEmpty) {
-    final nome = mnCadastro.isNotEmpty ? mnCadastro : donor;
-    if (nome.isNotEmpty) return 'Membro · $nome';
-  }
-  if (donor.isNotEmpty && fromMp) return 'Doador externo · $donor';
-  if (donor.isNotEmpty) return 'Doador · $donor';
-  return null;
-}
-
-/// Editor de lançamento (mesmo fluxo do módulo financeiro) — reutilizável no painel.
-/// Retorna `true` se gravou com sucesso.
-Future<void> _ensureFinanceWriteReady({BuildContext? context}) async {
-  if (context != null && context.mounted) {
-    final ok = await YahwehModuleMediaGate.prepareForPublishUpload(
-      context: context,
-      module: YahwehMediaModule.financeiro,
-      logLabel: 'finance_write',
-      withPhotos: true,
+    final container = Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      constraints: const BoxConstraints(minHeight: 56),
+      decoration: BoxDecoration(
+        color: AppColors.financeReceita.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+            color: AppColors.financePendente.withValues(alpha: 0.28)),
+      ),
+      child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56), child: content),
     );
-    if (!ok) {
-      throw StateError(
-        'Não foi possível preparar o envio do comprovante. Tente novamente.',
-      );
+    if (selectionMode && onToggleSelect != null) {
+      return InkWell(
+          onTap: onToggleSelect,
+          borderRadius: BorderRadius.circular(16),
+          child: container);
     }
-    return;
-  }
-  await ChurchMediaUploadFacade.ensureModuleReady(YahwehMediaModule.financeiro);
-}
-
-bool _financeTreatSilentSuccess(
-  BuildContext context,
-  Object e, {
-  required String tenantId,
-  String message = 'Salvo — sincroniza em background.',
-}) {
-  if (!YahwehCentralEngineService.isOfflineQueuedSuccess(e)) return false;
-  if (context.mounted) {
-    showFinanceSaveSnackBar(context, message: message);
-  }
-  YahwehCentralEngineService.scheduleBackgroundSync(reason: 'finance_ui');
-  unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
-  return true;
-}
-
-Future<bool> showFinanceLancamentoEditorForTenant(
-  BuildContext context, {
-  required String tenantId,
-  DocumentSnapshot<Map<String, dynamic>>? existingDoc,
-  String? presetFornecedorId,
-  String? presetFornecedorNome,
-  bool lockFornecedor = false,
-  String? panelRole,
-  /// Só para **novo** lançamento: `entrada`, `saida` ou `transferencia`.
-  String? presetNovoTipo,
-  /// Conta de origem pré-selecionada (transferência a partir de um cartão).
-  String? presetContaOrigemId,
-}) async {
-  final effectiveTenantId =
-      ChurchContextService.panelChurchId(ChurchRepository.churchId(tenantId));
-  if (effectiveTenantId.isEmpty) return false;
-
-  unawaited(_ensureFinanceWriteReady().catchError((_) {}));
-
-  final op = effectiveTenantId;
-  final financeCol = ChurchUiCollections.financeiro(op);
-
-  final isEdit = existingDoc != null;
-  final data = existingDoc?.data();
-
-  String tipo = isEdit ? financeInferTipo(data ?? const {}) : 'entrada';
-  if (tipo != 'entrada' && tipo != 'saida' && tipo != 'transferencia') {
-    tipo = 'entrada';
-  }
-  if (!isEdit && presetNovoTipo != null) {
-    final p = presetNovoTipo.trim().toLowerCase();
-    if (p == 'entrada' || p == 'saida' || p == 'transferencia') {
-      tipo = p;
-    }
-  }
-  final presetOrigem = (presetContaOrigemId ?? '').trim();
-  final amtInicial =
-      isEdit ? _parseValor(data?['amount'] ?? data?['valor']) : 0.0;
-  final valorCtrl = TextEditingController(
-      text: isEdit && amtInicial > 0
-          ? formatBrCurrencyInitial(amtInicial)
-          : '');
-  final descCtrl = TextEditingController(
-      text: isEdit
-          ? (data?['descricao'] ?? data?['anotacoes'] ?? '').toString()
-          : '');
-  String categoria = isEdit ? (data?['categoria'] ?? '').toString() : '';
-  String? contaOrigemId = isEdit
-      ? ((data?['contaOrigemId'] ?? '').toString().isEmpty
-          ? null
-          : (data?['contaOrigemId']).toString())
-      : (presetOrigem.isNotEmpty ? presetOrigem : null);
-  String? contaDestinoId;
-  if (isEdit && data != null) {
-    final id = financeContaDestinoReceitaId(data);
-    contaDestinoId = id.isEmpty ? null : id;
-  }
-  DateTime dataSel = DateTime.now();
-  if (isEdit) {
-    final ts = data?['createdAt'] ?? data?['date'];
-    if (ts is Timestamp) dataSel = ts.toDate();
+    return container;
   }
 
-  List<String> catsReceita;
-  List<String> catsDespesa;
-  List<({String id, String nome})> contas;
-  List<({String id, String nome})> fornecedoresOpts;
-  List<({String id, String nome})> membrosOpts;
-  FinanceTenantSettings settings;
-  try {
-    final bootstrap = await Future.wait([
-      _financeEditorBootstrapTimeout(
-        _financeCategoriasReceitaTenant(effectiveTenantId),
-        List<String>.from(_categoriasReceitaPadrao),
-      ),
-      _financeEditorBootstrapTimeout(
-        getCategoriasDespesaForTenant(effectiveTenantId),
-        List<String>.from(kCategoriasDespesaPadrao),
-      ),
-      _financeEditorBootstrapTimeout(
-        _financeContasAtivasTenant(effectiveTenantId),
-        const <({String id, String nome})>[],
-      ),
-      _financeEditorBootstrapTimeout(
-        _fornecedoresParaFinanceDropdown(effectiveTenantId),
-        const <({String id, String nome})>[],
-      ),
-      _financeEditorBootstrapTimeout(
-        _membrosParaFinanceDropdown(
-          effectiveTenantId,
-          allowCallableWarm: !isEdit,
+  void _abrirListaDespesasPendentes(
+      BuildContext context, List<Map<String, dynamic>> list) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.3,
+        maxChildSize: 0.92,
+        expand: false,
+        builder: (ctx, scrollController) => _PendingListSheetContent(
+          title: 'Despesas pendentes',
+          iconColor: AppColors.financeDespesa,
+          list: list,
+          scrollController: scrollController,
+          emptyMessage: 'Nenhuma despesa pendente',
+          buildItem: (c, e,
+                  {selectionMode = false,
+                  isSelected = false,
+                  onToggleSelect,
+                  required removeFromSheet,
+                  required patchInSheet}) =>
+              _buildDespesaPendenteListItem(c, e,
+                  selectionMode: selectionMode,
+                  isSelected: isSelected,
+                  onToggleSelect: onToggleSelect,
+                  onPendingRemoved: removeFromSheet,
+                  onPendingPatched: patchInSheet),
+          batchConfirmShortLabel: 'Confirmar pagamento',
+          onConfirmBatch: (sheetCtx, ids) async {
+            await _confirmarPagamentoEmLote(
+              sheetCtx,
+              ids,
+              isIncome: false,
+              successSnackBar: ids.length > 1
+                  ? '${ids.length} pagamentos confirmados.'
+                  : 'Pagamento confirmado.',
+            );
+            if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+          },
+          onDeleteBatch: (ids) async {
+            await _deleteTxBatch(context, ids);
+            if (ctx.mounted) Navigator.pop(ctx);
+          },
         ),
-        const <({String id, String nome})>[],
       ),
-      _financeEditorBootstrapTimeout(
-        FinanceTenantSettings.load(effectiveTenantId),
-        const FinanceTenantSettings(),
-      ),
-    ]);
-    catsReceita = bootstrap[0] as List<String>;
-    catsDespesa = bootstrap[1] as List<String>;
-    contas = bootstrap[2] as List<({String id, String nome})>;
-    fornecedoresOpts = bootstrap[3] as List<({String id, String nome})>;
-    membrosOpts = bootstrap[4] as List<({String id, String nome})>;
-    settings = bootstrap[5] as FinanceTenantSettings;
-  } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(formatFirebaseErrorForUser(e)),
-          backgroundColor: ThemeCleanPremium.error,
+    );
+  }
+
+  Widget _buildDespesaPendenteListItem(
+    BuildContext context,
+    Map<String, dynamic> e, {
+    bool selectionMode = false,
+    bool isSelected = false,
+    VoidCallback? onToggleSelect,
+    void Function(String id)? onPendingRemoved,
+    void Function(String id, Map<String, dynamic> patch)? onPendingPatched,
+  }) {
+    final amount = (e['amount'] ?? 0).toDouble().abs();
+    final cat = (e['category'] ?? '').toString().trim();
+    final desc = (e['description'] ?? '').toString().trim();
+    final date = (e['date'] as Timestamp?)?.toDate();
+    final dateStr = date != null
+        ? '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}'
+        : '—';
+    final docId = (e['id'] ?? '').toString();
+    final receipt = Map<String, dynamic>.from(e['receipt'] ?? {});
+    final link = (receipt['webViewLink'] ??
+            receipt['webContentLink'] ??
+            receipt['downloadUrl'] ??
+            '')
+        .toString();
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            if (selectionMode) ...[
+              Checkbox(
+                  value: isSelected,
+                  onChanged: (_) => onToggleSelect?.call(),
+                  materialTapTargetSize: MaterialTapTargetSize.padded),
+              SizedBox(width: 8),
+            ],
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.financeDespesa.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.arrow_upward_rounded,
+                  color: AppColors.financeDespesa, size: 24),
+            ),
+            SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    cat.isNotEmpty ? cat : 'Despesa',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: context.appTextPrimary),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (desc.isNotEmpty)
+                    Text(desc,
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: context.appTextSecondary),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis),
+                  Text(dateStr,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: context.appTextMuted)),
+                ],
+              ),
+            ),
+            if (!selectionMode) ...[
+              Text(
+                CurrencyFormats.formatBRL(amount),
+                style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.financeDespesa),
+              ),
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert_rounded),
+                padding: EdgeInsets.zero,
+                tooltip: 'Ações do lançamento',
+                onSelected: (v) async {
+                  if (v == 'edit') {
+                    await _editTx(context, docId, e, 'expense',
+                        onPendingRemoved: onPendingRemoved,
+                        onPendingPatched: onPendingPatched);
+                  } else if (v == 'view' && link.isNotEmpty)
+                    mostrarAnexoNaMesmaTela(context,
+                        url: link, fileName: 'Comprovante');
+                  else if (v == 'attach')
+                    _attachReceipt(context, docId);
+                  else if (v == 'delete') {
+                    final ok = await _deleteTx(context, docId);
+                    if (ok) onPendingRemoved?.call(docId);
+                  }
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                      value: 'edit',
+                      child: Row(children: [
+                        Icon(Icons.edit_rounded, size: 20),
+                        SizedBox(width: 8),
+                        Text('Editar')
+                      ])),
+                  if (link.isNotEmpty)
+                    const PopupMenuItem(
+                        value: 'view',
+                        child: Row(children: [
+                          Icon(Icons.visibility_rounded, size: 20),
+                          SizedBox(width: 8),
+                          Text('Ver anexo')
+                        ])),
+                  const PopupMenuItem(
+                      value: 'attach',
+                      child: Row(children: [
+                        Icon(Icons.attach_file_rounded, size: 20),
+                        SizedBox(width: 8),
+                        Text('Anexar comprovante')
+                      ])),
+                  const PopupMenuItem(
+                      value: 'delete',
+                      child: Row(children: [
+                        Icon(Icons.delete_outline_rounded, size: 20),
+                        SizedBox(width: 8),
+                        Text('Excluir')
+                      ])),
+                ],
+              ),
+            ] else
+              Flexible(
+                child: Text(
+                  CurrencyFormats.formatBRL(amount),
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.financeDespesa),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+          ],
         ),
-      );
-    }
-    return false;
-  }
-
-  final centroCustoCtrl = TextEditingController(
-      text: isEdit ? (data?['centroCusto'] ?? '').toString() : '');
-  final extratoRefCtrl = TextEditingController(
-      text: isEdit ? (data?['extratoRef'] ?? '').toString() : '');
-
-  String? fornecedorId = isEdit
-      ? (data?['fornecedorId'] ?? '').toString().trim()
-      : (presetFornecedorId ?? '').trim();
-  if (fornecedorId.isEmpty) fornecedorId = null;
-  var fornecedorNome = isEdit
-      ? (data?['fornecedorNome'] ?? '').toString().trim()
-      : (presetFornecedorNome ?? '').trim();
-  if (fornecedorId != null && fornecedorNome.isEmpty) {
-    for (final f in fornecedoresOpts) {
-      if (f.id == fornecedorId) {
-        fornecedorNome = f.nome;
-        break;
-      }
-    }
-  }
-
-  final membroIdRaw = isEdit
-      ? (data?['membroId'] ?? data?['memberId'] ?? '').toString().trim()
-      : '';
-  String? membroId = membroIdRaw.isEmpty ? null : membroIdRaw;
-  var membroNome = isEdit
-      ? (data?['membroNome'] ?? '').toString().trim()
-      : '';
-  if (membroId != null && membroNome.isEmpty) {
-    for (final x in membrosOpts) {
-      if (x.id == membroId) {
-        membroNome = x.nome;
-        break;
-      }
-    }
-  }
-  if (membroId != null && membroNome.isEmpty && isEdit && data != null) {
-    final dn = (data['donorName'] ?? '').toString().trim();
-    if (dn.isNotEmpty) membroNome = dn;
-  }
-
-  /// nenhum | fornecedor | membro — mutuamente exclusivo (exc. lock de fornecedor).
-  var vinculoTipo = 'nenhum';
-  if (lockFornecedor && fornecedorId != null) {
-    vinculoTipo = 'fornecedor';
-  } else if (isEdit) {
-    if (fornecedorId != null && fornecedorId.isNotEmpty) {
-      vinculoTipo = 'fornecedor';
-    } else if (membroId != null && membroId.isNotEmpty) {
-      vinculoTipo = 'membro';
-    }
-  }
-
-  if (categoria.isNotEmpty) {
-    if (tipo == 'entrada' && !catsReceita.contains(categoria)) categoria = '';
-    if (tipo == 'saida' && !catsDespesa.contains(categoria)) categoria = '';
-  }
-  if (contaOrigemId != null && !contas.any((c) => c.id == contaOrigemId)) {
-    contaOrigemId = null;
-  }
-  if (contaDestinoId != null && !contas.any((c) => c.id == contaDestinoId)) {
-    contaDestinoId = null;
-  }
-  if (tipo == 'entrada') {
-    contaOrigemId = null;
-  } else if (tipo == 'saida') {
-    contaDestinoId = null;
-  }
-
-  if (!context.mounted) return false;
-  String t = tipo;
-  String cat = categoria;
-  String? coId = contaOrigemId;
-  String? cdId = contaDestinoId;
-  DateTime dataSelLocal = dataSel;
-  var recebimentoConfirmado =
-      isEdit ? (data?['recebimentoConfirmado'] != false) : true;
-  var pagamentoConfirmado =
-      isEdit ? (data?['pagamentoConfirmado'] != false) : true;
-  var conciliado = isEdit ? (data?['conciliado'] == true) : false;
-  var comprovanteSnap = const FinanceComprovanteEditorSnapshot();
-  final canComprovanteWrite = AppPermissions.canViewFinance(
-    panelRole ?? '',
-  );
-  String nomeConta(String? id) {
-    if (id == null) return '';
-    for (final c in contas) {
-      if (c.id == id) return c.nome;
-    }
-    return '';
-  }
-
-  final dataCtrl = TextEditingController(text: formatBrDateDdMmYyyy(dataSel));
-
-  final result = await Navigator.of(context, rootNavigator: true)
-      .push<Map<String, dynamic>>(
-    MaterialPageRoute(
-      fullscreenDialog: true,
-      builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setDlgState) {
-        final isTransfer = t == 'transferencia';
-        final cats = t == 'entrada'
-            ? catsReceita
-            : (t == 'saida' ? catsDespesa : <String>[]);
-        if (cat.isNotEmpty && cats.isNotEmpty && !cats.contains(cat)) cat = '';
-        final contaFieldId = t == 'entrada' ? cdId : coId;
-        final pageAccent = FinancePremiumLancamentoUi.accentForTipo(t);
-        final pageGradient = FinancePremiumLancamentoUi.gradientForTipo(t);
-        final pagePad = ThemeCleanPremium.pagePadding(ctx);
-
-        void onTipoChanged(String v) {
-          setDlgState(() {
-            final prev = t;
-            t = v;
-            cat = '';
-            if (t == 'transferencia') {
-              fornecedorId = null;
-              fornecedorNome = '';
-              membroId = null;
-              membroNome = '';
-              vinculoTipo = 'nenhum';
-            }
-            if (t == 'entrada') {
-              recebimentoConfirmado = true;
-            } else if (t == 'saida') {
-              pagamentoConfirmado = true;
-            }
-            if (t == 'transferencia' || prev == 'transferencia') {
-              if (prev != 'transferencia') {
-                coId = null;
-                cdId = null;
-              }
-            } else if (prev == 'entrada' && t == 'saida') {
-              coId = cdId;
-              cdId = null;
-            } else if (prev == 'saida' && t == 'entrada') {
-              cdId = coId;
-              coId = null;
-            }
-          });
-        }
-
-        Future<void> pickDataLancamento() async {
-          final picked = await showDatePicker(
-            context: ctx,
-            initialDate: dataSelLocal,
-            firstDate: DateTime(2020),
-            lastDate: DateTime(2030),
-          );
-          if (picked != null) {
-            setDlgState(() {
-              dataSelLocal = picked;
-              dataCtrl.text = formatBrDateDdMmYyyy(picked);
-            });
-          }
-        }
-
-        void submitLancamento() {
-          final valor = parseBrCurrencyInput(valorCtrl.text);
-          final parsedData = parseBrDateDdMmYyyy(dataCtrl.text.trim());
-          if (parsedData == null) {
-            ScaffoldMessenger.of(ctx).showSnackBar(
-              const SnackBar(content: Text('Informe a data (DD/MM/AAAA).')),
-            );
-            return;
-          }
-          dataSelLocal = parsedData;
-          if (valor <= 0) {
-            ScaffoldMessenger.of(ctx).showSnackBar(
-              const SnackBar(content: Text('Informe um valor válido.')),
-            );
-            return;
-          }
-          if (!isTransfer && cat.isEmpty) {
-            ScaffoldMessenger.of(ctx).showSnackBar(
-              const SnackBar(content: Text('Selecione uma categoria.')),
-            );
-            return;
-          }
-          if (!isTransfer && contas.isNotEmpty) {
-            if (t == 'entrada' && cdId == null) {
-              ScaffoldMessenger.of(ctx).showSnackBar(
-                const SnackBar(
-                    content: Text('Selecione a conta ou caixa da receita.')),
-              );
-              return;
-            }
-            if (t == 'saida' && coId == null) {
-              ScaffoldMessenger.of(ctx).showSnackBar(
-                const SnackBar(
-                    content: Text('Selecione a conta ou caixa da despesa.')),
-              );
-              return;
-            }
-          }
-          if (isTransfer &&
-              (coId == null || cdId == null || coId == cdId)) {
-            ScaffoldMessenger.of(ctx).showSnackBar(
-              const SnackBar(
-                  content:
-                      Text('Selecione contas de origem e destino diferentes.')),
-            );
-            return;
-          }
-          final map = <String, dynamic>{
-            'type': t,
-            'amount': valor,
-            'descricao': descCtrl.text.trim(),
-            'createdAt': Timestamp.fromDate(dataSelLocal),
-          };
-          if (!isTransfer) {
-            map['categoria'] = cat;
-            map['centroCusto'] = centroCustoCtrl.text.trim();
-            map['extratoRef'] = extratoRefCtrl.text.trim();
-            map['conciliado'] = conciliado;
-          }
-          if (!isTransfer) {
-            final fid = fornecedorId;
-            final mid = membroId;
-            if (lockFornecedor && fid != null && fid.isNotEmpty) {
-              map['fornecedorId'] = fid;
-              map['fornecedorNome'] = fornecedorNome;
-            } else if (!lockFornecedor) {
-              if (vinculoTipo == 'fornecedor' &&
-                  fid != null &&
-                  fid.isNotEmpty) {
-                map['fornecedorId'] = fid;
-                map['fornecedorNome'] = fornecedorNome;
-              }
-              if (vinculoTipo == 'membro' && mid != null && mid.isNotEmpty) {
-                map['membroId'] = mid;
-                map['membroNome'] = membroNome;
-              }
-            }
-            if (t == 'entrada') {
-              map['recebimentoConfirmado'] = recebimentoConfirmado;
-            } else {
-              map['pagamentoConfirmado'] = pagamentoConfirmado;
-            }
-          }
-          if (isTransfer) {
-            map['contaOrigemId'] = coId;
-            map['contaDestinoId'] = cdId;
-            map['contaOrigemNome'] = nomeConta(coId);
-            map['contaDestinoNome'] = nomeConta(cdId);
-          } else if (contas.isNotEmpty) {
-            if (t == 'entrada') {
-              map['contaDestinoId'] = cdId;
-              map['contaDestinoNome'] = nomeConta(cdId);
-            } else {
-              map['contaOrigemId'] = coId;
-              map['contaOrigemNome'] = nomeConta(coId);
-            }
-          }
-          if (t == 'saida') {
-            final lim = settings.limiteAprovacaoDespesa;
-            final need = lim > 0 &&
-                valor > lim &&
-                AppPermissions.despesaFinanceiraExigeSegundaAprovacao(panelRole);
-            map['aprovacaoPendente'] = need;
-          }
-          ThemeCleanPremium.hapticAction();
-          Navigator.pop(ctx, map);
-        }
-
-        return Scaffold(
-          backgroundColor: const Color(0xFFF0F4FF),
-          appBar: financePremiumLancamentoAppBar(
-            title: isEdit ? 'Editar lançamento' : 'Novo lançamento',
-            onBack: () => Navigator.pop(ctx),
-            gradientColors: pageGradient,
+        if (!selectionMode) ...[
+          SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.only(left: 58),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                FilledButton.icon(
+                  onPressed: () async {
+                    final ok = await _confirmarPagamento(context, docId);
+                    if (ok) onPendingRemoved?.call(docId);
+                  },
+                  icon: Icon(Icons.check_circle_rounded, size: 18),
+                  label: Text('Confirmar pagamento',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      minimumSize: const Size(48, 48),
+                      tapTargetSize: MaterialTapTargetSize.padded,
+                      backgroundColor:
+                          AppColors.success.withValues(alpha: 0.15),
+                      foregroundColor: AppColors.success),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final ok = await _deleteTx(context, docId);
+                    if (ok) onPendingRemoved?.call(docId);
+                  },
+                  icon: Icon(Icons.delete_outline_rounded, size: 18),
+                  label: Text('Excluir',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.error,
+                      side: BorderSide(
+                          color: AppColors.error.withValues(alpha: 0.5)),
+                      minimumSize: const Size(48, 48),
+                      tapTargetSize: MaterialTapTargetSize.padded),
+                ),
+              ],
+            ),
           ),
-          body: SafeArea(
-            child: Column(
+        ],
+      ],
+    );
+    final container = Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      constraints: const BoxConstraints(minHeight: 56),
+      decoration: BoxDecoration(
+        color: AppColors.financeDespesa.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+            color: AppColors.financePendente.withValues(alpha: 0.28)),
+      ),
+      child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56), child: content),
+    );
+    if (selectionMode && onToggleSelect != null) {
+      return InkWell(
+          onTap: onToggleSelect,
+          borderRadius: BorderRadius.circular(16),
+          child: container);
+    }
+    return container;
+  }
+
+  Future<void> _attachReceipt(BuildContext context, String txId) async {
+    final pick = await FilePicker.pickFiles(withData: true);
+    const maxBytes = 5 * 1024 * 1024; // 5 MB
+
+    if (pick == null || pick.files.isEmpty) return;
+
+    final f = pick.files.first;
+    final bytes = f.bytes ?? Uint8List(0);
+    final ext = (f.extension ?? '').toLowerCase();
+    final allowed = ['pdf', 'png', 'jpg', 'jpeg'];
+    if (!allowed.contains(ext)) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Arquivo inválido. Use PDF/PNG/JPG.')),
+        );
+      }
+      return;
+    }
+    if (bytes.lengthInBytes > maxBytes) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Arquivo grande demais. Limite: 5 MB.')),
+        );
+      }
+      return;
+    }
+
+    final mime = ext == 'pdf'
+        ? 'application/pdf'
+        : (ext == 'png' ? 'image/png' : 'image/jpeg');
+    final filename = f.name;
+
+    await FinanceReceiptUploadService.attachToTransaction(
+      uid: widget.uid,
+      txDocId: txId,
+      bytes: bytes,
+      filename: filename,
+      mimeType: mime,
+      context: context,
+    );
+    if (mounted) {
+      setState(() {
+        final prev = _optimisticEditedTxById[txId];
+        _optimisticEditedTxById[txId] = {
+          ...?prev,
+          'hasReceipt': true,
+        };
+      });
+    }
+  }
+
+  DateTime? _transactionCalendarDay(Map<String, dynamic> d) {
+    final instant = FinanceFaturaTransactionSort.effectiveInstant(d);
+    if (instant == null) return null;
+    return DateTime(instant.year, instant.month, instant.day);
+  }
+
+  /// Rótulo da conta vinculada, ou null se não houver vínculo.
+  String? _financeAccountLabelForTx(Map<String, dynamic> d) {
+    final aid = (d['financeAccountId'] ?? '').toString().trim();
+    if (aid.isEmpty) return null;
+    for (final a in _financeAccounts) {
+      if (a.id == aid) return a.displayName;
+    }
+    return 'Conta removida';
+  }
+
+  /// Rótulo para o sheet de insights quando há filtro de conta na tela principal.
+  String? _financeAccountFilterLabelForInsight() {
+    if (_financeAccountFilterId == null) return null;
+    for (final a in _financeAccounts) {
+      if (a.id == _financeAccountFilterId) return a.displayName;
+    }
+    return 'Conta';
+  }
+
+  Widget _financeDayHeader(DateTime? day) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                AppColors.primary.withValues(alpha: 0.12),
+                AppColors.accent.withValues(alpha: 0.08),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(12),
+            border:
+                Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.calendar_today_rounded,
+                    size: 16, color: AppColors.primary),
+                SizedBox(width: 8),
+                Text(
+                  day == null ? 'Sem data' : DateTimeFormats.dateBR.format(day),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: context.appTextPrimary,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPremiumReceitaButton(BuildContext context,
+      {required bool dense}) {
+    final padV = dense ? 10.0 : 14.0;
+    final iconSize = dense ? 20.0 : 22.0;
+    final fontSize = dense ? 12.5 : 14.0;
+    final radius = BorderRadius.circular(16);
+    final onTap = widget.profile.hasActiveLicense
+        ? () => _addTx(context, 'income')
+        : () => mostrarAvisoSeLicencaInativa(context, widget.profile);
+    return Semantics(
+      label: 'Registrar nova receita',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: radius,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: radius,
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF4ADE80),
+                  AppColors.success,
+                  Color(0xFF166534)
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                    color: const Color(0xFF166534).withValues(alpha: 0.35),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6)),
+                BoxShadow(
+                    color: const Color(0xFF4ADE80).withValues(alpha: 0.25),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2)),
+              ],
+            ),
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: padV, horizontal: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add_card_rounded,
+                      color: Colors.white, size: iconSize),
+                  SizedBox(width: dense ? 4 : 6),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        'Receita',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: fontSize,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPremiumDespesaButton(BuildContext context,
+      {required bool dense}) {
+    final padV = dense ? 10.0 : 14.0;
+    final iconSize = dense ? 20.0 : 22.0;
+    final fontSize = dense ? 12.5 : 14.0;
+    final radius = BorderRadius.circular(16);
+    final onTap = widget.profile.hasActiveLicense
+        ? () => _addTx(context, 'expense')
+        : () => mostrarAvisoSeLicencaInativa(context, widget.profile);
+    return Semantics(
+      label: 'Registrar nova despesa',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: radius,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: radius,
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFF87171), AppColors.error, Color(0xFF991B1B)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                    color: const Color(0xFF991B1B).withValues(alpha: 0.35),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6)),
+                BoxShadow(
+                    color: const Color(0xFFF87171).withValues(alpha: 0.28),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2)),
+              ],
+            ),
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: padV, horizontal: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.receipt_long_rounded,
+                      color: Colors.white, size: iconSize),
+                  SizedBox(width: dense ? 4 : 6),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        'Despesa',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: fontSize,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Despesas fixas — gradiente logo + sombra (padrão super premium).
+  Widget _buildDespesasFixasButtonCompact(BuildContext context,
+      {bool dense = false}) {
+    final onTap = widget.profile.hasActiveLicense
+        ? () => Navigator.of(context)
+                .push(
+              MaterialPageRoute(
+                  builder: (_) => DespesasFixasScreen(
+                      uid: firestoreUserDocIdForAppShell(widget.uid))),
+            )
+                .then((_) {
+              if (!mounted) return;
+              setState(
+                  () {}); // Atualiza lista ao voltar da tela Despesas fixas
+            })
+        : () => mostrarAvisoSeLicencaInativa(context, widget.profile);
+    final padV = dense ? 10.0 : 14.0;
+    final iconSize = dense ? 20.0 : 22.0;
+    final fontSize = dense ? 12.5 : 14.0;
+    final radius = BorderRadius.circular(16);
+    return Semantics(
+      label: 'Abrir despesas fixas',
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          boxShadow: [
+            BoxShadow(
+                color: AppColors.deepBlueDark.withValues(alpha: 0.45),
+                blurRadius: 16,
+                offset: const Offset(0, 7)),
+            BoxShadow(
+                color: AppColors.accent.withValues(alpha: 0.22),
+                blurRadius: 8,
+                offset: const Offset(0, 3)),
+          ],
+        ),
+        child: Material(
+          borderRadius: radius,
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: radius,
+            child: Ink(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [
+                    AppColors.deepBlueDark,
+                    AppColors.primary,
+                    AppColors.accent
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: radius,
+                border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+              ),
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: padV, horizontal: 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.event_repeat_rounded,
+                        color: Colors.white, size: iconSize),
+                    SizedBox(width: dense ? 4 : 6),
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Despesas fixas',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: fontSize,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Receitas fixas — mesmo padrão visual compacto, cores de receita.
+  Widget _buildReceitasFixasButtonCompact(BuildContext context,
+      {bool dense = false}) {
+    final onTap = widget.profile.hasActiveLicense
+        ? () => Navigator.of(context)
+                .push(
+              MaterialPageRoute(
+                  builder: (_) => ReceitasFixasScreen(
+                      uid: firestoreUserDocIdForAppShell(widget.uid))),
+            )
+                .then((_) {
+              if (!mounted) return;
+              setState(() {});
+            })
+        : () => mostrarAvisoSeLicencaInativa(context, widget.profile);
+    final padV = dense ? 10.0 : 14.0;
+    final iconSize = dense ? 20.0 : 22.0;
+    final fontSize = dense ? 12.5 : 14.0;
+    final radius = BorderRadius.circular(16);
+    return Semantics(
+      label: 'Abrir receitas fixas',
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          boxShadow: [
+            BoxShadow(
+                color: const Color(0xFF14532D).withValues(alpha: 0.4),
+                blurRadius: 16,
+                offset: const Offset(0, 7)),
+            BoxShadow(
+                color: const Color(0xFF22C55E).withValues(alpha: 0.22),
+                blurRadius: 8,
+                offset: const Offset(0, 3)),
+          ],
+        ),
+        child: Material(
+          borderRadius: radius,
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: radius,
+            child: Ink(
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [
+                    Color(0xFF14532D),
+                    Color(0xFF15803D),
+                    Color(0xFF22C55E)
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: radius,
+                border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+              ),
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: padV, horizontal: 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.savings_outlined,
+                        color: Colors.white, size: iconSize),
+                    SizedBox(width: dense ? 4 : 6),
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Receitas fixas',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: fontSize,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTransferenciaButton(BuildContext context, {bool dense = false}) {
+    final onTap = widget.profile.hasActiveLicense
+        ? () => _openTransferBetweenAccounts(context)
+        : () => mostrarAvisoSeLicencaInativa(context, widget.profile);
+    final radius = BorderRadius.circular(16);
+    final padV = dense ? 10.0 : 12.0;
+    final fontSize = dense ? 12.5 : 13.5;
+    return Semantics(
+      label: 'Transferência entre contas',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: radius,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: radius,
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFF2563EB),
+                  Color(0xFF1D4ED8),
+                  Color(0xFF1E40AF)
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                    color: const Color(0xFF1E40AF).withValues(alpha: 0.28),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4)),
+              ],
+            ),
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: padV, horizontal: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.swap_horiz_rounded,
+                      color: Colors.white, size: dense ? 19 : 20),
+                  SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      'Transferência',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: fontSize),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Chip de status (Todos / Pago / Pendente) — alinhado ao módulo Agenda (super premium).
+  Widget _financeFilterChip({
+    required String label,
+    required IconData icon,
+    required Color accent,
+    required bool selected,
+    required VoidCallback onSelect,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onSelect,
+        borderRadius: BorderRadius.circular(22),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            color: selected
+                ? accent.withValues(alpha: 0.12)
+                : context.appChipIdleBg,
+            border: Border.all(
+              color: selected ? accent : context.appChipIdleBorder,
+              width: selected ? 2 : 1,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: accent.withValues(alpha: 0.2),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon,
+                  size: 17, color: selected ? accent : context.appTextMuted),
+              SizedBox(width: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12.5,
+                  color: selected ? accent : context.appTextSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Período (Mensal, Anual, Por período) — pill com gradiente quando selecionado.
+  Widget _financePeriodChip({
+    required String period,
+    required bool selected,
+    required VoidCallback onSelect,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onSelect,
+        borderRadius: BorderRadius.circular(16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: selected
+                ? const LinearGradient(
+                    colors: [
+                      AppColors.deepBlueDark,
+                      AppColors.primary,
+                      AppColors.accent
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            color: selected ? null : context.appSurface,
+            border: Border.all(
+              color: selected ? Colors.transparent : context.appChipIdleBorder,
+            ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: AppColors.deepBlueDark.withValues(alpha: 0.22),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Text(
+            period,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: selected ? Colors.white : context.appTextPrimary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Insights leves: top despesas, despesas fixas vs receita, comparativo com período anterior (mesma duração).
+  Widget _buildFinanceInsightsBlock(
+    BuildContext context, {
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    required double totalIncome,
+    required double totalExpense,
+    required double balancePeriod,
+  }) {
+    final (pf, pt) = _previousPeriodSameLength();
+    final compareKey =
+        '${pf.toIso8601String()}|${pt.toIso8601String()}|$_statusFilter|$_typeFilter';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (totalExpense > 0.0001) ...[
+          Row(
+            children: [
+              Icon(Icons.pie_chart_outline_rounded,
+                  size: 18, color: AppColors.financeDespesa),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Onde foi o dinheiro (despesas)',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: context.appTextPrimary),
+                ),
+              ),
+              TextButton(
+                onPressed: widget.profile.hasActiveLicense
+                    ? _openFinanceCategoriesFullscreen
+                    : () =>
+                        mostrarAvisoSeLicencaInativa(context, widget.profile),
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  minimumSize: const Size(48, 40),
+                  tapTargetSize: MaterialTapTargetSize.padded,
+                ),
+                child: Text('Veja mais'),
+              ),
+            ],
+          ),
+          SizedBox(height: 10),
+          FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+            future: financePeriodMergedDocumentsCollect(
+              uid: firestoreUserDocIdForAppShell(widget.uid),
+              from: _from,
+              to: _to,
+              statusFilter: _statusFilter,
+              typeFilter: 'expense',
+              financeAccountId: _financeAccountFilterId,
+            ),
+            builder: (context, mergedSnap) {
+              final mergedDocs = mergedSnap.data ?? docs;
+              final topMerged = _topExpenseCategories(mergedDocs, n: 5);
+              if (topMerged.isEmpty) return const SizedBox.shrink();
+              return Column(
+                children: topMerged.map((e) {
+                  final pct = totalExpense > 0.0001
+                      ? ((e.value / totalExpense) * 100).clamp(0.0, 100.0)
+                      : 0.0;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _WhereMoneyExpenseCard(
+                      categoryName: e.key,
+                      amount: e.value,
+                      percentOfPeriodExpenses: pct,
+                      accent: _WhereMoneyExpenseCard.accentFor(e.key),
+                      icon: _WhereMoneyExpenseCard.iconFor(e.key),
+                      onTap: () => _openFinanceInsightSheet(
+                        scope: FinanceInsightScope.expense,
+                        initialFrom: _from,
+                        initialTo: _to,
+                        initialCategoryExact: e.key,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+          SizedBox(height: 18),
+        ],
+        FutureBuilder<List<List<Map<String, dynamic>>>>(
+          future: Future.wait([
+            FixedExpenseService()
+                .list(firestoreUserDocIdForAppShell(widget.uid)),
+            FixedIncomeService()
+                .list(firestoreUserDocIdForAppShell(widget.uid)),
+          ]),
+          builder: (context, snap) {
+            if (!snap.hasData) return const SizedBox.shrink();
+            final expList = snap.data![0];
+            final incList = snap.data![1];
+            var monthlyExp = 0.0;
+            for (final e in expList) {
+              if (e['active'] == false) continue;
+              monthlyExp += ((e['amount'] ?? 0) as num).toDouble().abs();
+            }
+            var monthlyInc = 0.0;
+            for (final e in incList) {
+              if (e['active'] == false) continue;
+              monthlyInc += ((e['amount'] ?? 0) as num).toDouble().abs();
+            }
+            if (monthlyExp <= 0 && monthlyInc <= 0) {
+              return const SizedBox.shrink();
+            }
+            final pctExp = totalIncome > 0.0001
+                ? (monthlyExp / totalIncome) * 100.0
+                : null;
+            final pctInc = totalIncome > 0.0001
+                ? (monthlyInc / totalIncome) * 100.0
+                : null;
+            return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: pagePad.copyWith(top: 14, bottom: 8),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                FinancePremiumTipoToggle(
-                  selected: t,
-                  onChanged: onTipoChanged,
-                ),
-                const SizedBox(height: 18),
-                FinancePremiumAmountField(
-                  controller: valorCtrl,
-                  isReceita: t == 'entrada',
-                ),
-                const SizedBox(height: 16),
-                FinancePremiumFieldTile(
-                  label: 'Data do lançamento',
-                  value: formatBrDateDdMmYyyy(dataSelLocal),
-                  icon: Icons.calendar_today_rounded,
-                  accent: pageAccent,
-                  onTap: pickDataLancamento,
-                ),
-                const SizedBox(height: 18),
-                if (!isTransfer)
-                  FinancePremiumSectionCard(
-                    title: 'Classificação',
-                    icon: Icons.category_rounded,
-                    accent: pageAccent,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                  DropdownButtonFormField<String>(
-                    initialValue: cat.isNotEmpty ? cat : null,
-                    decoration: financePremiumDropdownDecoration(
-                      label: 'Categoria',
-                      prefixIcon: Icons.category_rounded,
-                      accent: pageAccent,
-                    ),
-                    items: cats
-                        .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                        .toList(),
-                    onChanged: (v) => setDlgState(() => cat = v ?? ''),
-                  ),
-                  const SizedBox(height: 12),
-                    if (lockFornecedor && fornecedorId != null)
-                      InputDecorator(
-                        decoration: InputDecoration(
-                          labelText: 'Fornecedor / prestador',
-                          filled: true,
-                          border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusSm)),
-                          prefixIcon: const Icon(Icons.handshake_rounded),
-                        ),
-                        child: Text(
-                          fornecedorNome.isEmpty
-                              ? fornecedorId!
-                              : fornecedorNome,
-                          style: const TextStyle(fontSize: 15),
-                        ),
-                      )
-                    else ...[
-                      Text(
-                        'Vincular a (opcional)',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.grey.shade700,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      FinancePremiumVinculoToggle(
-                        selected: vinculoTipo,
-                        onChanged: (v) => setDlgState(() {
-                          vinculoTipo = v;
-                          if (vinculoTipo != 'fornecedor') {
-                            fornecedorId = null;
-                            fornecedorNome = '';
-                          }
-                          if (vinculoTipo != 'membro') {
-                            membroId = null;
-                            membroNome = '';
-                          }
-                        }),
-                      ),
-                      const SizedBox(height: 12),
-                      if (vinculoTipo == 'fornecedor')
-                        FinanceFixoTitularCard(
-                          vinculoTipo: 'fornecedor',
-                          tituloPlaceholder: 'Fornecedor / prestador',
-                          nomeExibicao: fornecedorNome,
-                          onTap: () async {
-                            final picked = await showFinancePremiumFornecedorPicker(
-                              ctx,
-                              tenantId: effectiveTenantId,
-                            );
-                            if (picked == null) return;
-                            setDlgState(() {
-                              fornecedorId = picked.$1;
-                              fornecedorNome = picked.$2;
-                            });
-                          },
-                        ),
-                      if (vinculoTipo == 'membro')
-                        FinanceFixoTitularCard(
-                          vinculoTipo: 'membro',
-                          tituloPlaceholder: 'Membro',
-                          nomeExibicao: membroNome,
-                          onTap: () async {
-                            final picked = await showFinancePremiumMemberPicker(
-                              ctx,
-                              tenantId: effectiveTenantId,
-                            );
-                            if (picked == null) return;
-                            setDlgState(() {
-                              membroId = picked.$1;
-                              membroNome = picked.$2;
-                            });
-                          },
-                        ),
-                    ],
-                  if (contas.isNotEmpty)
-                    DropdownButtonFormField<String>(
-                      initialValue: contaFieldId != null &&
-                              contas.any((e) => e.id == contaFieldId)
-                          ? contaFieldId
-                          : null,
-                      decoration: InputDecoration(
-                        labelText: t == 'entrada'
-                            ? 'Conta / caixa (crédito)'
-                            : 'Conta / caixa (débito)',
-                        hintText: 'Onde o valor entra ou sai',
-                        filled: true,
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm)),
-                        prefixIcon: const Icon(
-                            Icons.account_balance_wallet_rounded),
-                      ),
-                      items: contas
-                          .map((c) => DropdownMenuItem(
-                              value: c.id, child: Text(c.nome)))
-                          .toList(),
-                      onChanged: (v) => setDlgState(() {
-                        if (t == 'entrada') {
-                          cdId = v;
-                          coId = null;
-                        } else {
-                          coId = v;
-                          cdId = null;
-                        }
-                      }),
-                    ),
-                  if (contas.isEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(12),
+                if (monthlyExp > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: Colors.orange.shade50,
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                        color:
+                            AppColors.financePendente.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                            color: Colors.orange.shade200, width: 1),
+                            color: AppColors.financePendente
+                                .withValues(alpha: 0.28)),
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.info_outline_rounded,
-                              color: Colors.orange.shade800, size: 22),
-                          const SizedBox(width: 10),
+                          Icon(Icons.home_work_outlined,
+                              color: AppColors.financePendente, size: 22),
+                          SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              'Cadastre contas em Financeiro → Contas para vincular receitas e despesas.',
+                              pctExp != null
+                                  ? 'Despesas fixas (cadastro): ${CurrencyFormats.formatBRL(monthlyExp)}/mês · ${pctExp.toStringAsFixed(0)}% das receitas deste período na tela.'
+                                  : 'Despesas fixas (cadastro): ${CurrencyFormats.formatBRL(monthlyExp)}/mês. Adicione receitas no período para ver o percentual.',
                               style: TextStyle(
-                                  fontSize: 12.5,
-                                  color: Colors.orange.shade900,
-                                  height: 1.35),
+                                fontSize: 12.5,
+                                height: 1.4,
+                                fontWeight: FontWeight.w500,
+                                color: context.appTextPrimary,
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  if (t == 'entrada') ...[
-                    const SizedBox(height: 14),
-                    Text(
-                      'Situação da receita',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
+                  ),
+                if (monthlyInc > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: AppColors.financeReceita.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: AppColors.financeReceita
+                                .withValues(alpha: 0.35)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.savings_outlined,
+                              color: AppColors.financeReceita, size: 22),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              pctInc != null
+                                  ? 'Receitas fixas (cadastro): ${CurrencyFormats.formatBRL(monthlyInc)}/mês · ${pctInc.toStringAsFixed(0)}% das receitas deste período na tela.'
+                                  : 'Receitas fixas (cadastro): ${CurrencyFormats.formatBRL(monthlyInc)}/mês.',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                height: 1.4,
+                                fontWeight: FontWeight.w500,
+                                color: context.appTextPrimary,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    FinancePremiumSituacaoToggle(
-                      confirmed: recebimentoConfirmado,
-                      isReceita: true,
-                      onChanged: (v) =>
-                          setDlgState(() => recebimentoConfirmado = v),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Só entra no saldo da conta quando estiver Recebido.',
-                      style: TextStyle(
-                          fontSize: 11, color: Colors.grey.shade600),
-                    ),
-                  ],
-                  if (t == 'saida') ...[
-                    const SizedBox(height: 14),
-                    Text(
-                      'Situação da despesa',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
+                  ),
+              ],
+            );
+          },
+        ),
+        FutureBuilder(
+          key: ValueKey(compareKey),
+          future: FinancePeriodSummary.load(
+            uid: firestoreUserDocIdForAppShell(widget.uid),
+            from: pf,
+            to: pt,
+            statusFilter: _statusFilter,
+            typeFilter: _typeFilter,
+          ),
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done || !snap.hasData) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: LinearProgressIndicator(
+                  minHeight: 3,
+                  borderRadius: BorderRadius.circular(2),
+                  color: AppColors.primary,
+                  backgroundColor: AppColors.textMuted.withValues(alpha: 0.12),
+                ),
+              );
+            }
+            final r = snap.data!;
+            final prevBal = r.income - r.expense;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: _PremiumSaldoPeriodoCard(
+                prevFrom: pf,
+                prevTo: pt,
+                prevIncome: r.income,
+                prevExpense: r.expense,
+                prevBalance: prevBal,
+                curIncome: totalIncome,
+                curExpense: totalExpense,
+                curBalance: balancePeriod,
+              ),
+            );
+          },
+        ),
+        FinanceSmartTipsInsightBlock(
+          uid: firestoreUserDocIdForAppShell(widget.uid),
+          docs: docs,
+          totalIncome: totalIncome,
+          totalExpense: totalExpense,
+          balancePeriod: balancePeriod,
+          onOpenAssistantPanel: widget.profile.hasActiveLicense
+              ? () => _openFinanceAssistantInsightsPage(
+                    docs: docs,
+                    totalIncome: totalIncome,
+                    totalExpense: totalExpense,
+                    balancePeriod: balancePeriod,
+                  )
+              : () => mostrarAvisoSeLicencaInativa(context, widget.profile),
+        ),
+      ],
+    );
+  }
+
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterDocsForGridListType(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    if (_gridListTypeFilter == 'all') return docs;
+    return docs.where((doc) {
+      final type =
+          (_txDataForMainPeriodDoc(doc)['type'] ?? 'expense').toString();
+      return type == _gridListTypeFilter;
+    }).toList();
+  }
+
+  Future<void> _openSmartTipsPreviewSheet({
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    required double totalIncome,
+    required double totalExpense,
+    required double balancePeriod,
+  }) {
+    return showFinanceSmartTipsPreviewSheet(
+      context: context,
+      uid: firestoreUserDocIdForAppShell(widget.uid),
+      docs: docs,
+      totalIncome: totalIncome,
+      totalExpense: totalExpense,
+      balancePeriod: balancePeriod,
+      onOpenAssistantPanel: widget.profile.hasActiveLicense
+          ? () {
+              Navigator.pop(context);
+              unawaited(_openFinanceAssistantInsightsPage(
+                docs: docs,
+                totalIncome: totalIncome,
+                totalExpense: totalExpense,
+                balancePeriod: balancePeriod,
+              ));
+            }
+          : () => mostrarAvisoSeLicencaInativa(context, widget.profile),
+    );
+  }
+
+  Widget _buildFinanceMainKpiSection({
+    required double saldoAbertura,
+    required double totalIncome,
+    required double totalExpense,
+    required double saldoAcumulado,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Resumo do período',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                    color: context.appTextPrimary,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'Exportar PDF (padrão premium)',
+                onPressed: widget.profile.hasActiveLicense
+                    ? () => unawaited(_openFinancialReportsPremiumSheet())
+                    : () =>
+                        mostrarAvisoSeLicencaInativa(context, widget.profile),
+                icon: Icon(Icons.picture_as_pdf_rounded, size: 22),
+                style: IconButton.styleFrom(
+                  foregroundColor: _kPdfActionOrange,
+                  backgroundColor: _kPdfActionOrange.withValues(alpha: 0.12),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: _FinanceKpiCard(
+              title: 'Saldo de abertura',
+              value: CurrencyFormats.formatBRL(saldoAbertura),
+              color: saldoAbertura >= 0
+                  ? AppColors.saldoPositive
+                  : AppColors.saldoNegative,
+              icon: Icons.account_balance_rounded,
+            ),
+          ),
+          SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _FinanceKpiCard(
+                  title: 'Receitas',
+                  value: CurrencyFormats.formatBRL(totalIncome),
+                  color: AppColors.financeReceita,
+                  icon: Icons.arrow_downward,
+                  onTap: () => _openFinanceInsightSheet(
+                    scope: FinanceInsightScope.income,
+                    initialFrom: _from,
+                    initialTo: _to,
+                  ),
+                ),
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: _FinanceKpiCard(
+                  title: 'Despesas',
+                  value: CurrencyFormats.formatBRL(totalExpense),
+                  color: AppColors.financeDespesa,
+                  icon: Icons.arrow_upward,
+                  onTap: () => _openFinanceInsightSheet(
+                    scope: FinanceInsightScope.expense,
+                    initialFrom: _from,
+                    initialTo: _to,
+                  ),
+                ),
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: _FinanceKpiCard(
+                  title: 'Saldo (acum.)',
+                  value: CurrencyFormats.formatBRL(saldoAcumulado),
+                  color: saldoAcumulado >= 0
+                      ? AppColors.saldoPositive
+                      : AppColors.saldoNegative,
+                  icon: Icons.account_balance_wallet,
+                  onTap: () => _openFinanceInsightSheet(
+                    scope: FinanceInsightScope.balance,
+                    initialFrom: _from,
+                    initialTo: _to,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGridListTypeBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      child: Row(
+        children: [
+          _buildGridTypeButton(
+              'all', 'Todos', Icons.layers_rounded, AppColors.deepBlue),
+          SizedBox(width: 8),
+          _buildGridTypeButton('expense', 'Despesas', Icons.north_east_rounded,
+              AppColors.financeDespesa),
+          SizedBox(width: 8),
+          _buildGridTypeButton('income', 'Receitas', Icons.south_west_rounded,
+              AppColors.financeReceita),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGridTypeButton(
+      String value, String label, IconData icon, Color accent) {
+    final selected = _gridListTypeFilter == value;
+    return Expanded(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => setState(() {
+            _gridListTypeFilter = value;
+            _txDisplayLimit = _txPageSize;
+            _gridSelectionMode = false;
+            _gridSelectedIds.clear();
+          }),
+          borderRadius: BorderRadius.circular(16),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 6),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: selected
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [accent, Color.lerp(accent, Colors.white, 0.22)!],
+                    )
+                  : null,
+              color: selected ? null : context.appChipIdleBg,
+              border: Border.all(
+                color: selected
+                    ? accent.withValues(alpha: 0.55)
+                    : (context.isDarkMode
+                        ? context.appTextMuted.withValues(alpha: 0.35)
+                        : const Color(0xFFE2E8F0)),
+                width: selected ? 1.5 : 1,
+              ),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: accent.withValues(alpha: 0.28),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    FinancePremiumSituacaoToggle(
-                      confirmed: pagamentoConfirmado,
-                      isReceita: false,
-                      onChanged: (v) =>
-                          setDlgState(() => pagamentoConfirmado = v),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Só sai do saldo da conta quando estiver Pago.',
-                      style: TextStyle(
-                          fontSize: 11, color: Colors.grey.shade600),
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-                      ],
-                    ),
-                  ),
-                if (isTransfer)
-                  FinancePremiumSectionCard(
-                    title: 'Transferência entre contas',
-                    icon: Icons.swap_horiz_rounded,
-                    accent: pageAccent,
-                    child: FinancePremiumTransferAccountsSection(
-                      contas: contas,
-                      origemId: coId,
-                      destinoId: cdId,
-                      accent: pageAccent,
-                      onOrigemChanged: (v) => setDlgState(() => coId = v),
-                      onDestinoChanged: (v) => setDlgState(() => cdId = v),
-                    ),
-                  ),
-                const SizedBox(height: 16),
-                FinancePremiumSectionCard(
-                  title: isTransfer ? 'Anotações' : 'Descrição',
-                  icon: Icons.notes_rounded,
-                  accent: pageAccent,
-                  child: TextField(
-                  controller: descCtrl,
-                  decoration: financePremiumDropdownDecoration(
-                    label: isTransfer
-                        ? 'Anotações (opcional)'
-                        : 'Descrição (opcional)',
-                    prefixIcon: Icons.notes_rounded,
-                    accent: pageAccent,
-                  ),
-                  maxLines: 2,
-                ),
-                ),
-                if (!isTransfer) ...[
-                  const SizedBox(height: 16),
-                  FinancePremiumSectionCard(
-                    title: 'Informações adicionais',
-                    icon: Icons.more_horiz_rounded,
-                    accent: pageAccent,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                  TextField(
-                    controller: centroCustoCtrl,
-                    decoration: financePremiumDropdownDecoration(
-                      label: 'Centro de custo / projeto (opcional)',
-                      prefixIcon: Icons.hub_rounded,
-                      accent: pageAccent,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: extratoRefCtrl,
-                    decoration: financePremiumDropdownDecoration(
-                      label: 'Ref. extrato / ID bancário (opcional)',
-                      prefixIcon: Icons.tag_rounded,
-                      accent: pageAccent,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SwitchListTile(
-                    value: conciliado,
-                    onChanged: (v) => setDlgState(() => conciliado = v),
-                    title: const Text('Conciliado com extrato'),
-                    subtitle: const Text(
-                        'Marque após conferir com o extrato ou app do banco.'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                      ],
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                FinancePremiumSectionCard(
-                  title: 'Comprovante',
-                  icon: Icons.receipt_long_rounded,
-                  accent: pageAccent,
-                  child: FinanceComprovanteEditor(
-                    churchIdHint: effectiveTenantId,
-                    target: FinanceComprovanteEditorTarget.financeLancamento,
-                    canAdd: canComprovanteWrite,
-                    canChange: canComprovanteWrite,
-                    canRemove: canComprovanteWrite,
-                    lancamentoId: existingDoc?.id,
-                    referenceDate: dataSelLocal,
-                    existingData: isEdit ? data : null,
-                    onChanged: (snap) => comprovanteSnap = snap,
-                  ),
-                ),
-                      ],
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: pagePad.copyWith(top: 8, bottom: 12),
-                  child: FinancePremiumFormFooterActions(
-                    onCancel: () => Navigator.pop(ctx),
-                    onSave: submitLancamento,
-                    saveLabel:
-                        isEdit ? 'Salvar alterações' : 'Adicionar lançamento',
-                    saveIcon:
-                        isEdit ? Icons.save_rounded : Icons.check_rounded,
-                    accent: pageAccent,
+                    ]
+                  : null,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon,
+                    size: 20,
+                    color: selected ? Colors.white : AppColors.textMuted),
+                SizedBox(height: 4),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12.5,
+                    color: selected ? Colors.white : context.appTextPrimary,
                   ),
                 ),
               ],
             ),
           ),
-        );
+        ),
+      ),
+    );
+  }
+
+  /// Topo de ações/filtros — rola com a lista (paridade Agenda/Compromissos).
+  Widget _buildFinanceTopChrome(BuildContext context, {required bool isNarrow}) {
+    return AnimatedCrossFade(
+                  firstChild: Padding(
+                        padding:
+                            EdgeInsets.fromLTRB(12, isNarrow ? 4 : 2, 12, 0),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                children: [
+                                  // Receita | Despesa | Despesas fixas — gradientes e sombras (super premium)
+                                  Row(children: [
+                                    Expanded(
+                                        child: _buildPremiumReceitaButton(
+                                            context,
+                                            dense: false)),
+                                    SizedBox(width: 8),
+                                    Expanded(
+                                        child: _buildPremiumDespesaButton(
+                                            context,
+                                            dense: false)),
+                                  ]),
+                                  SizedBox(height: 8),
+                                  Row(children: [
+                                    Expanded(
+                                        child: _buildDespesasFixasButtonCompact(
+                                            context,
+                                            dense: false)),
+                                    SizedBox(width: 8),
+                                    Expanded(
+                                        child: _buildReceitasFixasButtonCompact(
+                                            context,
+                                            dense: false)),
+                                  ]),
+                                  SizedBox(height: 8),
+                                  _buildTransferenciaButton(context,
+                                      dense: false),
+                                  SizedBox(height: 10),
+                                  Material(
+                                    color: Colors.transparent,
+                                    borderRadius: BorderRadius.circular(16),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: InkWell(
+                                      onTap: widget.profile.hasActiveLicense
+                                          ? () => unawaited(
+                                              _abrirLancamentoInteligente())
+                                          : () => mostrarAvisoSeLicencaInativa(
+                                              context, widget.profile),
+                                      borderRadius: BorderRadius.circular(16),
+                                      child: Ink(
+                                        decoration: BoxDecoration(
+                                          borderRadius:
+                                              BorderRadius.circular(16),
+                                          gradient: const LinearGradient(
+                                            begin: Alignment.centerLeft,
+                                            end: Alignment.centerRight,
+                                            colors: [
+                                              AppColors.deepBlueDark,
+                                              AppColors.deepBlue,
+                                              AppColors.primary
+                                            ],
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: AppColors.primary
+                                                  .withValues(alpha: 0.35),
+                                              blurRadius: 14,
+                                              offset: const Offset(0, 5),
+                                            ),
+                                          ],
+                                        ),
+                                        child: Padding(
+                                          padding: EdgeInsets.symmetric(
+                                              vertical: 13, horizontal: 12),
+                                          child: Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              Icon(
+                                                  Icons
+                                                      .content_paste_go_rounded,
+                                                  size: 22,
+                                                  color: Colors.white),
+                                              SizedBox(width: 8),
+                                              Flexible(
+                                                child: Text(
+                                                  'Lançamento inteligente (texto / SMS)',
+                                                  textAlign: TextAlign.center,
+                                                  maxLines: 2,
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: 13.5,
+                                                    height: 1.2,
+                                                    letterSpacing: 0.1,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(height: 10),
+                                  // Filtros: só período/status/pesquisa; barra compacta do topo usa ícone à direita
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      Expanded(
+                                        child: Material(
+                                          color: Colors.transparent,
+                                          child: InkWell(
+                                            onTap: () => setState(() =>
+                                                _filtrosPainelAberto =
+                                                    !_filtrosPainelAberto),
+                                            borderRadius:
+                                                BorderRadius.circular(16),
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      vertical: 12,
+                                                      horizontal: 14),
+                                              decoration: context.isDarkMode
+                                                  ? context.appPanelDecoration(
+                                                      radius: 16,
+                                                      borderAccent:
+                                                          AppColors.primary,
+                                                    )
+                                                  : BoxDecoration(
+                                                      color: Colors.white,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              16),
+                                                      border: Border.all(
+                                                          color: AppColors
+                                                              .primary
+                                                              .withValues(
+                                                                  alpha: 0.12)),
+                                                      boxShadow: [
+                                                        BoxShadow(
+                                                          color: AppColors
+                                                              .deepBlueDark
+                                                              .withValues(
+                                                                  alpha: 0.07),
+                                                          blurRadius: 16,
+                                                          offset: const Offset(
+                                                              0, 6),
+                                                        ),
+                                                        BoxShadow(
+                                                          color: Colors.black
+                                                              .withValues(
+                                                                  alpha: 0.04),
+                                                          blurRadius: 8,
+                                                          offset: const Offset(
+                                                              0, 2),
+                                                        ),
+                                                      ],
+                                                    ),
+                                              child: Row(
+                                                children: [
+                                                  Container(
+                                                    padding:
+                                                        const EdgeInsets.all(8),
+                                                    decoration: BoxDecoration(
+                                                      gradient: LinearGradient(
+                                                        colors: [
+                                                          AppColors.primary
+                                                              .withValues(
+                                                                  alpha: 0.15),
+                                                          AppColors.accent
+                                                              .withValues(
+                                                                  alpha: 0.12),
+                                                        ],
+                                                        begin:
+                                                            Alignment.topLeft,
+                                                        end: Alignment
+                                                            .bottomRight,
+                                                      ),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              12),
+                                                    ),
+                                                    child: Icon(
+                                                      _filtrosPainelAberto
+                                                          ? Icons.tune_rounded
+                                                          : Icons
+                                                              .filter_alt_rounded,
+                                                      color: AppColors.primary,
+                                                      size: 22,
+                                                    ),
+                                                  ),
+                                                  SizedBox(width: 12),
+                                                  Expanded(
+                                                    child: Text(
+                                                      _filtrosPainelAberto
+                                                          ? 'Recolher filtros'
+                                                          : 'Filtros e pesquisa',
+                                                      style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color: context
+                                                              .appTextPrimary,
+                                                          fontSize: 14,
+                                                          letterSpacing: 0.1),
+                                                    ),
+                                                  ),
+                                                  Icon(
+                                                    _filtrosPainelAberto
+                                                        ? Icons
+                                                            .expand_less_rounded
+                                                        : Icons
+                                                            .expand_more_rounded,
+                                                    color: AppColors.primary
+                                                        .withValues(
+                                                            alpha: 0.85),
+                                                    size: 22,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      SizedBox(width: 6),
+                                      Tooltip(
+                                        message:
+                                            'Modo compacto (mais espaço para a lista)',
+                                        child: IconButton.filledTonal(
+                                          onPressed: () => setState(() {
+                                            _topoExpandido = false;
+                                            _filtrosPainelAberto = false;
+                                          }),
+                                          icon: Icon(Icons.unfold_less_rounded,
+                                              size: 22),
+                                          style: IconButton.styleFrom(
+                                            foregroundColor: AppColors.primary,
+                                            backgroundColor: AppColors.primary
+                                                .withValues(alpha: 0.12),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (_filtrosPainelAberto) ...[
+                                    SizedBox(height: 12),
+                                    Container(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          14, 14, 14, 12),
+                                      decoration: context.appPanelDecoration(
+                                          radius: 18,
+                                          borderAccent: AppColors.primary),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Icon(Icons.date_range_rounded,
+                                                  size: 18,
+                                                  color: AppColors.accent
+                                                      .withValues(alpha: 0.95)),
+                                              SizedBox(width: 8),
+                                              Text(
+                                                'Período',
+                                                style: TextStyle(
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.w900,
+                                                    color:
+                                                        context.appTextPrimary,
+                                                    letterSpacing: 0.2),
+                                              ),
+                                            ],
+                                          ),
+                                          SizedBox(height: 10),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: _periods.map((p) {
+                                              return _financePeriodChip(
+                                                period: p,
+                                                selected: _selectedPeriod == p,
+                                                onSelect: () {
+                                                  setState(() {
+                                                    _selectedPeriod = p;
+                                                    if (p == 'Por período' &&
+                                                        _customRangeStart ==
+                                                            null) {
+                                                      _customRangeStart =
+                                                          DateTime(
+                                                              DateTime.now()
+                                                                  .year,
+                                                              DateTime.now()
+                                                                  .month,
+                                                              1);
+                                                      _customRangeEnd =
+                                                          DateTime.now();
+                                                    }
+                                                    _applyPeriod();
+                                                  });
+                                                },
+                                              );
+                                            }).toList(),
+                                          ),
+                                          if (_selectedPeriod ==
+                                              'Por período') ...[
+                                            SizedBox(height: 12),
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: FilledButton.tonalIcon(
+                                                    onPressed: () async {
+                                                      final picked =
+                                                          await showDatePicker(
+                                                              context: context,
+                                                              initialDate:
+                                                                  _customRangeStart ??
+                                                                      _from,
+                                                              firstDate:
+                                                                  DateTime(
+                                                                      2000),
+                                                              lastDate:
+                                                                  DateTime(
+                                                                      2030));
+                                                      if (picked != null &&
+                                                          mounted) {
+                                                        setState(() {
+                                                          _customRangeStart =
+                                                              picked;
+                                                          _applyPeriod();
+                                                        });
+                                                      }
+                                                    },
+                                                    icon: Icon(
+                                                        Icons
+                                                            .calendar_today_rounded,
+                                                        size: 18),
+                                                    label: Text(
+                                                        'De ${DateFormat('dd/MM/yy').format(_customRangeStart ?? _from)}',
+                                                        style: const TextStyle(
+                                                            fontSize: 12,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w700)),
+                                                    style:
+                                                        FilledButton.styleFrom(
+                                                      foregroundColor:
+                                                          AppColors.primary,
+                                                      backgroundColor: AppColors
+                                                          .primary
+                                                          .withValues(
+                                                              alpha: 0.1),
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                          vertical: 12,
+                                                          horizontal: 8),
+                                                      shape:
+                                                          RoundedRectangleBorder(
+                                                              borderRadius:
+                                                                  BorderRadius
+                                                                      .circular(
+                                                                          14)),
+                                                    ),
+                                                  ),
+                                                ),
+                                                SizedBox(width: 8),
+                                                Expanded(
+                                                  child: FilledButton.tonalIcon(
+                                                    onPressed: () async {
+                                                      final picked =
+                                                          await showDatePicker(
+                                                              context: context,
+                                                              initialDate:
+                                                                  _customRangeEnd ??
+                                                                      _to,
+                                                              firstDate:
+                                                                  _customRangeStart ??
+                                                                      DateTime(
+                                                                          2000),
+                                                              lastDate:
+                                                                  DateTime(
+                                                                      2030));
+                                                      if (picked != null &&
+                                                          mounted) {
+                                                        setState(() {
+                                                          _customRangeEnd =
+                                                              picked;
+                                                          _applyPeriod();
+                                                        });
+                                                      }
+                                                    },
+                                                    icon: Icon(
+                                                        Icons.event_rounded,
+                                                        size: 18),
+                                                    label: Text(
+                                                        'Até ${DateFormat('dd/MM/yy').format(_customRangeEnd ?? _to)}',
+                                                        style: const TextStyle(
+                                                            fontSize: 12,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w700)),
+                                                    style:
+                                                        FilledButton.styleFrom(
+                                                      foregroundColor:
+                                                          AppColors.primary,
+                                                      backgroundColor: AppColors
+                                                          .primary
+                                                          .withValues(
+                                                              alpha: 0.1),
+                                                      padding: const EdgeInsets
+                                                          .symmetric(
+                                                          vertical: 12,
+                                                          horizontal: 8),
+                                                      shape:
+                                                          RoundedRectangleBorder(
+                                                              borderRadius:
+                                                                  BorderRadius
+                                                                      .circular(
+                                                                          14)),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                    SizedBox(height: 12),
+                                    RepaintBoundary(
+                                      child: LightFilterPicker<String>(
+                                        value: _statusFilter,
+                                        decoration:
+                                            _financeFilterDropdownDecoration(
+                                                'Status do lançamento',
+                                                Icons.filter_list_rounded),
+                                        label: 'Status do lançamento',
+                                        options: const [
+                                          LightFilterOption(
+                                              value: 'all',
+                                              label: 'Todos os status'),
+                                          LightFilterOption(
+                                              value: 'paid', label: 'Pago'),
+                                          LightFilterOption(
+                                              value: 'pending',
+                                              label: 'Pendente'),
+                                        ],
+                                        onChanged: (v) {
+                                          setState(() {
+                                            _statusFilter = v;
+                                            _resetTxPagination();
+                                          });
+                                          _requestMainPeriodReload();
+                                        },
+                                      ),
+                                    ),
+                                    SizedBox(height: 12),
+                                    RepaintBoundary(
+                                      child: Builder(
+                                        builder: (context) {
+                                          final accountFilterValid =
+                                              _financeAccountFilterId == null ||
+                                                  _financeAccounts.any((a) =>
+                                                      a.id ==
+                                                      _financeAccountFilterId);
+                                          final accountValue =
+                                              accountFilterValid
+                                                  ? _financeAccountFilterId
+                                                  : null;
+                                          final loadingAccounts =
+                                              !_financeAccountsStreamPrimed &&
+                                                  _financeAccounts.isEmpty;
+                                          return LightFilterPicker<String?>(
+                                            key: ValueKey<String?>(
+                                                'acct-$accountValue-${_financeAccounts.length}'),
+                                            value: accountValue,
+                                            enabled: !loadingAccounts,
+                                            label: 'Conta (banco ou cartão)',
+                                            decoration:
+                                                _financeFilterDropdownDecoration(
+                                                    'Conta (banco ou cartão)',
+                                                    Icons
+                                                        .account_balance_rounded),
+                                            options: [
+                                              const LightFilterOption<String?>(
+                                                value: null,
+                                                label: 'Todas as contas',
+                                              ),
+                                              if (loadingAccounts)
+                                                const LightFilterOption<
+                                                    String?>(
+                                                  enabled: false,
+                                                  value: '__loading__',
+                                                  label: 'A carregar contas…',
+                                                )
+                                              else
+                                                ..._financeAccounts.map(
+                                                  (a) => LightFilterOption<
+                                                      String?>(
+                                                    value: a.id,
+                                                    label: a.displayName,
+                                                  ),
+                                                ),
+                                            ],
+                                            onChanged: (v) {
+                                              if (v == '__loading__') return;
+                                              _applyFinanceAccountFilter(v);
+                                            },
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                    if (_financeAccountsStreamPrimed &&
+                                        _financeAccounts.isEmpty) ...[
+                                      SizedBox(height: 6),
+                                      Text(
+                                        'Sem contas cadastradas. Use Bancos e cartões para criar contas e filtrar por banco aqui.',
+                                        style: TextStyle(
+                                            fontSize: 11.5,
+                                            color: context.appTextMuted,
+                                            height: 1.35),
+                                      ),
+                                    ],
+                                    SizedBox(height: 12),
+                                    RepaintBoundary(
+                                      child: LightFilterPicker<String>(
+                                        value: _typeFilter,
+                                        label: 'Tipo de lançamento',
+                                        decoration:
+                                            _financeFilterDropdownDecoration(
+                                                'Tipo de lançamento',
+                                                Icons.swap_vert_rounded),
+                                        options: const [
+                                          LightFilterOption(
+                                              value: 'all',
+                                              label: 'Receitas e despesas'),
+                                          LightFilterOption(
+                                              value: 'income',
+                                              label: 'Só receitas'),
+                                          LightFilterOption(
+                                              value: 'expense',
+                                              label: 'Só despesas'),
+                                        ],
+                                        onChanged: (v) {
+                                          setState(() {
+                                            _typeFilter = v;
+                                            _resetTxPagination();
+                                          });
+                                          _requestMainPeriodReload();
+                                        },
+                                      ),
+                                    ),
+                                    SizedBox(height: 12),
+                                    FutureBuilder<List<String>>(
+                                      future: _categoryFilterOptionsFuture,
+                                      builder: (context, catSnap) {
+                                        final loading =
+                                            catSnap.connectionState ==
+                                                    ConnectionState.waiting &&
+                                                !catSnap.hasData;
+                                        String? displayCategory =
+                                            _categoryFilter;
+                                        if (_categoryFilter != null &&
+                                            catSnap.hasData) {
+                                          for (final o in catSnap.data!) {
+                                            if (FinanceCategoryMerger
+                                                .sameCategoryGroup(
+                                                    o, _categoryFilter!)) {
+                                              displayCategory = o;
+                                              break;
+                                            }
+                                          }
+                                        }
+                                        return FinanceCategoryFilterTile(
+                                          selectedCategory: displayCategory,
+                                          loading: loading,
+                                          onTap: _openCategoryFilterPicker,
+                                          onClear: _categoryFilter == null
+                                              ? null
+                                              : () => setState(() {
+                                                    _categoryFilter = null;
+                                                    _resetTxPagination();
+                                                  }),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                  ),
+                  secondChild: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                                child: _buildPremiumReceitaButton(context,
+                                    dense: true)),
+                            SizedBox(width: 8),
+                            Expanded(
+                                child: _buildPremiumDespesaButton(context,
+                                    dense: true)),
+                          ],
+                        ),
+                        SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                                child: _buildDespesasFixasButtonCompact(context,
+                                    dense: true)),
+                            SizedBox(width: 8),
+                            Expanded(
+                                child: _buildReceitasFixasButtonCompact(context,
+                                    dense: true)),
+                            SizedBox(width: 6),
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => setState(() {
+                                  _topoExpandido = true;
+                                  _filtrosPainelAberto = true;
+                                }),
+                                borderRadius: BorderRadius.circular(14),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 10, horizontal: 12),
+                                  decoration: context.isDarkMode
+                                      ? context.appPanelDecoration(
+                                          radius: 14,
+                                          borderAccent: AppColors.primary,
+                                        )
+                                      : BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          border: Border.all(
+                                              color: AppColors.primary
+                                                  .withValues(alpha: 0.12)),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: AppColors.deepBlueDark
+                                                  .withValues(alpha: 0.08),
+                                              blurRadius: 14,
+                                              offset: const Offset(0, 6),
+                                            ),
+                                          ],
+                                        ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: [
+                                              AppColors.primary
+                                                  .withValues(alpha: 0.85),
+                                              AppColors.accent
+                                                  .withValues(alpha: 0.9),
+                                            ],
+                                            begin: Alignment.topLeft,
+                                            end: Alignment.bottomRight,
+                                          ),
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                        ),
+                                        child: Icon(Icons.tune_rounded,
+                                            color: Colors.white, size: 18),
+                                      ),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'Filtros',
+                                        style: TextStyle(
+                                            fontWeight: FontWeight.w900,
+                                            color: AppColors.primary,
+                                            fontSize: 12,
+                                            letterSpacing: 0.2),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 8),
+                        _buildTransferenciaButton(context, dense: true),
+                        SizedBox(height: 8),
+                        Material(
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(16),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: widget.profile.hasActiveLicense
+                                ? () => unawaited(_abrirLancamentoInteligente())
+                                : () => mostrarAvisoSeLicencaInativa(
+                                    context, widget.profile),
+                            borderRadius: BorderRadius.circular(16),
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(16),
+                                gradient: const LinearGradient(
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                  colors: [
+                                    AppColors.deepBlueDark,
+                                    AppColors.deepBlue,
+                                    AppColors.primary
+                                  ],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppColors.primary
+                                        .withValues(alpha: 0.32),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                    vertical: 12, horizontal: 12),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.sms_outlined,
+                                        size: 22, color: Colors.white),
+                                    SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        'Lançamento por mensagem (SMS / banco)',
+                                        textAlign: TextAlign.center,
+                                        maxLines: 2,
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 13,
+                                          height: 1.2,
+                                          letterSpacing: 0.1,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  crossFadeState: _topoExpandido
+                      ? CrossFadeState.showFirst
+                      : CrossFadeState.showSecond,
+                  duration: const Duration(milliseconds: 250),
+                );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.isShellVisible) {
+      return ColoredBox(color: context.appScaffold);
+    }
+    final isNarrow = MediaQuery.sizeOf(context).width < 720;
+    // Sem pesquisa/categoria/conta: lista pode usar [where] + paginação no Firestore (menos dados).
+    // Com filtro «Pago» ou texto de pesquisa: período completo em lotes e filtros em memória.
+    // Na web, não subscrever até `currentUser` existir — com `request.auth` ausente, as regras negam leitura.
+    final String? sessionUid = _effectiveFinanceSessionUid;
+
+    final mq = MediaQuery.of(context);
+    final clampedScaler =
+        mq.textScaler.clamp(minScaleFactor: 0.88, maxScaleFactor: 1.34);
+
+    return PopScope(
+      canPop: _financeAccountFilterId == null,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop || _financeAccountFilterId == null) return;
+        _applyFinanceAccountFilter(null);
       },
-    ),
-    ),
-  );
+      child: MediaQuery(
+        data: mq.copyWith(textScaler: clampedScaler),
+        child: RepaintBoundary(
+          child: ModernModuleUI.bodyWithGradient(
+            context: context,
+            child: Builder(
+              builder: (context) {
+                final periodKey = '${_from.year}-${_from.month}-${_from.day}';
+                if (_saldoAberturaKey != periodKey) {
+                  _ensureSaldoAberturaForPeriod(_from);
+                }
+                if (sessionUid == null) {
+                  _scheduleFinanceSessionBootstrap();
+                  return ListView(
+                    controller: widget.shellScrollController,
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      _buildFinanceTopChrome(context, isNarrow: isNarrow),
+                      const SizedBox(height: 48),
+                      const Center(
+                        child: SizedBox(
+                          width: 32,
+                          height: 32,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'A ligar à sua conta…',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Center(
+                        child: OutlinedButton.icon(
+                          onPressed: () =>
+                              unawaited(_onRetryLoadTransactions()),
+                          icon: const Icon(Icons.refresh_rounded, size: 18),
+                          label: const Text('Tentar novamente'),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                      return KeyedSubtree(
+                        key: ValueKey(
+                          'txlist_${_txStreamRetryKey}_${_from.millisecondsSinceEpoch}_${_to.millisecondsSinceEpoch}_$_statusFilter|$_typeFilter|${_categoryFilter ?? ''}|${_financeAccountFilterId ?? ''}',
+                        ),
+                        child: Builder(
+                          builder: (context) {
+                            if (_mainPeriodLoadError != null) {
+                              return Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: SingleChildScrollView(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.error_outline_rounded,
+                                            size: 48,
+                                            color: Colors.orange.shade700),
+                                        SizedBox(height: 16),
+                                        Text(
+                                          'Erro ao carregar lançamentos.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w600),
+                                        ),
+                                        SizedBox(height: 8),
+                                        Text(
+                                          'Os seus dados não foram apagados. Isto costuma ser rede, sessão ou o filtro a esconder movimentos. '
+                                          'Use "Filtro Todos" (estado) e o botão de tentar de novo para recarregar a lista.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                              fontSize: 13,
+                                              color: context.appTextSecondary,
+                                              height: 1.35),
+                                        ),
+                                        SizedBox(height: 14),
+                                        Container(
+                                          constraints: const BoxConstraints(
+                                              maxWidth: 480),
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey.shade100,
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            border: Border.all(
+                                                color: Colors.grey.shade300),
+                                          ),
+                                          child: Theme(
+                                            data: Theme.of(context).copyWith(
+                                                dividerColor:
+                                                    Colors.transparent),
+                                            child: ExpansionTile(
+                                              tilePadding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 12),
+                                              childrenPadding:
+                                                  const EdgeInsets.fromLTRB(
+                                                      12, 0, 12, 12),
+                                              title: Text(
+                                                'Mostrar detalhe técnico (para o suporte)',
+                                                style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight:
+                                                        FontWeight.w600),
+                                              ),
+                                              children: [
+                                                SelectableText(
+                                                  _mainPeriodLoadError
+                                                      .toString(),
+                                                  style: TextStyle(
+                                                    fontSize: 11,
+                                                    color: context
+                                                        .appTextSecondary,
+                                                    fontFamily: 'monospace',
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                        SizedBox(height: 20),
+                                        Wrap(
+                                          spacing: 12,
+                                          runSpacing: 12,
+                                          alignment: WrapAlignment.center,
+                                          children: [
+                                            FilledButton.icon(
+                                              onPressed: () => setState(() {
+                                                _statusFilter = 'all';
+                                                _resetTxPagination();
+                                                _txStreamRetryKey++;
+                                              }),
+                                              icon: Icon(
+                                                  Icons.filter_list_rounded),
+                                              label: Text('Filtro Todos'),
+                                            ),
+                                            FilledButton.icon(
+                                              onPressed:
+                                                  _onRetryLoadTransactions,
+                                              icon: Icon(Icons.refresh_rounded),
+                                              label: Text('Tentar novamente'),
+                                            ),
+                                            OutlinedButton.icon(
+                                              onPressed: _onClearCacheAndRetry,
+                                              icon: Icon(Icons
+                                                  .cleaning_services_rounded),
+                                              label:
+                                                  Text('Limpar cache e tentar'),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+                            var docs = _dedupeMainPeriodDocs(_mainPeriodDocs)
+                                .where((doc) {
+                              final d = _txDataForMainPeriodDoc(doc);
+                              if (!_mainPeriodServerPagingActive) {
+                                // Filtro por status em memória (evita índice composto no Firestore)
+                                if (_statusFilter != 'all') {
+                                  final status =
+                                      (d['status'] ?? 'paid').toString();
+                                  if (status != _statusFilter) return false;
+                                }
+                                if (_typeFilter != 'all' &&
+                                    (d['type'] ?? 'expense').toString() !=
+                                        _typeFilter) {
+                                  return false;
+                                }
+                              }
+                              if (_categoryFilter != null) {
+                                final c =
+                                    (d['category'] ?? '').toString().trim();
+                                if (!FinanceCategoryMerger.sameCategoryGroup(
+                                    c, _categoryFilter!)) {
+                                  return false;
+                                }
+                              }
+                              if (_search.isNotEmpty) {
+                                final accLabel =
+                                    _financeAccountLabelForTx(d) ?? '';
+                                final text =
+                                    '${d['category'] ?? ''} ${d['description'] ?? ''} $accLabel'
+                                        .toLowerCase();
+                                if (!text.contains(_search)) return false;
+                              }
+                              if (_financeAccountFilterId != null) {
+                                final aid = (d['financeAccountId'] ?? '')
+                                    .toString()
+                                    .trim();
+                                if (aid != _financeAccountFilterId) {
+                                  return false;
+                                }
+                              }
+                              return true;
+                            }).toList();
 
-  if (result == null || !context.mounted) {
-    valorCtrl.dispose();
-    descCtrl.dispose();
-    dataCtrl.dispose();
-    centroCustoCtrl.dispose();
-    extratoRefCtrl.dispose();
-    return false;
-  }
+                            docs = FinanceFaturaTransactionSort.sortedDocs(
+                                docs, _gridSortMode);
 
-  try {
-    await _ensureFinanceWriteReady(context: context);
+                            if (docs.isEmpty) {
+                              // Mesmo com zero lançamentos no período (ex.: filtro "Pago" e só pendentes), mostra
+                              // pendentes + Saldos por conta + atalhos — paridade com Android/iOS e acesso a PIX/receita a confirmar.
+                              _ensureSaldoAberturaForPeriod(_from);
+                              final saldoAbertura =
+                                  _saldoAberturaCached?.total ?? 0.0;
+                              final openingByAccount =
+                                  _saldoAberturaCached?.byAccount ??
+                                      const <String, double>{};
+                              final saldoAcumulado = _saldoAcumuladoConsolidado(
+                                saldoAbertura: saldoAbertura,
+                                balancePeriodFallback: 0,
+                                periodNetByAccount: _stripPeriodNetPaidOverride,
+                                accountFilterId: _financeAccountFilterId,
+                                openingByAccount: openingByAccount,
+                              );
+                              final bottomPad = homeShellScrollBottomPadding(
+                                context,
+                                embeddedInHomeShell:
+                                    widget.shellScrollController != null,
+                                tail: 12,
+                              );
+                              return RefreshIndicator(
+                                onRefresh: () async {
+                                  await _reloadMainPeriodDocsPull();
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(const SnackBar(
+                                      content: Text(AppStrings.refreshUpdated),
+                                      duration: Duration(seconds: 1),
+                                      behavior: SnackBarBehavior.floating,
+                                    ));
+                                  }
+                                },
+                                child: ListView(
+                                  controller: widget.shellScrollController,
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  padding: EdgeInsets.only(bottom: bottomPad),
+                                  children: [
+                                    _buildFinanceTopChrome(context, isNarrow: isNarrow),
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          12, 8, 12, 4),
+                                      child:
+                                          _buildReceitasPendentesBand(context),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          12, 4, 12, 8),
+                                      child:
+                                          _buildDespesasPendentesBand(context),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          12, 4, 12, 8),
+                                      child: _buildFaturaEmAbertoBand(context),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 6),
+                                      child: _buildFinanceAccountsStrip(
+                                        context,
+                                        docs: const <QueryDocumentSnapshot<
+                                            Map<String, dynamic>>>[],
+                                        openingByAccount: openingByAccount,
+                                        saldoAcumuladoConsolidado:
+                                            saldoAcumulado,
+                                        semContaCount: 0,
+                                        stripPeriodNetPaidOverride:
+                                            _stripPeriodNetPaidOverride,
+                                      ),
+                                    ),
+                                    FinanceSmartTipsCompactBar(
+                                      onVejaMais: () =>
+                                          unawaited(_openSmartTipsPreviewSheet(
+                                        docs: const [],
+                                        totalIncome: 0,
+                                        totalExpense: 0,
+                                        balancePeriod: 0,
+                                      )),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                          24, 8, 24, 8),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (_mainPeriodLoading &&
+                                              _mainPeriodDocs.isEmpty)
+                                            Padding(
+                                              padding: EdgeInsets.symmetric(
+                                                  vertical: 24),
+                                              child: SkeletonListLoader(
+                                                  itemCount: 4, itemHeight: 72),
+                                            )
+                                          else ...[
+                                            Icon(
+                                                Icons
+                                                    .account_balance_wallet_rounded,
+                                                size: 64,
+                                                color: Colors.grey.shade400),
+                                            SizedBox(height: 16),
+                                            Text(
+                                              'Nenhum lançamento no período.',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                  fontSize: 16,
+                                                  color:
+                                                      context.appTextSecondary),
+                                            ),
+                                            SizedBox(height: 8),
+                                            Text(
+                                              'Adicione sua primeira receita ou despesa para começar.',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(
+                                                  fontSize: 14,
+                                                  color:
+                                                      context.appTextSecondary),
+                                            ),
+                                            SizedBox(height: 24),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment.center,
+                                              children: [
+                                                FilledButton.icon(
+                                                  icon: Icon(Icons.add_rounded,
+                                                      size: 20),
+                                                  label: Text('Receita'),
+                                                  onPressed: widget.profile
+                                                          .hasActiveLicense
+                                                      ? () => _addTx(
+                                                          context, 'income')
+                                                      : () =>
+                                                          mostrarAvisoSeLicencaInativa(
+                                                              context,
+                                                              widget.profile),
+                                                  style: FilledButton.styleFrom(
+                                                      backgroundColor:
+                                                          AppColors.success),
+                                                ),
+                                                SizedBox(width: 12),
+                                                FilledButton.icon(
+                                                  icon: Icon(
+                                                      Icons.remove_rounded,
+                                                      size: 20),
+                                                  label: Text('Despesa'),
+                                                  onPressed: widget.profile
+                                                          .hasActiveLicense
+                                                      ? () => _addTx(
+                                                          context, 'expense')
+                                                      : () =>
+                                                          mostrarAvisoSeLicencaInativa(
+                                                              context,
+                                                              widget.profile),
+                                                  style: FilledButton.styleFrom(
+                                                      backgroundColor:
+                                                          AppColors.error),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
 
-    if (isEdit) {
-      final pending = comprovanteSnap.pending;
-      if (comprovanteSnap.removeExisting) {
-        result.remove('comprovanteUrl');
-        result.remove('comprovanteLink');
-        result.remove('comprovanteStoragePath');
-        result.remove('comprovanteMimeType');
-        result.remove('comprovanteFileName');
-        result['hasComprovante'] = false;
-      } else if (pending == null &&
-          FinanceComprovanteAttachService.hasComprovanteInDoc(data ?? {})) {
-        result['comprovanteUrl'] = data?['comprovanteUrl'];
-        result['comprovanteLink'] =
-            data?['comprovanteLink'] ?? data?['comprovanteUrl'];
-        result['comprovanteStoragePath'] = data?['comprovanteStoragePath'];
-        result['comprovanteMimeType'] = data?['comprovanteMimeType'];
-        result['comprovanteFileName'] = data?['comprovanteFileName'];
-        result['hasComprovante'] = data?['hasComprovante'] ?? true;
-      } else if (pending != null) {
-        result.remove('comprovanteUrl');
-        result.remove('comprovanteLink');
-      }
-      final patch = Map<String, dynamic>.from(result);
-      final tt = (patch['type'] ?? '').toString();
-      if (tt == 'entrada') {
-        patch['contaOrigemId'] = FieldValue.delete();
-        patch['contaOrigemNome'] = FieldValue.delete();
-        patch['pagamentoConfirmado'] = FieldValue.delete();
-      } else if (tt == 'saida') {
-        patch['contaDestinoId'] = FieldValue.delete();
-        patch['contaDestinoNome'] = FieldValue.delete();
-        patch['recebimentoConfirmado'] = FieldValue.delete();
-      } else if (tt == 'transferencia') {
-        patch['pagamentoConfirmado'] = FieldValue.delete();
-        patch['recebimentoConfirmado'] = FieldValue.delete();
-        patch['fornecedorId'] = FieldValue.delete();
-        patch['fornecedorNome'] = FieldValue.delete();
-        patch['membroId'] = FieldValue.delete();
-        patch['membroNome'] = FieldValue.delete();
-      }
-      if (tt != 'transferencia') {
-        final fid = patch['fornecedorId'];
-        if (fid == null ||
-            (fid is String && fid.toString().trim().isEmpty)) {
-          patch['fornecedorId'] = FieldValue.delete();
-          patch['fornecedorNome'] = FieldValue.delete();
-        }
-        final mid = patch['membroId'];
-        if (mid == null ||
-            (mid is String && mid.toString().trim().isEmpty)) {
-          patch['membroId'] = FieldValue.delete();
-          patch['membroNome'] = FieldValue.delete();
-        }
-      }
-      await FinanceComprovantePublishService.saveLancamentoFirst(
-        financeCol: financeCol,
-        payload: patch,
-        isEdit: true,
-        existingRef: existingDoc.reference,
-        hasNewComprovante: false,
-        previousPayloadForSaldo: data,
-      );
-      if (comprovanteSnap.removeExisting) {
-        await FinanceComprovanteUpdateService.removeFinanceLancamentoStrict(
-          churchIdHint: tenantId,
-          docRef: existingDoc.reference,
-          data: data ?? {},
-        );
-      }
-      final pendingComp = comprovanteSnap.pending;
-      if (pendingComp != null) {
-        if (!context.mounted) return true;
-        final attached = await FinanceComprovanteAttachFlow.attachToLancamento(
-          context: context,
-          tenantId: tenantId,
-          docRef: existingDoc.reference,
-          docData: {...?data, ...patch},
-          prePicked: pendingComp,
-          showPickSheet: false,
-          suppressSuccessSnackBar: true,
-        );
-        if (!attached) return false;
-      }
-      if (context.mounted) {
-        showFinanceSaveSnackBar(
-          context,
-          message: pendingComp != null || comprovanteSnap.removeExisting
-              ? 'Lançamento e comprovante actualizados!'
-              : 'Lançamento atualizado!',
-        );
-      }
-    } else {
-      final preRef = financeCol.doc();
+                            final semContaAdv = _countTxSemConta(docs);
 
-      await FinanceComprovantePublishService.saveLancamentoFirst(
-        financeCol: financeCol,
-        payload: result,
-        isEdit: false,
-        preGeneratedRef: preRef,
-        hasNewComprovante: false,
-      );
+                            final paidTotals = _sumPeriodTotalsFromDocs(docs,
+                                statusFilter: 'paid');
+                            double totalIncome = paidTotals.income;
+                            double totalExpense = paidTotals.expense;
+                            final sk =
+                                _mainPeriodServerKpis ?? _periodMergedKpis;
+                            if (sk != null) {
+                              totalIncome = sk.income;
+                              totalExpense = sk.expense;
+                            }
+                            final periodNetPaid = _periodNetPaidConsolidated(
+                              fallbackFromVisiblePaidDocs:
+                                  paidTotals.income - paidTotals.expense,
+                              serverKpis: sk,
+                            );
+                            final balance = periodNetPaid;
 
-      final pendingAdd = comprovanteSnap.pending;
-      if (pendingAdd != null) {
-        if (!context.mounted) return true;
-        final attached = await FinanceComprovanteAttachFlow.attachToLancamento(
-          context: context,
-          tenantId: tenantId,
-          docRef: preRef,
-          docData: result,
-          prePicked: pendingAdd,
-          showPickSheet: false,
-          suppressSuccessSnackBar: true,
-        );
-        if (!attached) return false;
-      }
-      if (context.mounted) {
-        showFinanceSaveSnackBar(
-          context,
-          message: pendingAdd != null
-              ? 'Lançamento e comprovante gravados!'
-              : 'Lançamento salvo!',
-        );
-      }
-    }
-    unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
-    return true;
-  } catch (e) {
-    if (_financeTreatSilentSuccess(context, e, tenantId: tenantId)) {
-      return true;
-    }
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(formatFirebaseErrorForUser(e)),
-          backgroundColor: ThemeCleanPremium.error,
-        ),
-      );
-    }
-    return false;
-  } finally {
-    valorCtrl.dispose();
-    descCtrl.dispose();
-    dataCtrl.dispose();
-    centroCustoCtrl.dispose();
-    extratoRefCtrl.dispose();
-  }
-}
+                            _ensureSaldoAberturaForPeriod(_from);
+                            final openingByAccount =
+                                _saldoAberturaCached?.byAccount ??
+                                    const <String, double>{};
+                            final accountFilterId =
+                                _financeAccountFilterId?.trim();
+                            final saldoAbertura = accountFilterId != null &&
+                                    accountFilterId.isNotEmpty
+                                ? (openingByAccount[accountFilterId] ?? 0.0)
+                                : (_saldoAberturaCached?.total ?? 0.0);
+                            final saldoAcumulado = _saldoAcumuladoConsolidado(
+                              saldoAbertura: saldoAbertura,
+                              balancePeriodFallback: balance,
+                              periodNetByAccount: _stripPeriodNetPaidOverride,
+                              accountFilterId: accountFilterId,
+                              openingByAccount: openingByAccount,
+                            );
 
-Future<void> removeFinanceComprovanteForLancamento(
-  BuildContext context, {
-  required String tenantId,
-  required DocumentSnapshot<Map<String, dynamic>> doc,
-  VoidCallback? onChanged,
-}) async {
-  final data = doc.data() ?? {};
-  if (!FinanceComprovanteAttachService.hasComprovanteInDoc(data)) return;
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-      ),
-      title: const Text('Remover comprovante'),
-      content: const Text(
-        'O comprovante será removido deste lançamento e apagado do armazenamento.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(ctx, false),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: ThemeCleanPremium.error,
+                            final bottomPad = homeShellScrollBottomPadding(
+                              context,
+                              embeddedInHomeShell:
+                                  widget.shellScrollController != null,
+                              tail: 12,
+                            );
+                            final gridDocs = _filterDocsForGridListType(docs);
+                            final nShow = gridDocs.length < _txDisplayLimit
+                                ? gridDocs.length
+                                : _txDisplayLimit;
+                            final docsVisible = nShow == gridDocs.length
+                                ? gridDocs
+                                : gridDocs.sublist(0, nShow);
+                            final hasMoreTx =
+                                gridDocs.length > docsVisible.length;
+
+                            return RefreshIndicator(
+                              onRefresh: () async {
+                                await _reloadMainPeriodDocsPull();
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context)
+                                      .showSnackBar(const SnackBar(
+                                    content: Text(AppStrings.refreshUpdated),
+                                    duration: Duration(seconds: 1),
+                                    behavior: SnackBarBehavior.floating,
+                                  ));
+                                }
+                              },
+                              child: CustomScrollView(
+                                controller: widget.shellScrollController,
+                                physics: const AlwaysScrollableScrollPhysics(),
+                                slivers: [
+                                  SliverList(
+                                    delegate: SliverChildListDelegate([
+                                      _buildFinanceTopChrome(context, isNarrow: isNarrow),
+                                      if (_mainPeriodPullRefreshing &&
+                                          _mainPeriodLoading)
+                                        Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                              12, 0, 12, 10),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.stretch,
+                                            children: [
+                                              ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                                child: LinearProgressIndicator(
+                                                    minHeight: 4,
+                                                    color: AppColors.primary),
+                                              ),
+                                              SizedBox(height: 6),
+                                              Text(
+                                                'A sincronizar lançamentos… $_mainPeriodLoadedCount',
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: context
+                                                        .appTextSecondary),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      // Despesas e receitas pendentes (igual painel)
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            12, 8, 12, 4),
+                                        child: _buildReceitasPendentesBand(
+                                            context),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            12, 4, 12, 8),
+                                        child: _buildDespesasPendentesBand(
+                                            context),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            12, 4, 12, 8),
+                                        child:
+                                            _buildFaturaEmAbertoBand(context),
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 6),
+                                        child: _buildFinanceAccountsStrip(
+                                          context,
+                                          docs: _mainPeriodDocs,
+                                          openingByAccount: openingByAccount,
+                                          saldoAcumuladoConsolidado:
+                                              saldoAcumulado,
+                                          semContaCount: semContaAdv,
+                                          stripPeriodNetPaidOverride:
+                                              _stripPeriodNetPaidOverride,
+                                        ),
+                                      ),
+                                      _buildFinanceMainKpiSection(
+                                        saldoAbertura: saldoAbertura,
+                                        totalIncome: totalIncome,
+                                        totalExpense: totalExpense,
+                                        saldoAcumulado: saldoAcumulado,
+                                      ),
+                                      FinanceSmartTipsCompactBar(
+                                        onVejaMais: () => unawaited(
+                                            _openSmartTipsPreviewSheet(
+                                          docs: docs,
+                                          totalIncome: totalIncome,
+                                          totalExpense: totalExpense,
+                                          balancePeriod: balance,
+                                        )),
+                                      ),
+                                      if (docs.isNotEmpty)
+                                        _buildGridListTypeBar(),
+                                      if (docs.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                              12, 0, 12, 8),
+                                          child: FinanceTransactionSortBar(
+                                            value: _gridSortMode,
+                                            onChanged: (mode) => setState(
+                                                () => _gridSortMode = mode),
+                                          ),
+                                        ),
+                                      if (docs.isNotEmpty && gridDocs.isEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                              24, 16, 24, 8),
+                                          child: Text(
+                                            _gridListTypeFilter == 'income'
+                                                ? 'Nenhuma receita no período com os filtros atuais.'
+                                                : 'Nenhuma despesa no período com os filtros atuais.',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                                fontSize: 14,
+                                                color: context.appTextMuted,
+                                                fontWeight: FontWeight.w600),
+                                          ),
+                                        ),
+                                      if (gridDocs.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                              12, 8, 12, 8),
+                                          child: Material(
+                                            color: context.isDarkMode
+                                                ? context.appDarkModuleSurface
+                                                : Colors.white,
+                                            elevation:
+                                                context.isDarkMode ? 0 : 2,
+                                            surfaceTintColor: context.isDarkMode
+                                                ? context.appDarkModuleSurface
+                                                : Colors.white,
+                                            shadowColor: AppColors.deepBlueDark
+                                                .withValues(alpha: 0.12),
+                                            borderRadius:
+                                                BorderRadius.circular(16),
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 6),
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                      Icons
+                                                          .receipt_long_rounded,
+                                                      size: 22,
+                                                      color: AppColors.primary
+                                                          .withValues(
+                                                              alpha: 0.9)),
+                                                  SizedBox(width: 8),
+                                                  Expanded(
+                                                    child: Text(
+                                                      hasMoreTx
+                                                          ? '${docsVisible.length} de ${gridDocs.length} lançamentos'
+                                                          : '${gridDocs.length} lançamento(s)',
+                                                      style: TextStyle(
+                                                          fontSize: 13,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color: context
+                                                              .appTextPrimary),
+                                                    ),
+                                                  ),
+                                                  if (!_gridSelectionMode) ...[
+                                                    IconButton.filledTonal(
+                                                      tooltip:
+                                                          'Lista em tela cheia com filtros',
+                                                      onPressed: () =>
+                                                          _openFullscreenLancamentos(
+                                                              context),
+                                                      icon: Icon(
+                                                          Icons
+                                                              .open_in_full_rounded,
+                                                          size: 22),
+                                                      style:
+                                                          IconButton.styleFrom(
+                                                        foregroundColor:
+                                                            AppColors.primary,
+                                                        backgroundColor:
+                                                            AppColors.primary
+                                                                .withValues(
+                                                                    alpha:
+                                                                        0.14),
+                                                        surfaceTintColor:
+                                                            Colors.transparent,
+                                                        shape:
+                                                            RoundedRectangleBorder(
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(14),
+                                                          side: BorderSide(
+                                                              color: AppColors
+                                                                  .primary
+                                                                  .withValues(
+                                                                      alpha:
+                                                                          0.26),
+                                                              width: 1),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    FilledButton.tonalIcon(
+                                                      onPressed: () => setState(
+                                                          () =>
+                                                              _gridSelectionMode =
+                                                                  true),
+                                                      icon: Icon(
+                                                          Icons
+                                                              .checklist_rounded,
+                                                          size: 20),
+                                                      label: Text(
+                                                        'Selecionar',
+                                                        style: TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          fontSize: 13,
+                                                          color:
+                                                              AppColors.primary,
+                                                          letterSpacing: 0.15,
+                                                        ),
+                                                      ),
+                                                      style:
+                                                          _financeToolbarTonalFilledStyle(),
+                                                    ),
+                                                  ] else
+                                                    Expanded(
+                                                      child: Builder(
+                                                        builder: (context) {
+                                                          final pendingToConfirm =
+                                                              _gridSelectedPendingIdsAmong(
+                                                                  docsVisible);
+                                                          return Wrap(
+                                                            spacing: 8,
+                                                            runSpacing: 6,
+                                                            alignment:
+                                                                WrapAlignment
+                                                                    .end,
+                                                            children: [
+                                                              FilledButton
+                                                                  .tonal(
+                                                                onPressed: () =>
+                                                                    setState(
+                                                                        () {
+                                                                  _gridSelectionMode =
+                                                                      false;
+                                                                  _gridSelectedIds
+                                                                      .clear();
+                                                                }),
+                                                                style:
+                                                                    _financeToolbarTonalFilledStyle(),
+                                                                child: Text(
+                                                                  'Cancelar',
+                                                                  style:
+                                                                      TextStyle(
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w800,
+                                                                    fontSize:
+                                                                        13,
+                                                                    color: AppColors
+                                                                        .primary,
+                                                                    letterSpacing:
+                                                                        0.15,
+                                                                  ),
+                                                                ),
+                                                              ),
+                                                              TextButton(
+                                                                onPressed: () {
+                                                                  final pending =
+                                                                      <String>[];
+                                                                  for (final doc
+                                                                      in docsVisible) {
+                                                                    final d =
+                                                                        _txDataForMainPeriodDoc(
+                                                                            doc);
+                                                                    if ((d['status'] ??
+                                                                                'paid')
+                                                                            .toString() ==
+                                                                        'pending') {
+                                                                      pending.add(
+                                                                          doc.id);
+                                                                    }
+                                                                  }
+                                                                  if (pending
+                                                                      .isEmpty) {
+                                                                    ScaffoldMessenger.of(
+                                                                            context)
+                                                                        .showSnackBar(
+                                                                      const SnackBar(
+                                                                          content:
+                                                                              Text('Nenhum pendente na lista visível.')),
+                                                                    );
+                                                                    return;
+                                                                  }
+                                                                  setState(() {
+                                                                    _gridSelectedIds
+                                                                      ..clear()
+                                                                      ..addAll(
+                                                                          pending);
+                                                                  });
+                                                                },
+                                                                child: Text(
+                                                                    'Sel. pendentes'),
+                                                              ),
+                                                              if (pendingToConfirm
+                                                                  .isNotEmpty)
+                                                                FilledButton
+                                                                    .icon(
+                                                                  onPressed:
+                                                                      () async {
+                                                                    await _confirmarPagamentoEmLote(
+                                                                      context,
+                                                                      pendingToConfirm,
+                                                                      successSnackBar: pendingToConfirm.length >
+                                                                              1
+                                                                          ? '${pendingToConfirm.length} lançamentos confirmados.'
+                                                                          : 'Lançamento confirmado.',
+                                                                    );
+                                                                    if (mounted) {
+                                                                      setState(
+                                                                          () {
+                                                                        _gridSelectionMode =
+                                                                            false;
+                                                                        _gridSelectedIds
+                                                                            .clear();
+                                                                      });
+                                                                    }
+                                                                  },
+                                                                  icon: Icon(
+                                                                      Icons
+                                                                          .done_all_rounded,
+                                                                      size: 20),
+                                                                  label: Text(
+                                                                      'Confirmar (${pendingToConfirm.length})'),
+                                                                  style: FilledButton
+                                                                      .styleFrom(
+                                                                    backgroundColor:
+                                                                        AppColors
+                                                                            .success,
+                                                                    foregroundColor:
+                                                                        Colors
+                                                                            .white,
+                                                                    minimumSize:
+                                                                        const Size(
+                                                                            48,
+                                                                            48),
+                                                                    tapTargetSize:
+                                                                        MaterialTapTargetSize
+                                                                            .padded,
+                                                                  ),
+                                                                ),
+                                                              if (_gridSelectedIds
+                                                                  .isNotEmpty)
+                                                                FilledButton
+                                                                    .icon(
+                                                                  onPressed:
+                                                                      () async {
+                                                                    final confirm =
+                                                                        await showDialog<
+                                                                            bool>(
+                                                                      context:
+                                                                          context,
+                                                                      builder:
+                                                                          (ctx) =>
+                                                                              AlertDialog(
+                                                                        title: Text(
+                                                                            'Excluir selecionados?'),
+                                                                        content:
+                                                                            Text(
+                                                                          '${_gridSelectedIds.length} lançamento(s) serão excluídos. Esta ação não pode ser desfeita.',
+                                                                        ),
+                                                                        actions: [
+                                                                          TextButton(
+                                                                              onPressed: () => Navigator.pop(ctx, false),
+                                                                              child: Text('Cancelar')),
+                                                                          FilledButton(
+                                                                            onPressed: () =>
+                                                                                Navigator.pop(ctx, true),
+                                                                            style:
+                                                                                FilledButton.styleFrom(backgroundColor: AppColors.error),
+                                                                            child:
+                                                                                Text('Excluir'),
+                                                                          ),
+                                                                        ],
+                                                                      ),
+                                                                    );
+                                                                    if (confirm ==
+                                                                            true &&
+                                                                        mounted) {
+                                                                      await _deleteTxBatch(
+                                                                          context,
+                                                                          _gridSelectedIds
+                                                                              .toList());
+                                                                      if (mounted) {
+                                                                        setState(
+                                                                            () {
+                                                                          _gridSelectionMode =
+                                                                              false;
+                                                                          _gridSelectedIds
+                                                                              .clear();
+                                                                        });
+                                                                      }
+                                                                    }
+                                                                  },
+                                                                  icon: Icon(
+                                                                      Icons
+                                                                          .delete_outline_rounded,
+                                                                      size: 20),
+                                                                  label: Text(
+                                                                      'Excluir (${_gridSelectedIds.length})'),
+                                                                  style: FilledButton
+                                                                      .styleFrom(
+                                                                    backgroundColor:
+                                                                        AppColors
+                                                                            .error,
+                                                                    minimumSize:
+                                                                        const Size(
+                                                                            48,
+                                                                            48),
+                                                                    tapTargetSize:
+                                                                        MaterialTapTargetSize
+                                                                            .padded,
+                                                                  ),
+                                                                ),
+                                                            ],
+                                                          );
+                                                        },
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ]),
+                                  ),
+                                  // Lançamentos: lista lazy (constrói só o que aparece). Antes
+                                  // montava até 150 tiles de uma vez (jank no Android ao rolar/filtrar).
+                                  SliverList(
+                                    delegate: SliverChildBuilderDelegate(
+                                      (context, i) {
+                                        final showHeader = i == 0 ||
+                                            _transactionCalendarDay(
+                                                    _txDataForMainPeriodDoc(
+                                                        docsVisible[i - 1])) !=
+                                                _transactionCalendarDay(
+                                                    _txDataForMainPeriodDoc(
+                                                        docsVisible[i]));
+                                        final tile = FinanceTransactionListTile(
+                                          doc: docsVisible[i],
+                                          overrideData: _optimisticEditedTxById[
+                                              docsVisible[i].id],
+                                          profile: widget.profile,
+                                          financeAccounts: _financeAccounts,
+                                          gridSelectionMode: _gridSelectionMode,
+                                          isSelected: _gridSelectedIds
+                                              .contains(docsVisible[i].id),
+                                          optimisticPaidIds: _optimisticPaidIds,
+                                          onToggleSelection: () => setState(() {
+                                            final id = docsVisible[i].id;
+                                            if (_gridSelectedIds.contains(id)) {
+                                              _gridSelectedIds.remove(id);
+                                            } else {
+                                              _gridSelectedIds.add(id);
+                                            }
+                                          }),
+                                          onEdit: _editTx,
+                                          onDelete: _deleteTx,
+                                          onConfirmPayment: _confirmarPagamento,
+                                          onAttachReceipt: _attachReceipt,
+                                        );
+                                        if (!showHeader) return tile;
+                                        return Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            _financeDayHeader(
+                                                _transactionCalendarDay(
+                                                    _txDataForMainPeriodDoc(
+                                                        docsVisible[i]))),
+                                            tile,
+                                          ],
+                                        );
+                                      },
+                                      childCount: docsVisible.length,
+                                      addAutomaticKeepAlives: false,
+                                    ),
+                                  ),
+                                  SliverPadding(
+                                    padding: EdgeInsets.only(bottom: bottomPad),
+                                    sliver: SliverList(
+                                      delegate: SliverChildListDelegate([
+                                        if (hasMoreTx)
+                                          Padding(
+                                            padding: const EdgeInsets.fromLTRB(
+                                                12, 4, 12, 12),
+                                            child: Center(
+                                              child: FilledButton.tonalIcon(
+                                                onPressed: () => setState(() =>
+                                                    _txDisplayLimit +=
+                                                        _txPageSize),
+                                                icon: Icon(
+                                                    Icons.expand_more_rounded),
+                                                label: Text(
+                                                    'Carregar mais (${docs.length - docsVisible.length} restantes)'),
+                                                style:
+                                                    _financeToolbarTonalFilledStyle(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 20,
+                                                      vertical: 14),
+                                                  visualDensity:
+                                                      VisualDensity.standard,
+                                                  minimumSize:
+                                                      const Size(48, 48),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        if (_mainPeriodServerPagingActive &&
+                                            _mainPeriodHasMoreServer)
+                                          Padding(
+                                            padding: const EdgeInsets.fromLTRB(
+                                                12, 0, 12, 16),
+                                            child: Center(
+                                              child: FilledButton.tonalIcon(
+                                                onPressed: _mainPeriodLoadingMore
+                                                    ? null
+                                                    : () => unawaited(
+                                                        _loadMoreMainPeriodFirestore(
+                                                            sessionUid)),
+                                                icon: _mainPeriodLoadingMore
+                                                    ? SizedBox(
+                                                        width: 18,
+                                                        height: 18,
+                                                        child:
+                                                            CircularProgressIndicator(
+                                                                strokeWidth: 2),
+                                                      )
+                                                    : Icon(Icons
+                                                        .cloud_download_outlined),
+                                                label: Text(
+                                                  _mainPeriodLoadingMore
+                                                      ? 'A carregar…'
+                                                      : 'Carregar mais do servidor ($_kMainPeriodFirestorePageSize por pedido)',
+                                                ),
+                                                style:
+                                                    _financeToolbarTonalFilledStyle(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 18,
+                                                      vertical: 14),
+                                                  visualDensity:
+                                                      VisualDensity.standard,
+                                                  minimumSize:
+                                                      const Size(48, 48),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ]),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  ),
           ),
-          onPressed: () => Navigator.pop(ctx, true),
-          child: const Text('Remover'),
         ),
-      ],
-    ),
-  );
-  if (ok != true || !context.mounted) return;
-  try {
-    await _ensureFinanceWriteReady(context: context);
-    await FinanceComprovanteUpdateService.removeFinanceLancamentoStrict(
-      churchIdHint: tenantId,
-      docRef: doc.reference,
-      data: data,
+      ),
     );
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      ThemeCleanPremium.successSnackBar('Comprovante removido.'),
-    );
-    onChanged?.call();
-    unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
-  } catch (e) {
-    if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          ChurchMediaUploadFacade.mensagemAmigavel(e),
-        ),
-      );
-    }
   }
 }
 
-Future<void> uploadFinanceComprovanteForLancamento(
-  BuildContext context, {
-  required String tenantId,
-  required DocumentSnapshot<Map<String, dynamic>> doc,
-}) async {
-  await FinanceComprovanteAttachFlow.attachToLancamento(
-    context: context,
-    tenantId: tenantId,
-    docRef: doc.reference,
-    docData: doc.data(),
-  );
+/// Sheet de receitas ou despesas pendentes com modo seleção e exclusão em lote.
+class _PendingListSheetContent extends StatefulWidget {
+  final String title;
+  final Color iconColor;
+  final List<Map<String, dynamic>> list;
+  final ScrollController scrollController;
+  final String emptyMessage;
+  final Widget Function(
+    BuildContext context,
+    Map<String, dynamic> e, {
+    bool selectionMode,
+    bool isSelected,
+    VoidCallback? onToggleSelect,
+    required void Function(String id) removeFromSheet,
+    required void Function(String id, Map<String, dynamic> patch) patchInSheet,
+  }) buildItem;
+  final Future<void> Function(List<String> ids) onDeleteBatch;
+
+  /// Confirma pagamento/recebimento dos IDs selecionados (opcional).
+  final Future<void> Function(BuildContext sheetContext, List<String> ids)?
+      onConfirmBatch;
+  final String batchConfirmShortLabel;
+
+  const _PendingListSheetContent({
+    required this.title,
+    required this.iconColor,
+    required this.list,
+    required this.scrollController,
+    required this.emptyMessage,
+    required this.buildItem,
+    required this.onDeleteBatch,
+    this.onConfirmBatch,
+    this.batchConfirmShortLabel = 'Confirmar',
+  });
+
+  @override
+  State<_PendingListSheetContent> createState() =>
+      _PendingListSheetContentState();
 }
 
-void showFinanceLancamentoDetailsBottomSheet(
-  BuildContext context, {
-  required Map<String, dynamic> data,
-  required String comprovanteUrl,
-  required String dataStr,
-  required bool isEntrada,
-  required bool isTransfer,
-  required Color color,
-  required double valor,
-  required String titulo,
-  required String subtitulo,
-}) {
-  final tipoLabel =
-      isTransfer ? 'Transferência' : (isEntrada ? 'Receita' : 'Despesa');
-  final origemNome = (data['contaOrigemNome'] ?? '').toString();
-  final destinoNome = (data['contaDestinoNome'] ?? '').toString();
-  showModalBottomSheet(
-    context: context,
-    shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-    builder: (ctx) => Padding(
-      padding: const EdgeInsets.all(24),
+class _PendingListSheetContentState extends State<_PendingListSheetContent> {
+  bool _selectionMode = false;
+  final Set<String> _selectedIds = {};
+  bool _deletingBatch = false;
+  bool _confirmingBatch = false;
+  late List<Map<String, dynamic>> _items;
+
+  @override
+  void initState() {
+    super.initState();
+    _items = widget.list
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(growable: true);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (await shouldShowSheetSelectionHint() && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(AppStrings.sheetSelectionHint),
+          behavior: SnackBarBehavior.floating,
+        ));
+        markSheetSelectionHintShown();
+      }
+    });
+  }
+
+  void _removeFromSheet(String id) {
+    if (!mounted || id.isEmpty) return;
+    setState(() {
+      _items.removeWhere((e) => (e['id'] ?? '').toString() == id);
+      _selectedIds.remove(id);
+    });
+    if (_items.isEmpty && mounted) {
+      Navigator.of(context).maybePop();
+    }
+  }
+
+  void _patchInSheet(String id, Map<String, dynamic> patch) {
+    if (!mounted || id.isEmpty) return;
+    final st = (patch['status'] ?? '').toString();
+    if (st.isNotEmpty && st != 'pending') {
+      _removeFromSheet(id);
+      return;
+    }
+    setState(() {
+      final i = _items.indexWhere((e) => (e['id'] ?? '').toString() == id);
+      if (i < 0) return;
+      _items[i] = {..._items[i], ...patch, 'id': id};
+    });
+  }
+
+  double get _totalValue => _items.fold<double>(
+      0, (s, e) => s + ((e['amount'] ?? 0) as num).toDouble().abs());
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomPadding = MediaQuery.paddingOf(context).bottom;
+    // Layout em duas linhas (título + botões) em telas < 420px e sempre em modo seleção, para evitar título quebrado
+    final width = MediaQuery.sizeOf(context).width;
+    final useTwoRowHeader = width < 420 || _selectionMode;
+    return Container(
+      decoration: financePremiumSheetDecoration(context: context),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(height: 8),
+            Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2))),
+            // Topo do preview: «Voltar» (esquerda) + X (direita).
+            buildFinancePreviewTopBar(context),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: useTwoRowHeader
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                  color:
+                                      widget.iconColor.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(14)),
+                              child: Icon(Icons.schedule_rounded,
+                                  color: widget.iconColor, size: 28),
+                            ),
+                            SizedBox(width: 14),
+                            Expanded(
+                                child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(widget.title,
+                                    style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w800,
+                                        color: context.appTextPrimary),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis),
+                                if ((_items.isNotEmpty))
+                                  Text(
+                                      'Total: ${CurrencyFormats.formatBRL(_totalValue)}',
+                                      style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                          color: widget.iconColor)),
+                              ],
+                            )),
+                          ],
+                        ),
+                        SizedBox(height: 10),
+                        _buildSelectionActions(useWrap: true),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                              color: widget.iconColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(14)),
+                          child: Icon(Icons.schedule_rounded,
+                              color: widget.iconColor, size: 28),
+                        ),
+                        SizedBox(width: 14),
+                        Expanded(
+                            child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(widget.title,
+                                style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                    color: context.appTextPrimary),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                            if ((_items.isNotEmpty))
+                              Text(
+                                  'Total: ${CurrencyFormats.formatBRL(_totalValue)}',
+                                  style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: widget.iconColor)),
+                          ],
+                        )),
+                        _buildSelectionActions(useWrap: false),
+                      ],
+                    ),
+            ),
+            Expanded(
+              child: (_items.isEmpty)
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.inbox_rounded,
+                              size: 48, color: Colors.grey.shade400),
+                          SizedBox(height: 12),
+                          Text(widget.emptyMessage,
+                              style: TextStyle(
+                                  fontSize: 14,
+                                  color: context.appTextSecondary)),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      controller: widget.scrollController,
+                      addAutomaticKeepAlives: false,
+                      padding:
+                          EdgeInsets.fromLTRB(20, 0, 20, 24 + bottomPadding),
+                      itemCount: _items.length,
+                      itemBuilder: (_, i) {
+                        final e = _items[i];
+                        final id = (e['id'] ?? '').toString();
+                        return widget.buildItem(
+                          context,
+                          e,
+                          selectionMode: _selectionMode,
+                          isSelected: _selectedIds.contains(id),
+                          onToggleSelect: () => setState(() {
+                            if (_selectedIds.contains(id)) {
+                              _selectedIds.remove(id);
+                            } else {
+                              _selectedIds.add(id);
+                            }
+                          }),
+                          removeFromSheet: _removeFromSheet,
+                          patchInSheet: _patchInSheet,
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectionActions({required bool useWrap}) {
+    if (!_selectionMode) {
+      return Semantics(
+        label: AppStrings.semanticsSelect,
+        button: true,
+        child: TextButton.icon(
+          onPressed: () => setState(() => _selectionMode = true),
+          icon: Icon(Icons.checklist_rounded, size: 20),
+          label: Text(AppStrings.select),
+          style: TextButton.styleFrom(
+              minimumSize: const Size(48, 48),
+              tapTargetSize: MaterialTapTargetSize.padded),
+        ),
+      );
+    }
+    final idList = _items
+        .map((e) => (e['id'] ?? '').toString())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    final buttons = <Widget>[
+      TextButton(
+        onPressed: () => setState(() {
+          _selectionMode = false;
+          _selectedIds.clear();
+        }),
+        style: TextButton.styleFrom(
+            minimumSize: const Size(48, 48),
+            tapTargetSize: MaterialTapTargetSize.padded),
+        child: Text(AppStrings.cancel),
+      ),
+      if ((_items.isNotEmpty))
+        TextButton(
+          onPressed: () => setState(() {
+            _selectedIds
+              ..clear()
+              ..addAll(idList);
+          }),
+          style: TextButton.styleFrom(
+              minimumSize: const Size(48, 48),
+              tapTargetSize: MaterialTapTargetSize.padded),
+          child: Text('Todos'),
+        ),
+      if (widget.onConfirmBatch != null && _selectedIds.isNotEmpty)
+        FilledButton.icon(
+          onPressed: (_deletingBatch || _confirmingBatch)
+              ? null
+              : () async {
+                  setState(() => _confirmingBatch = true);
+                  try {
+                    await widget.onConfirmBatch!(
+                        context, _selectedIds.toList());
+                  } finally {
+                    if (mounted) setState(() => _confirmingBatch = false);
+                  }
+                },
+          icon: _confirmingBatch
+              ? SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white))
+              : Icon(Icons.done_all_rounded, size: 20),
+          label: Text(_confirmingBatch
+              ? '…'
+              : '${widget.batchConfirmShortLabel} (${_selectedIds.length})'),
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.success,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(48, 48),
+            tapTargetSize: MaterialTapTargetSize.padded,
+          ),
+        ),
+      if (_selectedIds.isNotEmpty)
+        Semantics(
+          label: AppStrings.semanticsDeleteBatch,
+          button: true,
+          child: FilledButton.icon(
+            onPressed: (_deletingBatch || _confirmingBatch)
+                ? null
+                : () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text(AppStrings.deleteSelected),
+                        content: Text(
+                            '${_selectedIds.length} ${AppStrings.deleteSelectedConfirm}'),
+                        actions: [
+                          TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: Text(AppStrings.cancel)),
+                          FilledButton(
+                              onPressed: () => Navigator.pop(ctx, true),
+                              style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.error),
+                              child: Text(AppStrings.delete)),
+                        ],
+                      ),
+                    );
+                    if (confirm == true && mounted) {
+                      setState(() => _deletingBatch = true);
+                      await widget.onDeleteBatch(_selectedIds.toList());
+                      if (mounted) setState(() => _deletingBatch = false);
+                    }
+                  },
+            icon: _deletingBatch
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Colors.white))
+                : Icon(Icons.delete_outline_rounded, size: 20),
+            label: Text(_deletingBatch
+                ? 'Excluindo...'
+                : 'Excluir (${_selectedIds.length})'),
+            style: FilledButton.styleFrom(
+                backgroundColor: AppColors.error,
+                minimumSize: const Size(48, 48),
+                tapTargetSize: MaterialTapTargetSize.padded),
+          ),
+        ),
+    ];
+    if (useWrap) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        alignment: WrapAlignment.end,
+        children: buttons,
+      );
+    }
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: buttons,
+    );
+  }
+}
+
+enum FinanceInsightScope { income, expense, balance }
+
+String _insightPercentLabel(
+    double part, double total, FinanceInsightScope scope) {
+  final base = total.abs();
+  if (base < 0.005) return '0,0';
+  return ((part.abs() / base) * 100).toStringAsFixed(1);
+}
+
+class FinanceInsightSheet extends StatefulWidget {
+  final String uid;
+  final FinanceInsightScope initialScope;
+  final DateTime initialFrom;
+  final DateTime initialTo;
+
+  /// Quando definido (ex.: toque em "Onde foi o dinheiro"), abre já filtrado nesta categoria.
+  final String? initialCategoryExact;
+  final String statusFilter;
+  final String search;
+
+  /// Mesmo filtro de conta do painel Financeiro.
+  final String? financeAccountFilterId;
+  final String? financeAccountFilterLabel;
+
+  /// Cache do saldo de abertura (painel/Financeiro) — evita piscar zerado ao abrir.
+  final double? openingBalanceHint;
+  final Map<String, double>? openingByAccountHint;
+  final Future<void> Function(
+      String docId, Map<String, dynamic> current, String type) onEdit;
+  final Future<void> Function(String docId) onDelete;
+
+  const FinanceInsightSheet({
+    super.key,
+    required this.uid,
+    required this.initialScope,
+    required this.initialFrom,
+    required this.initialTo,
+    this.initialCategoryExact,
+    required this.statusFilter,
+    required this.search,
+    this.financeAccountFilterId,
+    this.financeAccountFilterLabel,
+    this.openingBalanceHint,
+    this.openingByAccountHint,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  State<FinanceInsightSheet> createState() => FinanceInsightSheetState();
+}
+
+class FinanceInsightSheetState extends State<FinanceInsightSheet> {
+  static const int _kInsightPageSize = 30;
+  late FinanceInsightScope _scope;
+  String _sortMode = 'date_desc';
+  String _periodFilter = 'Mensal';
+  String _selectedCategory = '__all__';
+  late DateTime _from;
+  late DateTime _to;
+  late Future<List<Map<String, dynamic>>> _docsFuture;
+
+  /// Igual ao painel Financeiro: `all` | `paid` | `pending` — refiltra a consulta.
+  late String _statusLocal;
+  String _localSearch = '';
+  final _searchCtrl = TextEditingController();
+  Timer? _searchDebounceTimer;
+
+  /// Categorias do usuário (padrão + custom) — inclui Empréstimo mesmo sem lançamento no período.
+  List<String> _userCategoryNames = [];
+  late Future<({double income, double expense})> _periodSummaryFuture;
+
+  /// Em modo Saldo: filtra linhas por tipo (`''` = todos).
+  String _typeRowFilter = '';
+  int _visibleRowsLimit = _kInsightPageSize;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _txWatchSub;
+  Timer? _txWatchDebounce;
+  double _openingTotal = 0.0;
+  Map<String, double> _openingByAccount = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _scope = widget.initialScope;
+    _from = DateTime(widget.initialFrom.year, widget.initialFrom.month,
+        widget.initialFrom.day);
+    _to = DateTime(widget.initialTo.year, widget.initialTo.month,
+        widget.initialTo.day, 23, 59, 59);
+    final cat = widget.initialCategoryExact?.trim();
+    _selectedCategory = (cat != null && cat.isNotEmpty) ? cat : '__all__';
+    _statusLocal = widget.statusFilter;
+    _searchCtrl.text = widget.search;
+    _localSearch = widget.search.trim().toLowerCase();
+    _docsFuture = _fetchFilteredTransactions(_from, _to);
+    _periodSummaryFuture = _loadPeriodSummary();
+    _seedOpeningFromHints();
+    unawaited(_loadUserCategoryNames());
+    unawaited(_refreshOpeningBalance());
+    FinanceTransactionsHub.revision.addListener(_onFinanceHubRevision);
+    _bindTransactionsWatch();
+  }
+
+  void _seedOpeningFromHints() {
+    final peek = FinanceOpeningBalanceService.peekCached(
+      uid: widget.uid,
+      periodStart: _from,
+      loadAccounts: true,
+    );
+    if (peek != null) {
+      _openingTotal = peek.total;
+      _openingByAccount = Map<String, double>.from(peek.byAccount);
+      return;
+    }
+    if (widget.openingBalanceHint != null) {
+      _openingTotal = widget.openingBalanceHint!;
+      _openingByAccount =
+          Map<String, double>.from(widget.openingByAccountHint ?? const {});
+    }
+  }
+
+  Future<void> _refreshOpeningBalance() async {
+    try {
+      final r = await FinanceOpeningBalanceService.load(
+        uid: widget.uid,
+        periodStart: _from,
+        loadAccounts: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        _openingTotal = r.total;
+        _openingByAccount = Map<String, double>.from(r.byAccount);
+      });
+    } catch (_) {}
+  }
+
+  double get _effectiveOpeningBalance {
+    final fid = widget.financeAccountFilterId?.trim();
+    if (fid != null && fid.isNotEmpty) {
+      return _openingByAccount[fid] ?? 0.0;
+    }
+    return _openingTotal;
+  }
+
+  void _bindTransactionsWatch() {
+    _txWatchSub?.cancel();
+    final fsId = firestoreUserDocIdForAppShell(widget.uid);
+    if (fsId.isEmpty) return;
+    _txWatchSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(fsId)
+        .collection('transactions')
+        .limit(1)
+        .snapshots(includeMetadataChanges: true)
+        .listen((_) => _scheduleDocsReloadDebounced());
+  }
+
+  void _onFinanceHubRevision() {
+    if (!mounted) return;
+    _scheduleDocsReloadDebounced();
+  }
+
+  void _scheduleDocsReloadDebounced() {
+    _txWatchDebounce?.cancel();
+    _txWatchDebounce = Timer(const Duration(milliseconds: 260), () {
+      if (!mounted) return;
+      _scheduleDocsReload();
+    });
+  }
+
+  @override
+  void dispose() {
+    FinanceTransactionsHub.revision.removeListener(_onFinanceHubRevision);
+    _txWatchDebounce?.cancel();
+    _txWatchSub?.cancel();
+    _searchDebounceTimer?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _scheduleDocsReload() {
+    setState(() {
+      _visibleRowsLimit = _kInsightPageSize;
+      _docsFuture = _fetchFilteredTransactions(_from, _to);
+      _periodSummaryFuture = _loadPeriodSummary();
+    });
+    unawaited(_refreshOpeningBalance());
+  }
+
+  String get _voltarLabel => widget.financeAccountFilterId != null
+      ? 'Voltar à lista de contas'
+      : 'Voltar';
+
+  Future<({double income, double expense})> _loadPeriodSummary() async {
+    final r = await FinancePeriodSummary.load(
+      uid: widget.uid,
+      from: _from,
+      to: _to,
+      statusFilter: _statusLocal,
+      typeFilter: 'all',
+    );
+    return (income: r.income, expense: r.expense);
+  }
+
+  void _reloadPeriodSummary() {
+    setState(() => _periodSummaryFuture = _loadPeriodSummary());
+  }
+
+  Future<void> _loadUserCategoryNames() async {
+    try {
+      final loaded = await UserCategoriesService().load(widget.uid);
+      final names = _scope == FinanceInsightScope.income
+          ? UserCategoriesService.sortedWithoutIncluirNova(loaded.income)
+          : UserCategoriesService.sortedWithoutIncluirNova(loaded.expense);
+      if (mounted) setState(() => _userCategoryNames = names);
+    } catch (_) {}
+  }
+
+  String get _title => switch (_scope) {
+        FinanceInsightScope.income => 'Receitas do período',
+        FinanceInsightScope.expense => 'Despesas do período',
+        FinanceInsightScope.balance => 'Saldo do período',
+      };
+
+  Color get _accentColor => switch (_scope) {
+        FinanceInsightScope.income => AppColors.financeReceita,
+        FinanceInsightScope.expense => AppColors.financeDespesa,
+        FinanceInsightScope.balance => AppColors.primary,
+      };
+
+  Future<List<Map<String, dynamic>>> _fetchFilteredTransactions(
+      DateTime from, DateTime to) async {
+    final docs = await FinanceInsightQuery.fetchPeriodDocs(
+      uid: widget.uid,
+      from: from,
+      to: to,
+      statusFilter: _statusLocal,
+      financeAccountId: widget.financeAccountFilterId,
+    );
+    final rows = <Map<String, dynamic>>[];
+    for (final doc in docs) {
+      final d = doc.data();
+      if (_localSearch.isNotEmpty) {
+        final text =
+            '${d['category'] ?? ''} ${d['description'] ?? ''}'.toLowerCase();
+        if (!text.contains(_localSearch)) continue;
+      }
+      rows.add({'id': doc.id, 'raw': d});
+    }
+    return rows;
+  }
+
+  Future<double> _loadComparisonTotal(
+      DateTime from, DateTime to, FinanceInsightScope scope) async {
+    final days = to.difference(from).inDays + 1;
+    final prevStart = from.subtract(Duration(days: days));
+    final prevEnd = from.subtract(const Duration(seconds: 1));
+    final prevRows = await _fetchFilteredTransactions(prevStart, prevEnd);
+    return _computeScopeTotal(prevRows, scope);
+  }
+
+  double _computeScopeTotal(
+      List<Map<String, dynamic>> baseRows, FinanceInsightScope scope) {
+    var total = 0.0;
+    for (final row in baseRows) {
+      final d = Map<String, dynamic>.from(row['raw'] as Map<String, dynamic>);
+      final type = (d['type'] ?? 'expense').toString();
+      final amount = ((d['amount'] ?? 0) as num).toDouble().abs();
+      if (scope == FinanceInsightScope.income && type == 'income') {
+        total += amount;
+      }
+      if (scope == FinanceInsightScope.expense && type == 'expense') {
+        total += amount;
+      }
+      if (scope == FinanceInsightScope.balance) {
+        total += type == 'income' ? amount : -amount;
+      }
+    }
+    return total;
+  }
+
+  void _applyPeriodFilter(String filter) {
+    final now = DateTime.now();
+    setState(() {
+      _periodFilter = filter;
+      if (filter == 'Mensal') {
+        _from = DateTime(now.year, now.month, 1);
+        _to = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+      } else if (filter == 'Anual') {
+        _from = DateTime(now.year, 1, 1);
+        _to = DateTime(now.year, 12, 31, 23, 59, 59);
+      }
+      _selectedCategory = '__all__';
+      _visibleRowsLimit = _kInsightPageSize;
+      _docsFuture = _fetchFilteredTransactions(_from, _to);
+      _periodSummaryFuture = _loadPeriodSummary();
+    });
+    unawaited(_refreshOpeningBalance());
+  }
+
+  Future<void> _pickCustomPeriod() async {
+    final pFrom = await showDatePicker(
+      context: context,
+      initialDate: _from,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (pFrom == null || !mounted) return;
+    final pTo = await showDatePicker(
+      context: context,
+      initialDate: _to.isBefore(pFrom) ? pFrom : _to,
+      firstDate: pFrom,
+      lastDate: DateTime(2100),
+    );
+    if (pTo == null || !mounted) return;
+    setState(() {
+      _periodFilter = 'Período';
+      _from = DateTime(pFrom.year, pFrom.month, pFrom.day);
+      _to = DateTime(pTo.year, pTo.month, pTo.day, 23, 59, 59);
+      _selectedCategory = '__all__';
+      _visibleRowsLimit = _kInsightPageSize;
+      _docsFuture = _fetchFilteredTransactions(_from, _to);
+      _periodSummaryFuture = _loadPeriodSummary();
+    });
+    unawaited(_refreshOpeningBalance());
+  }
+
+  List<Map<String, dynamic>> _rowsByScope(List<Map<String, dynamic>> baseRows,
+      [String? categoryFilter]) {
+    final catKey = categoryFilter ?? _selectedCategory;
+    final rows = <Map<String, dynamic>>[];
+    for (final item in baseRows) {
+      final d = Map<String, dynamic>.from(item['raw'] as Map<String, dynamic>);
+      final type = (d['type'] ?? 'expense').toString();
+      final include = switch (_scope) {
+        FinanceInsightScope.income => type == 'income',
+        FinanceInsightScope.expense => type == 'expense',
+        FinanceInsightScope.balance => true,
+      };
+      if (!include) continue;
+      if (_scope == FinanceInsightScope.balance &&
+          _typeRowFilter.isNotEmpty &&
+          type != _typeRowFilter) {
+        continue;
+      }
+      final amount = ((d['amount'] ?? 0) as num).toDouble().abs();
+      final category = (d['category'] ?? '').toString().trim();
+      final description = (d['description'] ?? '').toString().trim();
+      final ts = d['date'];
+      final date = FinanceLineOpening.effectiveDateTimeFromMap(d) ??
+          (ts is Timestamp ? ts.toDate() : null);
+      rows.add({
+        'id': (item['id'] ?? '').toString(),
+        'type': type,
+        'amount': amount,
+        'category': category.isEmpty ? 'Sem categoria' : category,
+        'description': description,
+        'date': date,
+        'raw': d,
+      });
+    }
+
+    final filteredRows = catKey == '__all__'
+        ? rows
+        : rows
+            .where((r) => FinanceCategoryMerger.sameCategoryGroup(
+                (r['category'] ?? '').toString(), catKey))
+            .toList();
+
+    filteredRows.sort((a, b) {
+      final aAmount = (a['amount'] ?? 0.0) as double;
+      final bAmount = (b['amount'] ?? 0.0) as double;
+      final aDate = a['date'] as DateTime?;
+      final bDate = b['date'] as DateTime?;
+      switch (_sortMode) {
+        case 'amount_asc':
+          return aAmount.compareTo(bAmount);
+        case 'date_desc':
+          if (aDate == null && bDate == null) return 0;
+          if (aDate == null) return 1;
+          if (bDate == null) return -1;
+          return bDate.compareTo(aDate);
+        case 'date_asc':
+          if (aDate == null && bDate == null) return 0;
+          if (aDate == null) return 1;
+          if (bDate == null) return -1;
+          return aDate.compareTo(bDate);
+        case 'amount_desc':
+        default:
+          return bAmount.compareTo(aAmount);
+      }
+    });
+    return filteredRows;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: context.appScaffold,
+      child: SafeArea(
+        top: false,
+        child: DraggableScrollableSheet(
+          initialChildSize: 0.9,
+          maxChildSize: 0.96,
+          minChildSize: 0.62,
+          builder: (context, controller) => Container(
+            decoration: financePremiumSheetDecoration(
+                surfaceTint: _accentColor, context: context),
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: _docsFuture,
+              builder: (context, snap) {
+                if (!snap.hasData) {
+                  return ListView(
+                    controller: controller,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 42,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade400,
+                            borderRadius: BorderRadius.circular(99),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: 10),
+                      _financeInsightVoltarBar(context),
+                      SizedBox(height: 28),
+                      Center(child: CircularProgressIndicator()),
+                      SizedBox(height: 28),
+                      _financeInsightVoltarBar(context),
+                    ],
+                  );
+                }
+                final baseRows = snap.data!;
+                final allCategoryTotals = <String, double>{};
+                final insightMerger = FinanceCategoryMerger();
+                for (final item in baseRows) {
+                  final d = Map<String, dynamic>.from(
+                      item['raw'] as Map<String, dynamic>);
+                  final type = (d['type'] ?? 'expense').toString();
+                  final include = switch (_scope) {
+                    FinanceInsightScope.income => type == 'income',
+                    FinanceInsightScope.expense => type == 'expense',
+                    FinanceInsightScope.balance => true,
+                  };
+                  if (!include) continue;
+                  final catRaw = (d['category'] ?? '').toString();
+                  final val = ((d['amount'] ?? 0) as num).toDouble().abs();
+                  insightMerger.addAmount(allCategoryTotals, catRaw, val);
+                }
+                final allCategoryOptions = <String>{
+                  ..._userCategoryNames,
+                  ...allCategoryTotals.keys,
+                }.toList()
+                  ..sort(UserCategoriesService.compareNamesPt);
+                final effectiveCategory = _selectedCategory == '__all__' ||
+                        allCategoryOptions.any((k) =>
+                            FinanceCategoryMerger.sameCategoryGroup(
+                                k, _selectedCategory))
+                    ? _selectedCategory
+                    : '__all__';
+                final rows = _rowsByScope(baseRows, effectiveCategory);
+                final rowsVisible = rows.length <= _visibleRowsLimit
+                    ? rows
+                    : rows.take(_visibleRowsLimit).toList();
+                final hasMoreRows = rows.length > rowsVisible.length;
+                final incomeTotal = rows
+                    .where((r) => (r['type'] ?? 'expense') == 'income')
+                    .fold<double>(
+                        0, (s, r) => s + ((r['amount'] ?? 0.0) as double));
+                final expenseTotal = rows
+                    .where((r) => (r['type'] ?? 'expense') == 'expense')
+                    .fold<double>(
+                        0, (s, r) => s + ((r['amount'] ?? 0.0) as double));
+                final saldoPeriodo = incomeTotal - expenseTotal;
+                final total = _scope == FinanceInsightScope.balance
+                    ? saldoPeriodo
+                    : rows.fold<double>(
+                        0, (sum, r) => sum + ((r['amount'] ?? 0.0) as double));
+                final categoryTotals = <String, double>{};
+                final rowMerger = FinanceCategoryMerger();
+                for (final r in rows) {
+                  final catRaw = (r['category'] ?? '').toString();
+                  final val = (r['amount'] ?? 0.0) as double;
+                  rowMerger.addAmount(categoryTotals, catRaw, val);
+                }
+                final clickableCatEntries = allCategoryTotals.entries.toList()
+                  ..sort((a, b) => b.value.compareTo(a.value));
+                final maxCatVal = clickableCatEntries.isEmpty
+                    ? 1.0
+                    : clickableCatEntries.first.value;
+                final sortedCats = categoryTotals.entries.toList()
+                  ..sort((a, b) => b.value.compareTo(a.value));
+                final catPieSegments = sortedCats.asMap().entries.map((entry) {
+                  final i = entry.key;
+                  final e = entry.value;
+                  final palette = [
+                    AppColors.financeReceita,
+                    AppColors.financeDespesa,
+                    AppColors.financePendente,
+                    AppColors.primary,
+                    AppColors.accent,
+                    AppColors.secondary,
+                  ];
+                  return (
+                    label: e.key.length > 18
+                        ? '${e.key.substring(0, 18)}…'
+                        : e.key,
+                    value: e.value,
+                    color: palette[i % palette.length],
+                  );
+                }).toList();
+
+                return FutureBuilder<({double income, double expense})>(
+                  future: _periodSummaryFuture,
+                  builder: (context, summarySnap) {
+                    final summary = summarySnap.data;
+                    final authoritativeIncome = summary?.income ?? incomeTotal;
+                    final authoritativeExpense =
+                        summary?.expense ?? expenseTotal;
+                    final saldoPeriodo =
+                        authoritativeIncome - authoritativeExpense;
+                    final effectiveOpening = _effectiveOpeningBalance;
+                    final saldoAcumulado = effectiveOpening + saldoPeriodo;
+                    final authoritativeTotal = summary == null
+                        ? (_scope == FinanceInsightScope.balance
+                            ? saldoAcumulado
+                            : total)
+                        : switch (_scope) {
+                            FinanceInsightScope.income => summary.income,
+                            FinanceInsightScope.expense => summary.expense,
+                            FinanceInsightScope.balance => effectiveOpening +
+                                summary.income -
+                                summary.expense,
+                          };
+                    final saldoPieSegments = [
+                      (
+                        label: 'Receitas',
+                        value: authoritativeIncome,
+                        color: AppColors.financeReceita
+                      ),
+                      (
+                        label: 'Despesas',
+                        value: authoritativeExpense,
+                        color: AppColors.financeDespesa
+                      ),
+                    ];
+
+                    return FutureBuilder<double>(
+                      future: _loadComparisonTotal(_from, _to, _scope),
+                      builder: (context, cmpSnap) {
+                        final previousTotal = cmpSnap.data ?? 0.0;
+                        final deltaPrev = authoritativeTotal - previousTotal;
+                        final deltaPct = previousTotal.abs() > 0.0001
+                            ? (deltaPrev / previousTotal.abs()) * 100
+                            : (deltaPrev == 0 ? 0.0 : 100.0);
+                        final previousLabel = (() {
+                          final days = _to.difference(_from).inDays + 1;
+                          final prevStart =
+                              _from.subtract(Duration(days: days));
+                          final prevEnd =
+                              _from.subtract(const Duration(seconds: 1));
+                          return '${DateFormat('dd/MM').format(prevStart)} a ${DateFormat('dd/MM').format(prevEnd)}';
+                        })();
+
+                        return ListView(
+                          controller: controller,
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                          children: [
+                            Center(
+                              child: Container(
+                                width: 42,
+                                height: 5,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade400,
+                                  borderRadius: BorderRadius.circular(99),
+                                ),
+                              ),
+                            ),
+                            SizedBox(height: 10),
+                            FinancePremiumSheetHeader(
+                              title: _title,
+                              subtitle:
+                                  '${DateFormat('dd/MM/yyyy').format(_from)} — ${DateFormat('dd/MM/yyyy').format(_to)}',
+                              icon: switch (_scope) {
+                                FinanceInsightScope.income =>
+                                  Icons.trending_up_rounded,
+                                FinanceInsightScope.expense =>
+                                  Icons.trending_down_rounded,
+                                FinanceInsightScope.balance =>
+                                  Icons.account_balance_wallet_rounded,
+                              },
+                              iconGradient: [
+                                _accentColor,
+                                Color.lerp(
+                                    _accentColor, AppColors.accent, 0.45)!,
+                              ],
+                              onBack: () => Navigator.pop(context),
+                              titleColor: _accentColor,
+                            ),
+                            SizedBox(height: 10),
+                            FinanceInsightPeriodTotalizer(
+                              income: authoritativeIncome,
+                              expense: authoritativeExpense,
+                              openingBalance: effectiveOpening,
+                            ),
+                            SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _scopeChip(
+                                    'Receitas',
+                                    FinanceInsightScope.income,
+                                    AppColors.financeReceita),
+                                _scopeChip(
+                                    'Despesas',
+                                    FinanceInsightScope.expense,
+                                    AppColors.financeDespesa),
+                                _scopeChip('Saldo', FinanceInsightScope.balance,
+                                    AppColors.primary),
+                              ],
+                            ),
+                            SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _periodChip('Mensal'),
+                                _periodChip('Anual'),
+                                _periodChip('Período'),
+                              ],
+                            ),
+                            if (_periodFilter == 'Período') ...[
+                              SizedBox(height: 8),
+                              OutlinedButton.icon(
+                                onPressed: _pickCustomPeriod,
+                                icon: Icon(Icons.date_range_rounded),
+                                label: Text(
+                                  '${DateFormat('dd/MM').format(_from)} a ${DateFormat('dd/MM').format(_to)}',
+                                ),
+                              ),
+                            ],
+                            if (widget.financeAccountFilterId != null) ...[
+                              SizedBox(height: 8),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF0FDF4),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                      color: const Color(0xFF166534)
+                                          .withValues(alpha: 0.35)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.filter_alt_rounded,
+                                        size: 20, color: Colors.green.shade800),
+                                    SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'Conta (igual ao painel): ${(widget.financeAccountFilterLabel ?? '').trim().isEmpty ? 'Conta filtrada' : widget.financeAccountFilterLabel!.trim()}',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 13,
+                                          color: Colors.green.shade900,
+                                          height: 1.25,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            SizedBox(height: 10),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: context.appMutedSurface,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                    color: context.appChipIdleBorder),
+                              ),
+                              child: FastTextField(
+                                controller: _searchCtrl,
+                                decoration: const InputDecoration(
+                                  hintText: 'Pesquisar categoria ou descrição…',
+                                  border: InputBorder.none,
+                                  prefixIcon: Icon(Icons.search_rounded,
+                                      color: AppColors.primary),
+                                  isDense: true,
+                                ),
+                                onChanged: (v) {
+                                  _searchDebounceTimer?.cancel();
+                                  _searchDebounceTimer = Timer(
+                                    Duration(
+                                        milliseconds:
+                                            AppBusinessRules.searchDebounceMs),
+                                    () {
+                                      if (!mounted) return;
+                                      setState(() {
+                                        _localSearch = v.trim().toLowerCase();
+                                        _visibleRowsLimit = _kInsightPageSize;
+                                        _docsFuture =
+                                            _fetchFilteredTransactions(
+                                                _from, _to);
+                                      });
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                            SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'Status dos lançamentos',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 12,
+                                    color: context.appTextSecondary),
+                              ),
+                            ),
+                            SizedBox(height: 6),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                FilterChip(
+                                  label: Text('Todos'),
+                                  selected: _statusLocal == 'all',
+                                  onSelected: (_) => setState(() {
+                                    _statusLocal = 'all';
+                                    _visibleRowsLimit = _kInsightPageSize;
+                                    _docsFuture =
+                                        _fetchFilteredTransactions(_from, _to);
+                                    _periodSummaryFuture = _loadPeriodSummary();
+                                  }),
+                                  selectedColor:
+                                      _accentColor.withValues(alpha: 0.22),
+                                  checkmarkColor: _accentColor,
+                                ),
+                                FilterChip(
+                                  label: Text('Pago'),
+                                  selected: _statusLocal == 'paid',
+                                  onSelected: (_) => setState(() {
+                                    _statusLocal = 'paid';
+                                    _visibleRowsLimit = _kInsightPageSize;
+                                    _docsFuture =
+                                        _fetchFilteredTransactions(_from, _to);
+                                    _periodSummaryFuture = _loadPeriodSummary();
+                                  }),
+                                  selectedColor:
+                                      _accentColor.withValues(alpha: 0.22),
+                                  checkmarkColor: _accentColor,
+                                ),
+                                FilterChip(
+                                  label: Text('Pendente'),
+                                  selected: _statusLocal == 'pending',
+                                  onSelected: (_) => setState(() {
+                                    _statusLocal = 'pending';
+                                    _visibleRowsLimit = _kInsightPageSize;
+                                    _docsFuture =
+                                        _fetchFilteredTransactions(_from, _to);
+                                    _periodSummaryFuture = _loadPeriodSummary();
+                                  }),
+                                  selectedColor:
+                                      _accentColor.withValues(alpha: 0.22),
+                                  checkmarkColor: _accentColor,
+                                ),
+                              ],
+                            ),
+                            if (_scope == FinanceInsightScope.balance) ...[
+                              SizedBox(height: 10),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'Tipo na lista (saldo)',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 12,
+                                      color: context.appTextSecondary),
+                                ),
+                              ),
+                              SizedBox(height: 6),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  FilterChip(
+                                    label: Text('Receitas e despesas'),
+                                    selected: _typeRowFilter.isEmpty,
+                                    onSelected: (_) =>
+                                        setState(() => _typeRowFilter = ''),
+                                    selectedColor:
+                                        _accentColor.withValues(alpha: 0.22),
+                                    checkmarkColor: _accentColor,
+                                  ),
+                                  FilterChip(
+                                    label: Text('Só receitas'),
+                                    selected: _typeRowFilter == 'income',
+                                    onSelected: (_) => setState(
+                                        () => _typeRowFilter = 'income'),
+                                    selectedColor: AppColors.financeReceita
+                                        .withValues(alpha: 0.22),
+                                    checkmarkColor: AppColors.financeReceita,
+                                  ),
+                                  FilterChip(
+                                    label: Text('Só despesas'),
+                                    selected: _typeRowFilter == 'expense',
+                                    onSelected: (_) => setState(
+                                        () => _typeRowFilter = 'expense'),
+                                    selectedColor: AppColors.financeDespesa
+                                        .withValues(alpha: 0.22),
+                                    checkmarkColor: AppColors.financeDespesa,
+                                  ),
+                                ],
+                              ),
+                            ],
+                            SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: context.appPanelDecoration(
+                                radius: 16,
+                                borderAccent: _accentColor,
+                                borderAlpha: 0.2,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.category_rounded,
+                                      size: 22, color: _accentColor),
+                                  SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text('Categoria',
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 12)),
+                                        SizedBox(height: 4),
+                                        Text(
+                                          effectiveCategory == '__all__'
+                                              ? 'Todas as categorias'
+                                              : effectiveCategory,
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 15),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  FilledButton.tonal(
+                                    onPressed: () async {
+                                      final picked =
+                                          await showFinanceCategoryPicker(
+                                        context: context,
+                                        isIncome: _scope ==
+                                            FinanceInsightScope.income,
+                                        uid: widget.uid,
+                                        initialQuery:
+                                            effectiveCategory == '__all__'
+                                                ? ''
+                                                : effectiveCategory,
+                                        extraCategories: allCategoryOptions,
+                                      );
+                                      if (picked != null && mounted) {
+                                        setState(() {
+                                          _selectedCategory = picked.isEmpty
+                                              ? '__all__'
+                                              : picked;
+                                          _visibleRowsLimit = _kInsightPageSize;
+                                        });
+                                      }
+                                    },
+                                    style: FilledButton.styleFrom(
+                                      foregroundColor: _accentColor,
+                                      backgroundColor:
+                                          _accentColor.withValues(alpha: 0.12),
+                                    ),
+                                    child: Text('Escolher'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _financeInsightChip(
+                                  'Total',
+                                  CurrencyFormats.formatBRLTight(
+                                      authoritativeTotal),
+                                  _accentColor,
+                                ),
+                                _financeInsightChip(
+                                  'Itens',
+                                  '${rowsVisible.length}${hasMoreRows ? ' de ${rows.length}' : ''}',
+                                  AppColors.textSecondary,
+                                ),
+                                _financeInsightChip(
+                                  'Período anterior ($previousLabel)',
+                                  CurrencyFormats.formatBRLTight(previousTotal),
+                                  AppColors.textMuted,
+                                ),
+                                _financeInsightChip(
+                                  'Comparativo',
+                                  '${deltaPrev >= 0 ? '+' : ''}${CurrencyFormats.formatBRLTight(deltaPrev)} (${deltaPct.toStringAsFixed(1)}%)',
+                                  deltaPrev >= 0
+                                      ? AppColors.financeReceita
+                                      : AppColors.financeDespesa,
+                                ),
+                                _financeInsightChip(
+                                  'Saldo abertura',
+                                  CurrencyFormats.formatBRLTight(
+                                      effectiveOpening),
+                                  effectiveOpening >= 0
+                                      ? AppColors.saldoPositive
+                                      : AppColors.saldoNegative,
+                                ),
+                                if (_scope == FinanceInsightScope.balance)
+                                  _financeInsightChip(
+                                    'Mov. período',
+                                    CurrencyFormats.formatBRLTight(
+                                        saldoPeriodo),
+                                    saldoPeriodo >= 0
+                                        ? AppColors.saldoPositive
+                                        : AppColors.saldoNegative,
+                                  ),
+                                if (_scope == FinanceInsightScope.balance)
+                                  _financeInsightChip(
+                                    'Saldo (acum.)',
+                                    CurrencyFormats.formatBRLTight(
+                                        saldoAcumulado),
+                                    saldoAcumulado >= 0
+                                        ? AppColors.saldoPositive
+                                        : AppColors.saldoNegative,
+                                  ),
+                              ],
+                            ),
+                            if (sortedCats.isNotEmpty) ...[
+                              SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: context.appPanelDecoration(
+                                  radius: 14,
+                                  borderColor: context.appChipIdleBorder,
+                                ),
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    for (var i = 0;
+                                        i < sortedCats.length && i < 3;
+                                        i++)
+                                      _financeInsightChip(
+                                        'Top ${i + 1}: ${sortedCats[i].key}',
+                                        '${_insightPercentLabel(sortedCats[i].value, authoritativeTotal, _scope)}%',
+                                        _accentColor,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: context.appPanelDecoration(
+                                radius: 14,
+                                borderColor: context.appChipIdleBorder,
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.sort_rounded, size: 18),
+                                  SizedBox(width: 8),
+                                  Text('Ordenar',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: context.appTextPrimary)),
+                                  SizedBox(width: 10),
+                                  Expanded(
+                                    child: DropdownButtonHideUnderline(
+                                      child: DropdownButton<String>(
+                                        value: _sortMode,
+                                        isExpanded: true,
+                                        items: const [
+                                          DropdownMenuItem(
+                                              value: 'amount_desc',
+                                              child: Text(
+                                                  'Valor (maior > menor)')),
+                                          DropdownMenuItem(
+                                              value: 'amount_asc',
+                                              child: Text(
+                                                  'Valor (menor > maior)')),
+                                          DropdownMenuItem(
+                                              value: 'date_desc',
+                                              child:
+                                                  Text('Data (mais recente)')),
+                                          DropdownMenuItem(
+                                              value: 'date_asc',
+                                              child:
+                                                  Text('Data (mais antiga)')),
+                                        ],
+                                        onChanged: (v) {
+                                          if (v != null) {
+                                            setState(() => _sortMode = v);
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: context.appPanelDecoration(
+                                radius: 14,
+                                borderColor: context.appChipIdleBorder,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Filtro rápido (clique na barra da categoria)',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        color: context.appTextPrimary),
+                                  ),
+                                  SizedBox(height: 8),
+                                  if (allCategoryTotals.isEmpty)
+                                    Text('Sem categorias no período.')
+                                  else
+                                    ...clickableCatEntries.map((entry) {
+                                      final selected =
+                                          _selectedCategory == entry.key;
+                                      final ratio = maxCatVal <= 0
+                                          ? 0.05
+                                          : (entry.value / maxCatVal)
+                                              .clamp(0.05, 1.0);
+                                      return Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 8),
+                                        child: InkWell(
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                          onTap: () => setState(() {
+                                            _selectedCategory = selected
+                                                ? '__all__'
+                                                : entry.key;
+                                            _visibleRowsLimit =
+                                                _kInsightPageSize;
+                                          }),
+                                          child: Row(
+                                            children: [
+                                              Expanded(
+                                                flex: 4,
+                                                child: Text(
+                                                  entry.key,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: selected
+                                                        ? FontWeight.w900
+                                                        : FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ),
+                                              Expanded(
+                                                flex: 6,
+                                                child: Stack(
+                                                  children: [
+                                                    Container(
+                                                      height: 10,
+                                                      decoration: BoxDecoration(
+                                                        color: Colors
+                                                            .grey.shade200,
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(99),
+                                                      ),
+                                                    ),
+                                                    FractionallySizedBox(
+                                                      widthFactor: ratio,
+                                                      child: Container(
+                                                        height: 10,
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: selected
+                                                              ? _accentColor
+                                                              : _accentColor
+                                                                  .withValues(
+                                                                      alpha:
+                                                                          0.65),
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(99),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              SizedBox(width: 8),
+                                              Text(
+                                                CurrencyFormats.formatBRLTight(
+                                                    entry.value),
+                                                style: const TextStyle(
+                                                    fontSize: 11.5,
+                                                    fontWeight:
+                                                        FontWeight.w800),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    }),
+                                ],
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            AppPieChart(
+                              title: _scope == FinanceInsightScope.balance
+                                  ? 'Receitas x Despesas'
+                                  : 'Distribuição por categoria',
+                              segments: _scope == FinanceInsightScope.balance
+                                  ? saldoPieSegments
+                                  : catPieSegments,
+                            ),
+                            SizedBox(height: 10),
+                            Text(
+                              'Lançamentos',
+                              style: TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w900),
+                            ),
+                            SizedBox(height: 8),
+                            if (rows.isEmpty)
+                              Container(
+                                padding: const EdgeInsets.all(14),
+                                decoration: context.appPanelDecoration(
+                                  radius: 14,
+                                  borderColor: context.appChipIdleBorder,
+                                ),
+                                child:
+                                    Text('Sem lançamentos para este preview.'),
+                              )
+                            else
+                              ...rowsVisible.map((r) {
+                                final amount = (r['amount'] ?? 0.0) as double;
+                                final category =
+                                    (r['category'] ?? 'Sem categoria')
+                                        .toString();
+                                final description =
+                                    (r['description'] ?? '').toString();
+                                final date = r['date'] as DateTime?;
+                                final type =
+                                    (r['type'] ?? 'expense').toString();
+                                final id = (r['id'] ?? '').toString();
+                                final percentBase = switch (_scope) {
+                                  FinanceInsightScope.income =>
+                                    authoritativeIncome,
+                                  FinanceInsightScope.expense =>
+                                    authoritativeExpense,
+                                  FinanceInsightScope.balance =>
+                                    authoritativeIncome + authoritativeExpense,
+                                };
+                                final percent = percentBase > 0
+                                    ? (amount.abs() / percentBase) * 100
+                                    : 0.0;
+                                return FinanceInsightTransactionCard(
+                                  category: category,
+                                  description: description,
+                                  amount: amount,
+                                  date: date,
+                                  isIncome: type == 'income',
+                                  percent: percent,
+                                  onEdit: () async {
+                                    await widget.onEdit(
+                                        id,
+                                        Map<String, dynamic>.from(
+                                            r['raw'] as Map<String, dynamic>),
+                                        type);
+                                    if (mounted) _scheduleDocsReload();
+                                  },
+                                  onDelete: () async {
+                                    await widget.onDelete(id);
+                                    if (mounted) _scheduleDocsReload();
+                                  },
+                                );
+                              }),
+                            if (hasMoreRows)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.only(top: 4, bottom: 8),
+                                child: FilledButton.tonalIcon(
+                                  onPressed: () => setState(() {
+                                    _visibleRowsLimit += _kInsightPageSize;
+                                  }),
+                                  icon: Icon(Icons.expand_more_rounded),
+                                  label: Text(
+                                      'Carregar mais (${rowsVisible.length}/${rows.length})'),
+                                ),
+                              ),
+                            SizedBox(height: 8),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Botão largo “Voltar” no topo e no fim do preview (uso com uma mão no iPhone).
+  Widget _financeInsightVoltarBar(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.tonalIcon(
+        onPressed: () => Navigator.pop(context),
+        icon: Icon(Icons.arrow_back_rounded, size: 22),
+        label: Text(_voltarLabel),
+        style: FilledButton.styleFrom(
+          minimumSize: const Size.fromHeight(52),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+          foregroundColor: _accentColor,
+          backgroundColor: Theme.of(context).colorScheme.surface,
+        ),
+      ),
+    );
+  }
+
+  Widget _scopeChip(String label, FinanceInsightScope scope, Color color) {
+    final selected = _scope == scope;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) {
+        setState(() {
+          _scope = scope;
+          _selectedCategory = '__all__';
+          _visibleRowsLimit = _kInsightPageSize;
+          if (scope != FinanceInsightScope.balance) _typeRowFilter = '';
+          _periodSummaryFuture = _loadPeriodSummary();
+        });
+        unawaited(_loadUserCategoryNames());
+      },
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      selectedColor: context.isDarkMode ? context.appSurfaceHigh : Colors.white,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
+      elevation: 0,
+      pressElevation: 0,
+      labelStyle: TextStyle(
+        fontWeight: FontWeight.w600,
+        color: selected ? color : AppColors.textSecondary,
+      ),
+      side: BorderSide(
+          color: color.withValues(alpha: selected ? 0.85 : 0.35),
+          width: selected ? 2 : 1),
+    );
+  }
+
+  Widget _periodChip(String label) {
+    final selected = _periodFilter == label;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) {
+        if (label == 'Período') {
+          _pickCustomPeriod();
+          return;
+        }
+        _applyPeriodFilter(label);
+      },
+      backgroundColor: context.appSurface,
+      selectedColor: context.isDarkMode ? context.appSurfaceHigh : Colors.white,
+      surfaceTintColor: Colors.transparent,
+      shadowColor: Colors.transparent,
+      elevation: 0,
+      pressElevation: 0,
+      labelStyle: TextStyle(
+        fontWeight: FontWeight.w600,
+        color: selected ? _accentColor : context.appTextSecondary,
+      ),
+      side: BorderSide(
+          color: _accentColor.withValues(alpha: selected ? 0.85 : 0.35),
+          width: selected ? 2 : 1),
+    );
+  }
+
+  Widget _financeInsightChip(String label, String value, Color color) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 108),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: context.appPanelDecoration(
+        radius: 14,
+        borderAccent: color,
+        borderAlpha: 0.28,
+      ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Center(
-              child: Container(
+          Text(
+            label,
+            style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: context.appTextSecondary),
+          ),
+          SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: TextStyle(
+                  fontSize: 13.5, fontWeight: FontWeight.w900, color: color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Opções agregadas para export PDF/CSV a partir do bottom sheet premium.
+class _FinanceReportExportOpts {
+  final DateTime from;
+  final DateTime to;
+  final String? categoryExact;
+
+  const _FinanceReportExportOpts({
+    required this.from,
+    required this.to,
+    this.categoryExact,
+  });
+}
+
+/// Bottom sheet: períodos rápidos + categoria opcional → PDF com preview (mesmo fluxo dos Relatórios).
+class _FinanceReportsPremiumSheet extends StatefulWidget {
+  final DateTime screenFrom;
+  final DateTime screenTo;
+  final String uid;
+  final String statusFilter;
+  final String? filenameAccountSuffix;
+  final String semCategoriaToken;
+  final void Function(_FinanceReportExportOpts opts) onExportPdf;
+  final void Function(_FinanceReportExportOpts opts) onExportCsv;
+
+  const _FinanceReportsPremiumSheet({
+    required this.screenFrom,
+    required this.screenTo,
+    required this.uid,
+    required this.statusFilter,
+    this.filenameAccountSuffix,
+    required this.semCategoriaToken,
+    required this.onExportPdf,
+    required this.onExportCsv,
+  });
+
+  @override
+  State<_FinanceReportsPremiumSheet> createState() =>
+      _FinanceReportsPremiumSheetState();
+}
+
+class _FinanceReportsPremiumSheetState
+    extends State<_FinanceReportsPremiumSheet> {
+  /// Filtro simples do relatório: 1 = mensal; 4 = anual; 5 = período livre.
+  int _rangeMode = 1;
+  late DateTime _cFrom;
+  late DateTime _cTo;
+  String? _categoryChoice;
+  late final Future<
+      ({
+        List<String> income,
+        List<String> expense,
+        List<String> hiddenDefaultIncome,
+        List<String> hiddenDefaultExpense,
+      })> _catsFuture;
+  @override
+  void initState() {
+    super.initState();
+    _cFrom = widget.screenFrom;
+    _cTo = widget.screenTo;
+    _catsFuture =
+        UserCategoriesService().load(firestoreUserDocIdForAppShell(widget.uid));
+  }
+
+  String _previewFilenameBase(DateTime rf, DateTime rt) {
+    final accSuf = widget.filenameAccountSuffix;
+    return RelatorioService.reportFilenameFromPeriod(
+      'despesa_receita',
+      rf,
+      rt,
+      accSuf != null && accSuf.isNotEmpty ? '— $accSuf' : null,
+    );
+  }
+
+  (DateTime, DateTime) _resolveRange() {
+    final now = DateTime.now();
+    switch (_rangeMode) {
+      case 1:
+        return (
+          DateTime(now.year, now.month, 1),
+          DateTime(now.year, now.month + 1, 0, 23, 59, 59)
+        );
+      case 4:
+        return (
+          DateTime(now.year, 1, 1),
+          DateTime(now.year, 12, 31, 23, 59, 59)
+        );
+      default:
+        final cf = DateTime(_cFrom.year, _cFrom.month, _cFrom.day);
+        var ct = DateTime(_cTo.year, _cTo.month, _cTo.day, 23, 59, 59);
+        if (ct.isBefore(cf)) {
+          ct = DateTime(cf.year, cf.month, cf.day, 23, 59, 59);
+        }
+        return (cf, ct);
+    }
+  }
+
+  Widget _modeChip(String label, int mode, Color accent) {
+    final sel = _rangeMode == mode;
+    final darker = Color.lerp(accent, Colors.black, 0.14) ?? accent;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8, bottom: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => setState(() => _rangeMode = mode),
+          borderRadius: BorderRadius.circular(14),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              gradient: sel
+                  ? LinearGradient(
+                      colors: [accent, darker],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight)
+                  : null,
+              color: sel ? null : Colors.white,
+              border: Border.all(
+                  color: accent.withValues(alpha: sel ? 0 : 0.55),
+                  width: sel ? 0 : 2),
+              boxShadow: sel
+                  ? [
+                      BoxShadow(
+                          color: accent.withValues(alpha: 0.35),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4))
+                    ]
+                  : [
+                      BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.06),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2))
+                    ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (sel) ...[
+                  Icon(Icons.check_rounded, size: 16, color: Colors.white),
+                  SizedBox(width: 4),
+                ],
+                Text(
+                  label,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                      color: sel ? Colors.white : accent),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.paddingOf(context).bottom + 16;
+    final (rf, rt) = _resolveRange();
+    return DraggableScrollableSheet(
+      initialChildSize: 0.72,
+      minChildSize: 0.45,
+      maxChildSize: 0.92,
+      expand: false,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: context.appSheetDecoration(radius: 22),
+          padding: EdgeInsets.fromLTRB(20, 10, 20, bottom),
+          child: ListView(
+            controller: scrollController,
+            children: [
+              Center(
+                child: Container(
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
                       color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2)))),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12)),
-                child: Icon(
-                    isTransfer
-                        ? Icons.swap_horiz_rounded
-                        : (isEntrada
-                            ? Icons.trending_up_rounded
-                            : Icons.trending_down_rounded),
-                    color: color,
-                    size: 28),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(titulo,
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.w800)),
-                    Text(tipoLabel,
-                        style: TextStyle(
-                            fontSize: 13,
-                            color: color,
-                            fontWeight: FontWeight.w600)),
-                  ],
+                      borderRadius: BorderRadius.circular(2)),
                 ),
               ),
-              Text('R\$ ${valor.toStringAsFixed(2)}',
+              SizedBox(height: 8),
+              Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: Icon(Icons.arrow_back_rounded,
+                        size: 20, color: AppColors.primary),
+                    label: Text('Voltar'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.primary,
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 6),
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      foregroundColor: context.appTextSecondary,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                    ),
+                    child: Text('Cancelar',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w800, fontSize: 15)),
+                  ),
+                ],
+              ),
+              SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          AppColors.primary,
+                          Color.lerp(AppColors.primary, AppColors.accent, 0.5)!
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      boxShadow: [
+                        BoxShadow(
+                            color: AppColors.primary.withValues(alpha: 0.35),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4))
+                      ],
+                    ),
+                    child: Icon(Icons.auto_awesome_rounded,
+                        color: Colors.white, size: 22),
+                  ),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Relatórios financeiros',
+                            style: TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.w900)),
+                        Text(
+                          'Escolha o período e, se quiser, filtre por categoria. O PDF usa o mesmo filtro Pago/Pendente/Todos da tela.',
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: context.appTextSecondary,
+                              height: 1.35),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 20),
+              Text('Período do relatório',
                   style: TextStyle(
-                      fontSize: 22,
                       fontWeight: FontWeight.w900,
-                      color: color)),
+                      fontSize: 14,
+                      color: AppColors.primary)),
+              SizedBox(height: 10),
+              Wrap(
+                children: [
+                  _modeChip('Mensal', 1, const Color(0xFF0891B2)),
+                  _modeChip('Anual', 4, const Color(0xFFEA580C)),
+                  _modeChip('Por período', 5, const Color(0xFF9333EA)),
+                ],
+              ),
+              if (_rangeMode == 5) ...[
+                SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final d = await showDatePicker(
+                            context: context,
+                            initialDate: _cFrom,
+                            firstDate: DateTime(2000),
+                            lastDate: DateTime(2030),
+                          );
+                          if (d != null) setState(() => _cFrom = d);
+                        },
+                        icon: Icon(Icons.event_rounded, size: 18),
+                        label: Text(
+                            'De ${DateTimeFormats.dateBR.format(_cFrom)}',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final first = _cFrom.isBefore(_cTo) ? _cFrom : _cTo;
+                          final d = await showDatePicker(
+                            context: context,
+                            initialDate: _cTo,
+                            firstDate: first,
+                            lastDate: DateTime(2030),
+                          );
+                          if (d != null) setState(() => _cTo = d);
+                        },
+                        icon: Icon(Icons.event_available_rounded, size: 18),
+                        label: Text(
+                            'Até ${DateTimeFormats.dateBR.format(_cTo)}',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              SizedBox(height: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.2)),
+                ),
+                child: Text(
+                  '${DateTimeFormats.dateBR.format(rf)}  →  ${DateTimeFormats.dateBR.format(rt)}',
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w700),
+                ),
+              ),
+              SizedBox(height: 22),
+              Text('Categoria',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 14,
+                      color: AppColors.primary)),
+              SizedBox(height: 8),
+              FutureBuilder<
+                  ({
+                    List<String> income,
+                    List<String> expense,
+                    List<String> hiddenDefaultIncome,
+                    List<String> hiddenDefaultExpense,
+                  })>(
+                future: _catsFuture,
+                builder: (context, snap) {
+                  final merged = <String>{};
+                  if (snap.hasData) {
+                    for (final c in snap.data!.income) {
+                      if (c != UserCategoriesService.kIncluirNova) {
+                        merged.add(c);
+                      }
+                    }
+                    for (final c in snap.data!.expense) {
+                      if (c != UserCategoriesService.kIncluirNova) {
+                        merged.add(c);
+                      }
+                    }
+                  }
+                  final sorted =
+                      UserCategoriesService.sortedWithoutIncluirNova(merged);
+                  return DropdownButtonFormField<String?>(
+                    isExpanded: true,
+                    key: ValueKey<String?>(_categoryChoice),
+                    initialValue: _categoryChoice,
+                    decoration: InputDecoration(
+                      filled: true,
+                      fillColor: context.appInputFill,
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                    ),
+                    hint: Text('Todas as categorias'),
+                    items: [
+                      const DropdownMenuItem<String?>(
+                          value: null, child: Text('Todas as categorias')),
+                      DropdownMenuItem<String?>(
+                          value: widget.semCategoriaToken,
+                          child: Text('Sem categoria')),
+                      ...sorted.map((c) => DropdownMenuItem<String?>(
+                          value: c,
+                          child: Text(c, overflow: TextOverflow.ellipsis))),
+                    ],
+                    onChanged: (v) => setState(() => _categoryChoice = v),
+                  );
+                },
+              ),
+              SizedBox(height: 18),
+              Text('Resumo antes de exportar',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 14,
+                      color: AppColors.primary)),
+              SizedBox(height: 8),
+              FutureBuilder<({double income, double expense, int docCount})>(
+                key: ValueKey<String>(
+                  '${rf.millisecondsSinceEpoch}|${rt.millisecondsSinceEpoch}|${_categoryChoice ?? ''}|${widget.statusFilter}',
+                ),
+                future: FinancePeriodSummary.load(
+                  uid: firestoreUserDocIdForAppShell(widget.uid),
+                  from: rf,
+                  to: rt,
+                  statusFilter: widget.statusFilter,
+                  categoryExact: _categoryChoice,
+                  semCategoriaToken: widget.semCategoriaToken,
+                ),
+                builder: (context, snap) {
+                  final loading =
+                      snap.connectionState == ConnectionState.waiting &&
+                          !snap.hasData;
+                  final inc = snap.data?.income ?? 0.0;
+                  final exp = snap.data?.expense ?? 0.0;
+                  final saldo = inc - exp;
+                  String line(String k, String v) => '$k: $v';
+                  final fname = _previewFilenameBase(rf, rt);
+                  return Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                          color: AppColors.primary.withValues(alpha: 0.18)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (loading)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: LinearProgressIndicator(
+                              minHeight: 3,
+                              borderRadius: BorderRadius.circular(2),
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        Text(
+                          line(
+                              'Total receitas', CurrencyFormats.formatBRL(inc)),
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              height: 1.35,
+                              color: AppColors.financeReceita),
+                        ),
+                        Text(
+                          line(
+                              'Total despesas', CurrencyFormats.formatBRL(exp)),
+                          style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              height: 1.35,
+                              color: AppColors.financeDespesa),
+                        ),
+                        Text(
+                          line('Saldo', CurrencyFormats.formatBRL(saldo)),
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            height: 1.35,
+                            color: saldo >= 0
+                                ? AppColors.saldoPositive
+                                : AppColors.saldoNegative,
+                          ),
+                        ),
+                        SizedBox(height: 10),
+                        Text(
+                          'Será salvo como: $fname.pdf (e $fname.csv)',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: context.appTextMuted,
+                              fontWeight: FontWeight.w500),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+              SizedBox(height: 20),
+              Text(
+                'PDF: Extrato Financeiro (layout moderno — logo Controle Total App).',
+                style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                    color: context.appTextSecondary),
+              ),
+              SizedBox(height: 12),
+              ModernPdfExportButton(
+                label: 'Gerar PDF',
+                onPressed: () {
+                  final (f, t) = _resolveRange();
+                  widget.onExportPdf(_FinanceReportExportOpts(
+                    from: f,
+                    to: t,
+                    categoryExact: _categoryChoice,
+                  ));
+                },
+              ),
+              SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () {
+                  final (f, t) = _resolveRange();
+                  widget.onExportCsv(_FinanceReportExportOpts(
+                    from: f,
+                    to: t,
+                    categoryExact: _categoryChoice,
+                  ));
+                },
+                icon: Icon(Icons.table_chart_rounded, size: 20),
+                label: Text('Exportar CSV (mesmas colunas do PDF)'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  side: BorderSide(
+                      color: AppColors.primary.withValues(alpha: 0.65),
+                      width: 2),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 16),
-          if (isTransfer &&
-              origemNome.isNotEmpty &&
-              destinoNome.isNotEmpty) ...[
-            Text('Conta de origem',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade600)),
-            Text(origemNome, style: const TextStyle(fontSize: 15)),
-            const SizedBox(height: 8),
-            Text('Conta de destino',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade600)),
-            Text(destinoNome, style: const TextStyle(fontSize: 15)),
-            const SizedBox(height: 12),
-          ],
-          if (isTransfer &&
-              (data['descricao'] ?? '').toString().trim().isNotEmpty) ...[
-            Text('Anotações',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade600)),
-            Text((data['descricao'] ?? '').toString(),
-                style: const TextStyle(fontSize: 15)),
-            const SizedBox(height: 12),
-          ],
-          if (subtitulo.isNotEmpty && !isTransfer) ...[
-            Text('Descrição',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade600)),
-            Text(subtitulo, style: const TextStyle(fontSize: 15)),
-            const SizedBox(height: 12),
-          ],
-          if (!isTransfer) ...[
-            Builder(
-              builder: (_) {
-                final fn = (data['fornecedorNome'] ?? '').toString().trim();
-                final mn = (data['membroNome'] ?? '').toString().trim();
-                if (fn.isEmpty && mn.isEmpty) return const SizedBox.shrink();
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (fn.isNotEmpty) ...[
-                      Text('Fornecedor',
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade600)),
-                      Text(fn, style: const TextStyle(fontSize: 15)),
-                      const SizedBox(height: 8),
-                    ],
-                    if (mn.isNotEmpty) ...[
-                      Text('Membro',
-                          style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.grey.shade600)),
-                      Text(mn, style: const TextStyle(fontSize: 15)),
-                      const SizedBox(height: 8),
-                    ],
-                  ],
-                );
-              },
+        );
+      },
+    );
+  }
+}
+
+/// Comparativo período anterior × atual — layout premium (gradiente, hierarquia, métricas em blocos).
+class _PremiumSaldoPeriodoCard extends StatelessWidget {
+  const _PremiumSaldoPeriodoCard({
+    required this.prevFrom,
+    required this.prevTo,
+    required this.prevIncome,
+    required this.prevExpense,
+    required this.prevBalance,
+    required this.curIncome,
+    required this.curExpense,
+    required this.curBalance,
+  });
+
+  final DateTime prevFrom;
+  final DateTime prevTo;
+  final double prevIncome;
+  final double prevExpense;
+  final double prevBalance;
+  final double curIncome;
+  final double curExpense;
+  final double curBalance;
+
+  static Widget _metricLine({
+    required BuildContext context,
+    required String label,
+    required String value,
+    required Color accent,
+    required IconData icon,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
             ),
-          ],
-          Text('Data',
-              style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade600)),
-          Text(dataStr, style: const TextStyle(fontSize: 15)),
-          if (!isTransfer) ...[
-            const SizedBox(height: 12),
-            Row(
+            child: Icon(icon, size: 16, color: accent),
+          ),
+          SizedBox(width: 10),
+          Expanded(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  isEntrada
-                      ? (data['recebimentoConfirmado'] == false
-                          ? Icons.schedule_rounded
-                          : Icons.verified_rounded)
-                      : (data['pagamentoConfirmado'] == false
-                          ? Icons.schedule_rounded
-                          : Icons.verified_rounded),
-                  size: 20,
-                  color: (isEntrada
-                          ? (data['recebimentoConfirmado'] == false)
-                          : (data['pagamentoConfirmado'] == false))
-                      ? Colors.amber.shade800
-                      : Colors.green.shade700,
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.2,
+                    color: context.appTextMuted,
+                  ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    isEntrada
-                        ? (data['recebimentoConfirmado'] == false
-                            ? 'Receita pendente (ainda não entra no saldo da conta).'
-                            : 'Receita recebida (entra no saldo da conta).')
-                        : (data['pagamentoConfirmado'] == false
-                            ? 'Despesa pendente (ainda não sai do saldo da conta).'
-                            : 'Despesa paga (sai do saldo da conta).'),
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: (isEntrada
-                              ? (data['recebimentoConfirmado'] == false)
-                              : (data['pagamentoConfirmado'] == false))
-                          ? Colors.amber.shade900
-                          : Colors.green.shade800,
-                    ),
+                SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.2,
+                    color: accent,
                   ),
                 ),
               ],
-            ),
-          ],
-          if (comprovanteUrl.isNotEmpty ||
-              FinanceComprovanteAttachService.hasComprovanteInDoc(data)) ...[
-            const SizedBox(height: 16),
-            Text('Comprovante',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade600)),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () => FinanceComprovanteAttachService.viewFromDoc(
-                ctx,
-                data,
-              ),
-              icon: const Icon(Icons.visibility_rounded),
-              label: Text(
-                'Ver ${FinanceComprovanteAttachService.displayNameFromDoc(data)}',
-              ),
-            ),
-          ],
-          const SizedBox(height: 20),
-        ],
-      ),
-    ),
-  );
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-Widget _linhaResumoExtrato(
-  String label,
-  double v,
-  NumberFormat nf, {
-  bool neg = false,
-  bool strong = false,
-}) {
-  final c = (neg && v > 0) ? const Color(0xFFFECACA) : Colors.white;
-  return Padding(
-    padding: const EdgeInsets.symmetric(vertical: 1.5),
-    child: Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label,
-            style: TextStyle(
-              color: c,
-              fontSize: strong ? 14 : 12.5,
-              fontWeight: strong ? FontWeight.w900 : FontWeight.w600,
-            )),
-        Text(
-          nf.format(v),
-          style: TextStyle(
-            color: c,
-            fontSize: strong ? 16 : 13.5,
-            fontWeight: strong ? FontWeight.w900 : FontWeight.w700,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-double _parseValor(dynamic raw) {
-  if (raw == null) return 0;
-  if (raw is num) return raw.toDouble();
-  return parseBrCurrencyInput(raw.toString());
-}
-
-DateTime _parseDate(dynamic raw) {
-  if (raw is Timestamp) return raw.toDate();
-  if (raw is DateTime) return raw;
-  if (raw is String && raw.length >= 10) {
-    return DateTime.tryParse(raw.substring(0, 10)) ?? DateTime.now();
-  }
-  if (raw is Map) {
-    final sec = raw['seconds'] ?? raw['_seconds'];
-    if (sec != null) {
-      return DateTime.fromMillisecondsSinceEpoch((sec as num).toInt() * 1000);
-    }
-  }
-  return DateTime.now();
-}
-
-/// Data do lançamento (mesma lógica do card: createdAt ou date).
-DateTime _financeLancamentoInstant(Map<String, dynamic> data) =>
-    _parseDate(data['createdAt'] ?? data['date']);
-
-DateTime _financeLancamentoDiaSomente(Map<String, dynamic> data) {
-  final d = _financeLancamentoInstant(data);
-  return DateTime(d.year, d.month, d.day);
-}
-
-int _compareFinanceDocsChrono(
-  DocumentSnapshot<Map<String, dynamic>> a,
-  DocumentSnapshot<Map<String, dynamic>> b,
-) {
-  final da = _financeLancamentoInstant(a.data() ?? {});
-  final db = _financeLancamentoInstant(b.data() ?? {});
-  final c = da.compareTo(db);
-  if (c != 0) return c;
-  return a.id.compareTo(b.id);
-}
-
-/// Linha da lista: cabeçalho de dia ou cartão de lançamento.
-class _FinanceLancamentoListRow {
-  const _FinanceLancamentoListRow.header(DateTime d)
-      : isHeader = true,
-        day = d,
-        doc = null;
-
-  const _FinanceLancamentoListRow.item(DocumentSnapshot<Map<String, dynamic>> d)
-      : isHeader = false,
-        day = null,
-        doc = d;
-
-  final bool isHeader;
-  final DateTime? day;
-  final DocumentSnapshot<Map<String, dynamic>>? doc;
-}
-
-List<_FinanceLancamentoListRow> _buildLancamentosGroupedByDay(
-  List<DocumentSnapshot<Map<String, dynamic>>> docs,
-) {
-  if (docs.isEmpty) return [];
-  final sorted = List<DocumentSnapshot<Map<String, dynamic>>>.from(docs)
-    ..sort(_compareFinanceDocsChrono);
-  final rows = <_FinanceLancamentoListRow>[];
-  DateTime? prevDia;
-  for (final d in sorted) {
-    final data = d.data() ?? {};
-    final dia = _financeLancamentoDiaSomente(data);
-    if (prevDia == null ||
-        dia.year != prevDia.year ||
-        dia.month != prevDia.month ||
-        dia.day != prevDia.day) {
-      prevDia = dia;
-      rows.add(_FinanceLancamentoListRow.header(dia));
-    }
-    rows.add(_FinanceLancamentoListRow.item(d));
-  }
-  return rows;
-}
-
-class _FinanceDayHeaderTile extends StatelessWidget {
-  const _FinanceDayHeaderTile({required this.day});
-
-  final DateTime day;
-
-  @override
-  Widget build(BuildContext context) {
-    final s =
-        '${day.day.toString().padLeft(2, '0')}/${day.month.toString().padLeft(2, '0')}/${day.year}';
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(top: 6, bottom: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [
-            ThemeCleanPremium.primary.withValues(alpha: 0.12),
-            ThemeCleanPremium.primary.withValues(alpha: 0.04),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(
-          color: ThemeCleanPremium.primary.withValues(alpha: 0.2),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.calendar_today_rounded,
-              size: 16, color: ThemeCleanPremium.primary.withValues(alpha: 0.9)),
-          const SizedBox(width: 10),
-          Text(
-            s,
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 13,
-              color: Color.lerp(
-                      ThemeCleanPremium.primary, const Color(0xFF0F172A), 0.35) ??
-                  ThemeCleanPremium.primary,
-              letterSpacing: -0.1,
             ),
           ),
         ],
       ),
     );
   }
+
+  Widget _periodPanel({
+    required BuildContext context,
+    required String badge,
+    required String dateLine,
+    required Color badgeTint,
+    required double income,
+    required double expense,
+    required double balance,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: context.isDarkMode
+          ? context.appPanelDecoration(radius: 18, borderAccent: badgeTint)
+          : BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.92),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.deepBlueDark.withValues(alpha: 0.06),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      badgeTint.withValues(alpha: 0.22),
+                      badgeTint.withValues(alpha: 0.08),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(99),
+                  border: Border.all(color: badgeTint.withValues(alpha: 0.35)),
+                ),
+                child: Text(
+                  badge,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.3,
+                    color: badgeTint,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 6),
+          Text(
+            dateLine,
+            style: TextStyle(
+              fontSize: 11.5,
+              height: 1.3,
+              fontWeight: FontWeight.w500,
+              color: context.appTextSecondary,
+            ),
+          ),
+          _metricLine(
+            context: context,
+            label: 'Receitas',
+            value: CurrencyFormats.formatBRL(income),
+            accent: AppColors.financeReceita,
+            icon: Icons.south_west_rounded,
+          ),
+          _metricLine(
+            context: context,
+            label: 'Despesas',
+            value: CurrencyFormats.formatBRL(expense),
+            accent: AppColors.financeDespesa,
+            icon: Icons.north_east_rounded,
+          ),
+          _metricLine(
+            context: context,
+            label: 'Saldo',
+            value: CurrencyFormats.formatBRL(balance),
+            accent: balance >= 0
+                ? AppColors.saldoPositive
+                : AppColors.saldoNegative,
+            icon: balance >= 0
+                ? Icons.trending_up_rounded
+                : Icons.trending_down_rounded,
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final prevDates =
+        '${DateTimeFormats.dateBR.format(prevFrom)} — ${DateTimeFormats.dateBR.format(prevTo)}';
+    final narrow = MediaQuery.sizeOf(context).width < 520;
+    final curDates = 'Mesmo filtro da tela · totais do período selecionado';
+
+    final left = _periodPanel(
+      context: context,
+      badge: 'PERÍODO ANTERIOR',
+      dateLine: prevDates,
+      badgeTint: AppColors.secondary,
+      income: prevIncome,
+      expense: prevExpense,
+      balance: prevBalance,
+    );
+    final right = _periodPanel(
+      context: context,
+      badge: 'PERÍODO ATUAL',
+      dateLine: curDates,
+      badgeTint: AppColors.accent,
+      income: curIncome,
+      expense: curExpense,
+      balance: curBalance,
+    );
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFFF0F4FF),
+            Colors.white,
+            AppColors.accent.withValues(alpha: 0.06),
+          ],
+        ),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.10),
+            blurRadius: 28,
+            offset: const Offset(0, 12),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              height: 5,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: AppColors.logoGradient,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(11),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              AppColors.primary.withValues(alpha: 0.18),
+                              AppColors.accent.withValues(alpha: 0.12),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.primary.withValues(alpha: 0.12),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Icon(Icons.insights_rounded,
+                            color: AppColors.primary, size: 26),
+                      ),
+                      SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Saldo e fluxo · comparativo',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: -0.3,
+                                color: context.appTextPrimary,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Mesma duração do período selecionado na tela (anterior imediatamente antes).',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                height: 1.35,
+                                fontWeight: FontWeight.w500,
+                                color: context.appTextMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 16),
+                  if (narrow)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        left,
+                        SizedBox(height: 12),
+                        right,
+                      ],
+                    )
+                  else
+                    IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(child: left),
+                          SizedBox(width: 12),
+                          Container(width: 1, color: const Color(0xFFE2E8F0)),
+                          SizedBox(width: 12),
+                          Expanded(child: right),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Cartão temático para **Onde foi o dinheiro** — abre o preview com gráficos e edição de lançamentos.
+class _WhereMoneyExpenseCard extends StatelessWidget {
+  const _WhereMoneyExpenseCard({
+    required this.categoryName,
+    required this.amount,
+    required this.percentOfPeriodExpenses,
+    required this.accent,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String categoryName;
+  final double amount;
+  final double percentOfPeriodExpenses;
+  final Color accent;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  static const List<Color> _palette = [
+    Color(0xFFE11D48),
+    Color(0xFFEA580C),
+    Color(0xFF7C3AED),
+    Color(0xFF0891B2),
+    Color(0xFF059669),
+    Color(0xFF2563EB),
+    Color(0xFFDB2777),
+    Color(0xFFD97706),
+  ];
+
+  static Color accentFor(String category) =>
+      _palette[category.hashCode.abs() % _palette.length];
+
+  static IconData iconFor(String category) {
+    final l = category.toLowerCase().trim();
+    if (l.contains('cart')) return Icons.credit_card_rounded;
+    if (l.contains('escola') || l.contains('educa')) {
+      return Icons.school_rounded;
+    }
+    if (l.contains('consórcio') || l.contains('consorcio')) {
+      return Icons.groups_rounded;
+    }
+    if (l.contains('combust') || l.contains('gasolina')) {
+      return Icons.local_gas_station_rounded;
+    }
+    if (l.contains('mercado') || l.contains('super')) {
+      return Icons.shopping_cart_rounded;
+    }
+    if (l.contains('saúde') || l.contains('saude') || l.contains('medic')) {
+      return Icons.medical_services_rounded;
+    }
+    if (l.contains('moradia') || l.contains('aluguel')) {
+      return Icons.home_rounded;
+    }
+    if (l.contains('lazer')) return Icons.sports_esports_rounded;
+    if (l.contains('restaur')) return Icons.restaurant_rounded;
+    if (l.contains('transport')) return Icons.directions_car_rounded;
+    return Icons.pie_chart_rounded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pctLabel = CurrencyFormats.formatPercentBr(percentOfPeriodExpenses);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: accent.withValues(alpha: 0.28)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 10, 10, 9),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border:
+                            Border.all(color: accent.withValues(alpha: 0.28)),
+                      ),
+                      child: Icon(icon, color: accent, size: 16),
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        categoryName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                            color: context.appTextPrimary),
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      CurrencyFormats.formatBRLTight(amount),
+                      style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                          color: accent),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 8),
+                Stack(
+                  children: [
+                    Container(
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                    FractionallySizedBox(
+                      widthFactor:
+                          (percentOfPeriodExpenses / 100).clamp(0.0, 1.0),
+                      child: Container(
+                        height: 8,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [accent.withValues(alpha: 0.75), accent],
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                          ),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 6),
+                Row(
+                  children: [
+                    Text(
+                      '$pctLabel das despesas',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: accent.withValues(alpha: 0.95)),
+                    ),
+                    const Spacer(),
+                    Text(
+                      'Gráficos',
+                      style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: context.appTextMuted),
+                    ),
+                    SizedBox(width: 4),
+                    Icon(Icons.arrow_forward_ios_rounded,
+                        size: 11, color: accent.withValues(alpha: 0.75)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FinanceKpiCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final Color color;
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  const _FinanceKpiCard({
+    required this.title,
+    required this.value,
+    required this.color,
+    required this.icon,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final narrow = width < 560;
+    final card = Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color),
+          SizedBox(height: 6),
+          Text(value,
+              style: TextStyle(fontWeight: FontWeight.w900, color: color)),
+          SizedBox(height: 4),
+          Text(
+            title,
+            style: TextStyle(
+                color: context.appTextSecondary,
+                fontWeight: FontWeight.w500,
+                fontSize: 12),
+          ),
+          if (onTap != null) ...[
+            SizedBox(height: 6),
+            Text(
+              'Toque para detalhar',
+              style: TextStyle(
+                  fontSize: 11,
+                  color: context.appTextMuted,
+                  fontWeight: FontWeight.w500),
+            ),
+          ],
+        ],
+      ),
+    );
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        minWidth: narrow ? 140 : 160,
+        maxWidth: narrow ? width * 0.46 : 220,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: card,
+        ),
+      ),
+    );
+  }
+}
+
+/// Barra superior padrão dos previews/sheets do módulo Financeiro.
+///
+/// Pedido do usuário: cada preview tem **«Voltar»** à esquerda (paridade
+/// total iPhone / iOS / Android / Web, sem depender de botão físico) +
+/// atalho **«Fechar» (X)** à direita. Mesmo visual usado nos previews do
+/// Painel Inicial e demais módulos (Audiências/Compromissos, Produtividade,
+/// Meta, Escalas).
+Widget buildFinancePreviewTopBar(BuildContext ctx) {
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(8, 12, 8, 4),
+    child: Row(
+      children: [
+        Material(
+          color: AppColors.primary.withValues(alpha: 0.08),
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: () => Navigator.of(ctx).pop(),
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Icon(
+                Icons.arrow_back_rounded,
+                color: AppColors.primary,
+                size: 22,
+                semanticLabel: 'Voltar',
+              ),
+            ),
+          ),
+        ),
+        SizedBox(width: 6),
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          style: TextButton.styleFrom(
+            minimumSize: const Size(44, 44),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+            foregroundColor: AppColors.primary,
+          ),
+          child: Text(
+            'Voltar',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+        const Spacer(),
+        Material(
+          color: Colors.grey.shade100,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: () => Navigator.of(ctx).pop(),
+            child: Padding(
+              padding: EdgeInsets.all(8),
+              child: Icon(
+                Icons.close_rounded,
+                size: 22,
+                color: ctx.appDeepTitle,
+                semanticLabel: 'Fechar',
+              ),
+            ),
+          ),
+        ),
+        SizedBox(width: 4),
+      ],
+    ),
+  );
 }

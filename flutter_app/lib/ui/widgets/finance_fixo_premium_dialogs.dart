@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart'
     show kFornecedoresModuleIcon;
@@ -33,7 +33,7 @@ String titularNomeFinanceFixo(Map<String, dynamic> d) {
   return (d['membroNome'] ?? d['memberNome'] ?? '').toString().trim();
 }
 
-/// Despesas fixas: vínculo opcional (nenhum / membro / fornecedor).
+/// Despesas fixas: v├¡nculo opcional (nenhum / membro / fornecedor).
 class FinanceFixoVinculoSegmentDespesa extends StatelessWidget {
   final String value;
   final ValueChanged<String> onChanged;
@@ -68,7 +68,7 @@ class FinanceFixoVinculoSegmentDespesa extends StatelessWidget {
   }
 }
 
-/// Segmento Membro / Fornecedor — mesmo padrão em receitas e despesas fixas.
+/// Segmento Membro / Fornecedor ÔÇö mesmo padr├úo em receitas e despesas fixas.
 class FinanceFixoVinculoSegment extends StatelessWidget {
   final String value;
   final ValueChanged<String> onChanged;
@@ -104,7 +104,7 @@ class FinanceFixoVinculoSegment extends StatelessWidget {
   }
 }
 
-/// Cartão de seleção (membro ou fornecedor) — toque abre o picker premium.
+/// Cart├úo de sele├º├úo (membro ou fornecedor) ÔÇö toque abre o picker premium.
 class FinanceFixoTitularCard extends StatelessWidget {
   final String vinculoTipo;
   final String tituloPlaceholder;
@@ -291,7 +291,7 @@ Future<(String, String, String?)?> showFinancePremiumMemberPicker(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
                   child: TextField(
                     decoration: InputDecoration(
-                      hintText: 'Buscar nome ou CPF…',
+                      hintText: 'Buscar nome ou CPFÔÇª',
                       prefixIcon: const Icon(Icons.search_rounded),
                       filled: true,
                       fillColor: const Color(0xFFF8FAFC),
@@ -401,7 +401,7 @@ Future<(String, String, String?)?> showFinancePremiumMemberPicker(
 Future<List<({String id, String nome})>> _fornecedoresAtivos(String tenantId) async {
   try {
     final op = ChurchPanelTenantGateway.churchId(tenantId.trim());
-    // Mesmo loader canónico da aba Cadastros (RAM/Hive/Firestore + legado).
+    // Mesmo loader can├│nico da aba Cadastros (RAM/Hive/Firestore + legado).
     final loaded = await ChurchFornecedoresLoadService.loadAll(
       seedTenantId: op,
       forceRefresh: true,
@@ -416,7 +416,7 @@ Future<List<({String id, String nome})>> _fornecedoresAtivos(String tenantId) as
     }
     if (out.isNotEmpty) return out;
 
-    // Fallback directo (sem orderBy — evita falha por índice/campo ausente).
+    // Fallback directo (sem orderBy ÔÇö evita falha por ├¡ndice/campo ausente).
     final snap = await ChurchUiCollections.fornecedores(op).limit(500).get();
     for (final d in snap.docs) {
       final m = d.data();
@@ -509,7 +509,7 @@ Future<(String, String)?> showFinancePremiumFornecedorPicker(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
                   child: TextField(
                     decoration: InputDecoration(
-                      hintText: 'Buscar nome…',
+                      hintText: 'Buscar nomeÔÇª',
                       prefixIcon: const Icon(Icons.search_rounded),
                       filled: true,
                       fillColor: const Color(0xFFF8FAFC),
@@ -545,7 +545,7 @@ Future<(String, String)?> showFinancePremiumFornecedorPicker(
                             padding: const EdgeInsets.all(24),
                             child: Text(
                               fornecedores.isEmpty
-                                  ? 'Nenhum fornecedor cadastrado. Cadastre em Financeiro → Fornecedores.'
+                                  ? 'Nenhum fornecedor cadastrado. Cadastre em Financeiro ÔåÆ Fornecedores.'
                                   : 'Nenhum resultado.',
                               textAlign: TextAlign.center,
                               style: TextStyle(color: Colors.grey.shade600),

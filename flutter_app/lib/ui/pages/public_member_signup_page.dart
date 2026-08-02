@@ -1697,8 +1697,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                                 final msg = _req(v);
                                                 if (msg != null) return msg;
                                                 final digits = _onlyDigits(v!);
-                                                if (digits.length != 11)
+                                                if (digits.length != 11) {
                                                   return 'CPF invalido';
+                                                }
                                                 return null;
                                               },
                                             ),
@@ -1733,14 +1734,16 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                               ),
                                               validator: (v) {
                                                 final t = (v ?? '').trim();
-                                                if (t.isEmpty)
+                                                if (t.isEmpty) {
                                                   return 'Campo obrigatório';
+                                                }
                                                 final p =
                                                     memberSignupParseBirthDateBr(
                                                       t,
                                                     );
-                                                if (p == null)
+                                                if (p == null) {
                                                   return 'Use DD/MM/AAAA';
+                                                }
                                                 final now = DateTime.now();
                                                 if (p.isAfter(
                                                   DateTime(
@@ -1905,8 +1908,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                               : null,
                                         ),
                                         onChanged: (v) {
-                                          if (_onlyDigits(v).length == 8)
+                                          if (_onlyDigits(v).length == 8) {
                                             _buscarCep();
+                                          }
                                         },
                                         onEditingComplete: _buscarCep,
                                       ),

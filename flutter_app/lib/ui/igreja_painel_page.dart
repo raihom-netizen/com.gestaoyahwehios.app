@@ -11,7 +11,7 @@ import 'grafico_ultra_moderno.dart';
 import 'igreja_menu_lateral_dinamico.dart';
 import 'pages/members_page.dart';
 import 'pages/departments_page.dart';
-import 'pages/finance_page.dart';
+import 'pages/finance_page_adapter.dart';
 import 'pages/usuarios_permissoes_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
 

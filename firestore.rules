@@ -1823,6 +1823,37 @@ service cloud.firestore {
         || k.hasOnly(['dismissedGlobalAnnouncementAt', 'dismissedGlobalAnnouncementMsgHash']);
     }
 
+    // Acesso pessoal (Financeiro Controle Total no Yahweh): dono, delegado ativo ou master.
+    function authEmailKey() {
+      return request.auth.token.email == null ? '' : request.auth.token.email.lower();
+    }
+    function isDelegateFor(userId) {
+      let e = authEmailKey();
+      let idx = /databases/$(database)/documents/delegate_email_index/$(e);
+      return e != ''
+        && exists(idx)
+        && get(idx).data.get('principalUid', '') == userId
+        && get(idx).data.get('active', false) == true;
+    }
+    function canAccessPersonalUserData(userId) {
+      return isSignedIn() && (request.auth.uid == userId || isDelegateFor(userId) || isMaster());
+    }
+
+    match /delegate_email_index/{emailKey} {
+      allow read: if isSignedIn() && (
+        authEmailKey() == emailKey
+        || resource.data.get('principalUid', '') == request.auth.uid
+        || isMaster()
+      );
+      allow create, update: if isSignedIn() && (
+        request.resource.data.get('principalUid', '') == request.auth.uid
+        || isMaster()
+      ) && request.resource.data.get('active', false) == true;
+      allow delete: if isSignedIn() && (
+        resource.data.get('principalUid', '') == request.auth.uid || isMaster()
+      );
+    }
+
     match /users/{uid} {
       allow read, update: if isSignedIn() && request.auth.uid == uid;
       allow create: if isSignedIn() && request.auth.uid == uid && onlyDismissAnnouncementKeys();
@@ -1851,7 +1882,63 @@ service cloud.firestore {
         ));
 
       match /fcmTokens/{token} {
-        allow read, create, update, delete: if isSignedIn() && request.auth.uid == uid;
+        allow read, create, update, delete: if isSignedIn() && (request.auth.uid == uid || isDelegateFor(uid));
+      }
+
+      // Categorias, prefs financeiro, taxas, etc.
+      match /settings/{docId} {
+        allow read, write: if canAccessPersonalUserData(uid);
+      }
+      // Contas bancárias/cartões (Financeiro pessoal).
+      match /finance_accounts/{accountId} {
+        allow read, write: if canAccessPersonalUserData(uid);
+      }
+      // Lançamentos despesas/receitas.
+      match /transactions/{txId} {
+        allow read, write: if canAccessPersonalUserData(uid);
+      }
+      match /fixed_expenses/{docId} {
+        allow read, write: if canAccessPersonalUserData(uid);
+      }
+      match /fixed_incomes/{docId} {
+        allow read, write: if canAccessPersonalUserData(uid);
+      }
+      match /goals/{goalId} {
+        allow read, write: if canAccessPersonalUserData(uid);
+      }
+      match /bank_connections/{docId} {
+        allow read, write: if canAccessPersonalUserData(uid);
+      }
+      match /scales/{scaleId} {
+        allow read, write: if canAccessPersonalUserData(uid);
+      }
+      match /reminders/{reminderId} {
+        allow read, write: if canAccessPersonalUserData(uid);
+      }
+      match /ocorrencias/{ocorrenciaId} {
+        allow read, write: if canAccessPersonalUserData(uid);
+      }
+      // Agregados mensais — só Cloud Functions gravam.
+      match /finance_month_buckets/{bucketId} {
+        allow read: if canAccessPersonalUserData(uid);
+        allow write: if false;
+      }
+      match /finance_account_month_buckets/{bucketId} {
+        allow read: if canAccessPersonalUserData(uid);
+        allow write: if false;
+      }
+      match /finance_stats/{docId} {
+        allow read: if canAccessPersonalUserData(uid);
+        allow write: if false;
+      }
+      // Demais subcoleções pessoais (paridade Controle Total).
+      // Buckets/stats ficam só nas regras acima (write false) — catch-all não pode liberar escrita neles.
+      match /{allPaths=**} {
+        allow read: if canAccessPersonalUserData(uid);
+        allow write: if canAccessPersonalUserData(uid)
+          && !(allPaths.matches('finance_month_buckets(/.*)?')
+            || allPaths.matches('finance_account_month_buckets(/.*)?')
+            || allPaths.matches('finance_stats(/.*)?'));
       }
     }
 
@@ -1914,6 +2001,12 @@ service cloud.firestore {
       allow write: if false;
     }
     match /config/featureFlags {
+      allow read: if isSignedIn();
+      allow write: if isMaster();
+    }
+
+    // Credenciais TDLib (api_id / api_hash) — painel Master grava; app autenticado lê.
+    match /config/telegram_tdlib {
       allow read: if isSignedIn();
       allow write: if isMaster();
     }

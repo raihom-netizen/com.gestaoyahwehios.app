@@ -60,6 +60,16 @@ abstract final class ChatMessagingEngine {
       ChatEngineAudit.recordConversationOpen(
         DateTime.now().difference(sw.startedAt).inMilliseconds,
       );
+      // Rede/cache Firestore vazio NÃO apaga histórico local — só some se o
+      // utilizador apagar. Evita «Sem mensagens ainda» com preview no hub.
+      if (fresh.isEmpty && cached.isNotEmpty) {
+        ChatEngineAudit.end(
+          sw,
+          docs: cached.length,
+          fromCache: true,
+        );
+        return cached;
+      }
       ChatEngineAudit.end(sw, docs: fresh.length);
       return fresh;
     } catch (e) {

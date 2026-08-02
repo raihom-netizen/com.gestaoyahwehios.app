@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Conta bancária com saldo pré-calculado (`_panel_cache/finance_accounts`).
+/// Conta banc├íria com saldo pr├®-calculado (`_panel_cache/finance_accounts`).
 class PanelFinanceAccountBalance {
   const PanelFinanceAccountBalance({
     required this.contaId,

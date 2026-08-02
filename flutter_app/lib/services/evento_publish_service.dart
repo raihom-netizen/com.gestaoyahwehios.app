@@ -75,9 +75,8 @@ abstract final class EventoPublishService {
 
     await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
 
-    if (isNewDoc && !hasNewPhotos && existingUrls.isEmpty && !hasVideo) {
-      throw StateError('Adicione pelo menos uma foto ou um vídeo ao evento.');
-    }
+    // Eventos podem ser criados só com texto (título/data/local) — mídia é opcional.
+    // A validação de conteúdo mínimo (título) já é feita na UI (_save).
 
     var resolvedVideoPath = (videoStoragePath ?? '').trim();
     final payload = Map<String, dynamic>.from(corePayload);

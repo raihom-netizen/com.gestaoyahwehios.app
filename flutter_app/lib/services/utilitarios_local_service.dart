@@ -1,20 +1,23 @@
 ﻿import 'dart:convert';
 import 'dart:io' show File;
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart'
+    show TextPainter, TextSpan, TextStyle, FontWeight, FontStyle, Color;
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image/image.dart' as img;
 import 'package:pdf/pdf.dart' hide PdfDocument, PdfRect;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfrx/pdfrx.dart';
 
-import 'package:gestao_yahweh/services/relatorio_service.dart';
-import 'package:gestao_yahweh/services/smart_input_image_ocr_service.dart';
+import 'relatorio_service.dart';
+import 'smart_input_image_ocr_service.dart';
 import 'package:gestao_yahweh/constants/utilitarios_export_page_format.dart';
 
-/// Anotação no editor PDF (exportada achatada no PDF final).
+/// Anotação no editor PDF — exportada como edição nativa (PDF real, sem raster).
 class UtilPdfPageAnnotation {
   const UtilPdfPageAnnotation({
     required this.id,
@@ -26,9 +29,13 @@ class UtilPdfPageAnnotation {
     this.text = '',
     this.argb = 0xFFFFF59D,
     this.textArgb = 0xFF1E293B,
+    this.backgroundArgb,
     this.fontScale = 1.0,
     this.fontBold = false,
+    this.fontItalic = false,
+    this.fontFamily,
     this.seamless = false,
+    this.replaceSourceText,
   });
 
   /// `text` | `highlight` | `check` | `whiteout`
@@ -41,11 +48,22 @@ class UtilPdfPageAnnotation {
   final String text;
   final int argb;
   final int textArgb;
+
+  /// Cor de fundo do campo original (ex.: célula colorida de tabela).
+  final int? backgroundArgb;
   final double fontScale;
   final bool fontBold;
+  final bool fontItalic;
+
+  /// Família tipográfica preferencial detectada/original.
+  final String? fontFamily;
 
   /// Exportação integrada ao fundo (sem caixa branca visível).
   final bool seamless;
+
+  /// Texto original do campo — usado no export para localizar e substituir
+  /// no PDF (findText) sem “mancha” maior que o trecho.
+  final String? replaceSourceText;
 
   UtilPdfPageAnnotation copyWith({
     String? id,
@@ -57,9 +75,13 @@ class UtilPdfPageAnnotation {
     String? text,
     int? argb,
     int? textArgb,
+    int? backgroundArgb,
     double? fontScale,
     bool? fontBold,
+    bool? fontItalic,
+    String? fontFamily,
     bool? seamless,
+    String? replaceSourceText,
   }) {
     return UtilPdfPageAnnotation(
       id: id ?? this.id,
@@ -71,9 +93,13 @@ class UtilPdfPageAnnotation {
       text: text ?? this.text,
       argb: argb ?? this.argb,
       textArgb: textArgb ?? this.textArgb,
+      backgroundArgb: backgroundArgb ?? this.backgroundArgb,
       fontScale: fontScale ?? this.fontScale,
       fontBold: fontBold ?? this.fontBold,
+      fontItalic: fontItalic ?? this.fontItalic,
+      fontFamily: fontFamily ?? this.fontFamily,
       seamless: seamless ?? this.seamless,
+      replaceSourceText: replaceSourceText ?? this.replaceSourceText,
     );
   }
 }
@@ -89,7 +115,10 @@ class UtilPdfTextField {
     required this.nh,
     this.source = 'pdf',
     this.textArgb = 0xFF1E293B,
+    this.backgroundArgb,
     this.fontBold = false,
+    this.fontItalic = false,
+    this.fontFamily,
   });
 
   final String id;
@@ -105,8 +134,17 @@ class UtilPdfTextField {
   /// Cor detectada no documento original (ARGB).
   final int textArgb;
 
+  /// Cor de fundo do campo original (ARGB), quando detectada.
+  final int? backgroundArgb;
+
   /// Negrito detectado no documento original.
   final bool fontBold;
+
+  /// Itálico detectado no documento original.
+  final bool fontItalic;
+
+  /// Família tipográfica preferencial (serif, sans-serif, monospace).
+  final String? fontFamily;
 
   UtilPdfTextField copyWith({
     String? id,
@@ -117,7 +155,10 @@ class UtilPdfTextField {
     double? nh,
     String? source,
     int? textArgb,
+    int? backgroundArgb,
     bool? fontBold,
+    bool? fontItalic,
+    String? fontFamily,
   }) {
     return UtilPdfTextField(
       id: id ?? this.id,
@@ -128,7 +169,10 @@ class UtilPdfTextField {
       nh: nh ?? this.nh,
       source: source ?? this.source,
       textArgb: textArgb ?? this.textArgb,
+      backgroundArgb: backgroundArgb ?? this.backgroundArgb,
       fontBold: fontBold ?? this.fontBold,
+      fontItalic: fontItalic ?? this.fontItalic,
+      fontFamily: fontFamily ?? this.fontFamily,
     );
   }
 }
@@ -234,10 +278,8 @@ extension UtilitariosArchiveFormatX on UtilitariosArchiveFormat {
       };
 
   String get subtitle => switch (this) {
-        UtilitariosArchiveFormat.zip =>
-          'Rápido · compatível com tudo',
-        UtilitariosArchiveFormat.zipMax =>
-          'Menor tamanho · extensão .zip',
+        UtilitariosArchiveFormat.zip => 'Rápido · compatível com tudo',
+        UtilitariosArchiveFormat.zipMax => 'Menor tamanho · extensão .zip',
         UtilitariosArchiveFormat.rar =>
           'Ultra-compacto · .zip no celular (padrão universal)',
       };
@@ -259,17 +301,23 @@ abstract final class UtilitariosLocalService {
   /// Limites defensivos — evita OOM / travamento em PDFs/fotos grandes.
   static const int kMaxPdfPagesRender = 15;
   static const int kMaxPdfPagesCompress = 20;
-  /// Dividir / juntar / editor PDF — até 100 páginas (miniaturas progressivas).
-  static const int kMaxPdfPagesTools = 100;
+
+  /// Dividir / juntar / editor PDF — até 1000 páginas (miniaturas progressivas).
+  static const int kMaxPdfPagesTools = 1000;
   static const int kMaxPdfPagesText = 30;
-  static const int kMaxImagesPerPdf = 20;
+  static const int kMaxImagesPerPdf = 60;
   static const int kMaxInputBytes = 28 * 1024 * 1024; // 28 MB
   /// Total ao compactar vários arquivos em ZIP/RAR (local).
   static const int kMaxArchiveTotalBytes = 96 * 1024 * 1024; // 96 MB
   static const int kMaxArchiveFileCount = 40;
+
   /// Vídeos MP4/MOV — leitura por path (sem carregar tudo na RAM).
   static const int kMaxVideoInputBytes = 500 * 1024 * 1024; // 500 MB
   static const double kPdfRenderWidth = 900;
+
+  /// Largura de render no editor PDF — ~A4 @ ~200 dpi (2480 px no lado longo)
+  /// para tipografia fina e export próximo ao padrão Adobe ao compartilhar.
+  static const double kPdfEditRenderWidth = 2480;
   static const double kPdfCompressWidth = 780;
 
   /// Scanner — preview rápido na UI; export final em A4 (~2800 px, rápido e nítido).
@@ -344,7 +392,7 @@ abstract final class UtilitariosLocalService {
     double? sharpenStrength,
   }) async {
     ensureWithinSize(raw, label: 'Imagem');
-    return compute(
+    final out = await compute(
       _compressImageIsolate,
       _CompressImageArgs(
         raw: raw,
@@ -353,12 +401,16 @@ abstract final class UtilitariosLocalService {
         sharpenStrength: sharpenStrength ?? level.sharpenStrength,
       ),
     );
+    // Garante que o compressor nunca aumente o arquivo. Se o resultado não
+    // for menor, devolve o original.
+    return out.lengthInBytes < raw.lengthInBytes ? out : raw;
   }
 
   /// Modo de tratamento da página do scanner (CamScanner).
   static const String scanModeDocument = 'document';
   static const String scanModeColor = 'color';
   static const String scanModeOriginal = 'original';
+
   /// Cores vivas + limpeza de sombra (papel amassado/sujo) — padrão do scanner.
   static const String scanModeVivid = 'vivid';
 
@@ -376,8 +428,8 @@ abstract final class UtilitariosLocalService {
     bool previewOnly = false,
   }) async {
     ensureWithinSize(raw, label: 'Foto do scanner');
-    final side = maxSide ??
-        (exportQuality ? kScanExportMaxSide : kScanPreviewMaxSide);
+    final side =
+        maxSide ?? (exportQuality ? kScanExportMaxSide : kScanPreviewMaxSide);
     final quality = jpegQuality ??
         (exportQuality ? kScanExportJpegQuality : kScanPreviewJpegQuality);
     return compute(
@@ -395,7 +447,8 @@ abstract final class UtilitariosLocalService {
   }
 
   /// Detecta enquadramento automático (normalizado 0–1 sobre a foto).
-  static Future<({double nx, double ny, double nw, double nh})> detectScanCropRect(
+  static Future<({double nx, double ny, double nw, double nh})>
+      detectScanCropRect(
     Uint8List raw,
   ) async {
     ensureWithinSize(raw, label: 'Foto do scanner');
@@ -632,7 +685,7 @@ abstract final class UtilitariosLocalService {
       }
       final s = buf.toString().trim();
       if (s.isEmpty) {
-        return 'Documento convertido no GestÃ£o Yahweh.\n'
+        return 'Documento convertido no Controle Total App.\n'
             'Este PDF não possui texto selecionável (pode ser imagem/scan).\n'
             'Use «PDF → JPEG» ou «PDF → PNG» para obter as páginas em imagem.';
       }
@@ -762,7 +815,8 @@ abstract final class UtilitariosLocalService {
   }
 
   /// Detecta linha curta em caixa alta como possível título.
-  static bool looksLikeDocumentHeading(String text) => _pdfLooksLikeHeading(text);
+  static bool looksLikeDocumentHeading(String text) =>
+      _pdfLooksLikeHeading(text);
 
   /// Empacota várias páginas de imagem em ZIP (local) — isolate.
   static Future<Uint8List> zipImages(
@@ -809,6 +863,8 @@ abstract final class UtilitariosLocalService {
 
   /// Comprime PDF re-renderizando páginas (local) — [level]: Baixa / Média / Alta.
   /// Média/Alta reduzem de verdade (render menor + JPEG forte + PDF final alinhado).
+  /// Se a rasterização aumentar o arquivo (comum em PDFs de texto), devolve o
+  /// original para nunca ocupar mais espaço.
   static Future<Uint8List> compressPdf(
     Uint8List pdfBytes, {
     UtilitariosCompressLevel level = UtilitariosCompressLevel.media,
@@ -832,14 +888,88 @@ abstract final class UtilitariosLocalService {
       );
     }
     // Mesmo nível no PDF final — evita re-encode “gordo” que desfaz a compressão.
-    return imagesToPdf(compressed, level: level);
+    final out = await imagesToPdf(compressed, level: level);
+    // Garante que o compressor nunca aumente o arquivo.
+    return out.lengthInBytes < pdfBytes.lengthInBytes ? out : pdfBytes;
+  }
+
+  /// Comprime documentos Word (.docx) reduzindo as imagens embutidas.
+  /// DOCX é um ZIP; mantém XML/texto intactos e só re-encode das imagens.
+  /// Se o resultado não for menor, devolve o original.
+  static Future<Uint8List> compressDocx(
+    Uint8List docxBytes, {
+    UtilitariosCompressLevel level = UtilitariosCompressLevel.media,
+  }) async {
+    ensureWithinSize(docxBytes, label: 'Word');
+    final original = Uint8List.fromList(docxBytes);
+    final archive = ZipDecoder().decodeBytes(docxBytes);
+    final out = Archive();
+    var changed = false;
+
+    for (final file in archive.files) {
+      if (file.isFile && _isDocxImageMedia(file.name)) {
+        final bytes = Uint8List.fromList(file.content as List<int>);
+        Uint8List compressed;
+        try {
+          compressed = await compressImage(
+            bytes,
+            level: level,
+          );
+        } catch (_) {
+          compressed = bytes;
+        }
+        if (compressed.lengthInBytes < bytes.lengthInBytes) {
+          changed = true;
+          out.addFile(
+            ArchiveFile(file.name, compressed.length, compressed)
+              ..compression = CompressionType.none,
+          );
+        } else {
+          out.addFile(_copyArchiveFile(file));
+        }
+      } else {
+        out.addFile(_copyArchiveFile(file));
+      }
+    }
+
+    if (!changed) return original;
+    final encoded = Uint8List.fromList(ZipEncoder().encode(out));
+    return encoded.lengthInBytes < original.lengthInBytes ? encoded : original;
+  }
+
+  static bool _isDocxImageMedia(String name) {
+    final lower = name.toLowerCase();
+    if (!lower.startsWith('word/media/')) return false;
+    return lower.endsWith('.png') ||
+        lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.gif') ||
+        lower.endsWith('.bmp') ||
+        lower.endsWith('.tiff') ||
+        lower.endsWith('.tif') ||
+        lower.endsWith('.emf') ||
+        lower.endsWith('.wmf');
+  }
+
+  static ArchiveFile _copyArchiveFile(ArchiveFile file) {
+    final data = Uint8List.fromList(file.content as List<int>);
+    final copy = ArchiveFile(file.name, data.length, data)
+      ..compression = file.compression;
+    return copy;
   }
 
   /// Conta páginas do PDF (local).
-  static Future<int> pdfPageCount(Uint8List pdfBytes) async {
+  static Future<int> pdfPageCount(
+    Uint8List pdfBytes, {
+    PdfPasswordProvider? passwordProvider,
+  }) async {
     ensureWithinSize(pdfBytes, label: 'PDF');
     await _ensurePdfrx();
-    final doc = await PdfDocument.openData(pdfBytes, sourceName: 'util.pdf');
+    final doc = await PdfDocument.openData(
+      pdfBytes,
+      sourceName: 'util.pdf',
+      passwordProvider: passwordProvider,
+    );
     try {
       await doc.loadPagesProgressively();
       return doc.pages.length;
@@ -854,10 +984,15 @@ abstract final class UtilitariosLocalService {
     Iterable<int> pageIndices, {
     double fullWidth = kPdfRenderWidth,
     int jpegQuality = 82,
+    PdfPasswordProvider? passwordProvider,
   }) async {
     ensureWithinSize(pdfBytes, label: 'PDF');
     await _ensurePdfrx();
-    final doc = await PdfDocument.openData(pdfBytes, sourceName: 'util.pdf');
+    final doc = await PdfDocument.openData(
+      pdfBytes,
+      sourceName: 'util.pdf',
+      passwordProvider: passwordProvider,
+    );
     final out = <int, Uint8List>{};
     try {
       await doc.loadPagesProgressively();
@@ -897,10 +1032,15 @@ abstract final class UtilitariosLocalService {
     Uint8List pdfBytes,
     int pageIndex, {
     double fullWidth = kPdfRenderWidth,
+    PdfPasswordProvider? passwordProvider,
   }) async {
     ensureWithinSize(pdfBytes, label: 'PDF');
     await _ensurePdfrx();
-    final doc = await PdfDocument.openData(pdfBytes, sourceName: 'util.pdf');
+    final doc = await PdfDocument.openData(
+      pdfBytes,
+      sourceName: 'util.pdf',
+      passwordProvider: passwordProvider,
+    );
     try {
       await doc.loadPagesProgressively();
       if (pageIndex < 0 || pageIndex >= doc.pages.length) {
@@ -912,7 +1052,8 @@ abstract final class UtilitariosLocalService {
       final p = loaded ?? page;
       final pageImg = await p.render(fullWidth: fullWidth);
       if (pageImg == null) {
-        throw StateError('Não foi possível renderizar a página ${pageIndex + 1}.');
+        throw StateError(
+            'Não foi possível renderizar a página ${pageIndex + 1}.');
       }
       try {
         return await compute(
@@ -922,7 +1063,7 @@ abstract final class UtilitariosLocalService {
             height: pageImg.height,
             pixels: Uint8List.fromList(pageImg.pixels),
             asPng: false,
-            jpegQuality: 86,
+            jpegQuality: 98,
           ),
         );
       } finally {
@@ -967,7 +1108,8 @@ abstract final class UtilitariosLocalService {
   }
 
   /// Divide PDF: páginas selecionadas → 1 PDF ou ZIP (1 PDF por página).
-  static Future<({Uint8List bytes, String fileName, String mime})> splitPdfPages(
+  static Future<({Uint8List bytes, String fileName, String mime})>
+      splitPdfPages(
     Uint8List pdfBytes,
     List<int> pageIndices, {
     required bool onePdfPerPage,
@@ -1022,32 +1164,205 @@ abstract final class UtilitariosLocalService {
   }
 
   /// Aplica anotações (texto, destaque, check) sobre a página e devolve JPEG.
+  ///
+  /// Duas fases: o isolate prepara o fundo (inpainting seamless, destaque,
+  /// check); o texto novo é desenhado com fonte vetorial real (TextPainter),
+  /// no tamanho exato do campo original — sem desconfigurar o layout.
   static Future<Uint8List> flattenPdfPageWithAnnotations(
     Uint8List pageJpeg,
     List<UtilPdfPageAnnotation> annotations,
   ) async {
     if (annotations.isEmpty) return pageJpeg;
-    return compute(
+    final background = await compute(
       _flattenPdfAnnotationsIsolate,
       _FlattenAnnotationsArgs(page: pageJpeg, items: annotations),
     );
+    final texts = annotations.where((a) => a.type == 'text').toList();
+    if (texts.isEmpty) return background;
+    return _paintTextAnnotationsVector(background, texts);
   }
 
-  /// Exporta páginas editadas (JPEG) para um PDF único.
+  /// Desenha os textos com fonte vetorial (anti-aliased) sobre a página já
+  /// com fundo tratado. Tamanho da fonte deriva da altura real do campo
+  /// (sem encolher artificialmente), preservando cor, negrito, itálico e
+  /// fundo do campo original. O auto-fit só reduz levemente quando o novo
+  /// texto extrapola a largura detectada.
+  static Future<Uint8List> _paintTextAnnotationsVector(
+    Uint8List pageBytes,
+    List<UtilPdfPageAnnotation> texts,
+  ) async {
+    final codec = await ui.instantiateImageCodec(pageBytes);
+    final frame = await codec.getNextFrame();
+    final base = frame.image;
+    try {
+      final w = base.width.toDouble();
+      final h = base.height.toDouble();
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, w, h));
+      canvas.drawImage(base, ui.Offset.zero, ui.Paint());
+
+      for (final ann in texts) {
+        final box = ui.Rect.fromLTWH(
+          (ann.nx * w).clamp(0.0, w - 2),
+          (ann.ny * h).clamp(0.0, h - 2),
+          math.max(6.0, ann.nw * w),
+          math.max(6.0, ann.nh * h),
+        );
+        final text = ann.text.isEmpty ? 'Texto' : ann.text;
+        final lineCount = math.max(1, '\n'.allMatches(text).length + 1);
+        final scale = ann.fontScale <= 0 ? 1.0 : ann.fontScale;
+        // Tamanho da tipografia original (altura do campo). Formulários
+        // costumam ter caixa ~1.15–1.25× o corpo da fonte — 0.88 preserva
+        // o peso visual sem cortar descendentes.
+        var fontSize =
+            ((box.height / lineCount) * 0.88 * scale).clamp(6.0, 220.0);
+
+        // Fonte padrão para documentos: sans-serif (mais comum em PDFs
+        // institucionais). Quando o campo pede serif/monospace, respeita.
+        String effectiveFontFamily() {
+          final family = ann.fontFamily?.toLowerCase();
+          if (family == 'monospace') return 'monospace';
+          if (family == 'serif') return 'serif';
+          return 'sans-serif';
+        }
+
+        TextPainter layout(double fs) {
+          final tp = TextPainter(
+            text: TextSpan(
+              text: text,
+              style: TextStyle(
+                fontSize: fs,
+                height: 1.05,
+                color: Color(ann.textArgb),
+                fontWeight: ann.fontBold ? FontWeight.w700 : FontWeight.w400,
+                fontStyle: ann.fontItalic ? FontStyle.italic : FontStyle.normal,
+                fontFamily: effectiveFontFamily(),
+              ),
+            ),
+            textDirection: ui.TextDirection.ltr,
+            maxLines: lineCount + 4,
+          )..layout(maxWidth: double.infinity);
+          return tp;
+        }
+
+        var painter = layout(fontSize);
+        // Auto-fit suave: mantém o tamanho original se couber; só reduz se
+        // o novo texto for consideravelmente maior que a largura do campo.
+        if (painter.width > box.width && painter.width > 0) {
+          fontSize =
+              math.max(6.0, fontSize * box.width / painter.width * 0.995);
+          painter = layout(fontSize);
+        }
+
+        if (!ann.seamless) {
+          // Cartão branco discreto (modo antigo, texto avulso sem inpaint).
+          final bg = ui.RRect.fromRectAndRadius(
+            ui.Rect.fromLTWH(
+              box.left - 2,
+              box.top - 1,
+              math.max(box.width, painter.width) + 8,
+              math.max(box.height, painter.height) + 4,
+            ),
+            const ui.Radius.circular(4),
+          );
+          canvas.drawRRect(bg, ui.Paint()..color = const Color(0xF7FFFFFF));
+        } else if (ann.backgroundArgb != null) {
+          // Preserva cor de fundo do campo original (ex.: célula colorida).
+          canvas.drawRect(
+            box,
+            ui.Paint()..color = Color(ann.backgroundArgb!),
+          );
+        }
+
+        final dy = box.top + math.max(0.0, (box.height - painter.height) / 2);
+        painter.paint(canvas, ui.Offset(box.left, dy));
+      }
+
+      final picture = recorder.endRecording();
+      final outImage = await picture.toImage(base.width, base.height);
+      try {
+        final raw =
+            await outImage.toByteData(format: ui.ImageByteFormat.rawRgba);
+        if (raw == null) return pageBytes;
+        return compute(
+          _encodeRgbaJpegIsolate,
+          _EncodeRgbaArgs(
+            width: base.width,
+            height: base.height,
+            pixels: raw.buffer.asUint8List(),
+          ),
+        );
+      } finally {
+        outImage.dispose();
+      }
+    } finally {
+      base.dispose();
+    }
+  }
+
+  /// Exporta páginas editadas para um PDF único preservando o tamanho
+  /// físico original de cada página ([pageSizesPts] em pontos PDF).
+  /// Qualidade alta (JPEG 98 / PNG quando informado) — próximo ao padrão
+  /// Adobe ao compartilhar, sem deformar tipografia nem proporção.
   static Future<Uint8List> exportEditedPdfPages(
-    List<Uint8List> pageJpegs,
-  ) =>
-      imagesToPdf(pageJpegs);
+    List<Uint8List> pageImages, {
+    List<({double widthPts, double heightPts})>? pageSizesPts,
+  }) async {
+    if (pageImages.isEmpty) {
+      throw StateError('Nenhuma página para exportar.');
+    }
+    return compute(
+      _exportEditedPdfIsolate,
+      _ExportEditedPdfArgs(
+        pageImages: pageImages,
+        pageSizesPts: pageSizesPts
+            ?.map((s) => <double>[s.widthPts, s.heightPts])
+            .toList(),
+      ),
+    );
+  }
+
+  /// Dimensões em pontos PDF de todas as páginas (tamanho físico original).
+  static Future<List<({double widthPts, double heightPts})>> pdfAllPagePointSizes(
+    Uint8List pdfBytes, {
+    PdfPasswordProvider? passwordProvider,
+  }) async {
+    ensureWithinSize(pdfBytes, label: 'PDF');
+    await _ensurePdfrx();
+    final doc = await PdfDocument.openData(
+      pdfBytes,
+      sourceName: 'util.pdf',
+      passwordProvider: passwordProvider,
+    );
+    try {
+      await doc.loadPagesProgressively();
+      final out = <({double widthPts, double heightPts})>[];
+      for (final page in doc.pages) {
+        final loaded =
+            await page.waitForLoaded(timeout: const Duration(seconds: 8));
+        final p = loaded ?? page;
+        out.add((widthPts: p.width, heightPts: p.height));
+      }
+      return out;
+    } finally {
+      await doc.dispose();
+    }
+  }
 
   /// Tamanho em pixels da página renderizada (mesma largura de [renderPdfPageAt]).
   static Future<({int width, int height})> pdfPageRenderPixelSize(
     Uint8List pdfBytes,
     int pageIndex, {
     double fullWidth = kPdfRenderWidth,
+    PdfPasswordProvider? passwordProvider,
   }) async {
     ensureWithinSize(pdfBytes, label: 'PDF');
     await _ensurePdfrx();
-    final doc = await PdfDocument.openData(pdfBytes, sourceName: 'util.pdf');
+    final doc = await PdfDocument.openData(
+      pdfBytes,
+      sourceName: 'util.pdf',
+      passwordProvider: passwordProvider,
+    );
     try {
       await doc.loadPagesProgressively();
       if (pageIndex < 0 || pageIndex >= doc.pages.length) {
@@ -1070,8 +1385,13 @@ abstract final class UtilitariosLocalService {
     Uint8List pdfBytes,
     int pageIndex, {
     Uint8List? pageJpeg,
+    PdfPasswordProvider? passwordProvider,
   }) async {
-    final embedded = await _detectEmbeddedPdfTextFields(pdfBytes, pageIndex);
+    final embedded = await _detectEmbeddedPdfTextFields(
+      pdfBytes,
+      pageIndex,
+      passwordProvider: passwordProvider,
+    );
     List<UtilPdfTextField> fields;
     if (embedded.length >= 2) {
       fields = embedded;
@@ -1094,31 +1414,37 @@ abstract final class UtilitariosLocalService {
   ) {
     final decoded = img.decodeImage(pageJpeg);
     if (decoded == null) return fields;
-    return fields
-        .map((f) {
-          final style = _sampleFieldTextStyle(
-            decoded,
-            f.nx,
-            f.ny,
-            f.nw,
-            f.nh,
-            fontBoldHint: f.fontBold,
-          );
-          return f.copyWith(
-            textArgb: style.textArgb,
-            fontBold: style.fontBold,
-          );
-        })
-        .toList();
+    return fields.map((f) {
+      final style = _sampleFieldTextStyle(
+        decoded,
+        f.nx,
+        f.ny,
+        f.nw,
+        f.nh,
+        fontBoldHint: f.fontBold,
+      );
+      return f.copyWith(
+        textArgb: style.textArgb,
+        backgroundArgb: style.backgroundArgb,
+        fontBold: style.fontBold,
+        fontItalic: style.fontItalic,
+        fontFamily: style.fontFamily,
+      );
+    }).toList();
   }
 
   static Future<List<UtilPdfTextField>> _detectEmbeddedPdfTextFields(
     Uint8List pdfBytes,
-    int pageIndex,
-  ) async {
+    int pageIndex, {
+    PdfPasswordProvider? passwordProvider,
+  }) async {
     ensureWithinSize(pdfBytes, label: 'PDF');
     await _ensurePdfrx();
-    final doc = await PdfDocument.openData(pdfBytes, sourceName: 'util.pdf');
+    final doc = await PdfDocument.openData(
+      pdfBytes,
+      sourceName: 'util.pdf',
+      passwordProvider: passwordProvider,
+    );
     try {
       await doc.loadPagesProgressively();
       if (pageIndex < 0 || pageIndex >= doc.pages.length) return const [];
@@ -1140,9 +1466,8 @@ abstract final class UtilitariosLocalService {
     double pageH,
   ) {
     if (pageW <= 0 || pageH <= 0) return const [];
-    final frags = pageText.fragments
-        .where((f) => f.text.trim().length >= 2)
-        .toList();
+    final frags =
+        pageText.fragments.where((f) => f.text.trim().length >= 2).toList();
     if (frags.isEmpty) return const [];
 
     frags.sort((a, b) => b.bounds.top.compareTo(a.bounds.top));
@@ -1176,8 +1501,9 @@ abstract final class UtilitariosLocalService {
       }
       final text = sb.toString().trim();
       if (text.length < 2 || merged == null || merged.isEmpty) continue;
-      final padX = pageW * 0.006;
-      final padY = pageH * 0.004;
+      // Padding bem pequeno: preserva bordas de tabela e linhas próximas.
+      final padX = pageW * 0.0025;
+      final padY = pageH * 0.0015;
       final left = (merged.left - padX).clamp(0.0, pageW);
       final right = (merged.right + padX).clamp(0.0, pageW);
       final bottom = (merged.bottom - padY).clamp(0.0, pageH);
@@ -1202,13 +1528,11 @@ abstract final class UtilitariosLocalService {
     if (out.isEmpty || lineHeights.isEmpty) return out;
     lineHeights.sort();
     final medianH = lineHeights[lineHeights.length ~/ 2];
-    return out
-        .map((f) {
-          final pxH = f.nh * pageH;
-          final bold = pxH >= medianH * 1.18;
-          return f.copyWith(fontBold: bold);
-        })
-        .toList();
+    return out.map((f) {
+      final pxH = f.nh * pageH;
+      final bold = pxH >= medianH * 1.18;
+      return f.copyWith(fontBold: bold);
+    }).toList();
   }
 
   static Future<List<UtilPdfTextField>> _detectOcrTextFieldsFromJpeg(
@@ -1228,7 +1552,8 @@ abstract final class UtilitariosLocalService {
       await tmp.parent.create(recursive: true);
       await tmp.writeAsBytes(jpeg, flush: true);
       rec = TextRecognizer(script: TextRecognitionScript.latin);
-      final recognized = await rec.processImage(InputImage.fromFilePath(tmp.path));
+      final recognized =
+          await rec.processImage(InputImage.fromFilePath(tmp.path));
       final out = <UtilPdfTextField>[];
       var idx = 0;
       for (final block in recognized.blocks) {
@@ -1240,8 +1565,7 @@ abstract final class UtilitariosLocalService {
           final pad = 4.0;
           final left = (box.left - pad).clamp(0.0, decoded.width.toDouble());
           final top = (box.top - pad).clamp(0.0, decoded.height.toDouble());
-          final right =
-              (box.right + pad).clamp(0.0, decoded.width.toDouble());
+          final right = (box.right + pad).clamp(0.0, decoded.width.toDouble());
           final bottom =
               (box.bottom + pad).clamp(0.0, decoded.height.toDouble());
           final w = right - left;
@@ -1331,8 +1655,7 @@ abstract final class UtilitariosLocalService {
       if (plain.isEmpty) {
         return _PdfExportDocument(
           blocks: const [],
-          plainFallback:
-              'Documento convertido no GestÃ£o Yahweh.\n'
+          plainFallback: 'Documento convertido no Controle Total App.\n'
               'Este PDF não possui texto selecionável (pode ser imagem/scan).\n'
               'Use «PDF → JPEG» ou «PDF → PNG» para obter as páginas em imagem.',
         );
@@ -1359,9 +1682,8 @@ abstract final class UtilitariosLocalService {
     double pageH,
   ) {
     if (pageW <= 0 || pageH <= 0) return const [];
-    final frags = pageText.fragments
-        .where((f) => f.text.trim().isNotEmpty)
-        .toList();
+    final frags =
+        pageText.fragments.where((f) => f.text.trim().isNotEmpty).toList();
     if (frags.isEmpty) return const [];
 
     frags.sort((a, b) => b.bounds.top.compareTo(a.bounds.top));
@@ -1459,15 +1781,13 @@ abstract final class UtilitariosLocalService {
   static List<List<String>> _normalizeTableRows(List<List<String>> rows) {
     if (rows.isEmpty) return const [];
     final maxCols = rows.map((r) => r.length).fold<int>(0, math.max);
-    return rows
-        .map((r) {
-          final copy = List<String>.from(r);
-          while (copy.length < maxCols) {
-            copy.add('');
-          }
-          return copy;
-        })
-        .toList();
+    return rows.map((r) {
+      final copy = List<String>.from(r);
+      while (copy.length < maxCols) {
+        copy.add('');
+      }
+      return copy;
+    }).toList();
   }
 
   static bool _looksLikeHeading(String text) => _pdfLooksLikeHeading(text);
@@ -1646,7 +1966,8 @@ Uint8List _cropScanNormIsolate(_CropScanNormArgs a) {
   final w = (a.nw * decoded.width).round().clamp(1, decoded.width - x);
   final h = (a.nh * decoded.height).round().clamp(1, decoded.height - y);
   return Uint8List.fromList(
-    img.encodeJpg(img.copyCrop(decoded, x: x, y: y, width: w, height: h), quality: 92),
+    img.encodeJpg(img.copyCrop(decoded, x: x, y: y, width: w, height: h),
+        quality: 92),
   );
 }
 
@@ -1661,7 +1982,8 @@ img.Image _resizeScanLongEdge(img.Image work, int maxSide) {
   );
 }
 
-img.Image _cropScanNormImage(img.Image decoded, double nx, double ny, double nw, double nh) {
+img.Image _cropScanNormImage(
+    img.Image decoded, double nx, double ny, double nw, double nh) {
   final x = (nx * decoded.width).round().clamp(0, decoded.width - 1);
   final y = (ny * decoded.height).round().clamp(0, decoded.height - 1);
   final w = (nw * decoded.width).round().clamp(1, decoded.width - x);
@@ -1732,7 +2054,8 @@ _PrepareScanFrameResult _prepareScanFrameIsolate(Uint8List raw) {
   return _PrepareScanFrameResult(original: original, crop: crop, thumb: thumb);
 }
 
-_PrepareScanCaptureResult _prepareScanCaptureIsolate(_PrepareScanCaptureArgs a) {
+_PrepareScanCaptureResult _prepareScanCaptureIsolate(
+    _PrepareScanCaptureArgs a) {
   final decoded = img.decodeImage(a.raw);
   if (decoded == null) throw StateError('Foto inválida para o scanner.');
   final work = _resizeScanLongEdge(
@@ -1769,7 +2092,8 @@ _PrepareScanCaptureResult _prepareScanCaptureIsolate(_PrepareScanCaptureArgs a) 
       quality: UtilitariosLocalService.kScanPreviewJpegQuality,
     ),
   );
-  return _PrepareScanCaptureResult(original: original, crop: crop, preview: preview);
+  return _PrepareScanCaptureResult(
+      original: original, crop: crop, preview: preview);
 }
 
 Uint8List _rebuildScanPreviewIsolate(_RebuildScanPreviewArgs a) {
@@ -2022,8 +2346,10 @@ img.Image _autoCropDocument(img.Image src) {
       final p = src.getPixel(x, y);
       final l = ((0.299 * p.r) + (0.587 * p.g) + (0.114 * p.b)).round();
       final sat = () {
-        final mx = p.r > p.g ? (p.r > p.b ? p.r : p.b) : (p.g > p.b ? p.g : p.b);
-        final mn = p.r < p.g ? (p.r < p.b ? p.r : p.b) : (p.g < p.b ? p.g : p.b);
+        final mx =
+            p.r > p.g ? (p.r > p.b ? p.r : p.b) : (p.g > p.b ? p.g : p.b);
+        final mn =
+            p.r < p.g ? (p.r < p.b ? p.r : p.b) : (p.g < p.b ? p.g : p.b);
         return (mx - mn).toInt();
       }();
       // Papel / conteúdo: difere da mesa OU tem cor viva (desenhos).
@@ -2346,9 +2672,15 @@ img.Image _sharpenMild(img.Image src, {double strength = 1.0}) {
   return img.convolution(
     src,
     filter: [
-      0, -k, 0,
-      -k, c, -k,
-      0, -k, 0,
+      0,
+      -k,
+      0,
+      -k,
+      c,
+      -k,
+      0,
+      -k,
+      0,
     ],
   );
 }
@@ -2406,7 +2738,13 @@ img.ColorRgb8 _medianPaperColorAround(
   return img.ColorRgb8(rs[m], gs[m], bs[m]);
 }
 
-({int textArgb, bool fontBold}) _sampleFieldTextStyle(
+({
+  int textArgb,
+  int? backgroundArgb,
+  bool fontBold,
+  bool fontItalic,
+  String? fontFamily
+}) _sampleFieldTextStyle(
   img.Image work,
   double nx,
   double ny,
@@ -2420,7 +2758,38 @@ img.ColorRgb8 _medianPaperColorAround(
   final y = (ny * h).round().clamp(0, h - 1);
   final rw = (nw * w).round().clamp(4, w - x);
   final rh = (nh * h).round().clamp(4, h - y);
-  final paper = _medianPaperColorAround(work, x, y, rw, rh);
+  final paperAround = _medianPaperColorAround(work, x, y, rw, rh);
+
+  // Amostra da cor de fundo do próprio campo (células coloridas de tabela).
+  int? backgroundArgb;
+  final bgSamples = <int, int>{};
+  final bgInnerX = x + (rw * 0.15).round();
+  final bgInnerY = y + (rh * 0.20).round();
+  final bgInnerX2 = x + rw - (rw * 0.15).round();
+  final bgInnerY2 = y + rh - (rh * 0.20).round();
+  for (var sy = bgInnerY;
+      sy < bgInnerY2;
+      sy += math.max(1, (bgInnerY2 - bgInnerY) ~/ 6)) {
+    for (var sx = bgInnerX;
+        sx < bgInnerX2;
+        sx += math.max(1, (bgInnerX2 - bgInnerX) ~/ 6)) {
+      final p = work.getPixel(sx, sy);
+      final dr = (p.r - paperAround.r).abs();
+      final dg = (p.g - paperAround.g).abs();
+      final db = (p.b - paperAround.b).abs();
+      if (dr + dg + db > 36) {
+        final key = (((p.r ~/ 24) << 16) | ((p.g ~/ 24) << 8) | (p.b ~/ 24));
+        bgSamples[key] = (bgSamples[key] ?? 0) + 1;
+      }
+    }
+  }
+  if (bgSamples.isNotEmpty) {
+    final best = bgSamples.entries.reduce((a, b) => a.value >= b.value ? a : b);
+    final r = ((best.key >> 16) & 0xFF) * 24 + 12;
+    final g = ((best.key >> 8) & 0xFF) * 24 + 12;
+    final b = (best.key & 0xFF) * 24 + 12;
+    backgroundArgb = 0xFF000000 | (r << 16) | (g << 8) | b;
+  }
 
   final buckets = <int, int>{};
   var inkCount = 0;
@@ -2435,9 +2804,9 @@ img.ColorRgb8 _medianPaperColorAround(
     var run = 0;
     for (var sx = innerX; sx < innerX2; sx++) {
       final p = work.getPixel(sx, sy);
-      final dr = (p.r - paper.r).abs();
-      final dg = (p.g - paper.g).abs();
-      final db = (p.b - paper.b).abs();
+      final dr = (p.r - paperAround.r).abs();
+      final dg = (p.g - paperAround.g).abs();
+      final db = (p.b - paperAround.b).abs();
       final dist = dr + dg + db;
       final isInk = dist >= 55 && (p.r + p.g + p.b) < 720;
       if (isInk) {
@@ -2471,23 +2840,16 @@ img.ColorRgb8 _medianPaperColorAround(
     }
   }
 
-  return (textArgb: textArgb, fontBold: fontBold);
-}
-
-void _drawAnnotationText(
-  img.Image work,
-  String text,
-  img.BitmapFont font,
-  int x,
-  int y,
-  img.ColorRgb8 color, {
-  bool bold = false,
-}) {
-  img.drawString(work, text, font: font, x: x, y: y, color: color);
-  if (bold) {
-    img.drawString(work, text, font: font, x: x + 1, y: y, color: color);
-    img.drawString(work, text, font: font, x: x, y: y + 1, color: color);
-  }
+  // Itálico não é confiável de inferir de uma imagem raster; mantém false
+  // para preservar a tipografia original. A família tipográfica também é
+  // mantida nula aqui; o pintor vetorial usa a fonte padrão do documento.
+  return (
+    textArgb: textArgb,
+    backgroundArgb: backgroundArgb,
+    fontBold: fontBold,
+    fontItalic: false,
+    fontFamily: null,
+  );
 }
 
 void _fillSeamlessRegion(
@@ -2497,15 +2859,54 @@ void _fillSeamlessRegion(
   int rw,
   int rh,
 ) {
-  final paper = _medianPaperColorAround(work, x, y, rw, rh);
-  img.fillRect(
-    work,
-    x1: x,
-    y1: y,
-    x2: (x + rw).clamp(0, work.width),
-    y2: (y + rh).clamp(0, work.height),
-    color: paper,
-  );
+  final x1 = x.clamp(0, work.width - 1);
+  final y1 = y.clamp(0, work.height - 1);
+  final x2 = (x + rw).clamp(x1 + 1, work.width);
+  final y2 = (y + rh).clamp(y1 + 1, work.height);
+  final source = img.Image.from(work);
+  final fallback = _medianPaperColorAround(source, x1, y1, x2 - x1, y2 - y1);
+  final gap = math.max(2, math.min(8, math.min(rw, rh) ~/ 8));
+  final topY = (y1 - gap).clamp(0, source.height - 1);
+  final bottomY = (y2 + gap - 1).clamp(0, source.height - 1);
+  final leftX = (x1 - gap).clamp(0, source.width - 1);
+  final rightX = (x2 + gap - 1).clamp(0, source.width - 1);
+
+  int channel(img.Pixel p, int index) => switch (index) {
+        0 => p.r.toInt(),
+        1 => p.g.toInt(),
+        _ => p.b.toInt(),
+      };
+
+  for (var py = y1; py < y2; py++) {
+    final ty = (py - y1) / math.max(1, y2 - y1 - 1);
+    for (var px = x1; px < x2; px++) {
+      final tx = (px - x1) / math.max(1, x2 - x1 - 1);
+      final top = source.getPixel(px, topY);
+      final bottom = source.getPixel(px, bottomY);
+      final left = source.getPixel(leftX, py);
+      final right = source.getPixel(rightX, py);
+
+      final values = <int>[];
+      for (var c = 0; c < 3; c++) {
+        final vertical = channel(top, c) * (1 - ty) + channel(bottom, c) * ty;
+        final horizontal = channel(left, c) * (1 - tx) + channel(right, c) * tx;
+        // Interpolação das quatro bordas preserva papel colorido, textura e
+        // linhas de formulário. A mediana só estabiliza bordas sem amostra.
+        final median = switch (c) {
+          0 => fallback.r.toInt(),
+          1 => fallback.g.toInt(),
+          _ => fallback.b.toInt(),
+        };
+        final edgeMissing = (topY == y1 && bottomY == y2 - 1) ||
+            (leftX == x1 && rightX == x2 - 1);
+        final value = edgeMissing
+            ? (vertical * 0.35 + horizontal * 0.35 + median * 0.30)
+            : (vertical + horizontal) / 2;
+        values.add(value.round().clamp(0, 255));
+      }
+      work.setPixelRgba(px, py, values[0], values[1], values[2], 255);
+    }
+  }
 }
 
 Uint8List _flattenPdfAnnotationsIsolate(_FlattenAnnotationsArgs a) {
@@ -2559,39 +2960,123 @@ Uint8List _flattenPdfAnnotationsIsolate(_FlattenAnnotationsArgs a) {
         color: img.ColorRgb8(22, 163, 74),
       );
     } else {
+      // Texto: aqui só o preparo do fundo (inpainting). Os glifos são
+      // desenhados depois com fonte vetorial em _paintTextAnnotationsVector —
+      // as fontes bitmap arial14/24/48 desconfiguravam o documento.
       if (ann.seamless) {
         _fillSeamlessRegion(work, x, y, rw, rh);
       }
-      final font = ann.fontScale >= 1.35
-          ? img.arial48
-          : (ann.fontScale >= 1.05 ? img.arial24 : img.arial14);
-      final lineH = ann.fontScale >= 1.35
-          ? 52
-          : (ann.fontScale >= 1.05 ? 28 : 16);
-      final tc = ann.textArgb;
-      final textColor = img.ColorRgb8(
-        (tc >> 16) & 0xFF,
-        (tc >> 8) & 0xFF,
-        tc & 0xFF,
-      );
-      final lines = (ann.text.isEmpty ? 'Texto' : ann.text).split('\n');
-      var dy = y;
-      for (final line in lines) {
-        if (dy > h) break;
-        _drawAnnotationText(
-          work,
-          line,
-          font,
-          x,
-          dy,
-          textColor,
-          bold: ann.fontBold,
-        );
-        dy += lineH;
-      }
     }
   }
-  return Uint8List.fromList(img.encodeJpg(work, quality: 90));
+  return Uint8List.fromList(img.encodeJpg(work, quality: 98));
+}
+
+/// Exporta páginas em PDF de alta qualidade, preservando o tamanho físico
+/// original (pontos PDF) e a **proporção da imagem** (sem esticar/deformar).
+Future<Uint8List> _exportEditedPdfIsolate(_ExportEditedPdfArgs args) async {
+  final doc = pw.Document();
+  final images = args.pageImages;
+  final sizes = args.pageSizesPts;
+  for (var i = 0; i < images.length; i++) {
+    final raw = images[i];
+    final decoded = img.decodeImage(raw);
+    if (decoded == null) continue;
+    final work = img.bakeOrientation(decoded);
+    final imgW = work.width.toDouble();
+    final imgH = work.height.toDouble();
+    if (imgW < 2 || imgH < 2) continue;
+
+    final imgAspect = imgW / imgH;
+    late final double ptW;
+    late final double ptH;
+    if (sizes != null && i < sizes.length && sizes[i].length >= 2) {
+      var ow = sizes[i][0].clamp(36.0, 5000.0);
+      var oh = sizes[i][1].clamp(36.0, 5000.0);
+      final pageAspect = ow / oh;
+      // Se a proporção do PDF original divergir da imagem renderizada,
+      // ajusta o retângulo da página à imagem (mantém o lado maior em pts).
+      if ((imgAspect - pageAspect).abs() > 0.012) {
+        if (ow >= oh) {
+          oh = (ow / imgAspect).clamp(36.0, 5000.0);
+        } else {
+          ow = (oh * imgAspect).clamp(36.0, 5000.0);
+        }
+      }
+      ptW = ow;
+      ptH = oh;
+    } else {
+      // Fallback: ~150 dpi a partir dos pixels (proporção = imagem).
+      ptW = (imgW * 72.0 / 150.0).clamp(36.0, 5000.0);
+      ptH = (imgH * 72.0 / 150.0).clamp(36.0, 5000.0);
+    }
+    final pageFormat = PdfPageFormat(ptW, ptH);
+
+    late final Uint8List payload;
+    if (_looksLikeJpeg(raw) || _looksLikePng(raw)) {
+      payload = raw;
+    } else {
+      payload = Uint8List.fromList(img.encodeJpg(work, quality: 98));
+    }
+    doc.addPage(
+      pw.Page(
+        pageFormat: pageFormat,
+        margin: pw.EdgeInsets.zero,
+        build: (_) => pw.Container(
+          width: ptW,
+          height: ptH,
+          color: PdfColors.white,
+          alignment: pw.Alignment.center,
+          child: pw.Image(
+            pw.MemoryImage(payload),
+            // contain = nunca distorce; com proporções alinhadas preenche a página.
+            fit: pw.BoxFit.contain,
+            width: ptW,
+            height: ptH,
+          ),
+        ),
+      ),
+    );
+  }
+  return doc.save();
+}
+
+class _ExportEditedPdfArgs {
+  const _ExportEditedPdfArgs({
+    required this.pageImages,
+    this.pageSizesPts,
+  });
+  final List<Uint8List> pageImages;
+  final List<List<double>>? pageSizesPts;
+}
+
+bool _looksLikePng(Uint8List bytes) {
+  return bytes.length >= 8 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4E &&
+      bytes[3] == 0x47;
+}
+
+class _EncodeRgbaArgs {
+  const _EncodeRgbaArgs({
+    required this.width,
+    required this.height,
+    required this.pixels,
+  });
+  final int width;
+  final int height;
+  final Uint8List pixels;
+}
+
+Uint8List _encodeRgbaJpegIsolate(_EncodeRgbaArgs a) {
+  final im = img.Image.fromBytes(
+    width: a.width,
+    height: a.height,
+    bytes: a.pixels.buffer,
+    order: img.ChannelOrder.rgba,
+  );
+  // Qualidade 98: tipografia e linhas finas próximas ao original Adobe.
+  return Uint8List.fromList(img.encodeJpg(im, quality: 98));
 }
 
 class _EncodePageArgs {
@@ -2723,18 +3208,21 @@ String _documentTextIsolate(_DocumentTextArgs a) {
   }
   // Evita PDF gigante / MultiPage lento.
   if (text.length > 120000) {
-    text = '${text.substring(0, 120000)}\n\n[… texto truncado para manter o app rápido …]';
+    text =
+        '${text.substring(0, 120000)}\n\n[… texto truncado para manter o app rápido …]';
   }
   return text;
 }
 
 Future<Uint8List> _textToPdfWithTheme(String text, pw.ThemeData theme) async {
   final doc = pw.Document(theme: theme);
-  final chunks = text.split('\n');
+  final chunks =
+      text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n');
   doc.addPage(
     pw.MultiPage(
       pageFormat: UtilitariosExportPageFormat.a4Portrait,
-      margin: const pw.EdgeInsets.all(UtilitariosExportPageFormat.pdfTextMarginPt),
+      margin:
+          const pw.EdgeInsets.all(UtilitariosExportPageFormat.pdfTextMarginPt),
       build: (_) => [
         for (final line in chunks)
           pw.Padding(
@@ -2758,7 +3246,8 @@ Future<Uint8List> _formattedParagraphsToPdf(
   doc.addPage(
     pw.MultiPage(
       pageFormat: UtilitariosExportPageFormat.a4Portrait,
-      margin: const pw.EdgeInsets.all(UtilitariosExportPageFormat.pdfTextMarginPt),
+      margin:
+          const pw.EdgeInsets.all(UtilitariosExportPageFormat.pdfTextMarginPt),
       build: (_) => [
         for (final p in paragraphs)
           if (p.text.trim().isNotEmpty)
@@ -2767,15 +3256,29 @@ Future<Uint8List> _formattedParagraphsToPdf(
                 bottom: p.isHeading ? 10 : 6,
                 top: p.isHeading ? 8 : 0,
               ),
-              child: pw.Text(
-                p.text.trim(),
-                style: pw.TextStyle(
-                  fontSize: p.isHeading ? 15 : 11,
-                  fontWeight: (p.isHeading || p.isBold)
-                      ? pw.FontWeight.bold
-                      : pw.FontWeight.normal,
-                  lineSpacing: 1.35,
-                ),
+              // Preserva quebras de linha internas do OCR (rótulos, tabelas,
+              // endereços) sem distorcer o layout original.
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  for (final line in p.text
+                      .replaceAll('\r\n', '\n')
+                      .replaceAll('\r', '\n')
+                      .split('\n'))
+                    pw.Padding(
+                      padding: const pw.EdgeInsets.only(bottom: 2),
+                      child: pw.Text(
+                        line.trimRight(),
+                        style: pw.TextStyle(
+                          fontSize: p.isHeading ? 15 : 11,
+                          fontWeight: (p.isHeading || p.isBold)
+                              ? pw.FontWeight.bold
+                              : pw.FontWeight.normal,
+                          lineSpacing: 1.35,
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
       ],
@@ -2821,21 +3324,20 @@ String _decodeXmlEntities(String s) {
       .replaceAll('&quot;', '"')
       .replaceAll('&apos;', "'")
       .replaceAllMapped(
-        RegExp(r'&#(\d+);'),
-        (m) {
-          final code = int.tryParse(m.group(1) ?? '');
-          if (code == null) return m.group(0)!;
-          return String.fromCharCode(code);
-        },
-      )
-      .replaceAllMapped(
-        RegExp(r'&#x([0-9a-fA-F]+);'),
-        (m) {
-          final code = int.tryParse(m.group(1) ?? '', radix: 16);
-          if (code == null) return m.group(0)!;
-          return String.fromCharCode(code);
-        },
-      );
+    RegExp(r'&#(\d+);'),
+    (m) {
+      final code = int.tryParse(m.group(1) ?? '');
+      if (code == null) return m.group(0)!;
+      return String.fromCharCode(code);
+    },
+  ).replaceAllMapped(
+    RegExp(r'&#x([0-9a-fA-F]+);'),
+    (m) {
+      final code = int.tryParse(m.group(1) ?? '', radix: 16);
+      if (code == null) return m.group(0)!;
+      return String.fromCharCode(code);
+    },
+  );
 }
 
 Uint8List _buildMinimalDocxIsolate(String plainText) {
@@ -2916,7 +3418,8 @@ String _docxTableBlock(List<List<String>> rows) {
       final tcPr = isHeader
           ? '<w:tcPr><w:shd w:val="clear" w:color="auto" w:fill="EEF2FF"/></w:tcPr>'
           : '<w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>';
-      tblRows.write('<w:tc>$tcPr<w:p>${_docxRun(cell, bold: isHeader)}</w:p></w:tc>');
+      tblRows.write(
+          '<w:tc>$tcPr<w:p>${_docxRun(cell, bold: isHeader)}</w:p></w:tc>');
     }
     tblRows.write('</w:tr>');
   }
@@ -2969,7 +3472,8 @@ Uint8List _buildFormattedDocxIsolate(_PdfExportDocument doc) {
     }
   }
 
-  const contentTypes = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  const contentTypes =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
@@ -3070,7 +3574,7 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
   }
 
   if (sheetSpecs.isEmpty) {
-    addRow(['Conteúdo convertido no GestÃ£o Yahweh']);
+    addRow(['Conteúdo convertido no Controle Total App']);
   }
 
   final sst = <String>[];
@@ -3124,7 +3628,8 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
     cols.write('<col min="$c" max="$c" width="$w" customWidth="1"/>');
   }
 
-  const contentTypes = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  const contentTypes =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
@@ -3149,8 +3654,8 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
  xmlns:dcterms="http://purl.org/dc/terms/"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <dc:title>PDF → Excel</dc:title>
-  <dc:creator>GestÃ£o Yahweh</dc:creator>
-  <cp:lastModifiedBy>GestÃ£o Yahweh</cp:lastModifiedBy>
+  <dc:creator>Controle Total App</dc:creator>
+  <cp:lastModifiedBy>Controle Total App</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">$now</dcterms:created>
   <dcterms:modified xsi:type="dcterms:W3CDTF">$now</dcterms:modified>
 </cp:coreProperties>''';
@@ -3158,8 +3663,8 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
   const app = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
  xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-  <Application>GestÃ£o Yahweh</Application>
-  <Company>GestÃ£o Yahweh</Company>
+  <Application>Controle Total App</Application>
+  <Company>Controle Total App</Company>
 </Properties>''';
 
   const workbook = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -3170,7 +3675,8 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
   </sheets>
 </workbook>''';
 
-  const workbookRels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  const workbookRels =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
@@ -3207,7 +3713,8 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>''';
 
-  final sharedStrings = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  final sharedStrings =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${sst.length}" uniqueCount="${sst.length}">
 $sstXml
 </sst>''';
@@ -3340,7 +3847,8 @@ Uint8List _buildMinimalPptxFromImagesIsolate(List<Uint8List> pages) {
   }
 
   // Content Types completos (PowerPoint exige slideLayout + theme + master).
-  final contentTypes = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  final contentTypes =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
@@ -3368,9 +3876,9 @@ $overrideSlides</Types>''';
  xmlns:dcterms="http://purl.org/dc/terms/"
  xmlns:dcmitype="http://purl.org/dc/dcmitype/"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dc:title>GestÃ£o Yahweh</dc:title>
-  <dc:creator>GestÃ£o Yahweh</dc:creator>
-  <cp:lastModifiedBy>GestÃ£o Yahweh</cp:lastModifiedBy>
+  <dc:title>Controle Total App</dc:title>
+  <dc:creator>Controle Total App</dc:creator>
+  <cp:lastModifiedBy>Controle Total App</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">$now</dcterms:created>
   <dcterms:modified xsi:type="dcterms:W3CDTF">$now</dcterms:modified>
 </cp:coreProperties>''';
@@ -3378,11 +3886,11 @@ $overrideSlides</Types>''';
   final app = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
  xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-  <Application>GestÃ£o Yahweh</Application>
+  <Application>Controle Total App</Application>
   <PresentationFormat>Widescreen</PresentationFormat>
   <Slides>$n</Slides>
   <ScaleCrop>false</ScaleCrop>
-  <Company>GestÃ£o Yahweh</Company>
+  <Company>Controle Total App</Company>
 </Properties>''';
 
   // rId1 = slideMaster; rId2.. = slides; último = theme
@@ -3404,7 +3912,8 @@ $overrideSlides</Types>''';
     '  <Relationship Id="rId$themeRid" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>',
   );
 
-  final presentation = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  final presentation =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
  xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -3418,12 +3927,13 @@ $sldIdLst  </p:sldIdLst>
   <p:notesSz cx="6858000" cy="9144000"/>
 </p:presentation>''';
 
-  final presentationRels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  final presentationRels =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 $presRels</Relationships>''';
 
   const theme = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="GestaoYahweh">
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="ControleTotal">
   <a:themeElements>
     <a:clrScheme name="Office">
       <a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>
@@ -3510,7 +4020,8 @@ $presRels</Relationships>''';
   </p:sldLayoutIdLst>
 </p:sldMaster>''';
 
-  const slideMasterRels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  const slideMasterRels =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/>
@@ -3541,7 +4052,8 @@ $presRels</Relationships>''';
   <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
 </p:sldLayout>''';
 
-  const slideLayoutRels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  const slideLayoutRels =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>
 </Relationships>''';
@@ -3745,10 +4257,11 @@ Future<Uint8List> _rowsToPdfWithTheme(
   doc.addPage(
     pw.MultiPage(
       pageFormat: UtilitariosExportPageFormat.pdfForTableColumns(colCount),
-      margin: const pw.EdgeInsets.all(UtilitariosExportPageFormat.pdfTableMarginPt),
+      margin:
+          const pw.EdgeInsets.all(UtilitariosExportPageFormat.pdfTableMarginPt),
       build: (_) => [
         pw.Text(
-          'Planilha — GestÃ£o Yahweh',
+          'Planilha — Controle Total App',
           style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 10),
@@ -3766,7 +4279,8 @@ Future<Uint8List> _rowsToPdfWithTheme(
             fontSize: 9,
             color: PdfColors.white,
           ),
-          headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey800),
+          headerDecoration:
+              const pw.BoxDecoration(color: PdfColors.blueGrey800),
           cellStyle: const pw.TextStyle(fontSize: 8),
           cellAlignment: pw.Alignment.centerLeft,
           border: pw.TableBorder.all(color: PdfColors.grey400, width: 0.4),
@@ -3784,4 +4298,3 @@ Future<Uint8List> _rowsToPdfWithTheme(
   );
   return doc.save();
 }
-

@@ -1,4 +1,4 @@
-import 'dart:async' show StreamSubscription, unawaited;
+﻿import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -41,7 +41,7 @@ import 'package:gestao_yahweh/ui/widgets/user_display_name_edit_sheet.dart';
 import 'pages/igreja_dashboard_moderno.dart';
 import 'pages/igreja_cadastro_page.dart';
 import 'pages/departments_page.dart';
-import 'pages/finance_page.dart';
+import 'pages/finance_page_adapter.dart';
 import 'pages/patrimonio_page.dart';
 import 'pages/fornecedores_page.dart';
 import 'pages/member_card_page.dart';
@@ -65,9 +65,9 @@ import 'pages/utilitarios_screen.dart';
 import 'pages/relatorios_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
 import 'pages/church_donations_page.dart';
-import '../services/app_permissions.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
-import '../services/migrate_members_to_membros_service.dart';
+import 'package:gestao_yahweh/services/migrate_members_to_membros_service.dart';
 import 'widgets/church_panel_app_update_banner.dart';
 import 'widgets/version_footer.dart';
 import 'widgets/module_header_premium.dart';
@@ -2994,7 +2994,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           tenantId: _moduleTenantId,
           role: _panelRole,
           cpf: widget.cpf,
-          podeVerFinanceiro: widget.podeVerFinanceiro,
+          podeVerFinanceiro: widget.podeVerFinanceiro ?? true,
           permissions: widget.permissions,
           embeddedInShell: true,
         );

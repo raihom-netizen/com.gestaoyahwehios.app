@@ -8,7 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:gestao_yahweh/utils/ocr_description_sanity.dart';
 import 'package:gestao_yahweh/utils/smart_input_ocr_recognized_postprocess.dart';
-import 'package:gestao_yahweh/services/smart_input_image_ocr_service.dart';
+import 'smart_input_image_ocr_service.dart';
 import 'utilitarios_local_service.dart';
 import 'utilitarios_photo_service.dart';
 
@@ -87,21 +87,165 @@ abstract final class UtilitariosPhotoTextExtractService {
         if (!await f.exists()) {
           // JPEG 1x1 branco — só para forçar o modelo nativo na memória.
           await f.writeAsBytes(const <int>[
-            0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00,
-            0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xDB,
-            0x00, 0x43, 0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07,
-            0x07, 0x07, 0x09, 0x09, 0x08, 0x0A, 0x0C, 0x14, 0x0D, 0x0C, 0x0B,
-            0x0B, 0x0C, 0x19, 0x12, 0x13, 0x0F, 0x14, 0x1D, 0x1A, 0x1F, 0x1E,
-            0x1D, 0x1A, 0x1C, 0x1C, 0x20, 0x24, 0x2E, 0x27, 0x20, 0x22, 0x2C,
-            0x23, 0x1C, 0x1C, 0x28, 0x37, 0x29, 0x2C, 0x30, 0x31, 0x34, 0x34,
-            0x34, 0x1F, 0x27, 0x39, 0x3D, 0x38, 0x32, 0x3C, 0x2E, 0x33, 0x34,
-            0x32, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01,
-            0x01, 0x11, 0x00, 0xFF, 0xC4, 0x00, 0x14, 0x00, 0x01, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x03, 0xFF, 0xC4, 0x00, 0x14, 0x10, 0x01, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00,
-            0x3F, 0x00, 0x7F, 0xFF, 0xD9,
+            0xFF,
+            0xD8,
+            0xFF,
+            0xE0,
+            0x00,
+            0x10,
+            0x4A,
+            0x46,
+            0x49,
+            0x46,
+            0x00,
+            0x01,
+            0x01,
+            0x00,
+            0x00,
+            0x01,
+            0x00,
+            0x01,
+            0x00,
+            0x00,
+            0xFF,
+            0xDB,
+            0x00,
+            0x43,
+            0x00,
+            0x08,
+            0x06,
+            0x06,
+            0x07,
+            0x06,
+            0x05,
+            0x08,
+            0x07,
+            0x07,
+            0x07,
+            0x09,
+            0x09,
+            0x08,
+            0x0A,
+            0x0C,
+            0x14,
+            0x0D,
+            0x0C,
+            0x0B,
+            0x0B,
+            0x0C,
+            0x19,
+            0x12,
+            0x13,
+            0x0F,
+            0x14,
+            0x1D,
+            0x1A,
+            0x1F,
+            0x1E,
+            0x1D,
+            0x1A,
+            0x1C,
+            0x1C,
+            0x20,
+            0x24,
+            0x2E,
+            0x27,
+            0x20,
+            0x22,
+            0x2C,
+            0x23,
+            0x1C,
+            0x1C,
+            0x28,
+            0x37,
+            0x29,
+            0x2C,
+            0x30,
+            0x31,
+            0x34,
+            0x34,
+            0x34,
+            0x1F,
+            0x27,
+            0x39,
+            0x3D,
+            0x38,
+            0x32,
+            0x3C,
+            0x2E,
+            0x33,
+            0x34,
+            0x32,
+            0xFF,
+            0xC0,
+            0x00,
+            0x0B,
+            0x08,
+            0x00,
+            0x01,
+            0x00,
+            0x01,
+            0x01,
+            0x01,
+            0x11,
+            0x00,
+            0xFF,
+            0xC4,
+            0x00,
+            0x14,
+            0x00,
+            0x01,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x03,
+            0xFF,
+            0xC4,
+            0x00,
+            0x14,
+            0x10,
+            0x01,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0xFF,
+            0xDA,
+            0x00,
+            0x08,
+            0x01,
+            0x01,
+            0x00,
+            0x00,
+            0x3F,
+            0x00,
+            0x7F,
+            0xFF,
+            0xD9,
           ], flush: false);
         }
         await rec.processImage(InputImage.fromFilePath(f.path));
@@ -166,6 +310,22 @@ abstract final class UtilitariosPhotoTextExtractService {
           sourcePreview: fast,
         );
       }
+
+      // Fallback: Cloud Vision (logado) → Textify para garantir que o usuário
+      // receba o texto real da foto, mesmo quando o ML Kit on-device falha.
+      final fallback =
+          await SmartInputImageOcrService.recognizeFromGalleryBytes(
+        bytes: fast,
+        filePath: filePath,
+      );
+      final structured = _paragraphsFromPlainText(fallback);
+      if (structured.plainText.trim().isNotEmpty) {
+        return UtilPhotoTextExtractResult(
+          plainText: structured.plainText,
+          paragraphs: structured.paragraphs,
+          sourcePreview: fast,
+        );
+      }
       throw StateError(
         'Nenhum texto encontrado na foto. Tente outro ângulo ou mais luz.',
       );
@@ -202,10 +362,11 @@ abstract final class UtilitariosPhotoTextExtractService {
     );
   }
 
-  static Future<({
-    String plainText,
-    List<UtilPhotoTextParagraph> paragraphs,
-  })> _runMlKitOnPath(String path) async {
+  static Future<
+      ({
+        String plainText,
+        List<UtilPhotoTextParagraph> paragraphs,
+      })> _runMlKitOnPath(String path) async {
     final rec = await _ensureLatinRecognizer();
     try {
       final recognized = await rec.processImage(
@@ -220,10 +381,11 @@ abstract final class UtilitariosPhotoTextExtractService {
     }
   }
 
-  static Future<({
-    String plainText,
-    List<UtilPhotoTextParagraph> paragraphs,
-  })> _runMlKitOnBytes(Uint8List jpeg) async {
+  static Future<
+      ({
+        String plainText,
+        List<UtilPhotoTextParagraph> paragraphs,
+      })> _runMlKitOnBytes(Uint8List jpeg) async {
     final rec = await _ensureLatinRecognizer();
     final tmp = await _writeTempJpegFast(jpeg);
     try {
@@ -257,6 +419,8 @@ abstract final class UtilitariosPhotoTextExtractService {
       );
     }
 
+    // Blocos ordenados por posição (topo→base, esquerda→direita) —
+    // preserva a estrutura visual original do documento/rótulo.
     final blocks = recognized.blocks.toList()
       ..sort((a, b) {
         final dy = a.boundingBox.top.compareTo(b.boundingBox.top);
@@ -273,18 +437,22 @@ abstract final class UtilitariosPhotoTextExtractService {
           if (dy != 0) return dy;
           return a.boundingBox.left.compareTo(b.boundingBox.left);
         });
+      // Preserva cada linha individualmente (fiel ao layout original).
       final lineTexts = lines
           .map((l) => l.text.trim())
-          .where((t) => t.isNotEmpty && !OcrDescriptionSanity.looksLikeOcrNoise(t))
+          .where(
+              (t) => t.isNotEmpty && !OcrDescriptionSanity.looksLikeOcrNoise(t))
           .toList();
       if (lineTexts.isEmpty) continue;
-      final para = lineTexts.join(' ');
+      // Linhas dentro do bloco unidas por \n (não espaços) —
+      // rótulos, etiquetas e listas mantêm quebras de linha.
+      final para = lineTexts.join('\n');
       if (OcrDescriptionSanity.looksLikeOcrNoise(para)) continue;
       final heading = UtilitariosLocalService.looksLikeDocumentHeading(para);
       paragraphs.add(
         UtilPhotoTextParagraph(text: para, isHeading: heading),
       );
-      if (buf.isNotEmpty) buf.writeln();
+      if (buf.isNotEmpty) buf.write('\n\n');
       buf.write(para);
     }
 
@@ -298,8 +466,7 @@ abstract final class UtilitariosPhotoTextExtractService {
   static String _cleanDocumentOcrText(String text) {
     var t = text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').trim();
     if (t.isEmpty) return t;
-    t = t.replaceAll(RegExp(r'[|¦‖]{2,}'), ' ');
-    t = t.replaceAll(RegExp(r'[=+\-]{4,}'), '\n');
+    // Limpeza leve: preserva acentos, pontuação e estrutura de linhas.
     t = t.replaceAll(RegExp(r'[ \t]+\n'), '\n');
     t = t.replaceAll(RegExp(r'\n{3,}'), '\n\n');
     return t.trim();
@@ -316,7 +483,8 @@ abstract final class UtilitariosPhotoTextExtractService {
     final parts = trimmed
         .split(RegExp(r'\n\s*\n'))
         .map((p) => p.replaceAll(RegExp(r'[ \t]+\n'), '\n').trim())
-        .where((p) => p.isNotEmpty && !OcrDescriptionSanity.looksLikeOcrNoise(p))
+        .where(
+            (p) => p.isNotEmpty && !OcrDescriptionSanity.looksLikeOcrNoise(p))
         .toList();
     final paragraphs = parts
         .map(

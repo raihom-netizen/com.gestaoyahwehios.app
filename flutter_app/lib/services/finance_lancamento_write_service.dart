@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Gravação atómica de lançamento + ajuste de `saldo` nas contas (quando efetivado).
+/// Grava├º├úo at├│mica de lan├ºamento + ajuste de `saldo` nas contas (quando efetivado).
 abstract final class FinanceLancamentoWriteService {
   FinanceLancamentoWriteService._();
 
@@ -65,7 +65,7 @@ abstract final class FinanceLancamentoWriteService {
   }) async {
     final cid = ChurchRepository.churchId(churchId);
     if (cid.isEmpty) {
-      throw StateError('Igreja não identificada para gravar lançamento.');
+      throw StateError('Igreja n├úo identificada para gravar lan├ºamento.');
     }
 
     final deltas = _netDelta(previous: previousPayload, next: payload);

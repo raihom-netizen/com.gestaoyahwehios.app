@@ -56,7 +56,7 @@ class _ComprovanteIframeState extends State<_ComprovanteIframe> {
   }
 }
 
-/// Web: embed URL Firebase directamente — sem http.get (CORS).
+/// Web: embed URL Firebase directamente ÔÇö sem http.get (CORS).
 Future<void> showFinanceComprovanteWebEmbed({
   required BuildContext context,
   required String url,
@@ -126,7 +126,7 @@ Future<void> showFinanceComprovanteWebEmbed({
   );
 }
 
-/// Web: visualizar bytes locais (Storage getData) — evita URL expirada/CORS.
+/// Web: visualizar bytes locais (Storage getData) ÔÇö evita URL expirada/CORS.
 Future<void> showFinanceComprovanteWebBytes({
   required BuildContext context,
   required Uint8List bytes,

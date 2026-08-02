@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit.dart';
@@ -100,16 +100,18 @@ Future<bool> _ffmpegSucceeded(String command) async {
 Future<void> _runFfmpeg(String command) async {
   final ok = await _ffmpegSucceeded(command);
   if (!ok) {
-    throw StateError('Não foi possível processar o vídeo. Tente outro arquivo.');
+    throw StateError(
+        'Não foi possível processar o vídeo. Tente outro arquivo.');
   }
 }
 
-/// Qualidade nativa alinhada à UI (1080p / 900p / 720p).
+/// Qualidade nativa alinhada à UI (1080p / 720p / 540p).
+/// Quanto mais agressivo o nível, menor a resolução e o bitrate resultante.
 VideoQuality _nativeQualityForLevel(UtilitariosCompressLevel level) {
   return switch (level) {
     UtilitariosCompressLevel.baixa => VideoQuality.Res1920x1080Quality,
-    UtilitariosCompressLevel.media => VideoQuality.Res960x540Quality,
-    UtilitariosCompressLevel.alta => VideoQuality.Res1280x720Quality,
+    UtilitariosCompressLevel.media => VideoQuality.Res1280x720Quality,
+    UtilitariosCompressLevel.alta => VideoQuality.Res960x540Quality,
   };
 }
 
@@ -137,9 +139,9 @@ String _ffmpegVideoScaleFilter(UtilitariosCompressLevel level) {
     UtilitariosCompressLevel.baixa =>
       'scale=1920:1080:force_original_aspect_ratio=decrease',
     UtilitariosCompressLevel.media =>
-      'scale=1600:900:force_original_aspect_ratio=decrease',
-    UtilitariosCompressLevel.alta =>
       'scale=1280:720:force_original_aspect_ratio=decrease',
+    UtilitariosCompressLevel.alta =>
+      'scale=960:540:force_original_aspect_ratio=decrease',
   };
 }
 
@@ -252,7 +254,7 @@ Future<UtilitariosVideoToolResult?> _compressVideoFastFfmpeg({
     '-c:v',
     'libx264',
     '-preset',
-    'veryfast',
+    'medium',
     '-crf',
     '$crf',
     '-pix_fmt',
@@ -307,7 +309,24 @@ Future<UtilitariosVideoToolResult?> _compressVideoSmartFfmpeg({
   return _resultFromPath(outPath);
 }
 
+/// Retorna o resultado de vídeo menor entre o original e o comprimido,
+/// garantindo que o compressor nunca aumente o arquivo.
+Future<UtilitariosVideoToolResult> _bestVideoResult(
+  String inputPath,
+  UtilitariosVideoToolResult compressed,
+) async {
+  final originalLength = await File(inputPath).length();
+  if (compressed.bytes.lengthInBytes < originalLength) return compressed;
+  final originalBytes = await File(inputPath).readAsBytes();
+  return UtilitariosVideoToolResult(
+    outputPath: inputPath,
+    bytes: originalBytes,
+    note: 'O arquivo já está bem compactado; devolvido o original.',
+  );
+}
+
 /// Compressão MP4: nativo primeiro (iOS/Android), FFmpeg como reserva.
+/// Sempre devolve o arquivo menor entre original e comprimido.
 Future<UtilitariosVideoToolResult> _runVideoCompressPipeline({
   required String inputPath,
   required UtilitariosCompressLevel level,
@@ -316,14 +335,15 @@ Future<UtilitariosVideoToolResult> _runVideoCompressPipeline({
   final paths = _inputPathCandidates(inputPath, staged);
 
   final native = await _tryNativeCompress(paths: paths, level: level);
-  if (native != null) return native;
+  if (native != null) return _bestVideoResult(inputPath, native);
 
   for (final path in paths) {
     final fast = await _compressVideoFastFfmpeg(inputPath: path, level: level);
-    if (fast != null) return fast;
+    if (fast != null) return _bestVideoResult(inputPath, fast);
 
-    final smart = await _compressVideoSmartFfmpeg(inputPath: path, level: level);
-    if (smart != null) return smart;
+    final smart =
+        await _compressVideoSmartFfmpeg(inputPath: path, level: level);
+    if (smart != null) return _bestVideoResult(inputPath, smart);
   }
 
   throw StateError('Não foi possível processar o vídeo. Tente outro arquivo.');
@@ -369,8 +389,9 @@ Future<UtilitariosVideoToolResult> _runVideoConvertPipeline({
   required String inputPath,
   required UtilitariosVideoConvertOptions options,
 }) async {
-  final level =
-      options.compressAlso ? options.compressLevel : UtilitariosCompressLevel.baixa;
+  final level = options.compressAlso
+      ? options.compressLevel
+      : UtilitariosCompressLevel.baixa;
   final staged = await _prepareVideoInputPath(inputPath);
   final paths = _inputPathCandidates(inputPath, staged);
 

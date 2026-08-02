@@ -1,4 +1,4 @@
-/// Agrupa totais por categoria ignorando diferença **apenas** de maiúsculas/minúsculas.
+﻿/// Agrupa totais por categoria ignorando diferen├ºa **apenas** de mai├║sculas/min├║sculas.
 /// Portado do alinhamento com Controle Total (`finance_category_grouping.dart`).
 class FinanceCategoryMerger {
   final Map<String, String> _canonicalByNorm = {};

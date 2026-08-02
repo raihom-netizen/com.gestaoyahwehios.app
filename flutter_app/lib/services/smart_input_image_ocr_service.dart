@@ -4,7 +4,7 @@ import 'dart:math' show max;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, debugPrint, kDebugMode, kIsWeb;
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
@@ -12,7 +12,7 @@ import 'package:textify/models/textify_config.dart';
 import 'package:textify/textify.dart';
 
 import 'package:gestao_yahweh/utils/smart_input_ocr_recognized_postprocess.dart';
-import 'package:gestao_yahweh/services/church_functions_service.dart';
+import 'functions_service.dart';
 
 /// OCR para o lançamento expresso: **web** = Cloud Vision (Google) com login, **móvel** = ML Kit e, se ainda
 /// vazio, **Cloud Vision**; fallback **Textify** (e desktop).
@@ -279,10 +279,10 @@ abstract final class SmartInputImageOcrService {
   /// Com sessão: leitura via Google Cloud Vision (dicas pt/en; alinhada ao stack Lens/Document AI).
   static Future<String?> _tryCloudVisionIfLoggedIn(Uint8List bytes) async {
     try {
-      if (firebaseDefaultAuth.currentUser == null) return null;
+      if (FirebaseAuth.instance.currentUser == null) return null;
       final mime = _sniffImageMime(bytes) ?? 'image/jpeg';
       final b64 = base64Encode(bytes);
-      return await ChurchFunctionsService.ocrImageForSmartInput(base64: b64, mimeType: mime);
+      return await FunctionsService().ocrImageForSmartInput(base64: b64, mimeType: mime);
     } catch (e) {
       if (kDebugMode) {
         debugPrint('Cloud Vision indisponível, fallback: $e');

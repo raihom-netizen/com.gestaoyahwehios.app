@@ -1095,10 +1095,11 @@ class _VisitorsPageState extends State<VisitorsPage> {
               firstDate: DateTime(2020),
               lastDate: now,
             );
-            if (d != null)
+            if (d != null) {
               setState(() {
                 _filtroData = d;
               });
+            }
           },
           icon: const Icon(Icons.calendar_today_rounded, size: 18),
           label: Text(

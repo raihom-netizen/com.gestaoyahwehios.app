@@ -1,9 +1,9 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/firestore_map_fields.dart';
 
-/// Lançamento financeiro normalizado — tolerante a aliases legados.
+/// Lan├ºamento financeiro normalizado ÔÇö tolerante a aliases legados.
 class BlindFinanceLancamento {
   const BlindFinanceLancamento({
     required this.id,

@@ -304,4 +304,88 @@ class MediaHandlerService {
       onEncodeSkipped: onEncodeSkipped,
     );
   }
+
+  // ==========================================================================
+  // VIDEO PICKING — Chat / Módulos
+  // ==========================================================================
+
+  /// Pick vídeo da galeria (mobile + web).
+  /// Retorna [XFile] pronto para upload.
+  /// Compressão opcional via [MediaService.prepareVideoForUpload].
+  Future<XFile?> pickVideoFromGallery({
+    Duration? maxDuration,
+    int? maxSizeMb,
+    YahwehMediaModule? module,
+    BuildContext? context,
+  }) async {
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: context,
+      module: module,
+    )) {
+      return null;
+    }
+    if (!kIsWeb) {
+      BiometricService.markBiometricVerifiedForNextPainelEntry();
+    }
+    final XFile? picked = await _picker.pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: maxDuration,
+    );
+    if (picked == null) return null;
+    // Validação de tamanho (mobile).
+    if (!kIsWeb && maxSizeMb != null) {
+      final size = await picked.length();
+      final maxBytes = maxSizeMb * 1024 * 1024;
+      if (size > maxBytes) {
+        _showPermissionError(
+          context,
+          'Vídeo muito grande (${(size / (1024 * 1024)).toStringAsFixed(1)}MB). Máximo: ${maxSizeMb}MB.',
+        );
+        return null;
+      }
+    }
+    return picked;
+  }
+
+  /// Pick vídeo da câmera (mobile + web).
+  Future<XFile?> pickVideoFromCamera({
+    Duration? maxDuration,
+    int? maxSizeMb,
+    YahwehMediaModule? module,
+    BuildContext? context,
+  }) async {
+    if (!await _ensureCameraPermission()) {
+      _showPermissionError(
+        context,
+        'Permissão de câmera negada. Ative nas configurações do aparelho.',
+      );
+      return null;
+    }
+    if (!await YahwehModuleMediaGate.ensureReadyForPick(
+      context: context,
+      module: module,
+    )) {
+      return null;
+    }
+    if (!kIsWeb) {
+      BiometricService.markBiometricVerifiedForNextPainelEntry();
+    }
+    final XFile? picked = await _picker.pickVideo(
+      source: ImageSource.camera,
+      maxDuration: maxDuration,
+    );
+    if (picked == null) return null;
+    if (!kIsWeb && maxSizeMb != null) {
+      final size = await picked.length();
+      final maxBytes = maxSizeMb * 1024 * 1024;
+      if (size > maxBytes) {
+        _showPermissionError(
+          context,
+          'Vídeo muito grande (${(size / (1024 * 1024)).toStringAsFixed(1)}MB). Máximo: ${maxSizeMb}MB.',
+        );
+        return null;
+      }
+    }
+    return picked;
+  }
 }

@@ -1,19 +1,26 @@
-import 'dart:async' show unawaited;
+﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fa;
+import 'package:flutter/material.dart' hide showDatePicker;
+import 'package:gestao_yahweh/core/finance_theme_context.dart';
 
-import 'package:gestao_yahweh/core/brasil_bancos.dart';
-import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
-import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
-import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/services/church_finance_load_service.dart';
-import 'package:gestao_yahweh/services/finance_account_migrate_service.dart';
-import 'package:gestao_yahweh/services/finance_save_snackbar.dart';
-import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/finance_premium_widgets.dart';
-import 'package:gestao_yahweh/utils/br_input_formatters.dart';
+import 'package:gestao_yahweh/constants/currency_formats.dart';
+import 'package:gestao_yahweh/utils/date_picker_a11y.dart';
+import 'package:gestao_yahweh/constants/date_time_formats.dart';
+import 'package:gestao_yahweh/constants/finance_account_visuals.dart';
+import 'package:gestao_yahweh/models/finance_account.dart';
+import 'package:gestao_yahweh/models/user_profile.dart';
+import 'package:gestao_yahweh/services/finance_accounts_service.dart';
+import 'package:gestao_yahweh/core/finance_app_colors.dart';
+import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
+import 'package:gestao_yahweh/utils/debounced_text_controller.dart';
+import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
+import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
+import 'package:gestao_yahweh/utils/keyboard_form_scaffold.dart';
+import 'package:gestao_yahweh/utils/premium_upgrade.dart';
+import 'package:gestao_yahweh/ui/widgets/fast_text_field.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_bank_brand_thumb.dart';
 
 enum _PeriodPreset { last30, last90, last365, custom }
 
@@ -21,72 +28,61 @@ enum _MigracaoModo { semConta, transferirBanco }
 
 enum _TipoFiltro { todos, receitas, despesas }
 
-String _contaDisplayName(Map<String, dynamic> d) {
-  final n = (d['nome'] ?? '').toString().trim();
-  if (n.isNotEmpty) return n;
-  final b = (d['bancoNome'] ?? '').toString().trim();
-  return b.isNotEmpty ? b : 'Conta';
-}
-
-DateTime _lancInstant(Map<String, dynamic> data) =>
-    financeLancamentoDate(data) ?? DateTime.now();
-
-Color _contaAccent(Map<String, dynamic> d) {
-  final branding = brasilBancoBrandingFor(
-    codigo: (d['bancoCodigo'] ?? '').toString(),
-    nome: (d['bancoNome'] ?? '').toString(),
-  );
-  return Color(branding.colorHex);
-}
-
-/// Assistente de migração — sem banco → conta, ou entre bancos (Controle Total).
-class FinanceBulkAssignPage extends StatefulWidget {
-  final String tenantId;
-  final String role;
+/// Assistente de migração: sem conta → banco, ou transferir lançamentos de um banco para outro.
+class FinanceBulkAssignScreen extends StatefulWidget {
+  final String uid;
+  final UserProfile profile;
   final DateTime? initialRangeFrom;
   final DateTime? initialRangeTo;
+  final int? semContaNoPainelFinanceiro;
+
+  /// Se vier do Financeiro com filtro de conta, abre já em «Transferir banco».
   final String? initialSourceAccountId;
 
-  const FinanceBulkAssignPage({
+  const FinanceBulkAssignScreen({
     super.key,
-    required this.tenantId,
-    required this.role,
+    required this.uid,
+    required this.profile,
     this.initialRangeFrom,
     this.initialRangeTo,
+    this.semContaNoPainelFinanceiro,
     this.initialSourceAccountId,
   });
 
   @override
-  State<FinanceBulkAssignPage> createState() => _FinanceBulkAssignPageState();
+  State<FinanceBulkAssignScreen> createState() =>
+      _FinanceBulkAssignScreenState();
 }
 
-class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
-  late final CollectionReference<Map<String, dynamic>> _finRef;
-  late final CollectionReference<Map<String, dynamic>> _contasRef;
-
+class _FinanceBulkAssignScreenState extends State<FinanceBulkAssignScreen> {
   _MigracaoModo _modo = _MigracaoModo.semConta;
   _TipoFiltro _tipoFiltro = _TipoFiltro.todos;
   _PeriodPreset _preset = _PeriodPreset.last30;
   late DateTime _from;
   late DateTime _to;
-  final _filterCtrl = TextEditingController();
+  final _filterCtrl = DebouncedTextController();
   String? _sourceAccountId;
   String? _destAccountId;
   bool _loadingApply = false;
   bool _loadingList = false;
   String? _listError;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _transactions = [];
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _contas = [];
-  bool _loadingContas = true;
-  String? _contasError;
   final Set<String> _checkedIds = {};
+  StreamSubscription<fa.User?>? _authUidSub;
+
+  CollectionReference<Map<String, dynamic>> get _txRef =>
+      FirebaseFirestore.instance
+          .collection('users')
+          .doc(firestoreUserDocIdForAppShell(widget.uid))
+          .collection('transactions');
 
   @override
   void initState() {
     super.initState();
-    _finRef = ChurchUiCollections.financeiro(widget.tenantId);
-    _contasRef = ChurchUiCollections.contas(widget.tenantId);
-    _filterCtrl.addListener(_onFilterChanged);
+    _authUidSub = fa.FirebaseAuth.instance.authStateChanges().listen((_) {
+      if (mounted) setState(() {});
+    });
+    _filterCtrl.debouncedText.addListener(_onFilterDebounced);
 
     final src = widget.initialSourceAccountId?.trim();
     if (src != null && src.isNotEmpty) {
@@ -110,64 +106,30 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
       );
       _preset = _PeriodPreset.custom;
     } else {
-      _applyPreset(_PeriodPreset.last30, reload: false);
+      _applyPresetDates(_PeriodPreset.last30, setPreset: true, reload: false);
     }
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) {
-      unawaited(_loadContas());
-      unawaited(_reloadList());
-    });
-  }
 
-  Future<void> _loadContas() async {
-    setState(() {
-      _loadingContas = true;
-      _contasError = null;
-    });
-    try {
-      final churchId = ChurchRepository.churchId(widget.tenantId);
-      final result = await ChurchFinanceLoadService.loadContas(
-        seedTenantId: churchId,
-        forceRefresh: false,
-      );
-      if (!mounted) return;
-      setState(() {
-        _contas = dedupeContasDocuments(result.docs);
-        _loadingContas = false;
-        if (_destAccountId == null) {
-          final first = _contas
-              .where((d) => d.data()['ativo'] != false)
-              .map((d) => d.id)
-              .toList();
-          if (first.isNotEmpty) _destAccountId = first.first;
-        }
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _contas = [];
-        _loadingContas = false;
-        _contasError = e.toString();
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reloadList());
   }
 
   @override
   void dispose() {
-    _filterCtrl.removeListener(_onFilterChanged);
+    _authUidSub?.cancel();
+    _filterCtrl.debouncedText.removeListener(_onFilterDebounced);
     _filterCtrl.dispose();
     super.dispose();
   }
 
-  void _onFilterChanged() {
+  void _onFilterDebounced() {
     _retainCheckedInFiltered();
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
-  void _applyPreset(_PeriodPreset p, {bool reload = true}) {
+  void _applyPresetDates(_PeriodPreset p,
+      {bool setPreset = true, bool reload = true}) {
     final now = DateTime.now();
     final end = DateTime(now.year, now.month, now.day, 23, 59, 59);
-    late DateTime start;
+    DateTime start;
     switch (p) {
       case _PeriodPreset.last30:
         final s = end.subtract(const Duration(days: 29));
@@ -185,7 +147,7 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
         return;
     }
     setState(() {
-      _preset = p;
+      if (setPreset) _preset = p;
       _from = start;
       _to = end;
     });
@@ -193,26 +155,26 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
   }
 
   bool _passesTipo(Map<String, dynamic> d) {
-    final tipo = financeInferTipo(d);
+    final income = (d['type'] ?? 'expense').toString() == 'income';
     switch (_tipoFiltro) {
       case _TipoFiltro.todos:
         return true;
       case _TipoFiltro.receitas:
-        return tipo.contains('entrada') || tipo.contains('receita');
+        return income;
       case _TipoFiltro.despesas:
-        return tipo.contains('saida') ||
-            tipo.contains('saída') ||
-            tipo.contains('despesa');
+        return !income;
     }
   }
 
   bool _passesOrigem(Map<String, dynamic> d) {
+    final cur = (d['financeAccountId'] ?? '').toString().trim();
+    final paidFrom = (d['paidFromFinanceAccountId'] ?? '').toString().trim();
     if (_modo == _MigracaoModo.semConta) {
-      return FinanceAccountMigrateService.semContaLancamento(d);
+      return cur.isEmpty;
     }
     final src = _sourceAccountId?.trim() ?? '';
     if (src.isEmpty) return false;
-    return FinanceAccountMigrateService.lancamentoVinculadoConta(d, contaId: src);
+    return cur == src || paidFrom == src;
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _filteredList() {
@@ -221,12 +183,13 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
     if (q.isNotEmpty) {
       list = list.where((doc) {
         final d = doc.data();
-        final cat = (d['categoria'] ?? '').toString();
-        final desc = (d['descricao'] ?? '').toString();
-        final tipo = financeInferTipo(d);
-        final val = formatBrCurrencyInitial(
-            financeParseValorBr(d['amount'] ?? d['valor']));
-        final blob = '$cat $desc $tipo $val'.toLowerCase();
+        final cat = (d['category'] ?? '').toString();
+        final desc = (d['description'] ?? '').toString();
+        final tipo = (d['type'] ?? 'expense').toString() == 'income'
+            ? 'receita'
+            : 'despesa';
+        final amt = CurrencyFormats.formatBRL((d['amount'] ?? 0) as num?);
+        final blob = '$cat $desc $tipo $amt'.toLowerCase();
         return blob.contains(q);
       });
     }
@@ -238,8 +201,9 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
     _checkedIds.removeWhere((id) => !vis.contains(id));
   }
 
-  void _selectAllFiltered() =>
-      setState(() => _checkedIds.addAll(_filteredList().map((e) => e.id)));
+  void _selectAllFiltered() {
+    setState(() => _checkedIds.addAll(_filteredList().map((e) => e.id)));
+  }
 
   void _deselectFiltered() {
     setState(() {
@@ -247,6 +211,12 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
         _checkedIds.remove(id);
       }
     });
+  }
+
+  void _checkAllAfterReload() {
+    _checkedIds
+      ..clear()
+      ..addAll(_transactions.map((e) => e.id));
   }
 
   Future<void> _reloadList() async {
@@ -273,22 +243,23 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
         f = DateTime(t.year, t.month, t.day);
         t = DateTime(tmp.year, tmp.month, tmp.day, 23, 59, 59);
       }
-      final snap = await _finRef.orderBy('createdAt', descending: true).get();
-      if (!mounted) return;
+      final snap = await _txRef
+          .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(f))
+          .where('date', isLessThanOrEqualTo: Timestamp.fromDate(t))
+          .orderBy('date', descending: true)
+          .get();
       final list = snap.docs.where((doc) {
         final d = doc.data();
-        if (!_passesOrigem(d) || !_passesTipo(d)) return false;
-        final instant = _lancInstant(d);
-        return !instant.isBefore(f) && !instant.isAfter(t);
+        return _passesOrigem(d) && _passesTipo(d);
       }).toList();
+      if (!mounted) return;
       setState(() {
         _transactions = list;
         _loadingList = false;
-        _checkedIds
-          ..clear()
-          ..addAll(list.map((e) => e.id));
       });
+      _checkAllAfterReload();
       _retainCheckedInFiltered();
+      if (mounted) setState(() {});
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -300,37 +271,64 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
     }
   }
 
-  Future<bool> _confirmApply(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> contas, int count) async {
+  FinanceAccount? _accountById(List<FinanceAccount> accounts, String? id) {
+    if (id == null || id.isEmpty) return null;
+    for (final a in accounts) {
+      if (a.id == id) return a;
+    }
+    return null;
+  }
+
+  String _accountLabel(List<FinanceAccount> accounts, String? id) {
+    return _accountById(accounts, id)?.displayName ?? 'Conta';
+  }
+
+  Future<bool> _confirmApply(List<FinanceAccount> accounts, int count) async {
     if (_modo == _MigracaoModo.semConta) return true;
     final src = _sourceAccountId!;
     final dest = _destAccountId!;
-    String label(String? id) {
-      for (final d in contas) {
-        if (d.id == id) return _contaDisplayName(d.data());
-      }
-      return 'Conta';
-    }
+    final srcAcc = _accountById(accounts, src);
+    final destAcc = _accountById(accounts, dest);
+    final involvesVault =
+        (srcAcc?.isVaultProduct ?? false) || (destAcc?.isVaultProduct ?? false);
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        icon: Icon(Icons.swap_horiz_rounded,
-            color: ThemeCleanPremium.primary, size: 40),
-        title: const Text('Confirmar migração', textAlign: TextAlign.center),
-        content: Text(
-          'Mover $count lançamento(s) de «${label(src)}» para «${label(dest)}»? '
-          'Os saldos das contas serão recalculados automaticamente.',
-          textAlign: TextAlign.center,
-          style: const TextStyle(height: 1.4, fontWeight: FontWeight.w600),
+        icon:
+            Icon(Icons.swap_horiz_rounded, color: AppColors.primary, size: 40),
+        title: Text('Confirmar transferência', textAlign: TextAlign.center),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Mover $count lançamento(s) de «${_accountLabel(accounts, src)}» '
+              'para «${_accountLabel(accounts, dest)}» no período selecionado?',
+              textAlign: TextAlign.center,
+              style: const TextStyle(height: 1.4, fontWeight: FontWeight.w600),
+            ),
+            if (involvesVault) ...[
+              SizedBox(height: 14),
+              Text(
+                'ATENÇÃO: esta operação envolve o Cofre pessoal (reserva separada). '
+                'Confirme apenas se deseja mover o dinheiro entre o cofre e outra conta.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  height: 1.4,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.error,
+                ),
+              ),
+            ],
+          ],
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancelar')),
+              onPressed: () => Navigator.pop(ctx, false), child: Text('Não')),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Sim, migrar'),
+            child: Text('Sim, transferir'),
           ),
         ],
       ),
@@ -338,78 +336,84 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
     return ok == true;
   }
 
-  Future<void> _apply(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> contas) async {
+  Future<void> _applyAssign(List<FinanceAccount> accounts) async {
+    if (!widget.profile.hasActiveLicense) {
+      mostrarAvisoSeLicencaInativa(context, widget.profile);
+      return;
+    }
     final dest = _destAccountId?.trim();
     if (dest == null || dest.isEmpty) {
-      showFinanceSaveSnackBar(
-        context,
-        message: 'Escolha o banco de destino.',
-        isError: true,
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Escolha o banco de destino.')),
       );
       return;
     }
     if (_modo == _MigracaoModo.transferirBanco) {
       final src = _sourceAccountId?.trim();
       if (src == null || src.isEmpty) {
-        showFinanceSaveSnackBar(
-          context,
-          message: 'Escolha o banco de origem.',
-          isError: true,
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Escolha o banco de origem.')),
         );
         return;
       }
       if (src == dest) {
-        showFinanceSaveSnackBar(
-          context,
-          message: 'Origem e destino devem ser bancos diferentes.',
-          isError: true,
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Origem e destino devem ser bancos diferentes.')),
         );
         return;
       }
     }
 
-    final destNome = _contaDisplayName(
-      contas.firstWhere((d) => d.id == dest).data(),
-    );
     final targets =
         _filteredList().where((d) => _checkedIds.contains(d.id)).toList();
     if (targets.isEmpty) {
-      showFinanceSaveSnackBar(
-        context,
-        message: 'Marque ao menos um lançamento.',
-        isError: true,
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Marque ao menos um lançamento na lista.')),
       );
       return;
     }
 
-    if (!await _confirmApply(contas, targets.length)) return;
+    if (!await _confirmApply(accounts, targets.length)) return;
 
     setState(() => _loadingApply = true);
     try {
-      final n = await FinanceAccountMigrateService.migrateDocuments(
-        churchId: widget.tenantId,
-        docs: targets,
-        destAccountId: dest,
-        destAccountName: destNome,
-        sourceAccountId: _modo == _MigracaoModo.transferirBanco
-            ? _sourceAccountId
-            : null,
-      );
+      final src = _sourceAccountId?.trim() ?? '';
+      const chunk = 450;
+      for (var i = 0; i < targets.length; i += chunk) {
+        final batch = FirebaseFirestore.instance.batch();
+        for (final doc in targets.skip(i).take(chunk)) {
+          final d = doc.data();
+          final updates = <String, dynamic>{
+            'updatedAt': FieldValue.serverTimestamp(),
+          };
+          if (_modo == _MigracaoModo.semConta) {
+            updates['financeAccountId'] = dest;
+          } else {
+            final cur = (d['financeAccountId'] ?? '').toString().trim();
+            final paidFrom =
+                (d['paidFromFinanceAccountId'] ?? '').toString().trim();
+            if (cur == src) updates['financeAccountId'] = dest;
+            if (paidFrom == src) updates['paidFromFinanceAccountId'] = dest;
+            if (updates.length <= 1) continue;
+          }
+          batch.update(doc.reference, updates);
+        }
+        await batch.commit();
+      }
+      FinanceTransactionsHub.notifyMutated(
+          uid: firestoreUserDocIdForAppShell(widget.uid));
       if (!mounted) return;
-      showFinanceSaveSnackBar(
-        context,
-        message: _modo == _MigracaoModo.semConta
-            ? '$n lançamento(s) vinculados a «$destNome».'
-            : '$n lançamento(s) migrados para «$destNome».',
-      );
+      final msg = _modo == _MigracaoModo.semConta
+          ? '${targets.length} lançamento(s) vinculados a ${_accountLabel(accounts, dest)}.'
+          : '${targets.length} lançamento(s) transferidos para ${_accountLabel(accounts, dest)}.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       await _reloadList();
     } catch (e) {
       if (mounted) {
-        showFinanceSaveSnackBar(
-          context,
-          message: 'Erro: $e',
-          isError: true,
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro: $e'), backgroundColor: AppColors.error),
         );
       }
     } finally {
@@ -417,7 +421,48 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
     }
   }
 
-  Widget _headerHero() {
+  String _txTitle(Map<String, dynamic> d) {
+    final cat = (d['category'] ?? '').toString().trim();
+    final desc = (d['description'] ?? '').toString().trim();
+    if (desc.isNotEmpty) {
+      return desc.length > 60 ? '${desc.substring(0, 60)}…' : desc;
+    }
+    if (cat.isNotEmpty) return cat;
+    return (d['type'] ?? 'expense').toString() == 'income'
+        ? 'Receita'
+        : 'Despesa';
+  }
+
+  String _txSubtitle(Map<String, dynamic> d) {
+    final ts = d['date'];
+    String data = '';
+    if (ts is Timestamp) data = DateTimeFormats.dateBR.format(ts.toDate());
+    final tipo =
+        (d['type'] ?? 'expense').toString() == 'income' ? 'Receita' : 'Despesa';
+    final cat = (d['category'] ?? '').toString().trim();
+    final catPart = cat.isEmpty ? '' : ' • $cat';
+    return '$data • $tipo$catPart';
+  }
+
+  ({int nInc, int nExp, double sumInc, double sumExp}) _stats() {
+    var nInc = 0, nExp = 0;
+    var sumInc = 0.0, sumExp = 0.0;
+    for (final doc in _transactions) {
+      final d = doc.data();
+      final income = (d['type'] ?? 'expense').toString() == 'income';
+      final amt = (d['amount'] ?? 0).toDouble();
+      if (income) {
+        nInc++;
+        sumInc += amt;
+      } else {
+        nExp++;
+        sumExp += amt;
+      }
+    }
+    return (nInc: nInc, nExp: nExp, sumInc: sumInc, sumExp: sumExp);
+  }
+
+  Widget _buildHeaderHero() {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -438,7 +483,7 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
               Icon(Icons.swap_horiz_rounded, color: Colors.white, size: 28),
               SizedBox(width: 10),
@@ -454,11 +499,11 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           Text(
             _modo == _MigracaoModo.semConta
                 ? 'Vincule receitas e despesas sem banco a uma conta de destino.'
-                : 'Transfira lançamentos de um banco/cartão para outro — saldos atualizados.',
+                : 'Transfira lançamentos de um banco/cartão para outro — por período, tipo e seleção.',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.92),
               fontSize: 13,
@@ -468,6 +513,31 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildModoSelector() {
+    return SegmentedButton<_MigracaoModo>(
+      segments: const [
+        ButtonSegment(
+          value: _MigracaoModo.semConta,
+          label: Text('Sem banco'),
+          icon: Icon(Icons.link_off_rounded, size: 18),
+        ),
+        ButtonSegment(
+          value: _MigracaoModo.transferirBanco,
+          label: Text('Entre bancos'),
+          icon: Icon(Icons.swap_horiz_rounded, size: 18),
+        ),
+      ],
+      selected: {_modo},
+      onSelectionChanged: (s) {
+        setState(() {
+          _modo = s.first;
+          _checkedIds.clear();
+        });
+        _reloadList();
+      },
     );
   }
 
@@ -485,51 +555,61 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
       side: BorderSide(color: color.withValues(alpha: 0.45)),
       onSelected: (_) {
         setState(() => _tipoFiltro = tipo);
-        unawaited(_reloadList());
+        _reloadList();
       },
     );
   }
 
+  Widget _buildTipoFilter() {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _tipoChip('Todos', _TipoFiltro.todos, AppColors.primary,
+            Icons.payments_rounded),
+        _tipoChip('Receitas', _TipoFiltro.receitas, AppColors.financeReceita,
+            Icons.trending_up_rounded),
+        _tipoChip('Despesas', _TipoFiltro.despesas, AppColors.financeDespesa,
+            Icons.trending_down_rounded),
+      ],
+    );
+  }
+
   Widget _accountDropdown({
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> contas,
+    required List<FinanceAccount> accounts,
     required String? value,
     required String hint,
     required ValueChanged<String?> onChanged,
     String? excludeId,
   }) {
-    final items = contas
-        .where((d) => d.data()['ativo'] != false)
-        .where((d) => excludeId == null || d.id != excludeId)
-        .toList();
+    final items =
+        accounts.where((a) => excludeId == null || a.id != excludeId).toList();
     return DropdownButtonFormField<String>(
       isExpanded: true,
-      initialValue: value != null && items.any((d) => d.id == value) ? value : null,
+      initialValue:
+          value != null && items.any((a) => a.id == value) ? value : null,
       decoration: InputDecoration(
         filled: true,
-        fillColor: Colors.white,
-        border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd)),
+        fillColor: context.appInputFill,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       ),
       hint: Text(hint),
       items: items
           .map(
-            (d) => DropdownMenuItem<String>(
-              value: d.id,
+            (a) => DropdownMenuItem<String>(
+              value: a.id,
               child: Row(
                 children: [
-                  FinanceBankMiniLogo(
-                    bancoCodigo: (d.data()['bancoCodigo'] ?? '').toString(),
-                    bancoNome: (d.data()['bancoNome'] ?? '').toString(),
+                  FinanceBankBrandThumb(
+                    preset: a.preset,
                     size: 28,
+                    fallbackIcon: financeAccountVisualFor(a).icon,
                   ),
-                  const SizedBox(width: 10),
+                  SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      _contaDisplayName(d.data()),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    child: Text(a.displayName, overflow: TextOverflow.ellipsis),
                   ),
                 ],
               ),
@@ -540,40 +620,150 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
     );
   }
 
-  Widget _txCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  Widget _buildResumoCard() {
+    if (_loadingList || _listError != null) return const SizedBox.shrink();
+    final n = _transactions.length;
+    final periodo =
+        '${DateTimeFormats.dateBR.format(_from)}  →  ${DateTimeFormats.dateBR.format(_to)}';
+    if (n == 0) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: context.isDarkMode
+            ? context.appPanelDecoration(
+                radius: 16,
+                borderAccent: AppColors.financeReceita,
+              )
+            : BoxDecoration(
+                color: const Color(0xFFF0FDF4),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                    color: const Color(0xFF16A34A).withValues(alpha: 0.35)),
+              ),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_rounded,
+                color: context.isDarkMode
+                    ? AppColors.financeReceita
+                    : Colors.green.shade700,
+                size: 26),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _modo == _MigracaoModo.semConta
+                    ? 'Nenhum lançamento sem banco neste período ($periodo).'
+                    : 'Nenhum lançamento do banco de origem neste período/filtro.',
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.35,
+                  color: context.appTextPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final st = _stats();
+    final gradient = context.isDarkMode
+        ? [
+            AppColors.primary.withValues(alpha: 0.22),
+            context.appSurfaceHigh,
+          ]
+        : _modo == _MigracaoModo.semConta
+            ? const [Color(0xFFFFF7ED), Color(0xFFFFEDD5)]
+            : const [Color(0xFFEEF2FF), Color(0xFFDBEAFE)];
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: gradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.primary
+              .withValues(alpha: context.isDarkMode ? 0.45 : 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$n lançamento(s) encontrado(s)',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              fontSize: 16,
+              color: context.appTextPrimary,
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(periodo,
+              style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: context.appTextPrimary)),
+          SizedBox(height: 10),
+          Text(
+            '• ${st.nInc} receita(s) · ${CurrencyFormats.formatBRL(st.sumInc)}',
+            style: TextStyle(
+                fontWeight: FontWeight.w800, color: AppColors.financeReceita),
+          ),
+          Text(
+            '• ${st.nExp} despesa(s) · ${CurrencyFormats.formatBRL(st.sumExp)}',
+            style: TextStyle(
+                fontWeight: FontWeight.w800, color: AppColors.financeDespesa),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Todos já vêm marcados — desmarque os que não quiser mover.',
+            style: TextStyle(
+                fontSize: 12,
+                color: context.appTextSecondary,
+                fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTxCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data();
-    final tipo = financeInferTipo(d);
-    final income =
-        tipo.contains('entrada') || tipo.contains('receita');
-    final accent = income
-        ? const Color(0xFF16A34A)
-        : tipo == 'transferencia'
-            ? const Color(0xFF6366F1)
-            : const Color(0xFFDC2626);
+    final income = (d['type'] ?? 'expense').toString() == 'income';
+    final accent = income ? AppColors.financeReceita : AppColors.financeDespesa;
     final checked = _checkedIds.contains(doc.id);
-    final val = financeParseValorBr(d['amount'] ?? d['valor']);
-    final title = (d['descricao'] ?? d['categoria'] ?? '-').toString();
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: () => setState(() {
-          if (checked) {
-            _checkedIds.remove(doc.id);
-          } else {
-            _checkedIds.add(doc.id);
-          }
-        }),
+        onTap: () {
+          setState(() {
+            if (checked) {
+              _checkedIds.remove(doc.id);
+            } else {
+              _checkedIds.add(doc.id);
+            }
+          });
+        },
         child: Container(
           margin: const EdgeInsets.only(bottom: 10),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: ModernModuleUI.cardBg(context),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: checked ? accent : const Color(0xFFE2E8F0),
+              color: checked ? accent : Colors.grey.shade300,
               width: checked ? 2 : 1,
             ),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
+            boxShadow: [
+              BoxShadow(
+                color: accent.withValues(alpha: checked ? 0.15 : 0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
           ),
           child: Row(
             children: [
@@ -589,29 +779,33 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
               Checkbox(
                 value: checked,
                 activeColor: accent,
-                onChanged: (v) => setState(() {
-                  if (v == true) {
-                    _checkedIds.add(doc.id);
-                  } else {
-                    _checkedIds.remove(doc.id);
-                  }
-                }),
+                onChanged: (v) {
+                  setState(() {
+                    if (v == true) {
+                      _checkedIds.add(doc.id);
+                    } else {
+                      _checkedIds.remove(doc.id);
+                    }
+                  });
+                },
               ),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w800, fontSize: 14)),
-                    const SizedBox(height: 4),
                     Text(
-                      '${DateFormat('dd/MM/yyyy').format(_lancInstant(d))} · $tipo',
+                      _txTitle(d),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 14),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      _txSubtitle(d),
                       style: TextStyle(
                           fontSize: 12,
-                          color: Colors.grey.shade600,
+                          color: context.appTextSecondary,
                           fontWeight: FontWeight.w600),
                     ),
                   ],
@@ -620,11 +814,9 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
               Padding(
                 padding: const EdgeInsets.only(right: 14),
                 child: Text(
-                  formatBrCurrencyInitial(val),
+                  CurrencyFormats.formatBRL((d['amount'] ?? 0) as num?),
                   style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14,
-                      color: accent),
+                      fontWeight: FontWeight.w900, fontSize: 14, color: accent),
                 ),
               ),
             ],
@@ -641,285 +833,305 @@ class _FinanceBulkAssignPageState extends State<FinanceBulkAssignPage> {
     final nSel = _checkedIds.where(visibleIds.contains).length;
 
     return Scaffold(
-      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      backgroundColor: ModernModuleUI.scaffoldBgOf(context),
+      resizeToAvoidBottomInset: scaffoldKeyboardResizeToAvoidBottomInset(),
       appBar: AppBar(
-        backgroundColor: ThemeCleanPremium.primary,
-        foregroundColor: Colors.white,
-        title: const Text('Migrar lançamentos',
+        title: Text('Migrar lançamentos',
             style: TextStyle(fontWeight: FontWeight.w800)),
+        elevation: 0,
+        leading: IconButton(
+          tooltip: 'Voltar',
+          icon: Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.maybePop(context),
+        ),
         actions: [
           IconButton(
-            tooltip: 'Atualizar',
+            tooltip: 'Atualizar lista',
             onPressed: _loadingList ? null : _reloadList,
-            icon: const Icon(Icons.refresh_rounded),
+            icon: Icon(Icons.refresh_rounded),
           ),
         ],
       ),
-      body: _loadingContas
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+      body: keyboardScaffoldBody(
+        StreamBuilder<List<FinanceAccount>>(
+          stream: FinanceAccountsService()
+              .streamAccounts(firestoreUserDocIdForAppShell(widget.uid)),
+          builder: (context, accSnap) {
+            final accounts = accSnap.data ?? [];
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (_contasError != null)
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(
-                      'Erro ao carregar contas: $_contasError',
-                      style: const TextStyle(color: Color(0xFFDC2626)),
-                    ),
-                  ),
                 Expanded(
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                     children: [
-                    _headerHero(),
-                    const SizedBox(height: 16),
-                    SegmentedButton<_MigracaoModo>(
-                      segments: const [
-                        ButtonSegment(
-                          value: _MigracaoModo.semConta,
-                          label: Text('Sem banco'),
-                          icon: Icon(Icons.link_off_rounded, size: 18),
+                      _buildHeaderHero(),
+                      SizedBox(height: 16),
+                      _buildModoSelector(),
+                      SizedBox(height: 14),
+                      _buildResumoCard(),
+                      SizedBox(height: 16),
+                      Text('Tipo de lançamento',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                              color: context.isDarkMode
+                                  ? AppColors.accent
+                                  : AppColors.primary)),
+                      SizedBox(height: 8),
+                      _buildTipoFilter(),
+                      SizedBox(height: 16),
+                      Text('Período',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                              color: context.isDarkMode
+                                  ? AppColors.accent
+                                  : AppColors.primary)),
+                      SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: Text('30 dias'),
+                            selected: _preset == _PeriodPreset.last30,
+                            onSelected: (v) {
+                              if (v) _applyPresetDates(_PeriodPreset.last30);
+                            },
+                          ),
+                          ChoiceChip(
+                            label: Text('90 dias'),
+                            selected: _preset == _PeriodPreset.last90,
+                            onSelected: (v) {
+                              if (v) _applyPresetDates(_PeriodPreset.last90);
+                            },
+                          ),
+                          ChoiceChip(
+                            label: Text('365 dias'),
+                            selected: _preset == _PeriodPreset.last365,
+                            onSelected: (v) {
+                              if (v) _applyPresetDates(_PeriodPreset.last365);
+                            },
+                          ),
+                          ChoiceChip(
+                            label: Text('Personalizado'),
+                            selected: _preset == _PeriodPreset.custom,
+                            onSelected: (v) {
+                              if (v) {
+                                setState(() => _preset = _PeriodPreset.custom);
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                      if (_preset == _PeriodPreset.custom) ...[
+                        SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  final d = await showDatePicker(
+                                    context: context,
+                                    initialDate: _from,
+                                    firstDate: DateTime(2020),
+                                    lastDate: DateTime(2100),
+                                  );
+                                  if (d != null) {
+                                    setState(() => _from = d);
+                                    await _reloadList();
+                                  }
+                                },
+                                icon: Icon(Icons.event_rounded, size: 18),
+                                label: Text(
+                                    'De ${DateTimeFormats.dateBR.format(_from)}'),
+                              ),
+                            ),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: () async {
+                                  final first =
+                                      _from.isBefore(_to) ? _from : _to;
+                                  final d = await showDatePicker(
+                                    context: context,
+                                    initialDate: _to,
+                                    firstDate: first,
+                                    lastDate: DateTime(2100),
+                                  );
+                                  if (d != null) {
+                                    setState(() => _to = d);
+                                    await _reloadList();
+                                  }
+                                },
+                                icon: Icon(Icons.event_available_rounded,
+                                    size: 18),
+                                label: Text(
+                                    'Até ${DateTimeFormats.dateBR.format(_to)}'),
+                              ),
+                            ),
+                          ],
                         ),
-                        ButtonSegment(
-                          value: _MigracaoModo.transferirBanco,
-                          label: Text('Entre bancos'),
-                          icon: Icon(Icons.swap_horiz_rounded, size: 18),
-                        ),
-                      ],
-                      selected: {_modo},
-                      onSelectionChanged: (s) {
-                        setState(() {
-                          _modo = s.first;
-                          _checkedIds.clear();
-                        });
-                        unawaited(_reloadList());
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    if (!_loadingList && _listError == null)
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                              color: ThemeCleanPremium.primary
-                                  .withValues(alpha: 0.2)),
-                          boxShadow: ThemeCleanPremium.softUiCardShadow,
-                        ),
-                        child: Text(
-                          _transactions.isEmpty
-                              ? 'Nenhum lançamento neste filtro.'
-                              : '${_transactions.length} lançamento(s) · ${DateFormat('dd/MM/yyyy').format(_from)} → ${DateFormat('dd/MM/yyyy').format(_to)}',
+                      ] else ...[
+                        SizedBox(height: 8),
+                        Text(
+                          '${DateTimeFormats.dateBR.format(_from)} → ${DateTimeFormats.dateBR.format(_to)}',
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
-                      ),
-                    const SizedBox(height: 16),
-                    const Text('Tipo',
-                        style: TextStyle(fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        _tipoChip('Todos', _TipoFiltro.todos,
-                            ThemeCleanPremium.primary, Icons.payments_rounded),
-                        _tipoChip('Receitas', _TipoFiltro.receitas,
-                            const Color(0xFF16A34A), Icons.trending_up_rounded),
-                        _tipoChip('Despesas', _TipoFiltro.despesas,
-                            const Color(0xFFDC2626), Icons.trending_down_rounded),
                       ],
-                    ),
-                    const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        for (final p in _PeriodPreset.values)
-                          if (p != _PeriodPreset.custom)
-                            ChoiceChip(
-                              label: Text(switch (p) {
-                                _PeriodPreset.last30 => '30 dias',
-                                _PeriodPreset.last90 => '90 dias',
-                                _PeriodPreset.last365 => '365 dias',
-                                _ => 'Custom',
-                              }),
-                              selected: _preset == p,
-                              onSelected: (v) {
-                                if (v) _applyPreset(p);
-                              },
-                            ),
+                      SizedBox(height: 18),
+                      if (_modo == _MigracaoModo.transferirBanco) ...[
+                        Text('Banco de origem',
+                            style: TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                                color: context.isDarkMode
+                                    ? AppColors.accent
+                                    : AppColors.primary)),
+                        SizedBox(height: 8),
+                        accounts.isEmpty
+                            ? Text('Cadastre contas em Bancos e cartões.')
+                            : _accountDropdown(
+                                accounts: accounts,
+                                value: _sourceAccountId,
+                                hint: 'De qual banco/cartão?',
+                                excludeId: _destAccountId,
+                                onChanged: (v) {
+                                  setState(() => _sourceAccountId = v);
+                                  _reloadList();
+                                },
+                              ),
+                        SizedBox(height: 16),
                       ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () async {
-                              final d = await showDatePicker(
-                                context: context,
-                                initialDate: _from,
-                                firstDate: DateTime(2018),
-                                lastDate: DateTime(2100),
-                              );
-                              if (d != null) {
-                                setState(() {
-                                  _from = DateTime(d.year, d.month, d.day);
-                                  _preset = _PeriodPreset.custom;
-                                });
-                                unawaited(_reloadList());
-                              }
-                            },
-                            icon: const Icon(Icons.event_rounded, size: 18),
-                            label: Text(
-                                'De ${DateFormat('dd/MM/yyyy').format(_from)}'),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () async {
-                              final d = await showDatePicker(
-                                context: context,
-                                initialDate: _to,
-                                firstDate: _from,
-                                lastDate: DateTime(2100),
-                              );
-                              if (d != null) {
-                                setState(() {
-                                  _to = DateTime(
-                                      d.year, d.month, d.day, 23, 59, 59);
-                                  _preset = _PeriodPreset.custom;
-                                });
-                                unawaited(_reloadList());
-                              }
-                            },
-                            icon: const Icon(Icons.event_available_rounded,
-                                size: 18),
-                            label: Text(
-                                'Até ${DateFormat('dd/MM/yyyy').format(_to)}'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    if (_modo == _MigracaoModo.transferirBanco) ...[
-                      const Text('Banco de origem',
-                          style: TextStyle(fontWeight: FontWeight.w900)),
-                      const SizedBox(height: 8),
-                      _contas.isEmpty
-                          ? const Text('Cadastre contas na aba Contas.')
+                      Text('Banco de destino',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                              color: context.isDarkMode
+                                  ? AppColors.accent
+                                  : AppColors.primary)),
+                      SizedBox(height: 8),
+                      accounts.isEmpty
+                          ? Text(
+                              'Cadastre ao menos uma conta em Bancos e cartões.')
                           : _accountDropdown(
-                              contas: _contas,
-                              value: _sourceAccountId,
-                              hint: 'De qual banco/cartão?',
-                              excludeId: _destAccountId,
-                              onChanged: (v) {
-                                setState(() => _sourceAccountId = v);
-                                unawaited(_reloadList());
-                              },
+                              accounts: accounts,
+                              value: _destAccountId,
+                              hint: 'Para qual banco/cartão?',
+                              excludeId: _modo == _MigracaoModo.transferirBanco
+                                  ? _sourceAccountId
+                                  : null,
+                              onChanged: (v) =>
+                                  setState(() => _destAccountId = v),
                             ),
-                      const SizedBox(height: 16),
-                    ],
-                    const Text('Banco de destino',
-                        style: TextStyle(fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 8),
-                    _contas.isEmpty
-                        ? const Text('Cadastre ao menos uma conta.')
-                        : _accountDropdown(
-                            contas: _contas,
-                            value: _destAccountId,
-                            hint: 'Para qual banco/cartão?',
-                            excludeId: _modo == _MigracaoModo.transferirBanco
-                                ? _sourceAccountId
-                                : null,
-                            onChanged: (v) => setState(() => _destAccountId = v),
+                      SizedBox(height: 16),
+                      FastTextField(
+                        controller: _filterCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Buscar descrição, categoria, valor…',
+                          prefixIcon: Icon(Icons.search_rounded),
+                          filled: true,
+                          fillColor: context.appInputFill,
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                        ),
+                      ),
+                      SizedBox(height: 10),
+                      Row(
+                        children: [
+                          TextButton.icon(
+                            onPressed:
+                                filtered.isEmpty ? null : _selectAllFiltered,
+                            icon: Icon(Icons.checklist_rounded, size: 20),
+                            label: Text('Marcar todos'),
                           ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _filterCtrl,
-                      decoration: InputDecoration(
-                        hintText: 'Buscar descrição, categoria, valor…',
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        filled: true,
-                        fillColor: Colors.white,
-                        border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14)),
+                          TextButton.icon(
+                            onPressed:
+                                filtered.isEmpty ? null : _deselectFiltered,
+                            icon: Icon(Icons.deselect_rounded, size: 20),
+                            label: Text('Desmarcar'),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        TextButton.icon(
-                          onPressed:
-                              filtered.isEmpty ? null : _selectAllFiltered,
-                          icon: const Icon(Icons.checklist_rounded, size: 20),
-                          label: const Text('Marcar todos'),
-                        ),
-                        TextButton.icon(
-                          onPressed:
-                              filtered.isEmpty ? null : _deselectFiltered,
-                          icon: const Icon(Icons.deselect_rounded, size: 20),
-                          label: const Text('Desmarcar'),
-                        ),
-                      ],
-                    ),
-                    if (_loadingList)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 24),
-                        child: Center(child: CircularProgressIndicator()),
-                      )
-                    else if (_listError != null)
-                      Text(_listError!,
-                          style: const TextStyle(color: Color(0xFFDC2626)))
-                    else ...[
-                      Text(
-                        '${filtered.length} na lista · $nSel selecionado(s)',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.grey.shade800),
-                      ),
-                      const SizedBox(height: 8),
-                      ...filtered.map(_txCard),
-                    ],
-                  ],
-                ),
-              ),
-              SafeArea(
-                minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: FilledButton.icon(
-                  onPressed: _loadingApply ||
-                          _loadingList ||
-                          _contas.isEmpty
-                      ? null
-                      : () => _apply(_contas),
-                  icon: _loadingApply
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
+                      if (_loadingList)
+                        Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Center(child: CircularProgressIndicator()),
                         )
-                      : Icon(_modo == _MigracaoModo.semConta
-                          ? Icons.link_rounded
-                          : Icons.swap_horiz_rounded),
-                  label: Text(_loadingApply
-                      ? 'Aplicando…'
-                      : _modo == _MigracaoModo.semConta
-                          ? 'Vincular selecionados'
-                          : 'Migrar selecionados'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _modo == _MigracaoModo.semConta
-                        ? ThemeCleanPremium.primary
-                        : const Color(0xFF7C3AED),
-                    minimumSize: const Size.fromHeight(52),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
+                      else if (_listError != null)
+                        Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Text(_listError!,
+                              style: TextStyle(color: AppColors.error)),
+                        )
+                      else ...[
+                        Text(
+                          '${filtered.length} na lista • $nSel selecionado(s)',
+                          style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: context.appTextPrimary),
+                        ),
+                        SizedBox(height: 8),
+                        if (filtered.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 20),
+                            child: Text(
+                              _modo == _MigracaoModo.transferirBanco &&
+                                      (_sourceAccountId == null ||
+                                          _sourceAccountId!.isEmpty)
+                                  ? 'Selecione o banco de origem para listar os lançamentos.'
+                                  : 'Nenhum lançamento neste filtro. Amplie o período ou mude o tipo.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: context.appTextSecondary),
+                            ),
+                          )
+                        else
+                          ...filtered.map(_buildTxCard),
+                      ],
+                    ],
                   ),
                 ),
-              ),
-            ],
-          ),
+                SafeArea(
+                  minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: FilledButton.icon(
+                    onPressed: _loadingApply || _loadingList || accounts.isEmpty
+                        ? null
+                        : () => _applyAssign(accounts),
+                    icon: _loadingApply
+                        ? SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white),
+                          )
+                        : Icon(_modo == _MigracaoModo.semConta
+                            ? Icons.link_rounded
+                            : Icons.swap_horiz_rounded),
+                    label: Text(
+                      _loadingApply
+                          ? 'Aplicando…'
+                          : _modo == _MigracaoModo.semConta
+                              ? 'Vincular selecionados ao destino'
+                              : 'Transferir selecionados para destino',
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _modo == _MigracaoModo.semConta
+                          ? AppColors.primary
+                          : const Color(0xFF7C3AED),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      minimumSize: const Size.fromHeight(52),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14)),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
     );
   }
 }

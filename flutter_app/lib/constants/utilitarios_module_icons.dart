@@ -1,11 +1,10 @@
-﻿import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
+import 'package:flutter/material.dart';
 
-/// Ãcones do mÃ³dulo UtilitÃ¡rios â€” espelho Controle Total + nav GestÃ£o Yahweh.
+/// Ícones do módulo Utilitários (menu + cards).
 abstract final class UtilitariosModuleIcons {
   UtilitariosModuleIcons._();
 
-  static const IconData nav = kUtilitariosModuleIcon;
+  static const IconData nav = Icons.handyman_rounded;
   static const IconData pdfWord = Icons.description_rounded;
   static const IconData pdfJpeg = Icons.image_rounded;
   static const IconData pdfPng = Icons.photo_library_rounded;
@@ -25,4 +24,5 @@ abstract final class UtilitariosModuleIcons {
   static const IconData photoEdit = Icons.auto_awesome_rounded;
   static const IconData photoCameraPdf = Icons.camera_alt_rounded;
   static const IconData photoTextExtract = Icons.document_scanner_rounded;
+  static const IconData videoDownload = Icons.cloud_download_rounded;
 }

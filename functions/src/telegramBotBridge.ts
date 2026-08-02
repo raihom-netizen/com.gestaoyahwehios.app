@@ -499,7 +499,8 @@ export const telegramOutgoingMessage = functions.firestore
       .doc(threadId)
       .get();
     const threadData = threadDoc.exists ? (threadDoc.data() ?? {}) : {};
-    const effectiveChatId = safe(threadData.telegramChatId);
+    // Resolve chatId: primeiro do thread, depois do bridge config da igreja.
+    const effectiveChatId = safe(threadData.telegramChatId) || safe(config.chatId);
     if (!effectiveChatId) return;
 
     const text = safe(data.text);

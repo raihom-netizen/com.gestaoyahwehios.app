@@ -442,6 +442,14 @@ void main() async {
   // 3. Health + settings Firestore/Auth/Storage — exige app [DEFAULT] pronto.
   final firebaseBoot = await FirebaseBootstrapService.initialize();
 
+  // 3b. Credenciais TDLib do painel Master (`config/telegram_tdlib`) — após Firebase.
+  //     Requer sessão; se ainda não houver login, o TDLib tenta de novo no init.
+  if (firebaseBoot.isReady) {
+    try {
+      await ensureTelegramCredentialsLoaded();
+    } catch (_) {}
+  }
+
   // 4. Offline/Hive — só após bootstrap OK (configureFirestoreForOfflineAndSpeed).
   if (firebaseBoot.isReady) {
     try {
