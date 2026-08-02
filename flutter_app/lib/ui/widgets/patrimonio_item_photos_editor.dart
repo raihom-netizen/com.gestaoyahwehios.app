@@ -12,7 +12,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/immediate_media_warm.dart';
-import 'package:gestao_yahweh/services/image_helper.dart';
+import 'package:gestao_yahweh/services/church_unified_photo_upload.dart';
 import 'package:gestao_yahweh/services/patrimonio_pending_photos_cache.dart';
 import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/services/patrimonio_photos_update_service.dart';
@@ -369,9 +369,11 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
       ),
     );
     if (picked == null || picked.bytes.isEmpty) return null;
-    final bytes = picked.bytes;
-    if (bytes.length <= ImageHelper.kPatrimonioMaxUploadBytes) return bytes;
-    return ImageHelper.compressPatrimonioPhotoForUpload(bytes);
+    // Mesmo prepare dos avisos/eventos — 1 compressão, teto patrimônio.
+    return ChurchUnifiedPhotoUpload.prepareBytes(
+      picked.bytes,
+      module: ChurchPhotoModules.patrimonio,
+    );
   }
 
   Future<void> pickForSlot(int slot) async {
@@ -458,9 +460,10 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
         try {
           final raw = await list[i].readAsBytes();
           if (raw.isEmpty || !mounted) continue;
-          final bytes = raw.length <= ImageHelper.kPatrimonioMaxUploadBytes
-              ? raw
-              : await ImageHelper.compressPatrimonioPhotoForUpload(raw);
+          final bytes = await ChurchUnifiedPhotoUpload.prepareBytes(
+            raw,
+            module: ChurchPhotoModules.patrimonio,
+          );
           final slot = _firstEmptyPhotoSlot();
           if (slot == null) break;
           final nome = list[i].name.isNotEmpty

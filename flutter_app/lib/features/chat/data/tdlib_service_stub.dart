@@ -13,6 +13,10 @@ class TdLibService {
       StreamController<List<TdlibChatPreview>>.broadcast(sync: true);
   final _messagesController =
       StreamController<List<TdlibMessageItem>>.broadcast(sync: true);
+  final _peerActionController =
+      StreamController<TdlibPeerAction>.broadcast(sync: true);
+  final _presenceController =
+      StreamController<TdlibUserPresence>.broadcast(sync: true);
 
   TdlibAuthSnapshot _snapshot = TdlibAuthSnapshot.unsupported;
   String _boundChurchId = '';
@@ -21,12 +25,16 @@ class TdLibService {
   bool get isSupported => false;
   String get boundChurchId => _boundChurchId;
   TdlibAuthSnapshot get currentAuth => _snapshot;
+  List<TdlibChatPreview> get cachedChats => const [];
 
   Stream<TdlibAuthSnapshot> get authorizationStateStream =>
       _authController.stream;
   Stream<List<TdlibChatPreview>> get chatsStream => _chatsController.stream;
   Stream<List<TdlibMessageItem>> get messagesStream =>
       _messagesController.stream;
+  Stream<TdlibPeerAction> get peerActionsStream =>
+      _peerActionController.stream;
+  Stream<TdlibUserPresence> get presenceStream => _presenceController.stream;
 
   Future<void> init({String churchId = ''}) async {
     _boundChurchId = churchId.trim();
@@ -47,6 +55,16 @@ class TdLibService {
   }
 
   Future<void> refreshChats({int limit = 40}) async {}
+
+  Future<void> warmTopChats({int count = 8}) async {}
+
+  Future<void> ensureChatPhoto(int chatId) async {}
+
+  Future<TdlibMessageItem?> refreshPinnedMessage(int chatId) async => null;
+
+  TdlibMessageItem? peekPinnedMessage(int chatId) => null;
+
+  Future<String?> getOrCreateInviteLink(int chatId) async => null;
 
   Future<int> openPrivateChatByPhone(String phoneRaw) async {
     throw UnsupportedError('TDLib não disponível na Web');
@@ -70,6 +88,8 @@ class TdLibService {
   Future<List<TdlibMessageItem>> loadChatHistory(
     int chatId, {
     int limit = 40,
+    bool preferLocalFirst = true,
+    bool setActive = true,
   }) async =>
       const [];
 
@@ -136,9 +156,78 @@ class TdLibService {
     throw UnsupportedError('TDLib não disponível na Web');
   }
 
+  Future<List<TdlibMessageItem>> searchChatMessages(
+    int chatId,
+    String query, {
+    int limit = 40,
+  }) async =>
+      const [];
+
+  Future<List<TdlibChatMember>> getChatMembers(
+    int chatId, {
+    int limit = 100,
+  }) async =>
+      const [];
+
+  Future<void> setChatMuted(int chatId, bool muted) async {
+    throw UnsupportedError('TDLib não disponível na Web');
+  }
+
+  void upsertLocalMessage(TdlibMessageItem item) {}
+
+  void removeLocalMessage(int chatId, int messageId) {}
+
+  Future<void> configureNotificationOptions() async {}
+
+  Future<void> registerPushDevice(
+    String fcmToken, {
+    String? apnsTokenHex,
+    bool apnsSandbox = false,
+  }) async {}
+
+  Future<void> processPushNotification(String payload) async {}
+
+  Future<List<TdlibMessageItem>> loadOlderMessages(
+    int chatId, {
+    int limit = 40,
+  }) async =>
+      const [];
+
+  Future<TdlibUserPresence?> refreshChatPresence(int chatId) async => null;
+
+  TdlibUserPresence? peekPresenceForChat(int chatId) => null;
+
+  Future<List<TdlibSearchHit>> searchMessagesGlobal(
+    String query, {
+    int limit = 40,
+  }) async =>
+      const [];
+
+  Future<List<TdlibSessionInfo>> getActiveSessions() async => const [];
+
+  Future<void> terminateSession(int sessionId) async {
+    throw UnsupportedError('TDLib não disponível na Web');
+  }
+
+  Future<void> terminateAllOtherSessions() async {
+    throw UnsupportedError('TDLib não disponível na Web');
+  }
+
+  Future<void> addMessageReaction(
+    int chatId,
+    int messageId,
+    String emoji,
+  ) async {
+    throw UnsupportedError('TDLib não disponível na Web');
+  }
+
+  Future<void> prefetchChatPhotos({int limit = 20}) async {}
+
   Future<void> dispose() async {
     await _authController.close();
     await _chatsController.close();
     await _messagesController.close();
+    await _peerActionController.close();
+    await _presenceController.close();
   }
 }

@@ -16,9 +16,9 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
-import 'package:gestao_yahweh/core/media/media_optimization_service.dart';
 import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
+import 'package:gestao_yahweh/services/church_unified_photo_upload.dart';
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
@@ -82,8 +82,8 @@ abstract final class FinanceComprovantePublishService {
     await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
   }
 
-  /// Compress├úo em isolate antes do Storage (imagens apenas).
-  /// Com [alreadyCompressed] (JPEG do picker) ÔÇö N├âO recomprimir (padr├úo CT).
+  /// Compressão única antes do Storage (imagens) — mesmo padrão avisos/eventos.
+  /// Com [alreadyCompressed] (JPEG do picker) — NÃO recomprimir.
   static Future<({Uint8List bytes, String mimeType})> _optimizedForUpload({
     required Uint8List rawBytes,
     required String mimeType,
@@ -100,7 +100,11 @@ abstract final class FinanceComprovantePublishService {
         (mime.contains('jpeg') || mime.contains('jpg'))) {
       return (bytes: rawBytes, mimeType: 'image/jpeg');
     }
-    final optimized = await MediaOptimizationService.optimizeForReceipt(rawBytes);
+    // Pipeline unificado (financeiro = comprovante).
+    final optimized = await ChurchUnifiedPhotoUpload.prepareBytes(
+      rawBytes,
+      module: ChurchPhotoModules.financeiro,
+    );
     return (bytes: optimized, mimeType: 'image/jpeg');
   }
 

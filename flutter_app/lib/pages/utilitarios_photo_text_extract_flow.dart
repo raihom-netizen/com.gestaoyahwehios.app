@@ -9,7 +9,7 @@ import 'package:gestao_yahweh/services/utilitarios_daily_quota_service.dart';
 import 'package:gestao_yahweh/services/utilitarios_local_service.dart';
 import 'package:gestao_yahweh/services/utilitarios_photo_text_extract_service.dart';
 import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
-import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
 
 const String _kPhotoTextExtractTitle = 'Controletotalapp extração de texto';
 

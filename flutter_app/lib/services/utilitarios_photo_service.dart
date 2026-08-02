@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui
@@ -28,7 +28,7 @@ import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart
 import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 
-import 'smart_input_image_ocr_service.dart';
+import 'package:gestao_yahweh/services/smart_input_image_ocr_service.dart';
 
 /// Região normalizada (0–1) para borrar ou destacar na foto.
 class UtilPhotoEditRegion {

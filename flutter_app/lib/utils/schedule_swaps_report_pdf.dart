@@ -18,15 +18,8 @@ Future<Uint8List> buildScheduleSwapsReportPdf({
   String periodLabel = '',
 }) async {
   final doc = await PdfSuperPremiumTheme.newPdfDocument();
-  final accent = branding.accent;
   final ink = PdfColor.fromInt(0xFF0F172A);
   final muted = PdfColor.fromInt(0xFF64748B);
-
-  pw.Widget logoBlock() {
-    final b = branding.logoBytes;
-    if (b == null || b.isEmpty) return pw.SizedBox();
-    return pw.Image(pw.MemoryImage(b), width: 72, height: 72, fit: pw.BoxFit.contain);
-  }
 
   pw.Widget cell(String text,
       {bool bold = false,
@@ -46,68 +39,35 @@ Future<Uint8List> buildScheduleSwapsReportPdf({
     );
   }
 
+  final extras = <String>[
+    if (periodLabel.isNotEmpty) periodLabel,
+    if (churchAddress.isNotEmpty) churchAddress,
+    if (churchPhone.isNotEmpty) 'Tel.: $churchPhone',
+  ];
+
   doc.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(28),
+      margin: const pw.EdgeInsets.all(26),
+      header: (ctx) => pw.Padding(
+        padding: const pw.EdgeInsets.only(bottom: 10),
+        child: PdfSuperPremiumTheme.header(
+          'Relatório de trocas de escala',
+          branding: branding,
+          extraLines: extras,
+        ),
+      ),
+      footer: (ctx) => PdfSuperPremiumTheme.footer(ctx),
       build: (context) => [
-        pw.Row(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            logoBlock(),
-            pw.SizedBox(width: 12),
-            pw.Expanded(
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    pdfSafeText(branding.churchName.isEmpty ? 'Igreja' : branding.churchName),
-                    style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold, color: ink),
-                  ),
-                  if (churchAddress.isNotEmpty)
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.only(top: 4),
-                      child: pw.Text(pdfSafeText(churchAddress),
-                          style: pw.TextStyle(fontSize: 10, color: muted)),
-                    ),
-                  if (churchPhone.isNotEmpty)
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.only(top: 2),
-                      child: pw.Text('Tel.: $churchPhone',
-                          style: pw.TextStyle(fontSize: 10, color: muted)),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        pw.SizedBox(height: 12),
-        pw.Container(height: 3, color: accent),
-        pw.SizedBox(height: 14),
-        pw.Text(
-          'RELATÓRIO DE TROCAS DE ESCALA',
-          style: pw.TextStyle(
-            fontSize: 11,
-            fontWeight: pw.FontWeight.bold,
-            color: accent,
-            letterSpacing: 0.9,
-          ),
-        ),
-        pw.SizedBox(height: 6),
         pw.Text(
           'Trocas efetuadas (substituição confirmada)',
-          style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold, color: ink),
+          style: pw.TextStyle(
+              fontSize: 13, fontWeight: pw.FontWeight.bold, color: ink),
         ),
-        if (periodLabel.isNotEmpty) ...[
-          pw.SizedBox(height: 8),
-          pw.Text(
-            pdfSafeText(periodLabel),
-            style: pw.TextStyle(fontSize: 11.5, color: muted, fontWeight: pw.FontWeight.bold),
-          ),
-        ],
-        pw.SizedBox(height: 16),
+        pw.SizedBox(height: 14),
         pw.Table(
-          border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCBD5E1), width: 0.75),
+          border: pw.TableBorder.all(
+              color: PdfColor.fromInt(0xFFCBD5E1), width: 0.75),
           columnWidths: {
             0: const pw.FlexColumnWidth(1.15),
             1: const pw.FlexColumnWidth(1.1),
@@ -118,7 +78,8 @@ Future<Uint8List> buildScheduleSwapsReportPdf({
           },
           children: [
             pw.TableRow(
-              decoration: pw.BoxDecoration(color: PdfColor.fromInt(0xFFF1F5F9)),
+              decoration:
+                  pw.BoxDecoration(color: PdfColor.fromInt(0xFFF1F5F9)),
               children: [
                 cell('Data escala', bold: true, size: 9.5),
                 cell('Horário', bold: true, size: 9.5),
@@ -141,15 +102,10 @@ Future<Uint8List> buildScheduleSwapsReportPdf({
               ),
           ],
         ),
-        pw.SizedBox(height: 20),
+        pw.SizedBox(height: 16),
         pw.Text(
           'Emitido em ${DateFormat('dd/MM/yyyy HH:mm', 'pt_BR').format(DateTime.now())}',
           style: pw.TextStyle(fontSize: 8.5, color: muted),
-        ),
-        pw.SizedBox(height: 4),
-        pw.Text(
-          pdfSafeText('Gestão YAHWEH — relatório interno da igreja.'),
-          style: pw.TextStyle(fontSize: 8.5, color: muted, fontStyle: pw.FontStyle.italic),
         ),
       ],
     ),

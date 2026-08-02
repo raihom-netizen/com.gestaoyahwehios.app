@@ -156,6 +156,8 @@ import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
         showChurchHostedVideoTheater,
         showChurchHostedVideoDialog,
         openChurchHostedVideoImmersive;
+import 'package:gestao_yahweh/ui/widgets/church_youtube/church_youtube_player_shell.dart';
+import 'package:gestao_yahweh/utils/youtube_url_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 import 'package:gestao_yahweh/ui/widgets/church_embedded_module_bar.dart';
@@ -6903,7 +6905,7 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Bloco de vídeo do evento — Storage: player inline; link: feed → browser; galeria → teatro in-app
+// Bloco de vídeo do evento — Storage inline; YouTube embed in-app (padrão Cursos)
 // ═══════════════════════════════════════════════════════════════════════════════
 class _EventVideoBlock extends StatelessWidget {
   final String title, dateStr;
@@ -6911,7 +6913,7 @@ class _EventVideoBlock extends StatelessWidget {
   final String externalLaunchUrl;
   final String thumbUrl;
 
-  /// YouTube / link: no galeria abre teatro in-app; no feed mantém abrir no browser.
+  /// Legado: YouTube agora sempre embed in-app (igual Cursos).
   final bool openExternalInTheater;
 
   const _EventVideoBlock({
@@ -6938,13 +6940,60 @@ class _EventVideoBlock extends StatelessWidget {
     if (launch.isEmpty) {
       return const SizedBox.shrink();
     }
+
+    final ytId = YoutubeUrlHelper.extractVideoId(launch);
+    final safeThumb = sanitizeImageUrl(thumbUrl);
+    final useThumb = isValidImageUrl(safeThumb);
+
+    // YouTube — player in-app (capa ▶ embed), padrão módulo Cursos.
+    if (ytId != null && ytId.isNotEmpty) {
+      final caption = [
+        if (title.isNotEmpty) title,
+        if (dateStr.isNotEmpty) dateStr,
+      ].join(' · ');
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (caption.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6, left: 2, right: 2),
+              child: Text(
+                caption,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade800,
+                ),
+              ),
+            ),
+          ChurchYoutubePlayerShell(
+            youtubeVideoId: ytId,
+            posterUrl: useThumb ? safeThumb : null,
+            borderRadius: ThemeCleanPremium.radiusLg,
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 6),
+            child: Text(
+              'Toque para assistir no app (YouTube)',
+              style: TextStyle(
+                fontSize: 10,
+                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w500,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ],
+      );
+    }
+
     final uri = Uri.tryParse(
       launch.startsWith('http://') || launch.startsWith('https://')
           ? launch
           : 'https://$launch',
     );
-    final safeThumb = sanitizeImageUrl(thumbUrl);
-    final useThumb = isValidImageUrl(safeThumb);
 
     Future<void> openInBrowser() async {
       if (uri != null && await canLaunchUrl(uri)) {

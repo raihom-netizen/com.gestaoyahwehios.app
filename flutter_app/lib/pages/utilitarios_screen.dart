@@ -5,31 +5,31 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/constants/utilitarios_module_icons.dart';
-import 'package:gestao_yahweh/models/user_profile.dart';
 import 'package:gestao_yahweh/services/utilitarios_daily_quota_service.dart';
 import 'package:gestao_yahweh/services/utilitarios_local_service.dart';
 import 'package:gestao_yahweh/services/utilitarios_photo_text_extract_service.dart';
 import 'package:gestao_yahweh/services/utilitarios_video_compress_service.dart';
 import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
 import 'package:gestao_yahweh/utils/home_shell_layout.dart';
-import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
-import 'utilitarios_photo_camera_pdf_flow.dart';
-import 'utilitarios_pdf_tools_flow.dart';
-import 'utilitarios_photo_edit_flow.dart';
-import 'utilitarios_photo_text_extract_flow.dart';
-import 'utilitarios_video_downloader_flow.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_photo_camera_pdf_flow.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_document_scanner_flow.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_pdf_tools_flow.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_photo_edit_flow.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_photo_text_extract_flow.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_video_downloader_flow.dart';
 
 /// Módulo Utilitários — conversões, compressores e editores locais (sem servidor).
 class UtilitariosScreen extends StatefulWidget {
   final String uid;
-  final UserProfile profile;
+  final bool isAdmin;
   final void Function(int index)? onNavigateTo;
   final ScrollController? shellScrollController;
 
   const UtilitariosScreen({
     super.key,
     required this.uid,
-    required this.profile,
+    this.isAdmin = false,
     this.onNavigateTo,
     this.shellScrollController,
   });
@@ -54,7 +54,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
   String? _resultMessage;
 
   String get _quotaUid => widget.uid.trim();
-  bool get _isAdmin => widget.profile.isAdmin;
+  bool get _isAdmin => widget.isAdmin;
   bool get _lightLocked =>
       !_isAdmin && _lightUsed >= UtilitariosDailyQuotaService.kLightLimitPerDay;
   bool get _heavyLocked =>
@@ -464,7 +464,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
           isAdmin: _isAdmin);
       await _afterResult(
         bytes: out,
-        fileName: 'imagens_controle_total.pdf',
+        fileName: 'imagens_gestao_yahweh.pdf',
         mimeType: 'application/pdf',
         okMessage:
             'PDF criado localmente com ${images.length} imagem(ns) (JPEG/PNG).',
@@ -1901,9 +1901,46 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       if (!mounted) return;
       await _afterResult(
         bytes: pdf,
-        fileName: 'foto_camera_controle_total.pdf',
+        fileName: 'foto_camera_gestao_yahweh.pdf',
         mimeType: 'application/pdf',
         okMessage: 'PDF com $pageCount página(s) — pronto para compartilhar.',
+        preferShareFirst: true,
+        shareButtonLabel: 'Compartilhar PDF (WhatsApp)',
+      );
+    }
+
+    if (prebuilt != null) {
+      await deliver(prebuilt, pages.isEmpty ? 1 : pages.length);
+      return;
+    }
+
+    await _runBusy('Gerando PDF…', () async {
+      final pdf = await UtilitariosLocalService.imagesToPdf(pages);
+      await deliver(pdf, pages.length);
+    });
+  }
+
+  Future<void> _openDocumentScanner() async {
+    if (!await _ensureLightQuota()) return;
+    if (!mounted) return;
+    final result = await openUtilitariosDocumentScannerFlow(context);
+    if (result == null || !mounted) return;
+    final prebuilt = result.pdfBytes;
+    final pages = result.pages;
+    if (prebuilt == null && pages.isEmpty) return;
+
+    Future<void> deliver(Uint8List pdf, int pageCount) async {
+      await UtilitariosDailyQuotaService.consumeLight(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      );
+      if (!mounted) return;
+      await _afterResult(
+        bytes: pdf,
+        fileName: 'scanner_documentos_gestao_yahweh.pdf',
+        mimeType: 'application/pdf',
+        okMessage:
+            'PDF escaneado com $pageCount página(s) — pronto para compartilhar.',
         preferShareFirst: true,
         shareButtonLabel: 'Compartilhar PDF (WhatsApp)',
       );
@@ -2039,6 +2076,13 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       onTap: lightOk ? _openPhotoCameraPdf : null,
                     ),
                     _ToolTile(
+                      icon: UtilitariosModuleIcons.documentScanner,
+                      gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
+                      title: 'Scanner de Documentos',
+                      subtitle: 'Original · recorte auto/manual · PDF rápido',
+                      onTap: lightOk ? _openDocumentScanner : null,
+                    ),
+                    _ToolTile(
                       icon: UtilitariosModuleIcons.pdfWord,
                       gradient: const [Color(0xFF2563EB), Color(0xFF7C3AED)],
                       title: 'PDF → Word',
@@ -2139,7 +2183,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       icon: UtilitariosModuleIcons.videoDownload,
                       gradient: const [Color(0xFFE11D48), Color(0xFF7C3AED)],
                       title: 'Baixar Vídeo',
-                      subtitle: 'YouTube · Instagram · Facebook · MP3',
+                      subtitle: 'TikTok · YouTube · IG · FB · MP4/MP3',
                       onTap: lightOk ? _openVideoDownloader : null,
                     ),
                     _ToolTile(

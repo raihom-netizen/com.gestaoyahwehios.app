@@ -6,7 +6,6 @@ import 'package:pdf/pdf.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
-import 'package:gestao_yahweh/core/gestao_yahweh_brand_asset_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -17,11 +16,17 @@ class ReportPdfBranding {
   final String churchName;
   final Uint8List? logoBytes;
   final PdfColor accent;
+  /// CNPJ, endereço, telefone — linhas do cabeçalho (dados da igreja).
+  final List<String> churchDetailLines;
+  /// true quando [logoBytes] é a logo da igreja (não o escudo Gestão YAHWEH).
+  final bool logoIsChurch;
 
   const ReportPdfBranding({
     required this.churchName,
     this.logoBytes,
     required this.accent,
+    this.churchDetailLines = const [],
+    this.logoIsChurch = false,
   });
 
   static PdfColor get defaultAccent => PdfColor.fromInt(0xFF475569);
@@ -86,6 +91,8 @@ Future<ReportPdfBranding> loadReportPdfBranding(String tenantId) async {
       churchName: '',
       logoBytes: null,
       accent: ReportPdfBranding.defaultAccent,
+      churchDetailLines: const [],
+      logoIsChurch: false,
     );
   }
   return _loadReportPdfBrandingMemo.putIfAbsent(
@@ -116,6 +123,7 @@ Future<ReportPdfBranding> _loadReportPdfBrandingUncached(String seed) async {
 
   final name = churchTaxIdChurchNameFromMap(tenant);
   final accent = _accentFromTenant(tenant);
+  final detailLines = _churchDetailLinesFromTenant(tenant);
 
   Map<String, dynamic> cert = {};
   try {
@@ -196,15 +204,74 @@ Future<ReportPdfBranding> _loadReportPdfBrandingUncached(String seed) async {
     }
   }
 
+  // Cabeçalho financeiro = logo da igreja. Escudo GY fica só no rodapé (autoria).
+  var logoIsChurch = bytes != null;
   if (bytes == null) {
-    try {
-      bytes = await GestaoYahwehBrandAssetService.loadPngBytes();
-    } catch (_) {}
+    logoIsChurch = false;
   }
 
   return ReportPdfBranding(
     churchName: name,
     logoBytes: bytes,
     accent: accent,
+    churchDetailLines: detailLines,
+    logoIsChurch: logoIsChurch,
   );
+}
+
+List<String> _churchDetailLinesFromTenant(Map<String, dynamic> tenant) {
+  String s(dynamic v) => (v ?? '').toString().trim();
+  final out = <String>[];
+
+  final digits = churchTaxIdDigitsFromMap(tenant);
+  if (digits.length == 14) {
+    out.add(
+      'CNPJ ${digits.substring(0, 2)}.${digits.substring(2, 5)}.${digits.substring(5, 8)}/${digits.substring(8, 12)}-${digits.substring(12)}',
+    );
+  } else if (digits.length == 11) {
+    out.add(
+      'CPF ${digits.substring(0, 3)}.${digits.substring(3, 6)}.${digits.substring(6, 9)}-${digits.substring(9)}',
+    );
+  } else {
+    final rawCnpj = s(tenant['cnpj'] ?? tenant['CNPJ'] ?? tenant['cnpjCpf']);
+    if (rawCnpj.isNotEmpty) out.add('CNPJ/CPF $rawCnpj');
+  }
+
+  final rua = s(tenant['rua'] ?? tenant['address'] ?? tenant['logradouro']);
+  final qd = s(tenant['quadraLoteNumero'] ?? tenant['quadra_lote_numero']);
+  final ruaCompleta =
+      rua.isEmpty ? qd : (qd.isEmpty ? rua : '$rua, $qd');
+  final bairro = s(tenant['bairro'] ?? tenant['BAIRRO']);
+  final cidade = s(
+      tenant['cidade'] ?? tenant['CIDADE'] ?? tenant['localidade']);
+  final estado =
+      s(tenant['estado'] ?? tenant['ESTADO'] ?? tenant['uf'] ?? tenant['UF']);
+  final cep = s(tenant['cep'] ?? tenant['CEP']);
+  final cidadeEstado = cidade.isNotEmpty && estado.isNotEmpty
+      ? '$cidade - $estado'
+      : (cidade.isNotEmpty ? cidade : estado);
+  final addrParts = <String>[
+    if (ruaCompleta.isNotEmpty) ruaCompleta,
+    if (bairro.isNotEmpty) bairro,
+    if (cidadeEstado.isNotEmpty) cidadeEstado,
+    if (cep.isNotEmpty) 'CEP $cep',
+  ];
+  if (addrParts.isNotEmpty) {
+    out.add(addrParts.join(', '));
+  } else {
+    final legacy = s(tenant['endereco'] ?? tenant['ENDERECO']);
+    if (legacy.isNotEmpty) out.add(legacy);
+  }
+
+  final phone = s(tenant['whatsappIgreja'] ??
+      tenant['whatsapp'] ??
+      tenant['telefoneIgreja'] ??
+      tenant['telefone'] ??
+      tenant['phone']);
+  if (phone.isNotEmpty) out.add('Tel./WhatsApp $phone');
+
+  final email = s(tenant['emailIgreja'] ?? tenant['email'] ?? tenant['EMAIL']);
+  if (email.isNotEmpty) out.add(email);
+
+  return out;
 }

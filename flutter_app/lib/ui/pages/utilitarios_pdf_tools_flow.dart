@@ -1,12 +1,14 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/constants/utilitarios_module_icons.dart';
 import 'package:gestao_yahweh/services/utilitarios_local_service.dart';
+import 'package:gestao_yahweh/services/utilitarios_pdf_preserve_export.dart';
 import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
 import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
 
@@ -27,6 +29,99 @@ class UtilitariosPdfToolResult {
 
 enum UtilitariosPdfToolMode { merge, split, edit }
 
+/// Formato de exportacao do editor PDF.
+enum _ExportFormat { pdf, word, png, jpg }
+
+/// Card de formato de exportacao no hub moderno.
+class _ExportFormatCard extends StatelessWidget {
+  const _ExportFormatCard({
+    required this.icon,
+    required this.label,
+    required this.description,
+    required this.gradient,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final String description;
+  final List<Color> gradient;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              colors: gradient.map((c) => c.withValues(alpha: 0.12)).toList(),
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            border: Border.all(
+              color: gradient.first.withValues(alpha: 0.2),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: gradient.first.withValues(alpha: 0.1),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: gradient),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: gradient.first.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Icon(icon, color: Colors.white, size: 24),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 16,
+                  color: isDark ? Colors.white : const Color(0xFF1E293B),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isDark ? Colors.white60 : Colors.grey.shade600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 Future<UtilitariosPdfToolResult?> openUtilitariosPdfToolFlow(
   BuildContext context,
   UtilitariosPdfToolMode mode,
@@ -40,19 +135,18 @@ Future<UtilitariosPdfToolResult?> openUtilitariosPdfToolFlow(
 }
 
 class _PdfSource {
-  _PdfSource({
-    required this.name,
-    required this.bytes,
-    required this.pageCount,
-  });
+  _PdfSource(
+      {required this.name, required this.bytes, required this.pageCount});
   final String name;
   final Uint8List bytes;
   final int pageCount;
 }
 
 class _MergePageItem {
-  _MergePageItem({required this.sourceIndex, required this.pageIndex})
-      : thumb = null;
+  _MergePageItem({
+    required this.sourceIndex,
+    required this.pageIndex,
+  }) : thumb = null;
   final int sourceIndex;
   final int pageIndex;
   Uint8List? thumb;
@@ -74,8 +168,11 @@ enum _PdfEditorTool {
   highlight,
   whiteout,
   check,
-  erase,
+  erase
 }
+
+/// Modo de visualização do editor: documento ou grade de páginas.
+enum _EditViewMode { document, grid }
 
 class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   static final Uint8List _kThumbPending = Uint8List(0);
@@ -95,12 +192,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   List<int> _splitPageOrder = const [];
   int _splitRangeFrom = 1;
   int _splitRangeTo = 1;
-  final TextEditingController _splitRangeFromCtrl = TextEditingController(
-    text: '1',
-  );
-  final TextEditingController _splitRangeToCtrl = TextEditingController(
-    text: '1',
-  );
+  final TextEditingController _splitRangeFromCtrl =
+      TextEditingController(text: '1');
+  final TextEditingController _splitRangeToCtrl =
+      TextEditingController(text: '1');
   bool _splitThumbsLoading = false;
 
   @override
@@ -182,7 +277,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         ? <int>[0, ...List.generate(_thumbs.length - 1, (i) => i + 1)]
         : List<int>.generate(_thumbs.length, (i) => i);
     final pending = baseOrder.where((i) => !_thumbReady(_thumbs[i])).toList();
-    const chunkSize = 6;
+    const chunkSize = 15;
     try {
       for (var start = 0; start < pending.length; start += chunkSize) {
         if (!mounted) return;
@@ -214,12 +309,19 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   int _editPage = 0;
   final List<Uint8List?> _editPageImages = [];
   final List<double> _editPageAspects = [];
+
+  /// Tamanho físico original (pontos PDF) — preservado no export/compartilhar.
+  final List<({double widthPts, double heightPts})> _editPageSizesPts = [];
   final List<List<UtilPdfTextField>> _docFields = [];
   final Set<String> _editedFieldIds = {};
   String? _selectedFieldId;
   bool _detectingFields = false;
   final List<List<UtilPdfPageAnnotation>> _annotations = [];
   _PdfEditorTool _editTool = _PdfEditorTool.select;
+  _EditViewMode _editViewMode = _EditViewMode.document;
+  /// Chrome mínimo no documento — página quase tela cheia (toque nos campos).
+  bool _editToolsExpanded = false;
+  bool _editThumbsExpanded = false;
   String? _selectedAnnId;
   final List<List<List<UtilPdfPageAnnotation>>> _undo = [];
   final GlobalKey _pageCanvasKey = GlobalKey();
@@ -231,17 +333,17 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         UtilitariosPdfToolMode.merge => const [
             Color(0xFF2563EB),
             Color(0xFF7C3AED),
-            Color(0xFF06B6D4),
+            Color(0xFF06B6D4)
           ],
         UtilitariosPdfToolMode.split => const [
             Color(0xFFEA580C),
             Color(0xFFF97316),
-            Color(0xFFFBBF24),
+            Color(0xFFFBBF24)
           ],
         UtilitariosPdfToolMode.edit => const [
             Color(0xFF059669),
             Color(0xFF10B981),
-            Color(0xFF34D399),
+            Color(0xFF34D399)
           ],
       };
 
@@ -306,12 +408,16 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     _editPage = 0;
     _editPageImages.clear();
     _editPageAspects.clear();
+    _editPageSizesPts.clear();
     _docFields.clear();
     _editedFieldIds.clear();
     _selectedFieldId = null;
     _detectingFields = false;
     _annotations.clear();
     _editTool = _PdfEditorTool.select;
+    _editViewMode = _EditViewMode.document;
+    _editToolsExpanded = false;
+    _editThumbsExpanded = false;
     _selectedAnnId = null;
     _undo.clear();
     _textFontScale = 1.0;
@@ -379,16 +485,16 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     }
     if (!mounted) return;
     setState(_clearAllWork);
-    await _pickPdfs(multiple: widget.mode == UtilitariosPdfToolMode.merge);
+    await _pickPdfs(
+      multiple: widget.mode == UtilitariosPdfToolMode.merge,
+    );
   }
 
   ButtonStyle _sessionOutlinedStyle() => OutlinedButton.styleFrom(
         minimumSize: const Size(0, 46),
         foregroundColor: _gradient.first,
         side: BorderSide(
-          color: _gradient.first.withValues(alpha: 0.38),
-          width: 1.3,
-        ),
+            color: _gradient.first.withValues(alpha: 0.38), width: 1.3),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       );
 
@@ -409,7 +515,13 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           if (f.bytes.isEmpty) continue;
           UtilitariosLocalService.ensureWithinSize(f.bytes, label: 'PDF');
           final n = await UtilitariosLocalService.pdfPageCount(f.bytes);
-          _sources.add(_PdfSource(name: f.name, bytes: f.bytes, pageCount: n));
+          _sources.add(
+            _PdfSource(
+              name: f.name,
+              bytes: f.bytes,
+              pageCount: n,
+            ),
+          );
           for (var p = 0; p < n; p++) {
             if (_mergeOrder.length >=
                 UtilitariosLocalService.kMaxPdfPagesTools) {
@@ -441,11 +553,27 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         }
         if (picked.bytes.isEmpty) throw StateError('Arquivo vazio.');
         UtilitariosLocalService.ensureWithinSize(picked.bytes, label: 'PDF');
+        late final int pageCount;
+        try {
+          // O pdfrx tenta automaticamente senha vazia. Isso abre PDFs com
+          // restrições/owner password sem perguntar nada ao usuário.
+          pageCount = await UtilitariosLocalService.pdfPageCount(picked.bytes);
+        } catch (e) {
+          final message = e.toString().toLowerCase();
+          if (message.contains('password') ||
+              message.contains('senha') ||
+              message.contains('encrypted')) {
+            throw StateError(
+              'Este PDF exige uma senha secreta para ser aberto. '
+              'Sem a chave não é tecnicamente possível descriptografar o conteúdo. '
+              'PDFs que apenas bloqueiam edição, cópia ou impressão são limpos '
+              'automaticamente, sem pedir senha.',
+            );
+          }
+          rethrow;
+        }
         _singlePdf = picked.bytes;
         _singleName = picked.name;
-        final pageCount = await UtilitariosLocalService.pdfPageCount(
-          picked.bytes,
-        );
         if (pageCount > UtilitariosLocalService.kMaxPdfPagesTools) {
           throw StateError(
             'Máximo de ${UtilitariosLocalService.kMaxPdfPagesTools} páginas por PDF.',
@@ -464,14 +592,21 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           _annotations
             ..clear()
             ..addAll(
-              List.generate(pageCount, (_) => <UtilPdfPageAnnotation>[]),
-            );
+                List.generate(pageCount, (_) => <UtilPdfPageAnnotation>[]));
           _editPageImages
             ..clear()
             ..addAll(List<Uint8List?>.filled(pageCount, null));
           _editPageAspects
             ..clear()
             ..addAll(List<double>.filled(pageCount, 1.0));
+          _editPageSizesPts
+            ..clear()
+            ..addAll(
+              List.generate(
+                pageCount,
+                (_) => (widthPts: 595.27, heightPts: 841.89),
+              ),
+            );
           _docFields
             ..clear()
             ..addAll(List.generate(pageCount, (_) => <UtilPdfTextField>[]));
@@ -480,8 +615,14 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           _selectedAnnId = null;
           _selectedFieldId = null;
           _editTool = _PdfEditorTool.pickField;
+          _editViewMode = _EditViewMode.document;
+          _editToolsExpanded = false;
+          _editThumbsExpanded = false;
           _undo.clear();
-          unawaited(_ensureEditPageReady(0));
+          unawaited(_loadEditPageSizes(picked.bytes).then((_) {
+            if (mounted) unawaited(_ensureEditPageReady(0));
+          }));
+          // Não dispara ensure em paralelo — espera tamanhos reais do PDF.
         }
         if (mounted) setState(() {});
         unawaited(_loadSinglePdfThumbsProgressive());
@@ -494,14 +635,23 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   }
 
   Future<void> _loadMergeThumbs() async {
-    for (final item in _mergeOrder) {
-      if (item.thumb != null) continue;
-      final src = _sources[item.sourceIndex];
-      item.thumb = await UtilitariosLocalService.renderPdfPageAt(
-        src.bytes,
-        item.pageIndex,
-        fullWidth: 200,
+    const batchSize = 5;
+    final pending = _mergeOrder.where((item) => item.thumb == null).toList();
+    for (var start = 0; start < pending.length; start += batchSize) {
+      if (!mounted) return;
+      final batch = pending.sublist(
+        start,
+        math.min(start + batchSize, pending.length),
       );
+      final futures = batch.map((item) async {
+        final src = _sources[item.sourceIndex];
+        item.thumb = await UtilitariosLocalService.renderPdfPageAt(
+          src.bytes,
+          item.pageIndex,
+          fullWidth: 200,
+        );
+      });
+      await Future.wait(futures);
       if (mounted) setState(() {});
     }
   }
@@ -513,7 +663,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     await _withBusy('Unindo páginas…', () async {
       final order = _mergeOrder
           .map(
-            (e) => (pdf: _sources[e.sourceIndex].bytes, pageIndex: e.pageIndex),
+            (e) => (
+              pdf: _sources[e.sourceIndex].bytes,
+              pageIndex: e.pageIndex,
+            ),
           )
           .toList();
       final pdf = await UtilitariosLocalService.mergeOrderedPdfPages(order);
@@ -522,7 +675,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         context,
         UtilitariosPdfToolResult(
           bytes: pdf,
-          fileName: 'pdf_unido_controle_total.pdf',
+          fileName: 'pdf_unido_gestao_yahweh.pdf',
           mimeType: 'application/pdf',
           message:
               'PDF unido com ${_mergeOrder.length} página(s) na ordem escolhida.',
@@ -590,8 +743,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     final exportOrder = _resolveSplitExportOrder();
     if (exportOrder.isEmpty) {
       throw StateError(
-        'Marque ao menos uma página ou defina um intervalo válido.',
-      );
+          'Marque ao menos uma página ou defina um intervalo válido.');
     }
     await _withBusy('Gerando PDF…', () async {
       final out = await UtilitariosLocalService.splitPdfPages(
@@ -631,6 +783,43 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
 
   void _clearSplitSelection() {
     setState(() => _splitSelected.clear());
+  }
+
+  void _quickSelectPages(bool Function(int pageIndex) predicate) {
+    setState(() {
+      _splitSelected.clear();
+      for (var i = 0; i < _thumbs.length; i++) {
+        if (predicate(i)) _splitSelected.add(i);
+      }
+    });
+  }
+
+  Widget _splitQuickBtn(String label, VoidCallback onTap) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: _busy ? null : onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: _gradient.first.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: _gradient.first.withValues(alpha: 0.25),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: _gradient.first,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _moveSplitPage(int fromIndex, int toIndex) {
@@ -689,10 +878,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: _gradient.first.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
@@ -960,6 +1147,79 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     return '${base}_editado.pdf';
   }
 
+  String _passwordFreeFileName() {
+    final raw = _singleName ?? 'documento.pdf';
+    final base = raw.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
+    return '${base}_sem_senha.pdf';
+  }
+
+  Future<void> _removePdfPassword() async {
+    final pdf = _singlePdf;
+    if (pdf == null || _thumbs.isEmpty || _busy) return;
+
+    // Sem diálogo: um toque limpa a proteção e já entrega a cópia aberta.
+    // Cada página é re-renderizada pelo PDFium (que abre PDFs com senha de
+    // dono/restrições) e um PDF totalmente novo é montado — sem qualquer
+    // senha, sem bloqueio de cópia/impressão/edição.
+    await _withBusy('Limpando senha e gerando PDF aberto…', () async {
+      final pages = <Uint8List>[];
+      for (var i = 0; i < _thumbs.length; i++) {
+        final base = await UtilitariosLocalService.renderPdfPageAt(
+          pdf,
+          i,
+          fullWidth: 1600,
+        );
+        final flat =
+            await UtilitariosLocalService.flattenPdfPageWithAnnotations(
+          base,
+          i < _annotations.length ? _annotations[i] : const [],
+        );
+        pages.add(flat);
+      }
+      final sizes = _editPageSizesPts.length == pages.length
+          ? List<({double widthPts, double heightPts})>.from(_editPageSizesPts)
+          : await UtilitariosLocalService.pdfAllPagePointSizes(pdf);
+      final out = await UtilitariosLocalService.exportEditedPdfPages(
+        pages,
+        pageSizesPts: sizes,
+      );
+      if (!mounted) return;
+      Navigator.pop(
+        context,
+        UtilitariosPdfToolResult(
+          bytes: out,
+          fileName: _passwordFreeFileName(),
+          mimeType: 'application/pdf',
+          message:
+              'Novo PDF aberto (sem senha) criado com ${_thumbs.length} página(s). Salve ou compartilhe.',
+        ),
+      );
+    });
+  }
+
+  Future<void> _loadEditPageSizes(Uint8List pdfBytes) async {
+    try {
+      final sizes =
+          await UtilitariosLocalService.pdfAllPagePointSizes(pdfBytes);
+      if (!mounted || sizes.isEmpty) return;
+      setState(() {
+        _editPageSizesPts
+          ..clear()
+          ..addAll(sizes);
+        // Proporção do papel original (A4 etc.) — alinhada à visualização.
+        for (var i = 0; i < sizes.length && i < _editPageAspects.length; i++) {
+          final w = sizes[i].widthPts;
+          final h = sizes[i].heightPts;
+          if (w > 0 && h > 0) {
+            _editPageAspects[i] = w / h;
+          }
+        }
+      });
+    } catch (_) {
+      // Mantém fallback A4 já preenchido.
+    }
+  }
+
   Future<void> _ensureEditPageReady(int page) async {
     final pdf = _singlePdf;
     if (pdf == null || page < 0 || page >= _thumbs.length) return;
@@ -977,8 +1237,11 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
             size.width > 0 ? size.width / size.height : 1.0;
         final mq = MediaQuery.sizeOf(context);
         final renderWidth = kIsWeb
-            ? math.max(UtilitariosLocalService.kPdfRenderWidth, mq.width * 1.35)
-            : UtilitariosLocalService.kPdfRenderWidth;
+            ? math.max(
+                UtilitariosLocalService.kPdfEditRenderWidth,
+                mq.width * 1.35,
+              )
+            : UtilitariosLocalService.kPdfEditRenderWidth;
         _editPageImages[page] = await UtilitariosLocalService.renderPdfPageAt(
           pdf,
           page,
@@ -1051,9 +1314,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   }
 
   double _fontScaleForField(UtilPdfTextField field) {
-    if (field.nh >= 0.055) return 1.35;
-    if (field.nh >= 0.028) return 1.0;
-    return 0.85;
+    // O tamanho da fonte agora deriva da altura real do campo detectado
+    // (render vetorial). Escala 1.0 = manter exatamente o tamanho original.
+    return 1.0;
   }
 
   ({int textArgb, bool fontBold, double fontScale}) _styleForField(
@@ -1100,9 +1363,11 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
               type: 'whiteout',
               nx: field.nx,
               ny: field.ny,
-              nw: field.nw.clamp(0.08, 0.98),
-              nh: field.nh.clamp(0.04, 0.98),
+              nw: field.nw.clamp(0.006, 0.98),
+              nh: field.nh.clamp(0.008, 0.98),
+              backgroundArgb: field.backgroundArgb ?? 0xFFFFFFFF,
               seamless: true,
+              replaceSourceText: field.text.trim(),
             );
             if (whiteoutIdx >= 0) {
               list[whiteoutIdx] = wo;
@@ -1129,13 +1394,18 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
             type: 'text',
             nx: field.nx,
             ny: field.ny,
-            nw: field.nw.clamp(0.08, 0.98),
-            nh: field.nh.clamp(0.04, 0.98),
+            nw: field.nw.clamp(0.006, 0.98),
+            nh: field.nh.clamp(0.008, 0.98),
             text: newText,
             textArgb: style.textArgb,
+            backgroundArgb: field.backgroundArgb ?? 0xFFFFFFFF,
             fontScale: style.fontScale,
             fontBold: style.fontBold,
+            fontItalic: field.fontItalic,
+            fontFamily: field.fontFamily,
             seamless: true,
+            // Localiza o trecho antigo no PDF para cobrir só ele (sem mancha).
+            replaceSourceText: field.text.trim(),
           );
           if (existingIdx >= 0) {
             list[existingIdx] = ann;
@@ -1189,14 +1459,178 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     );
 
     if (result != null && mounted) {
-      _applyFieldsFromDrafts(result.drafts, excludedKeys: result.excludedKeys);
+      _applyFieldsFromDrafts(
+        result.drafts,
+        excludedKeys: result.excludedKeys,
+      );
     }
   }
 
   Future<void> _onDocFieldTap(UtilPdfTextField field) async {
-    await _openFieldsEditorFullscreen(
-      focusFieldKey: '${_editPage}_${field.id}',
+    // Edição no próprio documento (um campo por vez — estilo Word).
+    final current = _effectiveFieldText(field, _editPage);
+    final edited = await _editFieldWordStyle(field, current);
+    if (edited == null || !mounted) return;
+    _applySingleFieldEdit(field, edited);
+  }
+
+  /// Digitação ampla no campo — sem lista comprimida no meio da página.
+  Future<String?> _editFieldWordStyle(
+    UtilPdfTextField field,
+    String initial,
+  ) async {
+    final ctrl = TextEditingController(text: initial);
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final bottom = MediaQuery.viewInsetsOf(ctx).bottom;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(12, 0, 12, 12 + bottom),
+          child: Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(22),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.edit_note_rounded, color: _gradient.first),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Editar no documento',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 17,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'O texto substitui o trecho no PDF original — layout preservado.',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: Colors.grey.shade600,
+                      height: 1.3,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    maxLines: 6,
+                    minLines: 2,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 16,
+                      height: 1.35,
+                      color: Color(0xFF0F172A),
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'Digite como no Word…',
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide:
+                            BorderSide(color: _gradient.first, width: 2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                          ),
+                          child: const Text('Cancelar'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _gradient.first,
+                            minimumSize: const Size.fromHeight(48),
+                          ),
+                          child: const Text('Aplicar'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
+    ctrl.dispose();
+    return result;
+  }
+
+  void _applySingleFieldEdit(UtilPdfTextField field, String newText) {
+    _pushUndo();
+    setState(() {
+      final p = _editPage;
+      final list = _annotations[p];
+      final textId = 'ann_${field.id}';
+      final whiteoutId = 'wo_${field.id}';
+      list.removeWhere((a) => a.id == whiteoutId);
+      final existingIdx = list.indexWhere((a) => a.id == textId);
+
+      if (newText.trim() == field.text.trim()) {
+        if (existingIdx >= 0) {
+          list.removeAt(existingIdx);
+          _editedFieldIds.remove(field.id);
+        }
+        _selectedFieldId = null;
+        _selectedAnnId = null;
+        return;
+      }
+
+      final style = _styleForField(field, p);
+      final ann = UtilPdfPageAnnotation(
+        id: textId,
+        type: 'text',
+        nx: field.nx,
+        ny: field.ny,
+        nw: field.nw.clamp(0.006, 0.98),
+        nh: field.nh.clamp(0.008, 0.98),
+        text: newText,
+        textArgb: style.textArgb,
+        backgroundArgb: field.backgroundArgb ?? 0xFFFFFFFF,
+        fontScale: style.fontScale,
+        fontBold: style.fontBold,
+        fontItalic: field.fontItalic,
+        fontFamily: field.fontFamily,
+        seamless: true,
+        replaceSourceText: field.text.trim(),
+      );
+      if (existingIdx >= 0) {
+        list[existingIdx] = ann;
+      } else {
+        list.add(ann);
+      }
+      _editedFieldIds.add(field.id);
+      _selectedFieldId = null;
+      _selectedAnnId = textId;
+      _editTool = _PdfEditorTool.select;
+    });
   }
 
   Future<String?> _editFieldTextDialog(String initial) async {
@@ -1235,49 +1669,212 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   bool _fieldHasAnnotation(String fieldId) =>
       _currentAnn.any((a) => a.id == 'ann_$fieldId');
 
-  Future<List<Uint8List>> _buildFlattenedPages() async {
-    final pdf = _singlePdf;
-    if (pdf == null) throw StateError('Selecione um PDF.');
-    final pages = <Uint8List>[];
-    for (var i = 0; i < _thumbs.length; i++) {
-      Uint8List? base = _editPageImages[i];
-      base ??= await UtilitariosLocalService.renderPdfPageAt(pdf, i);
-      final flat = await UtilitariosLocalService.flattenPdfPageWithAnnotations(
-        base,
-        i < _annotations.length ? _annotations[i] : const [],
-      );
-      pages.add(flat);
-    }
-    return pages;
-  }
-
-  Future<void> _openEditPreview() async {
+  Future<void> _openEditPreview({bool preferShare = false}) async {
     final pdf = _singlePdf;
     if (pdf == null || _thumbs.isEmpty) return;
-    await _withBusy('Gerando pré-visualização…', () async {
-      final pages = await _buildFlattenedPages();
-      if (!mounted) return;
-      final action = await Navigator.of(context).push<String?>(
-        MaterialPageRoute(
-          fullscreenDialog: true,
-          builder: (_) => _PdfEditPreviewScreen(
-            gradient: _gradient,
-            pages: pages,
-            fileName: _editedFileName(),
-          ),
-        ),
-      );
-      if (action == null || !mounted) return;
-      await _exportEditedPdf(pages, action: action);
+    if (!mounted) return;
+
+    List<Uint8List>? previewPages;
+    await _withBusy('Montando pré-visualização…', () async {
+      previewPages = await _buildPreviewPages();
     });
+    if (!mounted || previewPages == null || previewPages!.isEmpty) return;
+
+    final action = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _PdfEditPreviewScreen(
+          gradient: _gradient,
+          pages: previewPages!,
+          fileName: _editedFileName(),
+          pageAspects: List<double>.from(_editPageAspects),
+          pageSizesPts: List.of(_editPageSizesPts),
+          preferShare: preferShare,
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'share') {
+      await _openShareFormats();
+    } else if (action == 'save_folder') {
+      await _exportEditedPdf(action: 'save_folder');
+    }
   }
 
-  Future<void> _exportEditedPdf(
-    List<Uint8List> pages, {
-    required String action,
-  }) async {
-    await _withBusy('Exportando PDF editado…', () async {
-      final out = await UtilitariosLocalService.exportEditedPdfPages(pages);
+  /// Monta imagens com edições aplicadas (prévia fullscreen fiel ao resultado).
+  Future<List<Uint8List>> _buildPreviewPages() async {
+    final out = <Uint8List>[];
+    for (var i = 0; i < _thumbs.length; i++) {
+      await _ensureEditPageReady(i);
+      final base = _editPageImages.length > i ? _editPageImages[i] : null;
+      final ann =
+          i < _annotations.length ? _annotations[i] : <UtilPdfPageAnnotation>[];
+      if (base == null || base.isEmpty) {
+        final thumb = _thumbs[i];
+        if (thumb.isNotEmpty) out.add(thumb);
+        continue;
+      }
+      late final Uint8List pageBytes;
+      if (ann.isEmpty) {
+        pageBytes = base;
+      } else {
+        pageBytes = await UtilitariosLocalService.flattenPdfPageWithAnnotations(
+          base,
+          ann,
+        );
+      }
+      out.add(pageBytes);
+      // Aspecto real da imagem (evita preview achatado em landscape).
+      try {
+        final codec = await ui.instantiateImageCodec(pageBytes);
+        final frame = await codec.getNextFrame();
+        final w = frame.image.width;
+        final h = frame.image.height;
+        frame.image.dispose();
+        if (w > 0 && h > 0 && i < _editPageAspects.length) {
+          _editPageAspects[i] = w / h;
+        }
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  Future<void> _openShareFormats() async {
+    if (!mounted) return;
+    final result = await showModalBottomSheet<_ExportFormat>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          decoration: const BoxDecoration(
+            color: Color(0xFF111827),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 12, bottom: 8),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const Text(
+                'Compartilhar como',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Escolha o formato — Word, PDF, JPEG ou PNG',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 20),
+              GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 2,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: 1.15,
+                children: [
+                  _ExportFormatCard(
+                    icon: Icons.picture_as_pdf_rounded,
+                    label: 'PDF',
+                    description: 'Documento editado',
+                    gradient: const [Color(0xFFE53935), Color(0xFFD32F2F)],
+                    onTap: () => Navigator.pop(ctx, _ExportFormat.pdf),
+                  ),
+                  _ExportFormatCard(
+                    icon: Icons.description_rounded,
+                    label: 'WORD',
+                    description: 'Visual fiel (.docx)',
+                    gradient: const [Color(0xFF1976D2), Color(0xFF1565C0)],
+                    onTap: () => Navigator.pop(ctx, _ExportFormat.word),
+                  ),
+                  _ExportFormatCard(
+                    icon: Icons.image_rounded,
+                    label: 'PNG',
+                    description: 'Alta qualidade',
+                    gradient: const [Color(0xFF43A047), Color(0xFF388E3C)],
+                    onTap: () => Navigator.pop(ctx, _ExportFormat.png),
+                  ),
+                  _ExportFormatCard(
+                    icon: Icons.photo_rounded,
+                    label: 'JPEG',
+                    description: 'Imagem leve',
+                    gradient: const [Color(0xFFFB8C00), Color(0xFFEF6C00)],
+                    onTap: () => Navigator.pop(ctx, _ExportFormat.jpg),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(
+                  'Retornar',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (result == null || !mounted) return;
+    switch (result) {
+      case _ExportFormat.pdf:
+        await _exportEditedPdf(action: 'share');
+      case _ExportFormat.word:
+        await _exportAsWord();
+      case _ExportFormat.png:
+        await _exportAsImages(format: 'png');
+      case _ExportFormat.jpg:
+        await _exportAsImages(format: 'jpg');
+    }
+  }
+
+  Future<void> _exportEditedPdf({required String action}) async {
+    final pdf = _singlePdf;
+    if (pdf == null) return;
+    await _withBusy('Gerando PDF editado…', () async {
+      late final Uint8List out;
+      try {
+        out = await UtilitariosPdfPreserveExport.export(
+          originalPdf: pdf,
+          annotationsByPage: _annotations,
+        );
+      } catch (e, st) {
+        debugPrint('Export PDF nativo falhou: $e\n$st');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Não foi possível salvar a edição no PDF. Tente de novo.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
       if (!mounted) return;
       final fileName = _editedFileName();
       final ok = await utilitariosSaveOrShareBytes(
@@ -1294,20 +1891,158 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           content: Text(
             ok
                 ? (action == 'share'
-                    ? 'Escolha WhatsApp, e-mail ou outro app.'
-                    : 'PDF salvo na pasta escolhida.')
+                    ? 'PDF editado pronto para compartilhar.'
+                    : 'PDF editado salvo (formato original).')
                 : 'Não foi possível exportar o PDF.',
           ),
           behavior: SnackBarBehavior.floating,
         ),
       );
-      // Fecha a ferramenta após salvar/compartilhar.
-      if (mounted) Navigator.pop(context);
+      if (ok && mounted) {
+        Navigator.pop(
+          context,
+          UtilitariosPdfToolResult(
+            bytes: out,
+            fileName: fileName,
+            mimeType: 'application/pdf',
+            message: 'PDF editado com sucesso.',
+          ),
+        );
+      }
+    });
+  }
+
+  Future<void> _exportAsWord() async {
+    final pdf = _singlePdf;
+    if (pdf == null) return;
+    await _withBusy('Gerando Word (.docx)…', () async {
+      try {
+        final pdfBytes = await UtilitariosPdfPreserveExport.export(
+          originalPdf: pdf,
+          annotationsByPage: _annotations,
+        );
+        final docx = await UtilitariosLocalService.pdfToVisualDocx(pdfBytes);
+        final fileName = _editedFileName().replaceAll('.pdf', '.docx');
+        final ok = await utilitariosSaveOrShareBytes(
+          context: context,
+          bytes: docx,
+          fileName: fileName,
+          mimeType:
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          preferShare: true,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(ok
+                ? 'Word (.docx) visual pronto — formato original preservado.'
+                : 'Não foi possível exportar o Word.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        if (ok && mounted) {
+          Navigator.pop(
+            context,
+            UtilitariosPdfToolResult(
+              bytes: docx,
+              fileName: fileName,
+              mimeType:
+                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+              message: 'Word visual (.docx) com páginas no formato original.',
+            ),
+          );
+        }
+      } catch (e, st) {
+        debugPrint('Export Word falhou: $e\n$st');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível exportar como Word.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
+  }
+
+  Future<void> _exportAsImages({required String format}) async {
+    final pdf = _singlePdf;
+    if (pdf == null || _thumbs.isEmpty) return;
+    final asPng = format == 'png';
+    await _withBusy(asPng ? 'Gerando PNG…' : 'Gerando JPEG…', () async {
+      try {
+        final pdfBytes = await UtilitariosPdfPreserveExport.export(
+          originalPdf: pdf,
+          annotationsByPage: _annotations,
+        );
+        final pages = asPng
+            ? await UtilitariosLocalService.pdfToPngs(pdfBytes)
+            : await UtilitariosLocalService.pdfToJpegs(pdfBytes);
+        if (pages.isEmpty) {
+          throw StateError('Nenhuma página gerada.');
+        }
+        final ext = asPng ? 'png' : 'jpg';
+        final mime = asPng ? 'image/png' : 'image/jpeg';
+        late final Uint8List out;
+        late final String fileName;
+        late final String outMime;
+        if (pages.length == 1) {
+          out = pages.first;
+          fileName = _editedFileName().replaceAll('.pdf', '.$ext');
+          outMime = mime;
+        } else {
+          final stem = _editedFileName().replaceAll('.pdf', '');
+          out = await UtilitariosLocalService.zipImages(
+            pages,
+            stem,
+            extension: ext,
+          );
+          fileName = '${stem}_paginas.zip';
+          outMime = 'application/zip';
+        }
+        final ok = await utilitariosSaveOrShareBytes(
+          context: context,
+          bytes: out,
+          fileName: fileName,
+          mimeType: outMime,
+          preferShare: true,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(ok
+                ? '${asPng ? 'PNG' : 'JPEG'} pronto para compartilhar.'
+                : 'Não foi possível exportar.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        if (ok && mounted) {
+          Navigator.pop(
+            context,
+            UtilitariosPdfToolResult(
+              bytes: out,
+              fileName: fileName,
+              mimeType: outMime,
+              message:
+                  '${pages.length} página(s) em ${asPng ? 'PNG' : 'JPEG'}.',
+            ),
+          );
+        }
+      } catch (e, st) {
+        debugPrint('Export images falhou: $e\n$st');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível exportar como imagem.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     });
   }
 
   Future<void> _confirmEdit() async {
-    await _openEditPreview();
+    await _openEditPreview(preferShare: false);
   }
 
   String _newAnnId() => 'a${DateTime.now().microsecondsSinceEpoch}';
@@ -1354,9 +2089,14 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     final i = list.indexWhere((a) => a.id == ann.id);
     if (i < 0) return;
     setState(() {
+      final isFieldAnn = ann.id.startsWith('ann_');
       list[i] = list[i].copyWith(
         text: result,
-        nh: math.max(list[i].nh, 0.06 + result.split('\n').length * 0.035),
+        // Campo do documento mantém a caixa original (formatação idêntica);
+        // texto avulso cresce para acomodar novas linhas.
+        nh: isFieldAnn
+            ? list[i].nh
+            : math.max(list[i].nh, 0.06 + result.split('\n').length * 0.035),
       );
     });
   }
@@ -1556,13 +2296,14 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.mode == UtilitariosPdfToolMode.edit) {
+      return _buildEditFullscreenScaffold();
+    }
     return Scaffold(
       backgroundColor: ModernModuleUI.scaffoldBgOf(context),
       appBar: AppBar(
-        title: Text(
-          _title,
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
+        title:
+            Text(_title, style: const TextStyle(fontWeight: FontWeight.w800)),
         backgroundColor: _gradient.first,
         foregroundColor: Colors.white,
         leading: IconButton(
@@ -1611,6 +2352,265 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     );
   }
 
+  /// Editor PDF imersivo fullscreen (padrão moderno tipo Files Editor).
+  Widget _buildEditFullscreenScaffold() {
+    final hasDoc = _singlePdf != null && _thumbs.isNotEmpty;
+    final shortName = (_singleName ?? 'Editor PDF');
+    final title = shortName.length > 28
+        ? '${shortName.substring(0, 26)}…'
+        : shortName;
+    return Scaffold(
+      backgroundColor: const Color(0xFF0B1220),
+      body: Stack(
+        children: [
+          // Edge-to-edge: só SafeArea no topo/base mínimo — documento usa a tela toda.
+          Column(
+            children: [
+              SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 0),
+                  child: Row(
+                    children: [
+                      TextButton(
+                        onPressed: _busy ? null : _onCloseFlow,
+                        child: const Text(
+                          'Cancelar',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      if (hasDoc) ...[
+                        IconButton(
+                          tooltip: _editViewMode == _EditViewMode.grid
+                              ? 'Documento tela cheia'
+                              : 'Grade de páginas',
+                          onPressed: _busy
+                              ? null
+                              : () => setState(() {
+                                    _editViewMode =
+                                        _editViewMode == _EditViewMode.grid
+                                            ? _EditViewMode.document
+                                            : _EditViewMode.grid;
+                                    if (_editViewMode ==
+                                        _EditViewMode.document) {
+                                      _editToolsExpanded = false;
+                                      _editThumbsExpanded = false;
+                                    }
+                                  }),
+                          icon: Icon(
+                            _editViewMode == _EditViewMode.grid
+                                ? Icons.fullscreen_rounded
+                                : Icons.grid_view_rounded,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ] else
+                        const SizedBox(width: 48),
+                    ],
+                  ),
+                ),
+              ),
+              Expanded(child: _buildEditBody()),
+              _buildEditActionBar(hasDoc),
+            ],
+          ),
+          if (_busy) _busyOverlay(),
+        ],
+      ),
+    );
+  }
+
+  Widget _viewModeChip({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: selected ? _gradient.first : Colors.transparent,
+      borderRadius: BorderRadius.circular(11),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(11),
+        onTap: _busy ? null : onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 16, color: Colors.white),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: selected ? 1 : 0.7),
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEditActionBar(bool hasDoc) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        border: Border(
+          top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: hasDoc
+            ? Row(
+                children: [
+                  _compactBarBtn(
+                    label: 'Descartar',
+                    icon: Icons.delete_outline_rounded,
+                    filled: false,
+                    color: const Color(0xFFF87171),
+                    onTap: _busy ? null : _onDiscardToPickAnother,
+                  ),
+                  const SizedBox(width: 6),
+                  _compactBarBtn(
+                    label: 'Salvar',
+                    icon: Icons.save_rounded,
+                    filled: true,
+                    color: const Color(0xFF2563EB),
+                    onTap: _busy
+                        ? null
+                        : () => unawaited(
+                              _openEditPreview(preferShare: false),
+                            ),
+                  ),
+                  const SizedBox(width: 6),
+                  _compactBarBtn(
+                    label: 'Enviar',
+                    icon: Icons.ios_share_rounded,
+                    filled: true,
+                    color: _gradient.first,
+                    onTap: _busy
+                        ? null
+                        : () => unawaited(_openShareFormats()),
+                  ),
+                ],
+              )
+            : OutlinedButton(
+                onPressed: _busy ? null : _onCloseFlow,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  minimumSize: const Size.fromHeight(48),
+                  side: BorderSide(
+                    color: Colors.white.withValues(alpha: 0.35),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                child: const Text(
+                  'Cancelar',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+      ),
+    );
+  }
+
+  /// Descarta edições e volta a escolher outro PDF (antes de Salvar).
+  Future<void> _onDiscardToPickAnother() async {
+    if (_busy) return;
+    if (!await _confirmDiscard(
+      'Descartar as edições e escolher outro arquivo?',
+    )) {
+      return;
+    }
+    if (!mounted) return;
+    setState(_clearAllWork);
+    unawaited(_pickPdfs(multiple: false));
+  }
+
+  /// Botão de ação compacto — texto nunca quebra/corta (FittedBox).
+  Widget _compactBarBtn({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback? onTap,
+    required bool filled,
+  }) {
+    return Expanded(
+      child: SizedBox(
+        height: 48,
+        child: Material(
+          color: filled
+              ? (onTap == null ? color.withValues(alpha: 0.4) : color)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              decoration: filled
+                  ? null
+                  : BoxDecoration(
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.35),
+                      ),
+                    ),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    icon,
+                    size: 18,
+                    color: filled ? Colors.white : color,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        softWrap: false,
+                        style: TextStyle(
+                          color: filled ? Colors.white : color,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _busyOverlay() {
     return ColoredBox(
       color: Colors.black.withValues(alpha: 0.35),
@@ -1626,10 +2626,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
             children: [
               const CircularProgressIndicator(),
               const SizedBox(height: 14),
-              Text(
-                _busyLabel ?? 'Processando…',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
+              Text(_busyLabel ?? 'Processando…',
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
             ],
           ),
         ),
@@ -1693,10 +2691,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: item.thumb != null
@@ -1723,9 +2719,33 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                       fontSize: 13,
                     ),
                   ),
-                  subtitle: Text(
-                    'Arraste ≡ para mudar a ordem',
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                  subtitle: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _gradient.first.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '${src.pageCount} pág.',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: _gradient.first,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Arraste ≡ para mudar',
+                          style: TextStyle(
+                              fontSize: 11, color: Colors.grey.shade600),
+                        ),
+                      ),
+                    ],
                   ),
                   trailing: ReorderableDragStartListener(
                     index: i,
@@ -1782,13 +2802,87 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
               sliver: SliverToBoxAdapter(
-                child: Text(
-                  'Toque para selecionar · segure e arraste para reordenar',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.grey.shade600,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Selected count + toggle
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: _gradient.first.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '$selectedCount de $total selecionadas',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: _gradient.first,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        TextButton.icon(
+                          onPressed: _busy
+                              ? null
+                              : (_splitSelected.length == total
+                                  ? _clearSplitSelection
+                                  : _selectAllSplitPages),
+                          icon: Icon(
+                            _splitSelected.length == total
+                                ? Icons.clear_all_rounded
+                                : Icons.select_all_rounded,
+                            size: 16,
+                          ),
+                          label: Text(
+                            _splitSelected.length == total
+                                ? 'Desmarcar'
+                                : 'Todas',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w800, fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    // Quick-select buttons
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _splitQuickBtn(
+                          'Primeiras 5',
+                          () =>
+                              _quickSelectPages((i) => i < math.min(5, total)),
+                        ),
+                        _splitQuickBtn(
+                          'Últimas 5',
+                          () => _quickSelectPages(
+                              (i) => i >= math.max(0, total - 5)),
+                        ),
+                        _splitQuickBtn(
+                          'Pares',
+                          () => _quickSelectPages((i) => (i + 1).isEven),
+                        ),
+                        _splitQuickBtn(
+                          'Ímpares',
+                          () => _quickSelectPages((i) => (i + 1).isOdd),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Toque para selecionar · segure e arraste para reordenar',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1801,14 +2895,17 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                   mainAxisSpacing: 10,
                   childAspectRatio: aspectRatio,
                 ),
-                delegate: SliverChildBuilderDelegate((context, listIndex) {
-                  final pageIdx = _splitPageOrder[listIndex];
-                  return _buildSplitPageGridTile(
-                    listIndex: listIndex,
-                    pageIdx: pageIdx,
-                    selected: _splitSelected.contains(pageIdx),
-                  );
-                }, childCount: _splitPageOrder.length),
+                delegate: SliverChildBuilderDelegate(
+                  (context, listIndex) {
+                    final pageIdx = _splitPageOrder[listIndex];
+                    return _buildSplitPageGridTile(
+                      listIndex: listIndex,
+                      pageIdx: pageIdx,
+                      selected: _splitSelected.contains(pageIdx),
+                    );
+                  },
+                  childCount: _splitPageOrder.length,
+                ),
               ),
             ),
           ],
@@ -1938,232 +3035,212 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
 
   Widget _buildEditBody() {
     if (_singlePdf == null || _thumbs.isEmpty) {
-      return ModernModuleUI.emptyPickState(
-        context: context,
-        gradient: _gradient,
-        icon: UtilitariosModuleIcons.editPdf,
-        title: 'Escolha um PDF para editar',
-        subtitle:
-            'Toque nos campos do documento para editar valores,\nou use as ferramentas para anotações.',
-        buttonLabel: 'Escolher PDF',
-        buttonIcon: Icons.edit_document,
-        onPressed: _busy ? null : () => _pickPdfs(multiple: false),
-      );
-    }
-    final ann = _currentAnn;
-    final sel = _selectedAnn;
-    final fields = _currentFields;
-    final pageImage = _editPageImages[_editPage];
-    final aspect =
-        _editPageAspects.length > _editPage ? _editPageAspects[_editPage] : 1.0;
-    return Column(
-      children: [
-        _buildEditToolbar(fields.length),
-        if (_detectingFields) _buildDetectingBanner(),
-        if (sel != null) _buildSelectionBar(sel),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-            child: Container(
-              key: _pageCanvasKey,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                color: const Color(0xFFF1F5F9),
-                border: Border.all(
-                  color: _gradient.first.withValues(alpha: 0.25),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: _gradient.first.withValues(alpha: 0.1),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: pageImage == null
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const CircularProgressIndicator(),
-                          const SizedBox(height: 12),
-                          Text(
-                            'Preparando documento…',
-                            style: ModernModuleUI.moduleSubtitleStyle(context),
-                          ),
-                        ],
-                      ),
-                    )
-                  : LayoutBuilder(
-                      builder: (context, c) {
-                        final size = Size(c.maxWidth, c.maxHeight);
-                        final imgRect = _imageRectInCanvas(size, aspect);
-                        return InteractiveViewer(
-                          minScale: kIsWeb ? 0.85 : 0.6,
-                          maxScale: 6,
-                          boundaryMargin: const EdgeInsets.all(20),
-                          child: SizedBox(
-                            width: size.width,
-                            height: size.height,
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.translucent,
-                              onTapDown: (d) => _onCanvasTap(d, size, aspect),
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  Positioned(
-                                    left: imgRect.left,
-                                    top: imgRect.top,
-                                    width: imgRect.width,
-                                    height: imgRect.height,
-                                    child: DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(6),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withValues(
-                                              alpha: 0.08,
-                                            ),
-                                            blurRadius: 12,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
-                                      ),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(6),
-                                        child: Image.memory(
-                                          pageImage,
-                                          width: imgRect.width,
-                                          height: imgRect.height,
-                                          fit: BoxFit.contain,
-                                          gaplessPlayback: true,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  ...fields
-                                      .where((f) => !_fieldHasAnnotation(f.id))
-                                      .map(
-                                        (f) => _buildDocFieldOverlay(
-                                          f,
-                                          imgRect,
-                                          selected: f.id == _selectedFieldId,
-                                          edited: false,
-                                        ),
-                                      ),
-                                  ...ann.map(
-                                    (a) => _buildAnnOverlay(a, imgRect),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          child: Row(
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                'Página ${_editPage + 1} de ${_thumbs.length}',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 12,
+              Container(
+                width: 88,
+                height: 88,
+                decoration: BoxDecoration(
+                  color: _gradient.first.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Icon(
+                  UtilitariosModuleIcons.editPdf,
+                  size: 42,
+                  color: _gradient.first,
                 ),
               ),
-              const Spacer(),
+              const SizedBox(height: 18),
+              const Text(
+                'Editor PDF',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
               Text(
-                '${ann.length} edição(ões) · ${fields.length} campo(s)',
-                style: ModernModuleUI.moduleSubtitleStyle(
-                  context,
-                  fontSize: 12,
+                'Edite no documento ou na grade.\nPré-visualize antes de salvar ou compartilhar.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 22),
+              FilledButton.icon(
+                onPressed: _busy ? null : () => _pickPdfs(multiple: false),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _gradient.first,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(220, 52),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                icon: const Icon(Icons.upload_file_rounded),
+                label: const Text(
+                  'Carregar PDF',
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
             ],
           ),
         ),
-        SizedBox(
-          height: kIsWeb ? 56 : 72,
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      );
+    }
+    if (_editViewMode == _EditViewMode.grid) {
+      return _buildEditGridView();
+    }
+    return _buildEditDocumentView();
+  }
+
+  /// Grade de páginas — toque abre a página no documento; botão edita campos.
+  Widget _buildEditGridView() {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 4, 14, 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '${_thumbs.length} página(s) · toque para editar no documento',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: _busy
+                    ? null
+                    : () => unawaited(_openFieldsEditorFullscreen()),
+                icon: Icon(Icons.edit_note_rounded,
+                    color: _gradient.first, size: 20),
+                label: Text(
+                  'Campos',
+                  style: TextStyle(
+                    color: _gradient.first,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: GridView.builder(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: 0.72,
+            ),
             itemCount: _thumbs.length,
             itemBuilder: (context, i) {
-              final selPage = i == _editPage;
-              final count = _annotations[i].length;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
+              final sel = i == _editPage;
+              final edits = i < _annotations.length ? _annotations[i].length : 0;
+              final thumb = _thumbs[i];
+              return Material(
+                color: const Color(0xFF1E293B),
+                borderRadius: BorderRadius.circular(16),
+                clipBehavior: Clip.antiAlias,
                 child: InkWell(
-                  onTap: () {
-                    setState(() {
-                      _editPage = i;
-                      _selectedAnnId = null;
-                      _selectedFieldId = null;
-                    });
-                    unawaited(_ensureEditPageReady(i));
-                  },
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    width: 52,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: selPage ? _gradient.first : Colors.grey.shade400,
-                        width: selPage ? 2.5 : 1,
-                      ),
-                    ),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: _thumbReady(_thumbs[i])
-                              ? Image.memory(_thumbs[i], fit: BoxFit.cover)
-                              : ColoredBox(
-                                  color: Colors.grey.shade200,
-                                  child: Center(
-                                    child: SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: _gradient.first,
-                                      ),
-                                    ),
-                                  ),
-                                ),
+                  onTap: _busy
+                      ? null
+                      : () {
+                          setState(() {
+                            _editPage = i;
+                            _editViewMode = _EditViewMode.document;
+                            _editToolsExpanded = false;
+                            _editThumbsExpanded = false;
+                          });
+                          unawaited(_ensureEditPageReady(i));
+                        },
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (thumb.isNotEmpty)
+                        Image.memory(
+                          thumb,
+                          fit: BoxFit.cover,
+                          gaplessPlayback: true,
+                        )
+                      else
+                        const Center(child: CircularProgressIndicator()),
+                      Positioned(
+                        top: 8,
+                        left: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: sel
+                                ? _gradient.first
+                                : Colors.black.withValues(alpha: 0.65),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '${i + 1}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
                         ),
-                        if (count > 0)
-                          Positioned(
-                            top: 4,
-                            right: 4,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _gradient.first,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                '$count',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w900,
-                                ),
+                      ),
+                      if (edits > 0)
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2563EB),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '$edits',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11,
                               ),
                             ),
                           ),
-                      ],
-                    ),
+                        ),
+                      Positioned(
+                        left: 8,
+                        right: 8,
+                        bottom: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            'Editar tela cheia',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               );
@@ -2173,6 +3250,326 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
       ],
     );
   }
+
+  Widget _buildEditDocumentView() {
+    final ann = _currentAnn;
+    final sel = _selectedAnn;
+    final fields = _currentFields;
+    final pageImage = _editPageImages[_editPage];
+    final aspect =
+        _editPageAspects.length > _editPage ? _editPageAspects[_editPage] : 1.0;
+    return Column(
+      children: [
+        // Barra fina de ferramentas (expansível) — não rouba a página.
+        _buildEditChromeStrip(fields.length),
+        if (_editToolsExpanded) _buildEditToolbar(fields.length),
+        if (_detectingFields) _buildDetectingBanner(),
+        if (sel != null) _buildSelectionBar(sel),
+        Expanded(
+          child: Container(
+            key: _pageCanvasKey,
+            color: const Color(0xFF0B1220),
+            child: pageImage == null
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(color: Colors.white70),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Preparando documento…',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.7),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : LayoutBuilder(
+                    builder: (context, c) {
+                      final size = Size(c.maxWidth, c.maxHeight);
+                      final imgRect = _imageRectInCanvas(size, aspect);
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          InteractiveViewer(
+                            minScale: kIsWeb ? 0.55 : 0.4,
+                            maxScale: 10,
+                            boundaryMargin: const EdgeInsets.all(80),
+                            child: SizedBox(
+                              width: size.width,
+                              height: size.height,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.translucent,
+                                onTapDown: (d) =>
+                                    _onCanvasTap(d, size, aspect),
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    Positioned(
+                                      left: imgRect.left,
+                                      top: imgRect.top,
+                                      width: imgRect.width,
+                                      height: imgRect.height,
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black
+                                                  .withValues(alpha: 0.45),
+                                              blurRadius: 24,
+                                              offset: const Offset(0, 10),
+                                            ),
+                                          ],
+                                        ),
+                                        child: Image.memory(
+                                          pageImage,
+                                          width: imgRect.width,
+                                          height: imgRect.height,
+                                          fit: BoxFit.contain,
+                                          gaplessPlayback: true,
+                                          filterQuality: FilterQuality.high,
+                                        ),
+                                      ),
+                                    ),
+                                    ...fields
+                                        .where(
+                                            (f) => !_fieldHasAnnotation(f.id))
+                                        .map(
+                                          (f) => _buildDocFieldOverlay(
+                                            f,
+                                            imgRect,
+                                            selected:
+                                                f.id == _selectedFieldId,
+                                            edited: false,
+                                          ),
+                                        ),
+                                    ...ann.map(
+                                      (a) => _buildAnnOverlay(a, imgRect),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          // Status flutuante — não reduz altura do PDF.
+                          Positioned(
+                            left: 10,
+                            bottom: 10,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.72),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                ),
+                              ),
+                              child: Text(
+                                '${_editPage + 1}/${_thumbs.length}'
+                                ' · ${ann.length} edit.'
+                                ' · ${fields.length} campos'
+                                ' · pinça p/ zoom',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            right: 10,
+                            bottom: 10,
+                            child: Material(
+                              color: _gradient.first,
+                              shape: const CircleBorder(),
+                              elevation: 4,
+                              child: InkWell(
+                                customBorder: const CircleBorder(),
+                                onTap: _busy
+                                    ? null
+                                    : () => setState(() {
+                                          _editThumbsExpanded =
+                                              !_editThumbsExpanded;
+                                        }),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Icon(
+                                    _editThumbsExpanded
+                                        ? Icons.expand_more_rounded
+                                        : Icons.view_carousel_rounded,
+                                    color: Colors.white,
+                                    size: 22,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+          ),
+        ),
+        if (_editThumbsExpanded) _buildEditPageThumbsStrip(),
+      ],
+    );
+  }
+
+  /// Faixa compacta: ferramentas / campos / páginas — página fica em tela cheia.
+  Widget _buildEditChromeStrip(int fieldCount) {
+    final g0 = _gradient.first;
+    return Material(
+      color: const Color(0xFF111827),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+        child: Row(
+          children: [
+            _chromeChip(
+              icon: _editToolsExpanded
+                  ? Icons.keyboard_arrow_up_rounded
+                  : Icons.handyman_rounded,
+              label: _editToolsExpanded ? 'Ocultar' : 'Ferramentas',
+              selected: _editToolsExpanded,
+              onTap: () => setState(
+                () => _editToolsExpanded = !_editToolsExpanded,
+              ),
+            ),
+            const SizedBox(width: 6),
+            if (fieldCount > 0)
+              _chromeChip(
+                icon: Icons.grid_view_rounded,
+                label: '$fieldCount campos',
+                selected: false,
+                color: g0,
+                onTap: () => unawaited(_openFieldsEditorFullscreen()),
+              ),
+            const Spacer(),
+            _chromeChip(
+              icon: Icons.view_carousel_rounded,
+              label: 'Pág. ${_editPage + 1}',
+              selected: _editThumbsExpanded,
+              onTap: () => setState(
+                () => _editThumbsExpanded = !_editThumbsExpanded,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _chromeChip({
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+    Color? color,
+  }) {
+    final c = color ?? (selected ? _gradient.first : Colors.white70);
+    return Material(
+      color: selected
+          ? _gradient.first.withValues(alpha: 0.22)
+          : Colors.white.withValues(alpha: 0.06),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: _busy ? null : onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: c),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  color: c,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEditPageThumbsStrip() {
+    return SizedBox(
+      height: kIsWeb ? 64 : 76,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+        itemCount: _thumbs.length,
+        itemBuilder: (context, i) {
+          final selPage = i == _editPage;
+          final count = _annotations[i].length;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: _busy
+                  ? null
+                  : () {
+                      setState(() => _editPage = i);
+                      unawaited(_ensureEditPageReady(i));
+                    },
+              child: Container(
+                width: 54,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: selPage
+                        ? _gradient.first
+                        : Colors.white.withValues(alpha: 0.15),
+                    width: selPage ? 2.5 : 1,
+                  ),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.memory(
+                      _thumbs[i],
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                    ),
+                    if (count > 0)
+                      Positioned(
+                        right: 2,
+                        top: 2,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: _gradient.first,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '$count',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
 
   Widget _buildDetectingBanner() {
     return Padding(
@@ -2240,9 +3637,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
-                      ),
+                          fontWeight: FontWeight.w800, fontSize: 13),
                     ),
                   ],
                 ),
@@ -2273,8 +3668,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     final w = field.nw * imgRect.width;
     final h = field.nh * imgRect.height;
     final color = edited
-        ? Colors.green.shade600
-        : (selected ? _gradient.first : const Color(0xFF3B82F6));
+        ? const Color(0xFF22C55E)
+        : (selected ? const Color(0xFFF59E0B) : const Color(0xFF38BDF8));
 
     return Positioned(
       left: left,
@@ -2285,31 +3680,44 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           decoration: BoxDecoration(
-            color: color.withValues(alpha: selected ? 0.22 : 0.1),
+            gradient: selected
+                ? LinearGradient(
+                    colors: [
+                      color.withValues(alpha: 0.28),
+                      color.withValues(alpha: 0.12),
+                    ],
+                  )
+                : null,
+            color: selected ? null : color.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(4),
             border: Border.all(
-              color: color.withValues(alpha: selected ? 0.95 : 0.45),
-              width: selected ? 2 : 1,
+              color: color.withValues(alpha: selected ? 1 : 0.5),
+              width: selected ? 2.2 : 1,
             ),
+            boxShadow: selected
+                ? [
+                    BoxShadow(
+                      color: color.withValues(alpha: 0.45),
+                      blurRadius: 8,
+                    ),
+                  ]
+                : null,
           ),
           child: selected
               ? Align(
                   alignment: Alignment.topRight,
                   child: Container(
                     margin: const EdgeInsets.all(2),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 5,
-                      vertical: 2,
-                    ),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                     decoration: BoxDecoration(
-                      color: color,
+                      gradient: LinearGradient(
+                        colors: [color, color.withValues(alpha: 0.75)],
+                      ),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Icon(
-                      Icons.edit_rounded,
-                      size: 12,
-                      color: Colors.white,
-                    ),
+                    child: const Icon(Icons.edit_rounded,
+                        size: 12, color: Colors.white),
                   ),
                 )
               : null,
@@ -2319,17 +3727,23 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   }
 
   Widget _buildEditToolbar(int fieldCount) {
+    final g0 = _gradient.first;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final surfaceColor = isDark ? const Color(0xFF1E293B) : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF1E293B);
+    final subtextColor = isDark ? Colors.white70 : Colors.grey.shade600;
+
     return Container(
-      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-      padding: const EdgeInsets.all(10),
+      margin: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
       decoration: BoxDecoration(
-        color: ModernModuleUI.cardBg(context),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.grey.shade200),
+        color: surfaceColor,
+        border: Border.all(color: g0.withValues(alpha: 0.14)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 12,
+            color: Colors.black.withValues(alpha: isDark ? 0.28 : 0.07),
+            blurRadius: 16,
             offset: const Offset(0, 4),
           ),
         ],
@@ -2337,139 +3751,324 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (fieldCount > 0) ...[
-            FilledButton.tonalIcon(
-              onPressed:
-                  _busy ? null : () => unawaited(_openFieldsEditorFullscreen()),
-              icon: const Icon(Icons.view_list_rounded, size: 22),
-              label: Text(
-                'Campos ($fieldCount) — lista editável',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w900,
-                  fontSize: 14,
-                ),
-              ),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-                backgroundColor: _gradient.first.withValues(alpha: 0.14),
-                foregroundColor: _gradient.first,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-          ],
+          // Header row with title and fields button
           Row(
             children: [
-              Icon(
-                Icons.design_services_outlined,
-                size: 18,
-                color: _gradient.first,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  fieldCount > 0
-                      ? 'Toque em Campos para ver todos em lista moderna'
-                      : 'Use as ferramentas abaixo para adicionar edições',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.grey.shade700,
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [g0, g0.withValues(alpha: 0.7)],
                   ),
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: [
+                    BoxShadow(
+                      color: g0.withValues(alpha: 0.3),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.edit_note_rounded,
+                    color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Editor PDF',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                        color: textColor,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    Text(
+                      'Toque no texto e digite',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: subtextColor,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (fieldCount > 0)
+                Material(
+                  color: g0.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: _busy
+                        ? null
+                        : () => unawaited(_openFieldsEditorFullscreen()),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.grid_view_rounded, size: 16, color: g0),
+                          const SizedBox(width: 6),
+                          Text(
+                            '$fieldCount',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 13,
+                              color: g0,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Tool buttons — scroll horizontal, sem cortar rótulos
+          SizedBox(
+            height: 58,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              children: [
+                _modernToolButton(
+                    _PdfEditorTool.select, Icons.touch_app_rounded, 'Mover'),
+                const SizedBox(width: 6),
+                _modernToolButton(
+                    _PdfEditorTool.text, Icons.text_fields_rounded, 'Texto'),
+                const SizedBox(width: 6),
+                _modernToolButton(_PdfEditorTool.highlight,
+                    Icons.highlight_rounded, 'Destaque'),
+                const SizedBox(width: 6),
+                _modernToolButton(_PdfEditorTool.whiteout,
+                    Icons.format_color_reset_rounded, 'Corrigir'),
+                const SizedBox(width: 6),
+                _modernToolButton(
+                    _PdfEditorTool.check, Icons.check_box_rounded, 'Check'),
+                const SizedBox(width: 6),
+                _modernToolButton(
+                    _PdfEditorTool.erase, Icons.auto_fix_off_rounded, 'Apagar'),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.05)
+                  : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                // Undo button
+                _contextIconButton(
+                  icon: Icons.undo_rounded,
+                  tooltip: 'Desfazer',
+                  color: _undo.isEmpty ? Colors.grey.shade400 : g0,
+                  onPressed: _undo.isEmpty || _busy ? null : _undoLast,
+                ),
+                // Text tool options
+                if (_editTool == _PdfEditorTool.text) ...[
+                  const SizedBox(width: 4),
+                  _modernFontChip('P', 0.85),
+                  _modernFontChip('M', 1.0),
+                  _modernFontChip('G', 1.35),
+                  const SizedBox(width: 4),
+                  _contextIconButton(
+                    icon: Icons.format_color_text_rounded,
+                    tooltip: 'Cor do texto',
+                    color: Color(_textColor),
+                    onPressed: _busy ? null : () => _pickColor(forText: true),
+                  ),
+                ],
+                // Highlight tool options
+                if (_editTool == _PdfEditorTool.highlight) ...[
+                  const SizedBox(width: 4),
+                  _contextIconButton(
+                    icon: Icons.palette_rounded,
+                    tooltip: 'Cor do destaque',
+                    color: Color(_highlightColor),
+                    onPressed: _busy ? null : () => _pickColor(forText: false),
+                  ),
+                ],
+                const Spacer(),
+                // Hint text
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    _editToolHint,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: subtextColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _modernToolButton(_PdfEditorTool tool, IconData icon, String label) {
+    final g0 = _gradient.first;
+    final sel = _editTool == tool;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: _busy
+            ? null
+            : () => setState(() {
+                  _editTool = tool;
+                  _selectedFieldId = null;
+                }),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          constraints: const BoxConstraints(minWidth: 58),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            gradient: sel
+                ? LinearGradient(
+                    colors: [g0, g0.withValues(alpha: 0.8)],
+                  )
+                : null,
+            color: sel
+                ? null
+                : (isDark
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.grey.shade100),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: sel
+                  ? Colors.transparent
+                  : (isDark ? Colors.white12 : Colors.grey.shade200),
+            ),
+            boxShadow: sel
+                ? [
+                    BoxShadow(
+                      color: g0.withValues(alpha: 0.35),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: sel
+                    ? Colors.white
+                    : (isDark ? Colors.white70 : Colors.grey.shade700),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.visible,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 10,
+                  color: sel
+                      ? Colors.white
+                      : (isDark ? Colors.white70 : Colors.grey.shade700),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _toolChip(
-                  _PdfEditorTool.select,
-                  Icons.open_with_rounded,
-                  'Mover',
-                ),
-                _toolChip(
-                  _PdfEditorTool.text,
-                  Icons.text_fields_rounded,
-                  'Texto',
-                ),
-                _toolChip(
-                  _PdfEditorTool.highlight,
-                  Icons.highlight_rounded,
-                  'Destaque',
-                ),
-                _toolChip(
-                  _PdfEditorTool.whiteout,
-                  Icons.format_color_reset_rounded,
-                  'Corrigir',
-                ),
-                _toolChip(
-                  _PdfEditorTool.check,
-                  Icons.check_box_rounded,
-                  'Check',
-                ),
-                _toolChip(
-                  _PdfEditorTool.erase,
-                  Icons.auto_fix_off_rounded,
-                  'Apagar',
-                ),
-              ],
+        ),
+      ),
+    );
+  }
+
+  Widget _contextIconButton({
+    required IconData icon,
+    required String tooltip,
+    required Color color,
+    required VoidCallback? onPressed,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onPressed,
+        child: SizedBox(
+          width: 36,
+          height: 36,
+          child: Icon(icon, color: color, size: 20),
+        ),
+      ),
+    );
+  }
+
+  Widget _modernFontChip(String label, double scale) {
+    final g0 = _gradient.first;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isSelected = (_textFontScale - scale).abs() < 0.05;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: _busy
+            ? null
+            : () => setState(() {
+                  _textFontScale = scale;
+                  final s = _selectedAnn;
+                  if (s != null && s.type == 'text') {
+                    _pushUndo();
+                    final list = _annotations[_editPage];
+                    final i = list.indexWhere((a) => a.id == s.id);
+                    if (i >= 0) list[i] = list[i].copyWith(fontScale: scale);
+                  }
+                }),
+        child: Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: isSelected
+                ? g0.withValues(alpha: 0.15)
+                : (isDark ? Colors.white10 : Colors.grey.shade200),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isSelected ? g0 : Colors.transparent,
+              width: 1.5,
             ),
           ),
-          if (_editTool == _PdfEditorTool.text ||
-              _editTool == _PdfEditorTool.highlight ||
-              _editTool == _PdfEditorTool.select) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                IconButton(
-                  tooltip: 'Desfazer',
-                  onPressed: _undo.isEmpty || _busy ? null : _undoLast,
-                  icon: const Icon(Icons.undo_rounded),
-                ),
-                if (_editTool == _PdfEditorTool.text) ...[
-                  _fontChip('P', 0.85),
-                  _fontChip('M', 1.0),
-                  _fontChip('G', 1.35),
-                  IconButton(
-                    tooltip: 'Cor do texto',
-                    onPressed: _busy ? null : () => _pickColor(forText: true),
-                    icon: Icon(
-                      Icons.format_color_text_rounded,
-                      color: Color(_textColor),
-                    ),
-                  ),
-                ],
-                if (_editTool == _PdfEditorTool.highlight)
-                  IconButton(
-                    tooltip: 'Cor do destaque',
-                    onPressed: _busy ? null : () => _pickColor(forText: false),
-                    icon: Icon(
-                      Icons.palette_rounded,
-                      color: Color(_highlightColor),
-                    ),
-                  ),
-                const Spacer(),
-                Flexible(
-                  child: Text(
-                    _editToolHint,
-                    maxLines: 2,
-                    textAlign: TextAlign.end,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                ),
-              ],
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12 * scale,
+              fontWeight: FontWeight.w900,
+              color: isSelected
+                  ? g0
+                  : (isDark ? Colors.white70 : Colors.grey.shade700),
             ),
-          ],
-        ],
+          ),
+        ),
       ),
     );
   }
@@ -2486,36 +4085,57 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
       };
 
   Widget _toolChip(
+    double width,
     _PdfEditorTool tool,
     IconData icon,
     String label, {
     bool primary = false,
   }) {
     final sel = _editTool == tool;
-    return Padding(
-      padding: const EdgeInsets.only(right: 6),
-      child: FilterChip(
-        selected: sel,
-        showCheckmark: false,
-        avatar: Icon(
-          icon,
-          size: 18,
-          color: sel ? Colors.white : _gradient.first,
+    final chipColor = primary ? _gradient.first : _gradient.first;
+    return SizedBox(
+      width: width,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: _busy
+              ? null
+              : () => setState(() {
+                    _editTool = tool;
+                    _selectedFieldId = null;
+                  }),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: sel
+                  ? chipColor.withValues(alpha: 0.14)
+                  : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: sel ? chipColor : Colors.grey.shade300,
+                width: sel ? 2 : 1,
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon,
+                    size: 22, color: sel ? chipColor : Colors.grey.shade600),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11,
+                    color: sel ? chipColor : Colors.grey.shade700,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        label: Text(label),
-        selectedColor:
-            primary ? _gradient.first : _gradient.first.withValues(alpha: 0.85),
-        labelStyle: TextStyle(
-          fontWeight: FontWeight.w800,
-          fontSize: 12,
-          color: sel ? Colors.white : null,
-        ),
-        onSelected: _busy
-            ? null
-            : (_) => setState(() {
-                  _editTool = tool;
-                  _selectedFieldId = null;
-                }),
       ),
     );
   }
@@ -2561,9 +4181,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12,
-                  ),
+                      fontWeight: FontWeight.w700, fontSize: 12),
                 ),
               ),
               if (sel.type == 'text')
@@ -2574,11 +4192,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                 ),
               IconButton(
                 tooltip: 'Excluir',
-                icon: Icon(
-                  Icons.delete_outline_rounded,
-                  size: 20,
-                  color: Colors.red.shade600,
-                ),
+                icon: Icon(Icons.delete_outline_rounded,
+                    size: 20, color: Colors.red.shade600),
                 onPressed: _busy ? null : () => _deleteAnn(sel.id),
               ),
             ],
@@ -2628,11 +4243,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
             : (a.seamless
                 ? null
                 : Center(
-                    child: Icon(
-                      Icons.format_color_reset_rounded,
-                      size: 16,
-                      color: Colors.grey.shade500,
-                    ),
+                    child: Icon(Icons.format_color_reset_rounded,
+                        size: 16, color: Colors.grey.shade500),
                   )),
       );
     } else if (a.type == 'check') {
@@ -2644,54 +4256,88 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           borderRadius: BorderRadius.circular(4),
           color: Colors.white.withValues(alpha: 0.9),
         ),
-        child: Icon(
-          Icons.check_rounded,
-          color: Colors.green.shade700,
-          size: 18,
-        ),
+        child:
+            Icon(Icons.check_rounded, color: Colors.green.shade700, size: 18),
       );
     } else if (a.type == 'text' && a.seamless) {
-      child = Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(3),
-          border:
-              selected ? Border.all(color: _gradient.first, width: 2) : null,
+      // Mostra o texto novo sobre o PDF (estilo Word) — o que se vê é o que sai.
+      final text = a.text.isEmpty ? ' ' : a.text;
+      final lineCount = math.max(1, '\n'.allMatches(text).length + 1);
+      final scale = a.fontScale <= 0 ? 1.0 : a.fontScale;
+      var fs = ((h / lineCount) * 0.78 * scale).clamp(8.0, 42.0);
+      final probe = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: TextStyle(
+            fontSize: fs,
+            height: 1.12,
+            fontWeight: a.fontBold ? FontWeight.w700 : FontWeight.w500,
+            color: Color(a.textArgb),
+          ),
         ),
-        child: selected
-            ? Align(
-                alignment: Alignment.topRight,
-                child: Container(
-                  margin: const EdgeInsets.all(2),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _gradient.first,
-                    borderRadius: BorderRadius.circular(5),
-                  ),
-                  child: const Icon(
-                    Icons.edit_rounded,
-                    size: 11,
-                    color: Colors.white,
-                  ),
-                ),
-              )
-            : null,
+        textDirection: TextDirection.ltr,
+        maxLines: 6,
+      )..layout(maxWidth: math.max(8, w));
+      if (probe.width > w && probe.width > 0 && w > 8) {
+        // Não comprime no centro: reduz só o necessário para caber na linha.
+        fs = math.max(8.0, fs * (w / probe.width) * 0.98);
+      }
+      child = Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 1),
+        decoration: BoxDecoration(
+          // Cobre o texto antigo por baixo para parecer digitação no documento.
+          color: Color(a.backgroundArgb ?? 0xFFFFFFFF).withValues(alpha: 0.97),
+          borderRadius: BorderRadius.circular(2),
+          border: selected
+              ? Border.all(color: _gradient.first, width: 1.5)
+              : Border.all(
+                  color: _gradient.first.withValues(alpha: 0.25), width: 1),
+        ),
+        child: Text(
+          text,
+          maxLines: 6,
+          softWrap: true,
+          overflow: TextOverflow.visible,
+          textAlign: TextAlign.left,
+          style: TextStyle(
+            fontWeight: a.fontBold ? FontWeight.w700 : FontWeight.w500,
+            fontSize: fs,
+            color: Color(a.textArgb),
+            height: 1.12,
+          ),
+        ),
       );
     } else {
-      final fs =
-          a.fontScale >= 1.35 ? 18.0 : (a.fontScale >= 1.05 ? 14.0 : 11.0);
-      child = Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: a.seamless ? 2 : 6,
-          vertical: a.seamless ? 1 : 4,
+      // Mesma fórmula do render final (fonte vetorial): tamanho derivado da
+      // altura do campo + auto-fit na largura. O que se vê na grid é o que
+      // sai no PDF — sem desconfigurar.
+      final text = a.text.isEmpty ? 'Toque em editar' : a.text;
+      final lineCount = math.max(1, '\n'.allMatches(text).length + 1);
+      final scale = a.fontScale <= 0 ? 1.0 : a.fontScale;
+      var fs = ((h / lineCount) * 0.74 * scale).clamp(4.0, 200.0);
+      final probe = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: TextStyle(
+            fontSize: fs,
+            height: 1.18,
+            fontWeight: a.fontBold ? FontWeight.w700 : FontWeight.w400,
+          ),
         ),
+        textDirection: TextDirection.ltr,
+        maxLines: lineCount + 4,
+      )..layout();
+      if (probe.width > w && probe.width > 0) {
+        fs = math.max(4.0, fs * w / probe.width * 0.985);
+      }
+      child = Container(
+        alignment: Alignment.centerLeft,
         decoration: BoxDecoration(
           color: a.seamless
               ? Colors.transparent
               : Colors.white.withValues(alpha: 0.94),
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(a.seamless ? 2 : 6),
           border: border,
           boxShadow: a.seamless
               ? null
@@ -2703,12 +4349,14 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                 ],
         ),
         child: Text(
-          a.text.isEmpty ? 'Toque em editar' : a.text,
+          text,
+          maxLines: lineCount + 4,
+          overflow: TextOverflow.visible,
           style: TextStyle(
-            fontWeight: FontWeight.w700,
+            fontWeight: a.fontBold ? FontWeight.w700 : FontWeight.w400,
             fontSize: fs,
             color: Color(a.textArgb),
-            height: 1.25,
+            height: 1.18,
           ),
         ),
       );
@@ -2784,6 +4432,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           : 'Gerar (${_resolveSplitExportOrder().length} pág.)',
       _ => 'Confirmar',
     };
+    final isEdit = widget.mode == UtilitariosPdfToolMode.edit;
     return SafeArea(
       top: false,
       child: Padding(
@@ -2792,68 +4441,134 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (_hasWork) ...[
-              LayoutBuilder(
-                builder: (context, c) {
-                  final stacked = c.maxWidth < 400;
-                  final cancelBtn = SizedBox(
-                    width: stacked ? double.infinity : null,
-                    child: OutlinedButton(
+              // Cancelar + Trocar side by side
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
                       onPressed: _busy ? null : _onCancelOperation,
-                      style: _sessionOutlinedStyle(),
-                      child: const Text(
+                      icon: const Icon(Icons.close_rounded, size: 17),
+                      label: const Text(
                         'Cancelar',
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
+                      style: _sessionOutlinedStyle(),
                     ),
-                  );
-                  final trocarBtn = SizedBox(
-                    width: stacked ? double.infinity : null,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
                     child: OutlinedButton.icon(
                       onPressed: _busy ? null : _onTrocarArquivo,
-                      icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                      icon: const Icon(Icons.swap_horiz_rounded, size: 17),
                       label: Text(
                         _trocarArquivoLabel,
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                       style: _sessionOutlinedStyle(),
                     ),
-                  );
-                  if (stacked) {
-                    return Column(
-                      children: [
-                        trocarBtn,
-                        const SizedBox(height: 8),
-                        cancelBtn,
-                      ],
-                    );
-                  }
-                  return Row(
-                    children: [
-                      Expanded(child: cancelBtn),
-                      const SizedBox(width: 8),
-                      Expanded(child: trocarBtn),
-                    ],
-                  );
-                },
-              ),
-              if (widget.mode == UtilitariosPdfToolMode.edit) ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed:
-                      (!_busy && canConfirm) ? () => _openEditPreview() : null,
-                  icon: const Icon(Icons.visibility_rounded, size: 20),
-                  label: const Text(
-                    'Pré-visualizar',
-                    style: TextStyle(fontWeight: FontWeight.w800),
                   ),
-                  style: _sessionOutlinedStyle().copyWith(
-                    minimumSize: const WidgetStatePropertyAll(
-                      Size.fromHeight(46),
+                ],
+              ),
+              if (isEdit) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: (!_busy && canConfirm)
+                            ? () => _openEditPreview()
+                            : null,
+                        icon: const Icon(Icons.visibility_rounded, size: 18),
+                        label: const Text(
+                          'Pré-visualizar',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
+                          foregroundColor: _gradient.first,
+                          side: BorderSide(
+                            color: _gradient.first.withValues(alpha: 0.45),
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(colors: _gradient),
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color: _gradient.first.withValues(alpha: 0.28),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: FilledButton.icon(
+                          onPressed: (!_busy && canConfirm) ? onConfirm : null,
+                          icon: const Icon(Icons.ios_share_rounded, size: 20),
+                          label: Text(
+                            confirmLabel,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              fontSize: 15,
+                            ),
+                          ),
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            backgroundColor: Colors.transparent,
+                            disabledBackgroundColor:
+                                Colors.grey.withValues(alpha: 0.35),
+                            foregroundColor: Colors.white,
+                            shadowColor: Colors.transparent,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                TextButton.icon(
+                  onPressed: (!_busy && canConfirm) ? _removePdfPassword : null,
+                  icon: Icon(
+                    Icons.lock_open_rounded,
+                    size: 18,
+                    color: const Color(0xFF7C3AED).withValues(alpha: 0.9),
+                  ),
+                  label: const Text(
+                    'Limpar senha e compartilhar',
+                    style:
+                        TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF7C3AED),
+                    minimumSize: const Size(48, 40),
+                  ),
+                ),
+              ] else ...[
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: (!_busy && canConfirm) ? onConfirm : null,
+                  icon: const Icon(Icons.check_circle_rounded),
+                  label: Text(confirmLabel),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(48),
+                    backgroundColor: _gradient.first,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
                     ),
                   ),
                 ),
               ],
-              const SizedBox(height: 8),
             ] else
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
@@ -2867,23 +4582,6 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                   style: _sessionOutlinedStyle(),
                 ),
               ),
-            FilledButton.icon(
-              onPressed: (!_busy && canConfirm) ? onConfirm : null,
-              icon: Icon(
-                widget.mode == UtilitariosPdfToolMode.edit
-                    ? Icons.ios_share_rounded
-                    : Icons.check_circle_rounded,
-              ),
-              label: Text(confirmLabel),
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-                backgroundColor: _gradient.first,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
           ],
         ),
       ),
@@ -2988,9 +4686,7 @@ class _PdfFieldsEditorScreenState extends State<_PdfFieldsEditorScreen> {
     Navigator.pop(
       context,
       _PdfFieldsEditorResult(
-        drafts: _drafts,
-        excludedKeys: Set.from(_excluded),
-      ),
+          drafts: _drafts, excludedKeys: Set.from(_excluded)),
     );
   }
 
@@ -3150,7 +4846,6 @@ class _PdfFieldsEditorScreenState extends State<_PdfFieldsEditorScreen> {
   @override
   Widget build(BuildContext context) {
     final g = widget.gradient;
-    var globalIndex = 0;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
@@ -3193,7 +4888,7 @@ class _PdfFieldsEditorScreenState extends State<_PdfFieldsEditorScreen> {
               ),
             ),
             child: Text(
-              '$_activeFields de $_totalFields campo(s) · lápis para editar · lixeira para excluir',
+              '$_activeFields de $_totalFields campo(s) · edição em grade · toque para editar · cor do texto preservada',
               textAlign: TextAlign.center,
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
@@ -3206,177 +4901,176 @@ class _PdfFieldsEditorScreenState extends State<_PdfFieldsEditorScreen> {
             ),
           ),
           Expanded(
-            child: ListView(
-              controller: _scrollCtrl,
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
-              physics: const BouncingScrollPhysics(
-                parent: AlwaysScrollableScrollPhysics(),
-              ),
-              children: [
-                for (var p = 0; p < widget.docFields.length; p++) ...[
-                  if (widget.docFields.length > 1)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8, top: 4),
-                      child: Text(
-                        'Página ${p + 1}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 14,
-                          color: g.first,
+            child: Builder(
+              builder: (context) {
+                // Flatten all fields into a list for the grid.
+                final items = <({int page, UtilPdfTextField field, int idx})>[];
+                for (var p = 0; p < widget.docFields.length; p++) {
+                  for (var i = 0; i < widget.docFields[p].length; i++) {
+                    items.add((page: p, field: widget.docFields[p][i], idx: i));
+                  }
+                }
+                return CustomScrollView(
+                  controller: _scrollCtrl,
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
+                  slivers: [
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(10, 10, 10, 14),
+                      sliver: SliverGrid(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            final item = items[index];
+                            final field = item.field;
+                            final p = item.page;
+                            final i = item.idx;
+                            final fieldKey = _key(p, field.id);
+                            final accent =
+                                _cardAccents[index % _cardAccents.length];
+                            final excluded = _excluded.contains(fieldKey);
+                            final text = _fieldText(p, field);
+                            final original = field.text.trim();
+                            final edited = !excluded && text != original;
+                            final textColor = Color(field.textArgb);
+
+                            return Opacity(
+                              key: _cardKeys[fieldKey],
+                              opacity: excluded ? 0.5 : 1,
+                              child: GestureDetector(
+                                onTap: excluded
+                                    ? () => _restoreField(p, field)
+                                    : () => _editField(p, field),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: excluded
+                                          ? Colors.grey.shade300
+                                          : accent.withValues(alpha: 0.45),
+                                      width: 1.2,
+                                    ),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: accent.withValues(alpha: 0.08),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.fromLTRB(
+                                            10, 8, 6, 7),
+                                        decoration: BoxDecoration(
+                                          color: excluded
+                                              ? Colors.grey.shade100
+                                              : accent.withValues(alpha: 0.08),
+                                          borderRadius:
+                                              const BorderRadius.vertical(
+                                            top: Radius.circular(13),
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              width: 3,
+                                              height: 22,
+                                              decoration: BoxDecoration(
+                                                color: excluded
+                                                    ? Colors.grey.shade400
+                                                    : accent,
+                                                borderRadius:
+                                                    BorderRadius.circular(3),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Expanded(
+                                              child: Text(
+                                                'Pg ${p + 1} · C ${i + 1}${edited ? ' ✎' : ''}',
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 11,
+                                                  color: excluded
+                                                      ? Colors.grey.shade500
+                                                      : accent,
+                                                ),
+                                              ),
+                                            ),
+                                            if (!excluded)
+                                              SizedBox(
+                                                width: 28,
+                                                height: 28,
+                                                child: IconButton(
+                                                  padding: EdgeInsets.zero,
+                                                  tooltip: 'Excluir',
+                                                  onPressed: () =>
+                                                      _deleteField(p, field),
+                                                  icon: Icon(
+                                                    Icons
+                                                        .delete_outline_rounded,
+                                                    size: 16,
+                                                    color: Colors.red.shade600,
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                              10, 7, 10, 8),
+                                          child: Text(
+                                            excluded
+                                                ? (original.isEmpty
+                                                    ? '(excluído)'
+                                                    : original)
+                                                : (text.isEmpty
+                                                    ? 'Toque para editar'
+                                                    : text),
+                                            maxLines: 4,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontWeight: field.fontBold
+                                                  ? FontWeight.w800
+                                                  : FontWeight.w600,
+                                              fontSize: 12.5,
+                                              height: 1.3,
+                                              color: excluded
+                                                  ? Colors.grey.shade500
+                                                  : textColor,
+                                              decoration: excluded
+                                                  ? TextDecoration.lineThrough
+                                                  : null,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                          childCount: items.length,
+                        ),
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 8,
+                          crossAxisSpacing: 8,
+                          childAspectRatio: 0.88,
                         ),
                       ),
                     ),
-                  for (var i = 0; i < widget.docFields[p].length; i++)
-                    Builder(
-                      builder: (context) {
-                        final field = widget.docFields[p][i];
-                        final fieldKey = _key(p, field.id);
-                        final accent =
-                            _cardAccents[globalIndex % _cardAccents.length];
-                        globalIndex++;
-                        final excluded = _excluded.contains(fieldKey);
-                        final text = _fieldText(p, field);
-                        final original = field.text.trim();
-                        final edited = !excluded && text != original;
-
-                        return Padding(
-                          key: _cardKeys[fieldKey],
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Opacity(
-                            opacity: excluded ? 0.55 : 1,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(
-                                  color: excluded
-                                      ? Colors.grey.shade400
-                                      : accent.withValues(alpha: 0.5),
-                                  width: 1.5,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: accent.withValues(alpha: 0.1),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      14,
-                                      12,
-                                      8,
-                                      10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: excluded
-                                          ? Colors.grey.shade100
-                                          : accent.withValues(alpha: 0.1),
-                                      borderRadius: const BorderRadius.vertical(
-                                        top: Radius.circular(17),
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          width: 4,
-                                          height: 36,
-                                          decoration: BoxDecoration(
-                                            color: excluded
-                                                ? Colors.grey.shade500
-                                                : accent,
-                                            borderRadius: BorderRadius.circular(
-                                              4,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Text(
-                                            'Campo ${i + 1}${edited ? ' · Editado' : ''}${excluded ? ' · Excluído' : ''}',
-                                            style: TextStyle(
-                                              fontWeight: FontWeight.w900,
-                                              fontSize: 14,
-                                              color: excluded
-                                                  ? Colors.grey.shade600
-                                                  : accent,
-                                            ),
-                                          ),
-                                        ),
-                                        if (excluded)
-                                          IconButton(
-                                            tooltip: 'Restaurar',
-                                            onPressed: () =>
-                                                _restoreField(p, field),
-                                            icon: Icon(
-                                              Icons.undo_rounded,
-                                              color: accent,
-                                            ),
-                                          )
-                                        else ...[
-                                          IconButton(
-                                            tooltip: 'Editar',
-                                            onPressed: () =>
-                                                _editField(p, field),
-                                            icon: Icon(
-                                              Icons.edit_rounded,
-                                              color: accent,
-                                            ),
-                                          ),
-                                          IconButton(
-                                            tooltip: 'Excluir',
-                                            onPressed: () =>
-                                                _deleteField(p, field),
-                                            icon: Icon(
-                                              Icons.delete_outline_rounded,
-                                              color: Colors.red.shade600,
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                  Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      14,
-                                      12,
-                                      14,
-                                      14,
-                                    ),
-                                    child: Text(
-                                      excluded
-                                          ? (original.isEmpty
-                                              ? '(campo removido)'
-                                              : original)
-                                          : (text.isEmpty
-                                              ? 'Toque no lápis para editar'
-                                              : text),
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 14,
-                                        height: 1.4,
-                                        color: excluded
-                                            ? Colors.grey.shade500
-                                            : const Color(0xFF1E293B),
-                                        decoration: excluded
-                                            ? TextDecoration.lineThrough
-                                            : null,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                ],
-              ],
+                  ],
+                );
+              },
             ),
           ),
           SafeArea(
@@ -3433,88 +5127,283 @@ class _PdfFieldsEditorScreenState extends State<_PdfFieldsEditorScreen> {
 }
 
 /// Pré-visualização fullscreen do PDF editado antes de salvar/compartilhar.
-class _PdfEditPreviewScreen extends StatelessWidget {
+/// Usa a proporção **real da imagem** (nunca força A4) — evita documento achatado.
+class _PdfEditPreviewScreen extends StatefulWidget {
   const _PdfEditPreviewScreen({
     required this.gradient,
     required this.pages,
     required this.fileName,
+    this.pageAspects = const [],
+    this.pageSizesPts = const [],
+    this.preferShare = false,
   });
 
   final List<Color> gradient;
   final List<Uint8List> pages;
   final String fileName;
+  final List<double> pageAspects;
+  final List<({double widthPts, double heightPts})> pageSizesPts;
+  final bool preferShare;
+
+  @override
+  State<_PdfEditPreviewScreen> createState() => _PdfEditPreviewScreenState();
+}
+
+class _PdfEditPreviewScreenState extends State<_PdfEditPreviewScreen> {
+  late List<double> _aspects;
+
+  @override
+  void initState() {
+    super.initState();
+    _aspects = List<double>.from(widget.pageAspects);
+    while (_aspects.length < widget.pages.length) {
+      _aspects.add(0);
+    }
+    unawaited(_measureAspects());
+  }
+
+  Future<void> _measureAspects() async {
+    for (var i = 0; i < widget.pages.length; i++) {
+      try {
+        final codec = await ui.instantiateImageCodec(widget.pages[i]);
+        final frame = await codec.getNextFrame();
+        final w = frame.image.width.toDouble();
+        final h = frame.image.height.toDouble();
+        frame.image.dispose();
+        if (w > 0 && h > 0 && mounted) {
+          setState(() => _aspects[i] = w / h);
+        }
+      } catch (_) {}
+    }
+  }
+
+  double _aspectFor(int index) {
+    if (index < _aspects.length && _aspects[index] > 0.05) {
+      return _aspects[index];
+    }
+    if (index < widget.pageSizesPts.length) {
+      final s = widget.pageSizesPts[index];
+      if (s.widthPts > 0 && s.heightPts > 0) {
+        return s.widthPts / s.heightPts;
+      }
+    }
+    return 1.0;
+  }
+
+  void _openZoom(BuildContext context, int index) {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _PdfPageZoomScreen(
+          page: widget.pages[index],
+          pageNumber: index + 1,
+          pageCount: widget.pages.length,
+          gradient: widget.gradient,
+          aspect: _aspectFor(index),
+        ),
+      ),
+    );
+  }
+
+  Widget _actionBtn({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: SizedBox(
+        height: 48,
+        child: Material(
+          color: color,
+          borderRadius: BorderRadius.circular(14),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(14),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(icon, color: Colors.white, size: 18),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        softWrap: false,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final g = gradient;
+    final g = widget.gradient;
+    final preferShare = widget.preferShare;
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
-        backgroundColor: g.first,
+        backgroundColor: const Color(0xFF111827),
         foregroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(
-          tooltip: 'Voltar ao editor',
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.pop(context, false),
+        automaticallyImplyLeading: false,
+        leadingWidth: 100,
+        leading: TextButton.icon(
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.arrow_back_rounded, size: 18),
+          label: const Text(
+            'Voltar',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+          ),
+          style: TextButton.styleFrom(foregroundColor: Colors.white),
         ),
         title: const Text(
-          'Pré-visualização',
-          style: TextStyle(fontWeight: FontWeight.w800),
+          'Pré-visualizar',
+          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
         ),
         centerTitle: true,
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Sair',
+              style: TextStyle(
+                color: Colors.white70,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-            color: g.first.withValues(alpha: 0.12),
-            child: Text(
-              'Visualização final com todas as edições aplicadas.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.92),
-                fontWeight: FontWeight.w600,
-                height: 1.35,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'Toque para ampliar · proporção original · Salvar ou Enviar',
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.88),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
+                  height: 1.3,
+                ),
               ),
             ),
           ),
           Expanded(
             child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-              itemCount: pages.length,
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              itemCount: widget.pages.length,
               itemBuilder: (context, index) {
+                final aspect = _aspectFor(index);
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (pages.length > 1)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 6, left: 4),
-                          child: Text(
-                            'Página ${index + 1} de ${pages.length}',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.75),
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Center(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final maxW = math.min(constraints.maxWidth, 640.0);
+                        final h = maxW / aspect;
+                        return Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => _openZoom(context, index),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              width: maxW,
+                              height: h,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(6),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Colors.black54,
+                                    blurRadius: 12,
+                                    offset: Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  Image.memory(
+                                    widget.pages[index],
+                                    fit: BoxFit.contain,
+                                    gaplessPlayback: true,
+                                    filterQuality: FilterQuality.high,
+                                    alignment: Alignment.center,
+                                  ),
+                                  if (widget.pages.length > 1)
+                                    Positioned(
+                                      top: 8,
+                                      left: 8,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color:
+                                              g.first.withValues(alpha: 0.92),
+                                          borderRadius:
+                                              BorderRadius.circular(999),
+                                        ),
+                                        child: Text(
+                                          '${index + 1}/${widget.pages.length}',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  Positioned(
+                                    top: 6,
+                                    right: 6,
+                                    child: IconButton(
+                                      tooltip: 'Ampliar',
+                                      onPressed: () =>
+                                          _openZoom(context, index),
+                                      style: IconButton.styleFrom(
+                                        backgroundColor: const Color(0xFF0F172A)
+                                            .withValues(alpha: 0.75),
+                                        foregroundColor: Colors.white,
+                                        minimumSize: const Size(44, 44),
+                                      ),
+                                      icon:
+                                          const Icon(Icons.fullscreen_rounded),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: InteractiveViewer(
-                          minScale: 0.85,
-                          maxScale: 4,
-                          child: Image.memory(
-                            pages[index],
-                            fit: BoxFit.contain,
-                            gaplessPlayback: true,
-                          ),
-                        ),
-                      ),
-                    ],
+                        );
+                      },
+                    ),
                   ),
                 );
               },
@@ -3527,95 +5416,255 @@ class _PdfEditPreviewScreen extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  OutlinedButton.icon(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.edit_rounded, size: 18),
-                    label: const Text(
-                      'Voltar ao editor',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                      foregroundColor: Colors.white,
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.45),
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  // Escolher pasta
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF2563EB), Color(0xFF3B82F6)],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF2563EB).withValues(alpha: 0.4),
-                          blurRadius: 18,
-                          offset: const Offset(0, 6),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 44,
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                      label: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Voltar ao editor',
+                          maxLines: 1,
+                          style: TextStyle(fontWeight: FontWeight.w800),
                         ),
-                      ],
-                    ),
-                    child: FilledButton.icon(
-                      onPressed: () => Navigator.pop(context, 'save_folder'),
-                      icon: const Icon(Icons.folder_open_rounded, size: 22),
-                      label: const Text(
-                        'Escolher pasta',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w900, fontSize: 16),
                       ),
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(54),
-                        backgroundColor: Colors.transparent,
+                      style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.white,
-                        shadowColor: Colors.transparent,
+                        side: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.45),
+                        ),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(14),
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  // Compartilhar
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF22C55E), Color(0xFF34D399)],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF22C55E).withValues(alpha: 0.4),
-                          blurRadius: 18,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: FilledButton.icon(
-                      onPressed: () => Navigator.pop(context, 'share'),
-                      icon: const Icon(Icons.share_rounded, size: 22),
-                      label: const Text(
-                        'Compartilhar',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w900, fontSize: 16),
-                      ),
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size.fromHeight(54),
-                        backgroundColor: Colors.transparent,
-                        foregroundColor: Colors.white,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                    ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: preferShare
+                        ? [
+                            _actionBtn(
+                              label: 'Enviar',
+                              icon: Icons.ios_share_rounded,
+                              color: g.first,
+                              onTap: () => Navigator.pop(context, 'share'),
+                            ),
+                            const SizedBox(width: 8),
+                            _actionBtn(
+                              label: 'Salvar',
+                              icon: Icons.save_rounded,
+                              color: const Color(0xFF2563EB),
+                              onTap: () =>
+                                  Navigator.pop(context, 'save_folder'),
+                            ),
+                          ]
+                        : [
+                            _actionBtn(
+                              label: 'Salvar',
+                              icon: Icons.save_rounded,
+                              color: const Color(0xFF2563EB),
+                              onTap: () =>
+                                  Navigator.pop(context, 'save_folder'),
+                            ),
+                            const SizedBox(width: 8),
+                            _actionBtn(
+                              label: 'Enviar',
+                              icon: Icons.ios_share_rounded,
+                              color: g.first,
+                              onTap: () => Navigator.pop(context, 'share'),
+                            ),
+                          ],
                   ),
                 ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Ampliação dedicada da página — zoom/pan sem disputar gestos com a lista da
+/// prévia. O botão **Retornar** permanece sempre visível.
+class _PdfPageZoomScreen extends StatefulWidget {
+  const _PdfPageZoomScreen({
+    required this.page,
+    required this.pageNumber,
+    required this.pageCount,
+    required this.gradient,
+    this.aspect = 210 / 297,
+  });
+
+  final Uint8List page;
+  final int pageNumber;
+  final int pageCount;
+  final List<Color> gradient;
+  final double aspect;
+
+  @override
+  State<_PdfPageZoomScreen> createState() => _PdfPageZoomScreenState();
+}
+
+class _PdfPageZoomScreenState extends State<_PdfPageZoomScreen> {
+  final TransformationController _controller = TransformationController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _setScale(double target) {
+    final scale = target.clamp(1.0, 8.0);
+    final matrix = Matrix4.identity()
+      ..setEntry(0, 0, scale)
+      ..setEntry(1, 1, scale);
+    _controller.value = matrix;
+    setState(() {});
+  }
+
+  void _zoomBy(double factor) {
+    _setScale(_controller.value.getMaxScaleOnAxis() * factor);
+  }
+
+  void _reset() => _setScale(1);
+
+  @override
+  Widget build(BuildContext context) {
+    final current = _controller.value.getMaxScaleOnAxis();
+    return Scaffold(
+      backgroundColor: const Color(0xFF020617),
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leadingWidth: 118,
+        leading: TextButton.icon(
+          onPressed: () => Navigator.of(context).pop(),
+          icon: const Icon(Icons.arrow_back_rounded, size: 20),
+          label: const Text(
+            'Retornar',
+            style: TextStyle(fontWeight: FontWeight.w800),
+          ),
+          style: TextButton.styleFrom(foregroundColor: Colors.white),
+        ),
+        title: Text(
+          'Página ${widget.pageNumber} de ${widget.pageCount}',
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+        ),
+        centerTitle: true,
+        backgroundColor: widget.gradient.first,
+        foregroundColor: Colors.white,
+        elevation: 0,
+      ),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              onDoubleTap: current > 1.05 ? _reset : () => _setScale(2.5),
+              child: InteractiveViewer(
+                transformationController: _controller,
+                minScale: 1,
+                maxScale: 8,
+                boundaryMargin: const EdgeInsets.all(80),
+                onInteractionEnd: (_) => setState(() {}),
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: LayoutBuilder(
+                      builder: (context, c) {
+                        final aspect =
+                            widget.aspect > 0.05 ? widget.aspect : 1.0;
+                        final maxW = c.maxWidth;
+                        final maxH = c.maxHeight;
+                        late final double w;
+                        late final double h;
+                        if (maxW / maxH > aspect) {
+                          h = maxH;
+                          w = h * aspect;
+                        } else {
+                          w = maxW;
+                          h = w / aspect;
+                        }
+                        return Container(
+                          width: w,
+                          height: h,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.3),
+                                blurRadius: 20,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: Image.memory(
+                              widget.page,
+                              width: w,
+                              height: h,
+                              fit: BoxFit.contain,
+                              gaplessPlayback: true,
+                              filterQuality: FilterQuality.high,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 16,
+            child: SafeArea(
+              top: false,
+              child: Center(
+                child: Material(
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(18),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: 'Diminuir',
+                          onPressed:
+                              current <= 1.01 ? null : () => _zoomBy(1 / 1.4),
+                          icon: const Icon(Icons.remove_rounded),
+                          color: Colors.white,
+                          disabledColor: Colors.white38,
+                        ),
+                        TextButton(
+                          onPressed: _reset,
+                          style: TextButton.styleFrom(
+                              foregroundColor: Colors.white),
+                          child: Text(
+                            '${(current * 100).round()}%',
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Ampliar',
+                          onPressed:
+                              current >= 7.99 ? null : () => _zoomBy(1.4),
+                          icon: const Icon(Icons.add_rounded),
+                          color: Colors.white,
+                          disabledColor: Colors.white38,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
           ),

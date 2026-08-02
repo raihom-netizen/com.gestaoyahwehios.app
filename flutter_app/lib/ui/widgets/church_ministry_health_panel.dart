@@ -13,13 +13,17 @@ import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/core/finance_church_ops.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
+import 'package:gestao_yahweh/services/relatorio_service.dart';
 import 'package:gestao_yahweh/ui/pages/visitors_page.dart';
+import 'package:gestao_yahweh/ui/widgets/modern_pdf_period_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_attention_member_card.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/church_finance_realtime_service.dart';
+import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
+import 'package:gestao_yahweh/utils/pdf_financeiro_super_extrato.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
@@ -1693,6 +1697,218 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     );
   }
 
+  /// Totais do período + saldo de abertura (paridade Controle Total).
+  ({
+    double saldoAbertura,
+    double receitas,
+    double despesas,
+    double saldoAcumulado,
+    int despesasPendentes,
+  }) _panelFinancePeriodTotals(Set<String> idsAtivos) {
+    final w = widget.financePeriodRange;
+    final dayBefore = DateTime(w.start.year, w.start.month, w.start.day)
+        .subtract(const Duration(days: 1));
+    final ateAbertura = DateTime(
+        dayBefore.year, dayBefore.month, dayBefore.day, 23, 59, 59, 999);
+    final maps = _financeAllDocs.map((d) => d.data());
+    final aberturaMap = financeSaldoPorContaAteInclusive(
+      contaIdsAtivas: idsAtivos,
+      lancamentos: maps,
+      ateInclusive: ateAbertura,
+    );
+    final fimMap = financeSaldoPorContaAteInclusive(
+      contaIdsAtivas: idsAtivos,
+      lancamentos: maps,
+      ateInclusive: w.end,
+    );
+    var receitas = 0.0;
+    var despesas = 0.0;
+    var despesasPendentes = 0;
+    for (final d in _financeAllDocs) {
+      final m = d.data();
+      final dt = financeLancamentoDate(m);
+      if (dt == null) continue;
+      if (dt.isBefore(w.start) || dt.isAfter(w.end)) continue;
+      final tipo = (m['type'] ?? m['tipo'] ?? '').toString().toLowerCase();
+      if (tipo.contains('transfer')) continue;
+      final valor = financeParseValorBr(m['amount'] ?? m['valor']).abs();
+      final isEntrada =
+          tipo.contains('entrada') || tipo.contains('receita');
+      final isSaida = tipo.contains('saida') || tipo.contains('despesa');
+      if (isEntrada) {
+        if (financeLancamentoEfetivadoParaSaldo(m)) receitas += valor;
+      } else if (isSaida) {
+        if (financeLancamentoPendentePagamento(m)) {
+          despesasPendentes++;
+        } else if (financeLancamentoEfetivadoParaSaldo(m)) {
+          despesas += valor;
+        }
+      }
+    }
+    final saldoAbertura =
+        aberturaMap.values.fold<double>(0, (a, b) => a + b);
+    final saldoAcumulado = fimMap.values.fold<double>(0, (a, b) => a + b);
+    return (
+      saldoAbertura: saldoAbertura,
+      receitas: receitas,
+      despesas: despesas,
+      saldoAcumulado: saldoAcumulado,
+      despesasPendentes: despesasPendentes,
+    );
+  }
+
+  Future<void> _exportPanelFinancePdf({
+    required double saldoAbertura,
+    required double receitas,
+    required double despesas,
+  }) async {
+    final w = widget.financePeriodRange;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('A gerar PDF financeiro…')),
+    );
+    try {
+      final txRows = <Map<String, dynamic>>[];
+      for (final d in _financeAllDocs) {
+        final m = d.data();
+        final dt = financeLancamentoDate(m);
+        if (dt == null) continue;
+        if (dt.isBefore(w.start) || dt.isAfter(w.end)) continue;
+        final tipo = (m['type'] ?? m['tipo'] ?? '').toString().toLowerCase();
+        if (tipo.contains('transfer')) continue;
+        if (!financeLancamentoEfetivadoParaSaldo(m)) continue;
+        final isInc =
+            tipo.contains('entrada') || tipo.contains('receita');
+        final cat = (m['categoria'] ?? m['category'] ?? '').toString().trim();
+        final desc =
+            (m['descricao'] ?? m['description'] ?? '').toString().trim();
+        final titulo =
+            desc.isNotEmpty ? desc : (isInc ? 'Receita' : 'Despesa');
+        txRows.add({
+          'sortMs': dt.millisecondsSinceEpoch,
+          'data': DateFormat('dd/MM/yyyy').format(dt),
+          'categoria': cat,
+          'titulo': titulo,
+          'descricao': RelatorioService.sanitizeForReport(
+            (cat.isNotEmpty ? 'Categoria: $cat' : '') +
+                (cat.isNotEmpty && desc.isNotEmpty ? ' — ' : '') +
+                (desc.isNotEmpty
+                    ? 'Descricao: $desc'
+                    : (cat.isEmpty ? (isInc ? 'Receita' : 'Despesa') : '')),
+          ),
+          'tipo': isInc ? 'receita' : 'despesa',
+          'valor': financeParseValorBr(m['amount'] ?? m['valor']).abs(),
+        });
+      }
+      if (txRows.isEmpty) {
+        if (!mounted) return;
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Nenhum lançamento no período.')),
+        );
+        return;
+      }
+      txRows.sort(
+          (a, b) => (a['sortMs'] as int).compareTo(b['sortMs'] as int));
+      final branding = await RelatorioService.loadFinanceReportPdfBranding(
+        tenantId: widget.tenantId,
+      );
+      final brand = RelatorioService.financeBrandTitle(branding);
+      final systemLogo = await RelatorioService.loadFinanceSystemLogoBytes();
+      final periodo =
+          '${DateFormat('dd/MM/yyyy').format(w.start)} a ${DateFormat('dd/MM/yyyy').format(w.end)}';
+      final bytes = await gerarPdfFinanceiroSuperExtrato(
+        transacoes: txRows,
+        nomeUsuario: brand,
+        conta: 'Todas as contas',
+        periodo: periodo,
+        saldoAbertura: saldoAbertura,
+        totalReceitas: receitas,
+        totalDespesas: despesas,
+        logoPngBytes: RelatorioService.financeHeaderLogoBytes(branding),
+        brandTitle: brand,
+        footerBrand: RelatorioService.kFinanceFooterBrand,
+        documentSubtitle: 'Extrato Financeiro — Painel',
+        churchDetailLines: branding.churchDetailLines,
+        systemLogoPngBytes: systemLogo,
+      );
+      if (!mounted) return;
+      await showPdfActions(
+        context,
+        bytes: bytes,
+        filename: RelatorioService.reportFilenameFromPeriod(
+          'financas_painel',
+          w.start,
+          w.end,
+          null,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('Erro ao gerar PDF: $e')));
+    }
+  }
+
+  Widget _panelSummaryMiniCard({
+    required String label,
+    required double value,
+    required Color accent,
+    String? hint,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: accent,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _brMoney.format(value),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+              color: accent,
+              letterSpacing: -0.3,
+            ),
+          ),
+          if (hint != null && hint.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              hint,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _financeBlock(
       BuildContext context, ChurchFinanceInsight fi, bool narrow) {
     final meta = fi.metaValor != null && fi.metaValor! > 0;
@@ -1708,19 +1924,25 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       lancamentos: _financeAllDocs.map((d) => d.data()),
       ateInclusive: widget.financePeriodRange.end,
     );
+    final totals = _panelFinancePeriodTotals(idsAtivos);
+    final periodLabel =
+        ChurchDashboardFinancePeriod.presetLabel(widget.financePeriodPreset);
+    const pos = Color(0xFF16A34A);
+    const neg = Color(0xFFDC2626);
 
     Widget contaCards() {
       if (contasAtivas.isEmpty) {
         return Text(
-          'Cadastre contas em Financeiro → aba Contas para ver saldos e lançamentos por conta aqui.',
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.35),
+          'Cadastre contas em Financeiro → aba Contas para ver saldos por conta.',
+          style: TextStyle(
+              fontSize: 12, color: Colors.grey.shade700, height: 1.35),
         );
       }
       final children = contasAtivas.map((acc) {
         final id = acc.id;
         final nome = (acc.data()['nome'] ?? 'Conta').toString();
         final saldo = saldoPorConta[id] ?? 0.0;
-        final cor = saldo >= 0 ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
+        final cor = saldo >= 0 ? pos : neg;
         return Material(
           color: Colors.transparent,
           child: InkWell(
@@ -1728,9 +1950,11 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
             onTap: () => _openPanelFinanceAccountSheet(context, id, nome),
             child: Container(
               width: narrow ? null : 168,
-              constraints:
-                  BoxConstraints(minWidth: narrow ? 0 : 168, maxWidth: narrow ? double.infinity : 168),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              constraints: BoxConstraints(
+                  minWidth: narrow ? 0 : 168,
+                  maxWidth: narrow ? double.infinity : 168),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(14),
@@ -1777,7 +2001,8 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                   ),
                   Text(
                     'Toque para lançamentos',
-                    style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
+                    style:
+                        TextStyle(fontSize: 10, color: Colors.grey.shade500),
                   ),
                 ],
               ),
@@ -1787,11 +2012,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       }).toList();
 
       if (narrow) {
-        return Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: children,
-        );
+        return Wrap(spacing: 10, runSpacing: 10, children: children);
       }
       return SizedBox(
         height: 118,
@@ -1804,143 +2025,249 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       );
     }
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            const Color(0xFFF0FDF4),
-            const Color(0xFFEFF6FF),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFBBF7D0)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    // Faixa verde = padrão Controle Total (saldo abertura / receitas / despesas / saldo).
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF14532D), Color(0xFF166534), Color(0xFF15803D)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF16A34A).withValues(alpha: 0.32),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.9),
-                  borderRadius: BorderRadius.circular(12),
+              Text(
+                'Finanças no painel · $periodLabel',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.95),
                 ),
-                child: Icon(Icons.payments_rounded,
-                    color: Colors.green.shade700, size: 22),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(height: 10),
+              _panelSummaryMiniCard(
+                label: 'Saldo de abertura',
+                value: totals.saldoAbertura,
+                accent:
+                    totals.saldoAbertura >= 0 ? pos : neg,
+                hint: 'Até o início do período',
+              ),
+              const SizedBox(height: 10),
+              if (narrow) ...[
+                _panelSummaryMiniCard(
+                  label: 'Receitas',
+                  value: totals.receitas,
+                  accent: pos,
+                  hint: 'Recebidas no período',
+                ),
+                const SizedBox(height: 10),
+                _panelSummaryMiniCard(
+                  label: 'Despesas',
+                  value: totals.despesas,
+                  accent: neg,
+                  hint: totals.despesasPendentes > 0
+                      ? '${totals.despesasPendentes} pendente(s)'
+                      : 'Pagas no período',
+                ),
+                const SizedBox(height: 10),
+                _panelSummaryMiniCard(
+                  label: 'Saldo',
+                  value: totals.saldoAcumulado,
+                  accent: totals.saldoAcumulado >= 0 ? pos : neg,
+                  hint: 'Acumulado até o fim do período',
+                ),
+              ] else
+                Row(
                   children: [
-                    const Text(
-                      'Finanças no painel',
-                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                    Expanded(
+                      child: _panelSummaryMiniCard(
+                        label: 'Receitas',
+                        value: totals.receitas,
+                        accent: pos,
+                        hint: 'Recebidas no período',
+                      ),
                     ),
-                    Text(
-                      'Saldo por conta até o fim do período (${ChurchDashboardFinancePeriod.presetLabel(widget.financePeriodPreset)}), incluindo saldo anterior — receitas recebidas, despesas pagas e transferências. Toque para detalhes.',
-                      style: TextStyle(
-                          fontSize: 11, color: Colors.grey.shade700, height: 1.3),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _panelSummaryMiniCard(
+                        label: 'Despesas',
+                        value: totals.despesas,
+                        accent: neg,
+                        hint: totals.despesasPendentes > 0
+                            ? '${totals.despesasPendentes} pendente(s)'
+                            : 'Pagas no período',
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _panelSummaryMiniCard(
+                        label: 'Saldo',
+                        value: totals.saldoAcumulado,
+                        accent: totals.saldoAcumulado >= 0 ? pos : neg,
+                        hint: 'Acumulado até o fim',
+                      ),
                     ),
                   ],
+                ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF166534), Color(0xFF22C55E)],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.pie_chart_outline_rounded,
+                          color: Colors.white, size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Saldo por contas',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFF14532D),
+                            ),
+                          ),
+                          Text(
+                            'Corrente, poupança e caixas — toque no card abaixo',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              contaCards(),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ModernPdfExportButton(
+                  label: 'Exportar PDF',
+                  onPressed: () => unawaited(_exportPanelFinancePdf(
+                    saldoAbertura: totals.saldoAbertura,
+                    receitas: totals.receitas,
+                    despesas: totals.despesas,
+                  )),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
-          Text(
-            'Saldos por conta (período)',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 12,
-              color: Colors.grey.shade800,
-            ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0FDF4),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFBBF7D0)),
           ),
-          const SizedBox(height: 8),
-          contaCards(),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.75),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.insights_rounded,
-                        color: Colors.green.shade700, size: 18),
-                    const SizedBox(width: 6),
-                    Text(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.insights_rounded,
+                      color: Color(0xFF166534), size: 18),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
                       'Inteligência (equiv. mensal no período)',
                       style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 12,
-                          color: Colors.grey.shade800),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                        color: Color(0xFF14532D),
+                      ),
                     ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (narrow) ...[
+                _finRow('Média entradas / mês',
+                    _brMoney.format(fi.mediaEntradasMensal)),
+                _finRow('Média saídas / mês',
+                    _brMoney.format(fi.mediaSaidasMensal)),
+                _finRow('Projeção saídas',
+                    _brMoney.format(fi.projecaoSaidasProxMes)),
+              ] else
+                Row(
+                  children: [
+                    Expanded(
+                        child: _finRow('Média entradas / mês',
+                            _brMoney.format(fi.mediaEntradasMensal))),
+                    Expanded(
+                        child: _finRow('Média saídas / mês',
+                            _brMoney.format(fi.mediaSaidasMensal))),
+                    Expanded(
+                        child: _finRow('Projeção saídas',
+                            _brMoney.format(fi.projecaoSaidasProxMes))),
                   ],
                 ),
-                const SizedBox(height: 10),
-                if (narrow) ...[
-                  _finRow('Média entradas / mês', _brMoney.format(fi.mediaEntradasMensal)),
-                  _finRow('Média saídas / mês', _brMoney.format(fi.mediaSaidasMensal)),
-                  _finRow('Projeção saídas', _brMoney.format(fi.projecaoSaidasProxMes)),
-                ] else
-                  Row(
-                    children: [
-                      Expanded(
-                          child: _finRow('Média entradas / mês',
-                              _brMoney.format(fi.mediaEntradasMensal))),
-                      Expanded(
-                          child: _finRow('Média saídas / mês',
-                              _brMoney.format(fi.mediaSaidasMensal))),
-                      Expanded(
-                          child: _finRow(
-                              'Projeção saídas', _brMoney.format(fi.projecaoSaidasProxMes))),
-                    ],
+              if (meta) ...[
+                const SizedBox(height: 12),
+                Text(
+                  fi.metaTitulo ?? 'Meta ministerial',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: Color(0xFF14532D)),
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: LinearProgressIndicator(
+                    value: pct,
+                    minHeight: 14,
+                    backgroundColor: Colors.white,
+                    color: const Color(0xFF22C55E),
                   ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${_brMoney.format(fi.metaAcumulado ?? 0)} de ${_brMoney.format(fi.metaValor!)} (${(pct * 100).toStringAsFixed(0)}%)',
+                  style:
+                      TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                ),
               ],
-            ),
+            ],
           ),
-          if (meta) ...[
-            const SizedBox(height: 14),
-            Text(
-              fi.metaTitulo ?? 'Meta ministerial',
-              style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13,
-                  color: Colors.green.shade900),
-            ),
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(999),
-              child: LinearProgressIndicator(
-                value: pct,
-                minHeight: 14,
-                backgroundColor: Colors.white,
-                color: const Color(0xFF22C55E),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '${_brMoney.format(fi.metaAcumulado ?? 0)} de ${_brMoney.format(fi.metaValor!)} (${(pct * 100).toStringAsFixed(0)}%)',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-            ),
-            Text(
-              'Edite em Cadastro da igreja → seção Meta ministerial (painel).',
-              style: TextStyle(fontSize: 10, color: Colors.grey.shade500),
-            ),
-          ],
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -1952,8 +2279,11 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
         children: [
           Expanded(
               child: Text(k,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700))),
-          Text(v, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                  style:
+                      TextStyle(fontSize: 12, color: Colors.grey.shade700))),
+          Text(v,
+              style:
+                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
         ],
       ),
     );

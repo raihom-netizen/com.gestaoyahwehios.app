@@ -16,6 +16,8 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:gestao_yahweh/core/app_startup_preheat.dart';
 import 'package:gestao_yahweh/core/app_startup_route.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:gestao_yahweh/features/chat/data/tdlib_background_push.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_credentials.dart';
 import 'package:gestao_yahweh/features/chat/presentation/telegram_login_screen.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
@@ -438,6 +440,19 @@ void main() async {
   //    Obrigatório antes de Firestore/Auth/Storage ou runApp (evita core/no-app).
   await FirebaseBootstrap.ensureInitialized();
   FirebaseBootstrapService.refreshCachedApp();
+
+  // 2b. Push TDLib com app fechado (isolate) — registar antes do runApp.
+  if (!kIsWeb) {
+    try {
+      FirebaseMessaging.onBackgroundMessage(
+        tdlibFirebaseMessagingBackgroundHandler,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('FirebaseMessaging.onBackgroundMessage: $e');
+      }
+    }
+  }
 
   // 3. Health + settings Firestore/Auth/Storage — exige app [DEFAULT] pronto.
   final firebaseBoot = await FirebaseBootstrapService.initialize();

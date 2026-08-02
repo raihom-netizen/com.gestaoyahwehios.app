@@ -183,6 +183,7 @@ class _TelegramChatListScreenState extends State<TelegramChatListScreen> {
                                 builder: (_) => TdlibChatThreadPage(
                                   chatId: c.id,
                                   title: c.title,
+                                  isGroup: c.isGroup,
                                 ),
                               ),
                             );

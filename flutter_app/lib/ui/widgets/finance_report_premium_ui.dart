@@ -12,9 +12,9 @@ abstract final class FinanceReportColors {
   static const despesas = Color(0xFFDC2626);
   static const saldoPos = Color(0xFF059669);
   static const saldoNeg = Color(0xFFB91C1C);
-  static const heroStart = Color(0xFF0F766E);
-  static const heroEnd = Color(0xFF134E4A);
-  static const accent = Color(0xFF059669);
+  static const heroStart = Color(0xFF14532D);
+  static const heroEnd = Color(0xFF15803D);
+  static const accent = Color(0xFF16A34A);
 }
 
 /// Hero principal ÔÇö balan├ºo receitas ├ù despesas (estilo resumo financeiro).
@@ -44,8 +44,8 @@ class FinanceReportBalanceHero extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [
             FinanceReportColors.heroStart,
+            Color(0xFF166534),
             FinanceReportColors.heroEnd,
-            Color(0xFF0F172A),
           ],
         ),
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),

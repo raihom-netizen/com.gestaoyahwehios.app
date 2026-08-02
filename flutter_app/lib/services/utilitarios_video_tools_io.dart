@@ -1,4 +1,4 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit.dart';
@@ -8,7 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:video_compress/video_compress.dart';
 
-import 'utilitarios_local_service.dart';
+import 'package:gestao_yahweh/services/utilitarios_local_service.dart';
 import 'utilitarios_video_models.dart';
 
 class UtilitariosVideoToolResult {

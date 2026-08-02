@@ -1,18 +1,18 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show kMaxAvisoFeedPhotosPerPost, kMaxEventFeedPhotosPerPost;
 
-/// Avisos: **só fotos**, até [kMaxAvisoFeedPhotosPerPost]. Eventos: até [kMaxEventFeedPhotosPerPost] fotos.
+/// Avisos: fotos (estilo Instagram) + 1 vídeo (YouTube ou hospedado).
+/// Eventos: até [kMaxEventFeedPhotosPerPost] fotos + 1 vídeo.
 const String kChurchPostTypeAviso = 'aviso';
 const String kChurchPostTypeEvento = 'evento';
 
-/// Eventos — 1 vídeo hospedado (90 s, 720p).
+/// Eventos / avisos — 1 vídeo hospedado (90 s, 720p) ou link YouTube.
 const int kMaxEventFeedVideosPerPost = 1;
+const int kMaxAvisoFeedVideosPerPost = 1;
 
-bool churchPostTypeAllowsHostedVideo(String postType) =>
-    postType.trim() != kChurchPostTypeAviso;
+bool churchPostTypeAllowsHostedVideo(String postType) => true;
 
 int churchPostMaxFeedPhotos(String postType) =>
     postType.trim() == kChurchPostTypeEvento
@@ -20,29 +20,17 @@ int churchPostMaxFeedPhotos(String postType) =>
         : kMaxAvisoFeedPhotosPerPost;
 
 int churchPostMaxFeedVideos(String postType) =>
-    postType.trim() == kChurchPostTypeEvento ? kMaxEventFeedVideosPerPost : 0;
+    postType.trim() == kChurchPostTypeEvento
+        ? kMaxEventFeedVideosPerPost
+        : kMaxAvisoFeedVideosPerPost;
 
-/// Remove campos de vídeo ao gravar/publicar aviso (legado YouTube/Vimeo no doc).
+/// Mantido por compatibilidade — avisos agora **aceitam** vídeo/YouTube.
+@Deprecated('Avisos aceitam vídeo; não remova campos de vídeo.')
 Map<String, dynamic> stripVideoFieldsForAvisoPayload(
   Map<String, dynamic> payload, {
   required bool allowDeleteSentinels,
 }) {
-  final out = Map<String, dynamic>.from(payload);
-  final del = FieldValue.delete();
-  if (allowDeleteSentinels) {
-    out['videoUrl'] = del;
-    out['videos'] = del;
-  } else {
-    out['videoUrl'] = '';
-    out['videos'] = <dynamic>[];
-  }
-  final mi = out['media_info'];
-  if (mi is Map<String, dynamic>) {
-    final copy = Map<String, dynamic>.from(mi);
-    copy['tipo'] = 'image';
-    out['media_info'] = copy;
-  }
-  return out;
+  return Map<String, dynamic>.from(payload);
 }
 
 /// Eventos + avisos — upload rápido + visual aceitável (padrão Controle Total).

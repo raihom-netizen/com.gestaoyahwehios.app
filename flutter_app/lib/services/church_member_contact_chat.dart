@@ -364,16 +364,22 @@ abstract final class ChurchMemberContactChat {
       memberDocId: memberDocId,
     );
     final peerUid = resolved.peerUid?.trim();
-    if (peerUid == null || peerUid.isEmpty) {
+    final phoneDigits = _stripPhoneDigits(
+      resolved.data['telefone'] ??
+          resolved.data['phone'] ??
+          memberData['telefone'] ??
+          memberData['phone'],
+    );
+    // Telegram (TDLib): telefone basta. Chat Firestore: precisa authUid.
+    if ((peerUid == null || peerUid.isEmpty) && phoneDigits.length < 10) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Este membro ainda não tem conta no app (login). '
-          'Ative o acesso em Membros ou use o WhatsApp.',
+          'Cadastre o telefone do membro (mesmo do Telegram) ou ative o login no app.',
         ),
       );
       return;
     }
-    if (peerUid == myUid) {
+    if (peerUid != null && peerUid == myUid) {
       messenger?.showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
           'Você não pode abrir chat consigo mesmo.',
@@ -386,16 +392,19 @@ abstract final class ChurchMemberContactChat {
         displayName.trim().isEmpty ? 'Membro' : displayName.trim();
 
     final titleA = firebaseDefaultAuth.currentUser?.displayName ?? 'Eu';
-    final threadId = ChurchChatService.dmThreadId(myUid, peerUid);
+    final threadId = (peerUid != null && peerUid.isNotEmpty)
+        ? ChurchChatService.dmThreadId(myUid, peerUid)
+        : 'tdlib_phone_$phoneDigits';
     final draft = (draftText ?? faleComigoDraft()).trim();
 
-    // Navega para o Yahweh Chat nativo (hub consome DM pendente).
+    // Navega para o Yahweh Chat nativo (hub TDLib consome telefone / DM).
     ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
       threadId: threadId,
       tenantId: operationalTenant,
       peerUid: peerUid,
       displayName: titulo,
       initialDraftText: draft.isEmpty ? null : draft,
+      phoneDigits: phoneDigits.length >= 10 ? phoneDigits : null,
     );
     ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
     Future<void>.delayed(const Duration(milliseconds: 350), () {
@@ -405,15 +414,17 @@ abstract final class ChurchMemberContactChat {
       ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
     });
 
-    unawaited(
-      ChurchChatService.ensureDmThreadResilient(
-        tenantId: operationalTenant,
-        uidA: myUid,
-        uidB: peerUid,
-        titleA: titleA,
-        titleB: titulo,
-      ),
-    );
+    if (peerUid != null && peerUid.isNotEmpty) {
+      unawaited(
+        ChurchChatService.ensureDmThreadResilient(
+          tenantId: operationalTenant,
+          uidA: myUid,
+          uidB: peerUid,
+          titleA: titleA,
+          titleB: titulo,
+        ),
+      );
+    }
   }
 
   static Future<void> openWhatsAppFaleComigo(

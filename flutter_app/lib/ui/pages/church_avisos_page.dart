@@ -12,14 +12,17 @@ import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_service.dart';
 import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
+import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/church_avisos_carousel.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
+    show showChurchHostedVideoTheater;
+import 'package:gestao_yahweh/ui/widgets/church_instagram_photo_gallery.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/church_youtube/church_youtube_player_shell.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
-import 'package:gestao_yahweh/ui/widgets/yahweh_original_media_viewer.dart'
-    show showYahwehOriginalImageZoom;
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
@@ -32,6 +35,7 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
         kFeedPublishQueuedUserMessage;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
+import 'package:gestao_yahweh/utils/youtube_url_helper.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
@@ -1611,20 +1615,15 @@ class _AvisoViewerSheet extends StatefulWidget {
 }
 
 class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
-  final PageController _pageCtrl = PageController();
-  int _index = 0;
-
-  @override
-  void dispose() {
-    _pageCtrl.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
     final tone = _resolveAvisoTone(item);
     final pad = MediaQuery.of(context).padding;
+    final ytId = item.youtubeVideoId;
+    final hostedVideo = !YoutubeUrlHelper.isValidYoutubeUrl(item.videoUrl)
+        ? item.videoUrl.trim()
+        : '';
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.sizeOf(context).height * 0.92,
@@ -1694,8 +1693,15 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
                             : 'Com vencimento',
                         tone.primary,
                       ),
-                      _viewerTag(Icons.photo_library_rounded,
-                          '${item.imageUrls.length} foto(s)', tone.secondary),
+                      if (item.imageUrls.isNotEmpty)
+                        _viewerTag(Icons.photo_library_rounded,
+                            '${item.imageUrls.length} foto(s)', tone.secondary),
+                      if (item.hasVideo)
+                        _viewerTag(
+                          Icons.play_circle_rounded,
+                          ytId.isNotEmpty ? 'YouTube' : 'Vídeo',
+                          const Color(0xFFE1306C),
+                        ),
                     ],
                   ),
                   if (item.authorName.isNotEmpty) ...[
@@ -1710,92 +1716,44 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
                     ),
                   ],
                   const SizedBox(height: 14),
-                  if (item.imageUrls.isNotEmpty)
-                    Column(
-                      children: [
-                        // Foto inteira (sem corte) + toque para ampliar em ecrã cheio.
-                        SizedBox(
-                          height: (MediaQuery.sizeOf(context).height * 0.72)
-                              .clamp(430.0, 900.0),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: PageView.builder(
-                              controller: _pageCtrl,
-                              itemCount: item.imageUrls.length,
-                              onPageChanged: (i) => setState(() => _index = i),
-                              itemBuilder: (_, i) => GestureDetector(
-                                onTap: () => showYahwehOriginalImageZoom(
-                                  context,
-                                  imageUrl: item.imageUrls[i],
-                                ),
-                                child: Container(
-                                  color: const Color(0xFF0F172A),
-                                  child: Stack(
-                                    fit: StackFit.expand,
-                                    children: [
-                                      SafeNetworkImage(
-                                        imageUrl: item.imageUrls[i],
-                                        fit: BoxFit.contain,
-                                      ),
-                                      Positioned(
-                                        right: 10,
-                                        bottom: 10,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 10, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color: Colors.black
-                                                .withValues(alpha: 0.55),
-                                            borderRadius:
-                                                BorderRadius.circular(999),
-                                          ),
-                                          child: const Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(Icons.zoom_out_map_rounded,
-                                                  color: Colors.white,
-                                                  size: 15),
-                                              SizedBox(width: 5),
-                                              Text(
-                                                'Ampliar',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                  if (ytId.isNotEmpty) ...[
+                    ChurchYoutubePlayerShell(
+                      youtubeVideoId: ytId,
+                      borderRadius: 16,
+                    ),
+                    const SizedBox(height: 12),
+                  ] else if (hostedVideo.isNotEmpty) ...[
+                    AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: Material(
+                        color: const Color(0xFF0F172A),
+                        borderRadius: BorderRadius.circular(16),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: () => unawaited(
+                            showChurchHostedVideoTheater(
+                              context,
+                              videoUrl: hostedVideo,
+                              title: item.title,
+                            ),
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.play_circle_rounded,
+                              size: 64,
+                              color: Colors.white,
                             ),
                           ),
                         ),
-                        if (item.imageUrls.length > 1) ...[
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 6,
-                            children: List.generate(
-                              item.imageUrls.length,
-                              (i) => AnimatedContainer(
-                                duration: const Duration(milliseconds: 180),
-                                width: i == _index ? 20 : 8,
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(999),
-                                  color: i == _index
-                                      ? tone.primary
-                                      : Colors.grey.shade300,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (item.imageUrls.isNotEmpty)
+                    ChurchInstagramPhotoGallery(
+                      imageUrls: item.imageUrls,
+                      accent: tone.primary,
+                      aspectRatio: 4 / 5,
                     ),
                   if (item.body.isNotEmpty) ...[
                     const SizedBox(height: 16),
@@ -1900,10 +1858,14 @@ class _ChurchAvisoEditorSheet extends StatefulWidget {
 class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   final _titleCtrl = TextEditingController();
   final _bodyCtrl = TextEditingController();
+  final _youtubeCtrl = TextEditingController();
   bool _permanent = true;
   DateTime _expiresAt = DateTime.now().add(const Duration(days: 7));
   final List<String> _existingImageUrls = [];
   final List<Uint8List> _photos = [];
+  String? _localVideoPath;
+  String? _existingVideoUrl;
+  bool _clearVideo = false;
   bool _publishing = false;
 
   bool get _isEdit => widget.initialItem != null;
@@ -1918,13 +1880,57 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     _permanent = item.permanent;
     _expiresAt = item.expiresAt ?? DateTime.now().add(const Duration(days: 7));
     _existingImageUrls.addAll(item.imageUrls);
+    if (item.youtubeVideoId.isNotEmpty) {
+      _youtubeCtrl.text = YoutubeUrlHelper.watchUrl(item.youtubeVideoId);
+    } else if (item.videoUrl.isNotEmpty &&
+        YoutubeUrlHelper.isValidYoutubeUrl(item.videoUrl)) {
+      _youtubeCtrl.text = item.videoUrl;
+    } else if (item.videoUrl.isNotEmpty) {
+      _existingVideoUrl = item.videoUrl;
+    }
   }
 
   @override
   void dispose() {
     _titleCtrl.dispose();
     _bodyCtrl.dispose();
+    _youtubeCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickVideo() async {
+    final xfile = await MediaHandlerService.instance.pickVideoFromGallery(
+      context: context,
+      module: YahwehMediaModule.avisos,
+      maxDuration: const Duration(seconds: 90),
+      maxSizeMb: 80,
+    );
+    if (!mounted || xfile == null) return;
+    final localPath = await FeedEditorMediaService.persistVideoXFileToTemp(
+      xfile,
+      prefix: 'gy_aviso_video',
+    );
+    if (localPath == null || localPath.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Não foi possível ler o vídeo.')),
+        );
+      }
+      return;
+    }
+    setState(() {
+      _localVideoPath = localPath;
+      _clearVideo = false;
+      _existingVideoUrl = null;
+      _youtubeCtrl.clear();
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Vídeo anexado — envio ao publicar (máx. 90s).',
+        ),
+      );
+    }
   }
 
   Future<void> _pickPhotos() async {
@@ -2115,6 +2121,8 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
           if (!publishDone.isCompleted) publishDone.complete(true);
         },
         action: (reportProgress) async {
+          final yt = _youtubeCtrl.text.trim();
+          final localVideo = _localVideoPath;
           if (isEdit) {
             await ChurchAvisosService.update(
               churchIdHint: widget.tenantId,
@@ -2125,6 +2133,9 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
               expiresAtEndOfDay: permanent ? null : expires,
               existingImageUrls: existing,
               newPhotoBytes: photos,
+              youtubeUrl: yt,
+              videoLocalPath: localVideo,
+              clearVideo: _clearVideo && yt.isEmpty && localVideo == null,
               role: widget.role,
               permissions: widget.permissions,
               onUploadProgress: reportProgress,
@@ -2137,6 +2148,8 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
               permanent: permanent,
               expiresAtEndOfDay: permanent ? null : expires,
               photoBytes: photos,
+              youtubeUrl: yt,
+              videoLocalPath: localVideo,
               role: widget.role,
               permissions: widget.permissions,
               onUploadProgress: reportProgress,
@@ -2287,8 +2300,86 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    TextField(
+                      controller: _youtubeCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'YouTube (opcional)',
+                        hintText: 'Cole o link do YouTube',
+                        prefixIcon: const Icon(Icons.play_circle_fill_rounded,
+                            color: Color(0xFFFF0000)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                      ),
+                      onChanged: (_) {
+                        if (_youtubeCtrl.text.trim().isNotEmpty) {
+                          setState(() {
+                            _localVideoPath = null;
+                            _clearVideo = false;
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: _publishing
+                                ? null
+                                : () {
+                                    if (kIsWeb) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Na web, cole o link do YouTube. '
+                                            'Upload de vídeo do aparelho: app Android/iOS.',
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    unawaited(_pickVideo());
+                                  },
+                            icon: const Icon(Icons.video_library_rounded,
+                                size: 18),
+                            label: Text(
+                              _localVideoPath != null
+                                  ? 'Vídeo anexado'
+                                  : (_existingVideoUrl != null && !_clearVideo
+                                      ? 'Trocar vídeo'
+                                      : 'Upload vídeo'),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              minimumSize: const Size(0, 48),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (_localVideoPath != null ||
+                            (_existingVideoUrl != null && !_clearVideo)) ...[
+                          const SizedBox(width: 8),
+                          IconButton.filledTonal(
+                            tooltip: 'Remover vídeo',
+                            onPressed: () => setState(() {
+                              _localVideoPath = null;
+                              _existingVideoUrl = null;
+                              _clearVideo = true;
+                            }),
+                            icon: const Icon(Icons.delete_outline_rounded),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 14),
                     Text(
-                      'Fotos (${_existingImageUrls.length + _photos.length}/${ChurchAvisosService.kMaxPhotos})',
+                      'Fotos Instagram (${_existingImageUrls.length + _photos.length}/${ChurchAvisosService.kMaxPhotos})',
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 8),

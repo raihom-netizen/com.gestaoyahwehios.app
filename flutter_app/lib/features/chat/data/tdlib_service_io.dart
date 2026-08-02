@@ -6,6 +6,11 @@ import 'package:libtdjson/libtdjson.dart' as td;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'package:gestao_yahweh/features/chat/data/tdlib_background_push.dart';
+import 'package:gestao_yahweh/features/chat/data/tdlib_chat_local_prefs.dart';
+import 'package:gestao_yahweh/features/chat/data/tdlib_ios_gate.dart';
+import 'package:gestao_yahweh/services/church_chat_alert_notification_service.dart';
+
 import 'tdlib_auth_state.dart';
 import 'tdlib_credentials.dart';
 
@@ -27,23 +32,40 @@ class TdLibService {
       StreamController<List<TdlibChatPreview>>.broadcast(sync: true);
   final _messagesController =
       StreamController<List<TdlibMessageItem>>.broadcast(sync: true);
+  final _peerActionController =
+      StreamController<TdlibPeerAction>.broadcast(sync: true);
 
   final Map<int, TdlibChatPreview> _chatsById = {};
   final Map<int, List<TdlibMessageItem>> _messagesByChat = {};
+  final Map<int, TdlibMessageItem?> _pinnedByChat = {};
+  final Map<int, TdlibUserPresence> _presenceByUser = {};
+  final Map<int, int> _privateChatUserId = {};
   int? _activeChatId;
   TdlibAuthSnapshot _snapshot = TdlibAuthSnapshot.idle;
+  bool _warming = false;
+  final _presenceController =
+      StreamController<TdlibUserPresence>.broadcast(sync: true);
 
   bool get isInitialized => _service != null;
   String get boundChurchId => _boundChurchId;
-  bool get isSupported =>
-      !kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS);
+  bool get isSupported {
+    if (kIsWeb) return false;
+    if (Platform.isAndroid || Platform.isMacOS) return true;
+    if (Platform.isIOS) return TdlibIosGate.shouldAttemptNativeOnIos;
+    return false;
+  }
   TdlibAuthSnapshot get currentAuth => _snapshot;
+  List<TdlibChatPreview> get cachedChats =>
+      List<TdlibChatPreview>.from(_chatsById.values);
 
   Stream<TdlibAuthSnapshot> get authorizationStateStream =>
       _authController.stream;
   Stream<List<TdlibChatPreview>> get chatsStream => _chatsController.stream;
   Stream<List<TdlibMessageItem>> get messagesStream =>
       _messagesController.stream;
+  Stream<TdlibPeerAction> get peerActionsStream =>
+      _peerActionController.stream;
+  Stream<TdlibUserPresence> get presenceStream => _presenceController.stream;
 
   /// Inicia o motor com sessão **separada por igreja** (DB local isolado).
   Future<void> init({String churchId = ''}) async {
@@ -62,7 +84,7 @@ class TdLibService {
       _emitAuth(_snapshot);
       return;
     }
-    if (kIsWeb) {
+    if (kIsWeb || !isSupported) {
       _emitAuth(TdlibAuthSnapshot.unsupported);
       return;
     }
@@ -84,6 +106,7 @@ class TdLibService {
       phase: TdlibAuthPhase.initializing,
       message: 'Iniciando motor Telegram (TDLib)…',
     ));
+    unawaited(_restoreChatListCache(cid));
 
     try {
       final support = await getApplicationSupportDirectory();
@@ -94,6 +117,13 @@ class TdLibService {
           Directory(p.join(support.path, 'tdlib', churchKey, 'files'));
       await dbDir.create(recursive: true);
       await filesDir.create(recursive: true);
+      unawaited(
+        TdlibBackgroundPushStore.saveSessionPaths(
+          churchId: cid,
+          dbDir: dbDir.path,
+          filesDir: filesDir.path,
+        ),
+      );
 
       final params = <String, dynamic>{
         'api_id': telegramApiId,
@@ -138,10 +168,19 @@ class TdLibService {
       );
     } catch (e, st) {
       debugPrint('[TdLib] init falhou: $e\n$st');
-      _emitAuth(TdlibAuthSnapshot(
-        phase: TdlibAuthPhase.error,
-        message: 'Falha ao carregar libtdjson: $e',
-      ));
+      // iOS: linker/plugin ausente → fallback Telegram embutido (sem crash).
+      if (Platform.isIOS) {
+        _emitAuth(TdlibAuthSnapshot.unsupported.copyWith(
+          message:
+              'TDLib iOS indisponível neste build — usando Telegram embutido '
+              '(mesma conta). Android mantém motor nativo.',
+        ));
+      } else {
+        _emitAuth(TdlibAuthSnapshot(
+          phase: TdlibAuthPhase.error,
+          message: 'Falha ao carregar libtdjson: $e',
+        ));
+      }
     } finally {
       _starting = false;
     }
@@ -154,9 +193,20 @@ class TdLibService {
     _service = null;
     _chatsById.clear();
     _messagesByChat.clear();
+    _pinnedByChat.clear();
     _activeChatId = null;
     _boundChurchId = '';
     _emitChats();
+  }
+
+  Future<void> _restoreChatListCache(String churchId) async {
+    if (churchId.trim().isEmpty) return;
+    final cached = await TdlibChatLocalPrefs.loadChatList(churchId);
+    if (cached.isEmpty) return;
+    for (final c in cached) {
+      _chatsById.putIfAbsent(c.id, () => c);
+    }
+    _emitChats(persist: false);
   }
 
   void _onReceive(Map<String, dynamic> obj) {
@@ -186,15 +236,14 @@ class TdLibService {
       if (chatId == null) return;
       final prev = _chatsById[chatId];
       final last = obj['last_message'];
-      final preview = _previewFromMessage(
-        last is Map ? Map<String, dynamic>.from(last) : null,
-      );
+      final lastMap =
+          last is Map ? Map<String, dynamic>.from(last) : null;
+      final preview = _previewFromMessage(lastMap);
+      final date = lastMap == null ? null : _asInt(lastMap['date']);
       if (prev != null) {
-        _chatsById[chatId] = TdlibChatPreview(
-          id: chatId,
-          title: prev.title,
-          unreadCount: prev.unreadCount,
+        _chatsById[chatId] = prev.copyWith(
           lastMessagePreview: preview ?? prev.lastMessagePreview,
+          lastMessageDateEpoch: date ?? prev.lastMessageDateEpoch,
         );
         _emitChats();
       }
@@ -213,6 +262,112 @@ class TdLibService {
         _ingestMessage(Map<String, dynamic>.from(msg));
       }
       return;
+    }
+    if (type == 'updateMessageSendFailed') {
+      final oldId = _asInt(obj['old_message_id']);
+      final chatId = _asInt(obj['message'] is Map
+          ? (obj['message'] as Map)['chat_id']
+          : obj['chat_id']);
+      if (oldId != null && chatId != null) {
+        final list = _messagesByChat[chatId];
+        if (list != null) {
+          _messagesByChat[chatId] = list
+              .map(
+                (m) => m.id == oldId
+                    ? m.copyWith(sendStatus: TdlibSendStatus.failed)
+                    : m,
+              )
+              .toList();
+          if (_activeChatId == chatId) _emitMessages(chatId);
+        }
+      }
+      return;
+    }
+    if (type == 'updateChatAction') {
+      final chatId = _asInt(obj['chat_id']);
+      if (chatId == null) return;
+      final action = obj['action'];
+      final actionType =
+          action is Map ? (action['@type'] ?? '').toString() : '';
+      TdlibPeerActionKind kind;
+      if (actionType.contains('Typing')) {
+        kind = TdlibPeerActionKind.typing;
+      } else if (actionType.contains('RecordingVoice')) {
+        kind = TdlibPeerActionKind.recordingVoice;
+      } else {
+        kind = TdlibPeerActionKind.cancel;
+      }
+      if (!_peerActionController.isClosed) {
+        _peerActionController.add(
+          TdlibPeerAction(chatId: chatId, kind: kind),
+        );
+      }
+      return;
+    }
+    if (type == 'updateUserStatus') {
+      final userId = _asInt(obj['user_id']);
+      final status = obj['status'];
+      if (userId == null || status is! Map) return;
+      final st = (status['@type'] ?? '').toString();
+      final presence = TdlibUserPresence(
+        userId: userId,
+        isOnline: st.contains('Online'),
+        wasOnlineEpoch: _asInt(status['was_online']),
+      );
+      _presenceByUser[userId] = presence;
+      if (!_presenceController.isClosed) _presenceController.add(presence);
+      return;
+    }
+    if (type == 'updateNotificationGroup') {
+      unawaited(_handleNotificationGroup(obj));
+      return;
+    }
+  }
+
+  Future<void> _handleNotificationGroup(Map<String, dynamic> obj) async {
+    try {
+      final chatId = _asInt(obj['chat_id']) ?? 0;
+      if (chatId != 0 && _activeChatId == chatId) return;
+      final added = obj['added_notifications'];
+      if (added is! List || added.isEmpty) return;
+      String title = _chatsById[chatId]?.title ?? 'Yahweh Chat';
+      var body = 'Nova mensagem';
+      for (final raw in added) {
+        if (raw is! Map) continue;
+        final type = raw['type'];
+        if (type is Map) {
+          final t = (type['@type'] ?? '').toString();
+          if (t.contains('NewMessage') || t.contains('NewPushMessage')) {
+            final msg = type['message'];
+            if (msg is Map) {
+              body = _previewFromMessage(Map<String, dynamic>.from(msg)) ??
+                  body;
+            } else {
+              final content = type['content'];
+              if (content is Map) {
+                body = _previewFromMessage({
+                      'content': content,
+                    }) ??
+                    body;
+              }
+            }
+          }
+        }
+      }
+      if (chatId != 0) {
+        final churchId = _boundChurchId.trim();
+        if (churchId.isNotEmpty &&
+            await TdlibChatLocalPrefs.isMuted(churchId, chatId)) {
+          return;
+        }
+      }
+      await ChurchChatAlertNotificationService.instance.showTdlibLocalAlert(
+        title: title,
+        body: body,
+        chatId: chatId,
+      );
+    } catch (e) {
+      debugPrint('[TdLib] notificationGroup: $e');
     }
   }
 
@@ -280,7 +435,7 @@ class TdLibService {
           rawType: 'authorizationStateReady',
           message: 'Conectado ao Motor YAHWEH',
         ));
-        unawaited(refreshChats());
+        unawaited(refreshChats().then((_) => warmTopChats()));
         break;
       case 'authorizationStateLoggingOut':
         _emitAuth(const TdlibAuthSnapshot(
@@ -444,6 +599,8 @@ class TdLibService {
       'is_forum': false,
       'is_channel': false,
       'description': description.trim(),
+      // TDLib exige o campo; null = grupo normal (sem localização).
+      'location': null,
       'message_auto_delete_time': 0,
       'for_import': false,
     });
@@ -502,28 +659,134 @@ class TdLibService {
   Future<List<TdlibMessageItem>> loadChatHistory(
     int chatId, {
     int limit = 40,
+    bool preferLocalFirst = true,
+    bool setActive = true,
   }) async {
     final svc = _requireService();
-    _activeChatId = chatId;
-    final result = await svc.sendSync({
-      '@type': 'getChatHistory',
-      'chat_id': chatId,
-      'from_message_id': 0,
-      'offset': 0,
-      'limit': limit,
-      'only_local': false,
-    });
-    final messages = (result['messages'] as List?) ?? const [];
-    final items = <TdlibMessageItem>[];
-    for (final raw in messages) {
-      if (raw is! Map) continue;
-      final item = _messageFromMap(Map<String, dynamic>.from(raw));
-      if (item != null) items.add(item);
+    if (setActive) _activeChatId = chatId;
+
+    Future<List<TdlibMessageItem>> fetch(bool onlyLocal) async {
+      final result = await svc.sendSync({
+        '@type': 'getChatHistory',
+        'chat_id': chatId,
+        'from_message_id': 0,
+        'offset': 0,
+        'limit': limit,
+        'only_local': onlyLocal,
+      });
+      final messages = (result['messages'] as List?) ?? const [];
+      final items = <TdlibMessageItem>[];
+      for (final raw in messages) {
+        if (raw is! Map) continue;
+        final item = _messageFromMap(Map<String, dynamic>.from(raw));
+        if (item != null) items.add(item);
+      }
+      items.sort((a, b) => a.id.compareTo(b.id));
+      return items;
     }
-    items.sort((a, b) => a.id.compareTo(b.id));
-    _messagesByChat[chatId] = items;
-    _emitMessages(chatId);
-    return items;
+
+    if (preferLocalFirst) {
+      try {
+        final local = await fetch(true);
+        if (local.isNotEmpty) {
+          _messagesByChat[chatId] = local;
+          if (setActive || _activeChatId == chatId) _emitMessages(chatId);
+        }
+      } catch (_) {}
+    }
+
+    final remote = await fetch(false);
+    _messagesByChat[chatId] = remote;
+    if (setActive || _activeChatId == chatId) _emitMessages(chatId);
+    unawaited(refreshPinnedMessage(chatId));
+    return remote;
+  }
+
+  /// Pré-aquece os chats mais recentes (histórico local + foto).
+  Future<void> warmTopChats({int count = 8}) async {
+    if (_warming || _snapshot.phase != TdlibAuthPhase.ready) return;
+    _warming = true;
+    try {
+      final sorted = _chatsById.values.toList()
+        ..sort(
+          (a, b) => (b.lastMessageDateEpoch ?? 0)
+              .compareTo(a.lastMessageDateEpoch ?? 0),
+        );
+      for (final c in sorted.take(count)) {
+        try {
+          await loadChatHistory(
+            c.id,
+            limit: 24,
+            preferLocalFirst: true,
+            setActive: false,
+          );
+        } catch (_) {}
+        unawaited(ensureChatPhoto(c.id));
+      }
+    } finally {
+      _warming = false;
+    }
+  }
+
+  Future<void> ensureChatPhoto(int chatId) async {
+    final prev = _chatsById[chatId];
+    final fileId = prev?.photoFileId;
+    if (fileId == null || fileId == 0) return;
+    final path = (prev?.photoLocalPath ?? '').trim();
+    if (path.isNotEmpty && await File(path).exists()) return;
+    try {
+      final result = await _requireService().sendSync({
+        '@type': 'downloadFile',
+        'file_id': fileId,
+        'priority': 8,
+        'offset': 0,
+        'limit': 0,
+        'synchronous': true,
+      });
+      final local = result['local'];
+      if (local is! Map || local['is_downloading_completed'] != true) return;
+      final pth = (local['path'] ?? '').toString().trim();
+      if (pth.isEmpty || prev == null) return;
+      _chatsById[chatId] = prev.copyWith(photoLocalPath: pth);
+      _emitChats();
+    } catch (e) {
+      debugPrint('[TdLib] ensureChatPhoto: $e');
+    }
+  }
+
+  Future<TdlibMessageItem?> refreshPinnedMessage(int chatId) async {
+    try {
+      final result = await _requireService().sendSync({
+        '@type': 'getChatPinnedMessage',
+        'chat_id': chatId,
+      });
+      final item = _messageFromMap(result)?.copyWith(isPinned: true);
+      _pinnedByChat[chatId] = item;
+      return item;
+    } catch (_) {
+      _pinnedByChat[chatId] = null;
+      return null;
+    }
+  }
+
+  TdlibMessageItem? peekPinnedMessage(int chatId) => _pinnedByChat[chatId];
+
+  Future<String?> getOrCreateInviteLink(int chatId) async {
+    try {
+      final result = await _requireService().sendSync({
+        '@type': 'createChatInviteLink',
+        'chat_id': chatId,
+        'name': 'Yahweh',
+        'expiration_date': 0,
+        'member_limit': 0,
+        'creates_join_request': false,
+      });
+      final link = (result['invite_link'] ?? '').toString().trim();
+      return link.isEmpty ? null : link;
+    } catch (e) {
+      debugPrint('[TdLib] getOrCreateInviteLink: $e');
+      return null;
+    }
   }
 
   /// Solicita o download pelo próprio motor Telegram e devolve o ficheiro
@@ -578,10 +841,20 @@ class TdLibService {
   }) async {
     final svc = _requireService();
     final path = localPath.trim();
-    if (path.isEmpty) return;
+    if (path.isEmpty) {
+      throw StateError(
+        'Não foi possível anexar o ficheiro. Escolha a foto ou o vídeo de novo.',
+      );
+    }
+    final file = File(path);
+    if (!await file.exists()) {
+      throw StateError(
+        'Não foi possível anexar o ficheiro. Escolha a foto ou o vídeo de novo.',
+      );
+    }
     final inputFile = {
       '@type': 'inputFileLocal',
-      'path': path,
+      'path': file.absolute.path,
     };
     Map<String, dynamic> content;
     switch (kind) {
@@ -767,22 +1040,51 @@ class TdLibService {
     if (item == null) return;
     final list =
         List<TdlibMessageItem>.from(_messagesByChat[item.chatId] ?? const []);
-    list.removeWhere((e) => e.id == item.id);
+    // Remove pending otimista com mesmo conteúdo recente.
+    list.removeWhere(
+      (e) =>
+          e.id == item.id ||
+          (e.id < 0 &&
+              e.isOutgoing &&
+              item.isOutgoing &&
+              e.preview == item.preview),
+    );
     list.add(item);
     list.sort((a, b) => a.id.compareTo(b.id));
     _messagesByChat[item.chatId] = list;
     if (_activeChatId == item.chatId) {
       _emitMessages(item.chatId);
+    } else if (!item.isOutgoing) {
+      unawaited(_notifyIncomingIfNeeded(item));
     }
     final prev = _chatsById[item.chatId];
     if (prev != null) {
-      _chatsById[item.chatId] = TdlibChatPreview(
-        id: prev.id,
-        title: prev.title,
-        unreadCount: prev.unreadCount,
+      _chatsById[item.chatId] = prev.copyWith(
         lastMessagePreview: item.preview,
+        lastMessageDateEpoch: item.dateEpoch ?? prev.lastMessageDateEpoch,
+        unreadCount: item.isOutgoing
+            ? prev.unreadCount
+            : (_activeChatId == item.chatId
+                ? prev.unreadCount
+                : prev.unreadCount + 1),
       );
       _emitChats();
+    }
+  }
+
+  Future<void> _notifyIncomingIfNeeded(TdlibMessageItem item) async {
+    try {
+      final churchId = _boundChurchId.trim();
+      if (churchId.isEmpty) return;
+      if (await TdlibChatLocalPrefs.isMuted(churchId, item.chatId)) return;
+      final title = _chatsById[item.chatId]?.title ?? 'Yahweh Chat';
+      await ChurchChatAlertNotificationService.instance.showTdlibLocalAlert(
+        title: title,
+        body: item.preview,
+        chatId: item.chatId,
+      );
+    } catch (e) {
+      debugPrint('[TdLib] notify: $e');
     }
   }
 
@@ -793,12 +1095,26 @@ class TdLibService {
     final completed = local['is_downloading_completed'] == true;
     final path = (local['path'] ?? '').toString().trim();
     if (!completed || path.isEmpty) return;
+    var chatPhotoChanged = false;
+    for (final entry in _chatsById.entries) {
+      if (entry.value.photoFileId == fileId) {
+        _chatsById[entry.key] = entry.value.copyWith(photoLocalPath: path);
+        chatPhotoChanged = true;
+      }
+    }
+    if (chatPhotoChanged) _emitChats();
     for (final entry in _messagesByChat.entries) {
       var changed = false;
       final next = entry.value.map((message) {
-        if (message.mediaFileId != fileId) return message;
-        changed = true;
-        return message.copyWith(mediaLocalPath: path);
+        if (message.mediaFileId == fileId) {
+          changed = true;
+          return message.copyWith(mediaLocalPath: path);
+        }
+        if (message.mediaThumbFileId == fileId) {
+          changed = true;
+          return message.copyWith(mediaThumbLocalPath: path);
+        }
+        return message;
       }).toList();
       if (!changed) continue;
       _messagesByChat[entry.key] = next;
@@ -825,6 +1141,18 @@ class TdLibService {
     final isForwarded = msg['forward_info'] != null;
     final replyTo = msg['reply_to'];
     final replyToId = replyTo is Map ? _asInt(replyTo['message_id']) : null;
+    String? replyPreview;
+    if (replyToId != null) {
+      final existing = _messagesByChat[chatId];
+      if (existing != null) {
+        for (final m in existing) {
+          if (m.id == replyToId) {
+            replyPreview = m.text.isNotEmpty ? m.text : m.preview;
+            break;
+          }
+        }
+      }
+    }
 
     // Extract media info
     String? mediaKind;
@@ -832,6 +1160,8 @@ class TdLibService {
     String? mediaLocalPath;
     String? mediaRemoteId;
     String? mediaCaption;
+    int? mediaThumbFileId;
+    String? mediaThumbLocalPath;
     String? text;
     String? mimeType;
     String? fileName;
@@ -850,7 +1180,15 @@ class TdLibService {
           if (photo is Map) {
             final sizes = photo['sizes'];
             if (sizes is List && sizes.isNotEmpty) {
+              final first = sizes.first;
               final last = sizes.last;
+              if (first is Map && first['photo'] is Map) {
+                final t = first['photo'] as Map;
+                mediaThumbFileId = _asInt(t['id']);
+                mediaThumbLocalPath = t['local'] is Map
+                    ? (t['local'] as Map)['path']?.toString()
+                    : null;
+              }
               if (last is Map) {
                 final p = last['photo'];
                 if (p is Map) {
@@ -862,6 +1200,10 @@ class TdLibService {
                       ? (p['remote'] as Map)['id']?.toString()
                       : null;
                 }
+              }
+              // Lista: preferir thumb se full ainda não baixou.
+              if ((mediaLocalPath ?? '').trim().isEmpty) {
+                mediaLocalPath = mediaThumbLocalPath;
               }
             }
           }
@@ -953,6 +1295,17 @@ class TdLibService {
       }
     }
 
+    final sending = msg['sending_state'];
+    var sendStatus = TdlibSendStatus.sent;
+    if (sending is Map) {
+      final st = (sending['@type'] ?? '').toString();
+      if (st.contains('Failed')) {
+        sendStatus = TdlibSendStatus.failed;
+      } else if (st.contains('Pending') || st.isNotEmpty) {
+        sendStatus = TdlibSendStatus.sending;
+      }
+    }
+
     return TdlibMessageItem(
       id: id,
       chatId: chatId,
@@ -966,6 +1319,8 @@ class TdLibService {
       mediaLocalPath: mediaLocalPath,
       mediaRemoteId: mediaRemoteId,
       mediaCaption: mediaCaption,
+      mediaThumbFileId: mediaThumbFileId,
+      mediaThumbLocalPath: mediaThumbLocalPath,
       replyToMessageId: replyToId,
       isRead: isRead,
       isEdited: isEdited,
@@ -973,6 +1328,8 @@ class TdLibService {
       fileSize: fileSize,
       mimeType: mimeType,
       fileName: fileName,
+      sendStatus: sendStatus,
+      replyPreview: replyPreview,
     );
   }
 
@@ -989,16 +1346,47 @@ class TdLibService {
     final title = (chat['title'] ?? chat['id']?.toString() ?? 'Chat').toString();
     final unread = _asInt(chat['unread_count']) ?? 0;
     final last = chat['last_message'];
-    final preview = _previewFromMessage(
-      last is Map ? Map<String, dynamic>.from(last) : null,
-    );
+    final lastMap = last is Map ? Map<String, dynamic>.from(last) : null;
+    final preview = _previewFromMessage(lastMap);
+    final date = lastMap == null ? null : _asInt(lastMap['date']);
+    final type = chat['type'];
+    final typeName = type is Map ? (type['@type'] ?? '').toString() : '';
+    final isGroup = typeName.contains('Supergroup') ||
+        typeName.contains('BasicGroup') ||
+        typeName == 'chatTypeSupergroup' ||
+        typeName == 'chatTypeBasicGroup';
+    if (type is Map &&
+        (typeName.contains('Private') || typeName == 'chatTypePrivate')) {
+      final uid = _asInt(type['user_id']);
+      if (uid != null) _privateChatUserId[id] = uid;
+    }
+    final prev = _chatsById[id];
+    int? photoFileId;
+    String? photoLocalPath = prev?.photoLocalPath;
+    final photo = chat['photo'];
+    if (photo is Map) {
+      final small = photo['small'];
+      if (small is Map) {
+        photoFileId = _asInt(small['id']);
+        final local = small['local'];
+        if (local is Map) {
+          final pth = (local['path'] ?? '').toString().trim();
+          if (pth.isNotEmpty) photoLocalPath = pth;
+        }
+      }
+    }
     _chatsById[id] = TdlibChatPreview(
       id: id,
       title: title,
       unreadCount: unread,
-      lastMessagePreview: preview,
+      lastMessagePreview: preview ?? prev?.lastMessagePreview,
+      lastMessageDateEpoch: date ?? prev?.lastMessageDateEpoch,
+      isGroup: isGroup || (prev?.isGroup ?? false),
+      photoFileId: photoFileId ?? prev?.photoFileId,
+      photoLocalPath: photoLocalPath ?? prev?.photoLocalPath,
     );
     _emitChats();
+    if (photoFileId != null) unawaited(ensureChatPhoto(id));
   }
 
   String? _previewFromMessage(Map<String, dynamic>? msg) {
@@ -1033,11 +1421,19 @@ class TdLibService {
     }
   }
 
-  void _emitChats() {
+  void _emitChats({bool persist = true}) {
     final list = _chatsById.values.toList()
-      ..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+      ..sort((a, b) {
+        final da = a.lastMessageDateEpoch ?? 0;
+        final db = b.lastMessageDateEpoch ?? 0;
+        if (db != da) return db.compareTo(da);
+        return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+      });
     if (!_chatsController.isClosed) {
       _chatsController.add(list);
+    }
+    if (persist && _boundChurchId.trim().isNotEmpty) {
+      unawaited(TdlibChatLocalPrefs.saveChatList(_boundChurchId, list));
     }
   }
 
@@ -1047,6 +1443,456 @@ class TdLibService {
     return int.tryParse(v?.toString() ?? '');
   }
 
+  /// Pesquisa mensagens no chat (texto).
+  Future<List<TdlibMessageItem>> searchChatMessages(
+    int chatId,
+    String query, {
+    int limit = 40,
+  }) async {
+    final svc = _requireService();
+    final q = query.trim();
+    if (q.isEmpty) return const [];
+    try {
+      final result = await svc.sendSync({
+        '@type': 'searchChatMessages',
+        'chat_id': chatId,
+        'query': q,
+        'from_message_id': 0,
+        'offset': 0,
+        'limit': limit,
+        'filter': {'@type': 'searchMessagesFilterEmpty'},
+        'message_thread_id': 0,
+      });
+      final msgs = result['messages'];
+      if (msgs is! List) return const [];
+      final out = <TdlibMessageItem>[];
+      for (final raw in msgs) {
+        if (raw is! Map) continue;
+        final item = _messageFromMap(Map<String, dynamic>.from(raw));
+        if (item != null) out.add(item);
+      }
+      return out;
+    } catch (e) {
+      debugPrint('[TdLib] searchChatMessages: $e');
+      return const [];
+    }
+  }
+
+  /// Membros do grupo (supergroup / basic).
+  Future<List<TdlibChatMember>> getChatMembers(
+    int chatId, {
+    int limit = 100,
+  }) async {
+    final svc = _requireService();
+    try {
+      final chat = await svc.sendSync({
+        '@type': 'getChat',
+        'chat_id': chatId,
+      });
+      _ingestChatObject(Map<String, dynamic>.from(chat));
+      final type = chat['type'];
+      if (type is! Map) return const [];
+      final typeName = (type['@type'] ?? '').toString();
+      final members = <TdlibChatMember>[];
+
+      if (typeName == 'chatTypeSupergroup') {
+        final sgId = _asInt(type['supergroup_id']);
+        if (sgId == null) return const [];
+        final result = await svc.sendSync({
+          '@type': 'getSupergroupMembers',
+          'supergroup_id': sgId,
+          'filter': {'@type': 'supergroupMembersFilterRecent'},
+          'offset': 0,
+          'limit': limit,
+        });
+        final list = result['members'];
+        if (list is List) {
+          for (final raw in list) {
+            if (raw is! Map) continue;
+            final member = await _memberFromChatMemberMap(
+              Map<String, dynamic>.from(raw),
+            );
+            if (member != null) members.add(member);
+          }
+        }
+      } else if (typeName == 'chatTypeBasicGroup') {
+        final bgId = _asInt(type['basic_group_id']);
+        if (bgId == null) return const [];
+        final full = await svc.sendSync({
+          '@type': 'getBasicGroupFullInfo',
+          'basic_group_id': bgId,
+        });
+        final list = full['members'];
+        if (list is List) {
+          for (final raw in list) {
+            if (raw is! Map) continue;
+            final member = await _memberFromChatMemberMap(
+              Map<String, dynamic>.from(raw),
+            );
+            if (member != null) members.add(member);
+          }
+        }
+      }
+      return members;
+    } catch (e) {
+      debugPrint('[TdLib] getChatMembers: $e');
+      return const [];
+    }
+  }
+
+  Future<TdlibChatMember?> _memberFromChatMemberMap(
+    Map<String, dynamic> raw,
+  ) async {
+    final svc = _service;
+    if (svc == null) return null;
+    final memberId = raw['member_id'];
+    int? userId;
+    if (memberId is Map) {
+      userId = _asInt(memberId['user_id'] ?? memberId['id']);
+    } else {
+      userId = _asInt(raw['user_id']);
+    }
+    if (userId == null) return null;
+    var name = 'Membro';
+    String? phone;
+    try {
+      final user = await svc.sendSync({
+        '@type': 'getUser',
+        'user_id': userId,
+      });
+      final first = (user['first_name'] ?? '').toString().trim();
+      final last = (user['last_name'] ?? '').toString().trim();
+      name = '$first $last'.trim();
+      if (name.isEmpty) {
+        name = (user['usernames'] is Map
+                ? ((user['usernames'] as Map)['editable_username'] ?? '')
+                : (user['username'] ?? ''))
+            .toString()
+            .trim();
+      }
+      if (name.isEmpty) name = 'Membro $userId';
+      phone = (user['phone_number'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+      if (phone.isEmpty) phone = null;
+    } catch (_) {}
+    final status = (raw['status'] is Map)
+        ? ((raw['status'] as Map)['@type'] ?? '').toString()
+        : '';
+    final isAdmin = status.contains('Administrator') || status.contains('Creator');
+    return TdlibChatMember(
+      userId: userId,
+      displayName: name,
+      phoneDigits: phone,
+      isAdmin: isAdmin,
+    );
+  }
+
+  Future<void> setChatMuted(int chatId, bool muted) async {
+    final svc = _requireService();
+    try {
+      await svc.sendSync({
+        '@type': 'setChatNotificationSettings',
+        'chat_id': chatId,
+        'notification_settings': {
+          '@type': 'chatNotificationSettings',
+          'use_default_mute_for': false,
+          'mute_for': muted ? 2147483647 : 0,
+          'use_default_sound': true,
+          'use_default_show_preview': true,
+          'use_default_disable_pinned_message_notifications': true,
+          'use_default_disable_mention_notifications': true,
+        },
+      });
+    } catch (e) {
+      debugPrint('[TdLib] setChatMuted: $e');
+      rethrow;
+    }
+  }
+
+  /// Injeta mensagem otimista na UI (envio / retry).
+  void upsertLocalMessage(TdlibMessageItem item) {
+    final list = List<TdlibMessageItem>.from(
+      _messagesByChat[item.chatId] ?? const [],
+    );
+    list.removeWhere((e) => e.id == item.id);
+    list.add(item);
+    list.sort((a, b) => a.id.compareTo(b.id));
+    _messagesByChat[item.chatId] = list;
+    if (_activeChatId == item.chatId) _emitMessages(item.chatId);
+  }
+
+  void removeLocalMessage(int chatId, int messageId) {
+    final list = _messagesByChat[chatId];
+    if (list == null) return;
+    _messagesByChat[chatId] =
+        list.where((m) => m.id != messageId).toList(growable: false);
+    if (_activeChatId == chatId) _emitMessages(chatId);
+  }
+
+  Future<void> configureNotificationOptions() async {
+    final svc = _service;
+    if (svc == null) return;
+    Future<void> setInt(String name, int value) async {
+      try {
+        await svc.sendSync({
+          '@type': 'setOption',
+          'name': name,
+          'value': {'@type': 'optionValueInteger', 'value': value},
+        });
+      } catch (_) {}
+    }
+
+    await setInt('notification_group_count_max', 25);
+    await setInt('notification_group_size_max', 10);
+  }
+
+  Future<void> registerPushDevice(
+    String fcmToken, {
+    String? apnsTokenHex,
+    bool apnsSandbox = false,
+  }) async {
+    final token = fcmToken.trim();
+    try {
+      final svc = _requireService();
+      if (Platform.isIOS) {
+        final apns = (apnsTokenHex ?? '').trim();
+        if (apns.isNotEmpty) {
+          await svc.sendSync({
+            '@type': 'registerDevice',
+            'device_token': {
+              '@type': 'deviceTokenApplePush',
+              'device_token': apns,
+              'is_app_sandbox': apnsSandbox,
+              'encrypt': true,
+            },
+            'other_user_ids': <int>[],
+          });
+        }
+        // iOS também regista FCM (Telegram usa bridge Firebase em vários clientes).
+        if (token.isNotEmpty) {
+          await svc.sendSync({
+            '@type': 'registerDevice',
+            'device_token': {
+              '@type': 'deviceTokenFirebaseCloudMessaging',
+              'token': token,
+              'encrypt': true,
+            },
+            'other_user_ids': <int>[],
+          });
+        }
+        return;
+      }
+      if (token.isEmpty) return;
+      await svc.sendSync({
+        '@type': 'registerDevice',
+        'device_token': {
+          '@type': 'deviceTokenFirebaseCloudMessaging',
+          'token': token,
+          'encrypt': true,
+        },
+        'other_user_ids': <int>[],
+      });
+    } catch (e) {
+      debugPrint('[TdLib] registerPushDevice: $e');
+    }
+  }
+
+  Future<void> processPushNotification(String payload) async {
+    final p = payload.trim();
+    if (p.isEmpty) return;
+    try {
+      await _requireService().sendSync({
+        '@type': 'processPushNotification',
+        'payload': p,
+      });
+    } catch (e) {
+      debugPrint('[TdLib] processPushNotification: $e');
+      rethrow;
+    }
+  }
+
+  /// Carrega mensagens mais antigas (scroll infinito).
+  Future<List<TdlibMessageItem>> loadOlderMessages(
+    int chatId, {
+    int limit = 40,
+  }) async {
+    final svc = _requireService();
+    final current = _messagesByChat[chatId] ?? const <TdlibMessageItem>[];
+    if (current.isEmpty) {
+      return loadChatHistory(chatId, limit: limit, setActive: true);
+    }
+    final fromId = current.first.id;
+    if (fromId <= 0) return current;
+    final result = await svc.sendSync({
+      '@type': 'getChatHistory',
+      'chat_id': chatId,
+      'from_message_id': fromId,
+      'offset': 0,
+      'limit': limit,
+      'only_local': false,
+    });
+    final messages = (result['messages'] as List?) ?? const [];
+    final older = <TdlibMessageItem>[];
+    for (final raw in messages) {
+      if (raw is! Map) continue;
+      final item = _messageFromMap(Map<String, dynamic>.from(raw));
+      if (item != null) older.add(item);
+    }
+    if (older.isEmpty) return current;
+    final merged = <TdlibMessageItem>[...older, ...current];
+    final byId = <int, TdlibMessageItem>{};
+    for (final m in merged) {
+      byId[m.id] = m;
+    }
+    final list = byId.values.toList()..sort((a, b) => a.id.compareTo(b.id));
+    _messagesByChat[chatId] = list;
+    if (_activeChatId == chatId) _emitMessages(chatId);
+    return list;
+  }
+
+  Future<TdlibUserPresence?> refreshChatPresence(int chatId) async {
+    final userId = _privateChatUserId[chatId];
+    if (userId == null) return null;
+    try {
+      final user = await _requireService().sendSync({
+        '@type': 'getUser',
+        'user_id': userId,
+      });
+      final status = user['status'];
+      if (status is! Map) return _presenceByUser[userId];
+      final st = (status['@type'] ?? '').toString();
+      final presence = TdlibUserPresence(
+        userId: userId,
+        isOnline: st.contains('Online'),
+        wasOnlineEpoch: _asInt(status['was_online']),
+      );
+      _presenceByUser[userId] = presence;
+      if (!_presenceController.isClosed) _presenceController.add(presence);
+      return presence;
+    } catch (e) {
+      debugPrint('[TdLib] refreshChatPresence: $e');
+      return _presenceByUser[userId];
+    }
+  }
+
+  TdlibUserPresence? peekPresenceForChat(int chatId) {
+    final userId = _privateChatUserId[chatId];
+    if (userId == null) return null;
+    return _presenceByUser[userId];
+  }
+
+  Future<List<TdlibSearchHit>> searchMessagesGlobal(
+    String query, {
+    int limit = 40,
+  }) async {
+    final q = query.trim();
+    if (q.isEmpty) return const [];
+    try {
+      final result = await _requireService().sendSync({
+        '@type': 'searchMessages',
+        'chat_list': {'@type': 'chatListMain'},
+        'query': q,
+        'offset_date': 0,
+        'offset_chat_id': 0,
+        'offset_message_id': 0,
+        'limit': limit,
+        'filter': {'@type': 'searchMessagesFilterEmpty'},
+      });
+      final messages = (result['messages'] as List?) ?? const [];
+      final hits = <TdlibSearchHit>[];
+      for (final raw in messages) {
+        if (raw is! Map) continue;
+        final item = _messageFromMap(Map<String, dynamic>.from(raw));
+        if (item == null) continue;
+        final title = _chatsById[item.chatId]?.title ?? 'Chat';
+        hits.add(
+          TdlibSearchHit(
+            chatId: item.chatId,
+            chatTitle: title,
+            message: item,
+          ),
+        );
+      }
+      return hits;
+    } catch (e) {
+      debugPrint('[TdLib] searchMessagesGlobal: $e');
+      return const [];
+    }
+  }
+
+  Future<List<TdlibSessionInfo>> getActiveSessions() async {
+    try {
+      final result = await _requireService().sendSync({
+        '@type': 'getActiveSessions',
+      });
+      final sessions = (result['sessions'] as List?) ?? const [];
+      final out = <TdlibSessionInfo>[];
+      for (final raw in sessions) {
+        if (raw is! Map) continue;
+        final m = Map<String, dynamic>.from(raw);
+        final id = _asInt(m['id']);
+        if (id == null) continue;
+        out.add(
+          TdlibSessionInfo(
+            id: id,
+            deviceModel: (m['device_model'] ?? 'Aparelho').toString(),
+            platform: (m['platform'] ?? '').toString(),
+            appName: (m['application_name'] ?? m['app_name'] ?? 'Telegram')
+                .toString(),
+            isCurrent: m['is_current'] == true,
+            ipAddress: m['ip_address']?.toString(),
+            country: m['country']?.toString(),
+            lastActiveEpoch: _asInt(m['last_active_date']),
+          ),
+        );
+      }
+      return out;
+    } catch (e) {
+      debugPrint('[TdLib] getActiveSessions: $e');
+      return const [];
+    }
+  }
+
+  Future<void> terminateSession(int sessionId) async {
+    await _requireService().sendSync({
+      '@type': 'terminateSession',
+      'session_id': sessionId,
+    });
+  }
+
+  Future<void> terminateAllOtherSessions() async {
+    await _requireService().sendSync({
+      '@type': 'terminateAllOtherSessions',
+    });
+  }
+
+  Future<void> addMessageReaction(
+    int chatId,
+    int messageId,
+    String emoji,
+  ) async {
+    final e = emoji.trim();
+    if (e.isEmpty) return;
+    await _requireService().sendSync({
+      '@type': 'addMessageReaction',
+      'chat_id': chatId,
+      'message_id': messageId,
+      'reaction_type': {'@type': 'reactionTypeEmoji', 'emoji': e},
+      'is_big': false,
+      'update_recent_reactions': true,
+    });
+  }
+
+  Future<void> prefetchChatPhotos({int limit = 20}) async {
+    final sorted = _chatsById.values.toList()
+      ..sort(
+        (a, b) => (b.lastMessageDateEpoch ?? 0)
+            .compareTo(a.lastMessageDateEpoch ?? 0),
+      );
+    for (final c in sorted.take(limit)) {
+      unawaited(ensureChatPhoto(c.id));
+    }
+  }
+
   Future<void> dispose() async {
     try {
       await _service?.stop();
@@ -1054,8 +1900,13 @@ class TdLibService {
     _service = null;
     _chatsById.clear();
     _messagesByChat.clear();
+    _pinnedByChat.clear();
+    _presenceByUser.clear();
+    _privateChatUserId.clear();
     await _authController.close();
     await _chatsController.close();
     await _messagesController.close();
+    await _peerActionController.close();
+    await _presenceController.close();
   }
 }

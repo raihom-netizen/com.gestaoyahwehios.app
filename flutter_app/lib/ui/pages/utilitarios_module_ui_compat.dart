@@ -319,9 +319,11 @@ abstract final class ModernModuleUI {
     required List<Color> gradient,
     double height = 54,
     double fontSize = 15,
+    bool compact = false,
     BorderRadiusGeometry borderRadius =
         const BorderRadius.all(Radius.circular(16)),
   }) {
+    final iconSize = compact ? 18.0 : 22.0;
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -340,7 +342,7 @@ abstract final class ModernModuleUI {
       ),
       child: FilledButton.icon(
         onPressed: onPressed,
-        icon: Icon(icon, size: 22, color: Colors.white),
+        icon: Icon(icon, size: iconSize, color: Colors.white),
         label: Text(
           label,
           style: TextStyle(
@@ -360,6 +362,63 @@ abstract final class ModernModuleUI {
       ),
     );
   }
+
+  /// Par Compartilhar + Escolher pasta — layout horizontal (paridade CT).
+  static Widget shareSaveActionRow({
+    required VoidCallback? onShare,
+    required VoidCallback? onSave,
+    String shareLabel = 'Compartilhar',
+    String saveLabel = 'Salvar',
+    double height = 50,
+    bool shareFirst = true,
+  }) {
+    final share = Expanded(
+      child: gradientFilledButton(
+        onPressed: onShare,
+        icon: Icons.share_rounded,
+        label: shareLabel,
+        gradient: const [Color(0xFF22C55E), Color(0xFF16A34A)],
+        height: height,
+        fontSize: 13.5,
+        compact: true,
+      ),
+    );
+    final save = Expanded(
+      child: gradientFilledButton(
+        onPressed: onSave,
+        icon: Icons.folder_open_rounded,
+        label: saveLabel,
+        gradient: const [Color(0xFF2563EB), Color(0xFF3B82F6)],
+        height: height,
+        fontSize: 13.5,
+        compact: true,
+      ),
+    );
+    return Row(
+      children: shareFirst
+          ? [share, const SizedBox(width: 10), save]
+          : [save, const SizedBox(width: 10), share],
+    );
+  }
+
+  /// Rótulo padrão «Retornar» (AppBar / previews).
+  static const String previewRetornarLabel = 'Retornar';
+
+  static Widget previewVoltarButton(BuildContext context,
+      {String label = 'Voltar'}) {
+    final fg = onSurfaceMuted(context);
+    return TextButton.icon(
+      onPressed: () => Navigator.of(context).maybePop(),
+      icon: Icon(Icons.arrow_back_rounded, size: 18, color: fg),
+      label: Text(
+        label,
+        style: TextStyle(fontWeight: FontWeight.w800, color: fg),
+      ),
+    );
+  }
+
+  static Widget previewRetornarButton(BuildContext context) =>
+      previewVoltarButton(context, label: previewRetornarLabel);
 
   static Widget emptyPickState({
     required BuildContext context,

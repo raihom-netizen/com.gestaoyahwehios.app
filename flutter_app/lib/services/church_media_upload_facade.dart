@@ -68,20 +68,21 @@ class ChurchMediaUploadBatchResult {
 }
 
 /// **Ponto único** de upload de mídia no painel igreja (Eventos, Avisos, Membros,
-/// Património, Financeiro, Chat, Cadastro).
+/// Património, Financeiro, Fornecedores, Logo, Chat, Cadastro, Master).
 ///
 /// Padrão Controle Total (definitivo) — Web = Android = iOS:
 /// 1. Picker → bytes (`Uint8List`; Web: nunca `putFile`)
 /// 2. Validar MIME + tamanho ([media_upload_limits])
 /// 3. [ensureModuleReady] / [ensureReady]
-/// 4. Comprimir no app ([ChurchCentralStorageUpload] / MediaService / EcoFire)
+/// 4. Prepare: [ChurchUnifiedPhotoUpload.prepareBytes] (1 compressão)
 /// 5. Upload Storage path canónico `igrejas/{churchId}/…`
 /// 6. Confirmar objeto → gravar Firestore **só** `storagePath` + URL
 /// 7. UI lê **só** o link ([SafeNetworkImage])
 /// 8. Replace: apagar path antigo **só depois** do upload novo OK
 ///
 /// Proibido: ImageMagick/yt-dlp no Flutter; base64 permanente no Firestore;
-/// upload solto na UI. Orquestradores de domínio delegam aqui / central.
+/// upload solto na UI. Orquestradores de domínio delegam aqui / central /
+/// [ChurchUnifiedPhotoUpload].
 abstract final class ChurchMediaUploadFacade {
   ChurchMediaUploadFacade._();
 

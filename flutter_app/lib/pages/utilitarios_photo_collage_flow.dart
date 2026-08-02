@@ -5,10 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:gestao_yahweh/services/utilitarios_photo_service.dart';
-import 'package:gestao_yahweh/core/finance_theme_context.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
 import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
-import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
-import 'utilitarios_photo_edit_flow.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_photo_edit_flow.dart';
 
 /// Painel de colagem — prévia instantânea na UI; exportação em alta qualidade.
 class UtilitariosPhotoCollagePanel extends StatefulWidget {
@@ -259,7 +258,7 @@ class _UtilitariosPhotoCollagePanelState
           bytes: bytes,
           fileName: 'colagem_${_template.id}.jpg',
           message:
-              'Colagem «${_template.label}» criada localmente no Controle Total App.',
+              'Colagem «${_template.label}» criada localmente no GestÃ£o Yahweh.',
         ),
       );
     });
@@ -288,7 +287,7 @@ class _UtilitariosPhotoCollagePanelState
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             itemCount: UtilitariosPhotoService.collageTemplates.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
             itemBuilder: (context, i) {
               final t = UtilitariosPhotoService.collageTemplates[i];
               final sel = t.id == _template.id;

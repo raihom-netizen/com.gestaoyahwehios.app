@@ -9,11 +9,26 @@ import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 
-/// Tema Super Premium para relatórios PDF: cartão claro, borda suave, logo da igreja, tipografia sóbria.
+/// Tema Super Premium para relatórios PDF.
+/// Cabeçalho = dados/logo da igreja · Rodapé = autoria Gestão YAHWEH.
 class PdfSuperPremiumTheme {
   PdfSuperPremiumTheme._();
 
   static pw.ThemeData? _robotoPdfTheme;
+
+  /// Escudo Gestão YAHWEH cacheado para o rodapé de todos os PDFs.
+  static Uint8List? _systemFooterLogoBytes;
+
+  static const String kFooterBrand = 'Gestão YAHWEH';
+
+  /// Define o ícone de autoria do rodapé (chamar no warm-up / branding).
+  static void setSystemFooterLogo(Uint8List? bytes) {
+    if (bytes != null && bytes.length > 32) {
+      _systemFooterLogoBytes = bytes;
+    }
+  }
+
+  static Uint8List? get systemFooterLogoBytes => _systemFooterLogoBytes;
 
   /// Roboto dos assets — acentos, `@`, cifrão e símbolos comuns (evita “tofu” da Helvetica padrão).
   static Future<pw.ThemeData?> loadRobotoPdfTheme() async {
@@ -252,7 +267,7 @@ class PdfSuperPremiumTheme {
         4: const pw.FlexColumnWidth(1.0),
       };
 
-  /// Cabeçalho: cartão branco, borda arredondada, logo da igreja (se houver), título e data.
+  /// Cabeçalho moderno: logo + nome + dados da igreja, título do relatório.
   static pw.Widget header(
     String reportTitle, {
     DateTime? date,
@@ -261,72 +276,124 @@ class PdfSuperPremiumTheme {
   }) {
     final dateStr =
         DateFormat('dd/MM/yyyy HH:mm').format(date ?? DateTime.now());
-    final accent = branding?.accent ?? ReportPdfBranding.defaultAccent;
-    final church = pdfSafeText((branding?.churchName ?? '').trim());
+    final churchRaw = (branding?.churchName ?? '').trim();
+    final church =
+        pdfSafeText(churchRaw.isNotEmpty ? churchRaw : 'Igreja');
     final safeTitle = pdfSafeText(reportTitle);
+    final detailLines = <String>[
+      ...?(branding?.churchDetailLines),
+      ...extraLines,
+    ]
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .map(pdfSafeText)
+        .toList();
 
-    pw.ImageProvider? logoProv;
-    final lb = branding?.logoBytes;
-    if (lb != null && lb.length > 32) {
-      logoProv = pw.MemoryImage(lb);
+    const onPrimary = PdfColors.white;
+    pw.Widget logoBadge() {
+      final lb = branding?.logoBytes;
+      if (lb != null && lb.length > 32) {
+        return pw.Container(
+          width: headerLogoSizePt,
+          height: headerLogoSizePt,
+          margin: const pw.EdgeInsets.only(right: 12),
+          padding: const pw.EdgeInsets.all(4),
+          decoration: pw.BoxDecoration(
+            color: PdfColors.white,
+            borderRadius: pw.BorderRadius.circular(12),
+            border: pw.Border.all(
+                color: const PdfColor(1, 1, 1, 0.35), width: 1),
+          ),
+          child: pw.Image(pw.MemoryImage(lb), fit: pw.BoxFit.contain),
+        );
+      }
+      return pw.Container(
+        width: headerLogoSizePt,
+        height: headerLogoSizePt,
+        margin: const pw.EdgeInsets.only(right: 12),
+        decoration: pw.BoxDecoration(
+          color: const PdfColor(1, 1, 1, 0.18),
+          borderRadius: pw.BorderRadius.circular(12),
+          border: pw.Border.all(
+              color: const PdfColor(1, 1, 1, 0.35), width: 1),
+        ),
+        alignment: pw.Alignment.center,
+        child: pw.Text('✝',
+            style: pw.TextStyle(fontSize: 20, color: onPrimary)),
+      );
     }
 
     return pw.Container(
       padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       decoration: pw.BoxDecoration(
-        color: _cardBg,
-        borderRadius: pw.BorderRadius.circular(12),
-        border: pw.Border.all(color: _border, width: 1),
+        gradient: const pw.LinearGradient(
+          colors: [
+            PdfColor.fromInt(0xFF14532D),
+            PdfColor.fromInt(0xFF166534),
+            PdfColor.fromInt(0xFF15803D),
+          ],
+        ),
+        borderRadius: pw.BorderRadius.circular(14),
       ),
       child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          if (logoProv != null)
-            pw.Container(
-              width: headerLogoSizePt,
-              height: headerLogoSizePt,
-              margin: const pw.EdgeInsets.only(right: 14),
-              child: pw.Image(logoProv, fit: pw.BoxFit.contain),
-            ),
+          logoBadge(),
           pw.Expanded(
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               mainAxisSize: pw.MainAxisSize.min,
               children: [
-                if (church.isNotEmpty)
-                  pw.Text(
-                    church,
-                    style: pw.TextStyle(
-                      fontSize: 8.5,
-                      color: _muted,
-                      letterSpacing: 0.15,
-                    ),
+                pw.Text(
+                  church,
+                  style: pw.TextStyle(
+                    fontSize: 14,
+                    fontWeight: pw.FontWeight.bold,
+                    color: onPrimary,
                   ),
-                if (church.isNotEmpty) pw.SizedBox(height: 3),
+                ),
+                pw.SizedBox(height: 3),
                 pw.Text(
                   safeTitle,
                   style: pw.TextStyle(
-                    fontSize: 13,
-                    color: accent,
+                    fontSize: 11,
+                    color: onPrimary,
                     fontWeight: pw.FontWeight.bold,
                   ),
                 ),
-                if (extraLines.isNotEmpty) pw.SizedBox(height: 4),
-                ...extraLines.expand(
-                  (line) => [
-                    pw.Text(
-                      pdfSafeText(line),
-                      style: pw.TextStyle(fontSize: 8, color: _muted),
-                    ),
-                    pw.SizedBox(height: 2),
-                  ],
-                ),
+                if (detailLines.isNotEmpty) ...[
+                  pw.SizedBox(height: 6),
+                  ...detailLines.take(5).map(
+                        (line) => pw.Padding(
+                          padding: const pw.EdgeInsets.only(bottom: 2),
+                          child: pw.Text(
+                            line,
+                            style: pw.TextStyle(
+                              fontSize: 7.8,
+                              color: const PdfColor(1, 1, 1, 0.92),
+                            ),
+                          ),
+                        ),
+                      ),
+                ],
               ],
             ),
           ),
-          pw.Text(
-            dateStr,
-            style: pw.TextStyle(fontSize: 8.5, color: _muted),
+          pw.Container(
+            padding:
+                const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: pw.BoxDecoration(
+              color: const PdfColor(1, 1, 1, 0.16),
+              borderRadius: pw.BorderRadius.circular(8),
+            ),
+            child: pw.Text(
+              dateStr,
+              style: pw.TextStyle(
+                fontSize: 8,
+                fontWeight: pw.FontWeight.bold,
+                color: onPrimary,
+              ),
+            ),
           ),
         ],
       ),
@@ -506,32 +573,93 @@ class PdfSuperPremiumTheme {
     return '${d.substring(0, 5)}-${d.substring(5)}';
   }
 
-  /// Rodapé: nome da igreja + página (sem marca da plataforma).
-  static pw.Widget footer(pw.Context context, {String? churchName}) {
-    final left = pdfSafeText(
-      (churchName ?? '').trim().isNotEmpty
-          ? '${churchName!.trim()} · Relatório'
-          : 'Relatório',
-    );
+  /// Rodapé moderno: autoria Gestão YAHWEH (+ ícone) em todos os relatórios.
+  /// [churchName] mantido por compatibilidade — não é mais usado como autoria.
+  static pw.Widget footer(
+    pw.Context context, {
+    String? churchName,
+    Uint8List? systemLogoBytes,
+    String footerBrand = kFooterBrand,
+  }) {
+    final brand =
+        footerBrand.trim().isEmpty ? kFooterBrand : footerBrand.trim();
+    final logo = systemLogoBytes ?? _systemFooterLogoBytes;
+    final muted = _muted;
+    final footerAccent = PdfColor.fromInt(0xFF0F172A);
+    final now = DateTime.now();
+    final emitido =
+        '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
+
     return pw.Container(
-      padding: const pw.EdgeInsets.only(top: 10),
-      decoration: const pw.BoxDecoration(
-        border: pw.Border(
-          top: pw.BorderSide(color: PdfColor.fromInt(0xFFE2E8F0), width: 0.5),
-        ),
+      margin: const pw.EdgeInsets.only(top: 6),
+      padding: const pw.EdgeInsets.fromLTRB(10, 8, 10, 6),
+      decoration: pw.BoxDecoration(
+        color: PdfColor.fromInt(0xFFF8FAFC),
+        borderRadius: pw.BorderRadius.circular(10),
+        border: pw.Border.all(color: PdfColor.fromInt(0xFFE2E8F0), width: 0.8),
       ),
       child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: [
+          if (logo != null && logo.length > 32)
+            pw.Container(
+              width: 20,
+              height: 20,
+              margin: const pw.EdgeInsets.only(right: 8),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.white,
+                borderRadius: pw.BorderRadius.circular(5),
+                border: pw.Border.all(
+                    color: PdfColor.fromInt(0xFFE2E8F0), width: 0.6),
+              ),
+              child: pw.Padding(
+                padding: const pw.EdgeInsets.all(2),
+                child:
+                    pw.Image(pw.MemoryImage(logo), fit: pw.BoxFit.contain),
+              ),
+            )
+          else
+            pw.Container(
+              width: 20,
+              height: 20,
+              margin: const pw.EdgeInsets.only(right: 8),
+              decoration: pw.BoxDecoration(
+                color: footerAccent,
+                borderRadius: pw.BorderRadius.circular(5),
+              ),
+              alignment: pw.Alignment.center,
+              child: pw.Text(
+                'GY',
+                style: pw.TextStyle(
+                  fontSize: 6.5,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white,
+                ),
+              ),
+            ),
           pw.Expanded(
-            child: pw.Text(
-              left,
-              style: pw.TextStyle(fontSize: 7.5, color: _muted),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              mainAxisSize: pw.MainAxisSize.min,
+              children: [
+                pw.Text(
+                  pdfSafeText('Gerado por $brand'),
+                  style: pw.TextStyle(
+                    fontSize: 8,
+                    fontWeight: pw.FontWeight.bold,
+                    color: footerAccent,
+                  ),
+                ),
+                pw.Text(
+                  'Sistema de gestão ministerial · Autoria oficial',
+                  style: pw.TextStyle(fontSize: 6.8, color: muted),
+                ),
+              ],
             ),
           ),
           pw.Text(
-            'Página ${context.pageNumber}/${context.pagesCount}',
-            style: pw.TextStyle(fontSize: 7.5, color: _muted),
+            'Emitido $emitido  ·  Pag. ${context.pageNumber}/${context.pagesCount}',
+            style: pw.TextStyle(fontSize: 7.2, color: muted),
           ),
         ],
       ),

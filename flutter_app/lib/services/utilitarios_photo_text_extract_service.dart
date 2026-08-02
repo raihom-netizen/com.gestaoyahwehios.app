@@ -8,8 +8,8 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:gestao_yahweh/utils/ocr_description_sanity.dart';
 import 'package:gestao_yahweh/utils/smart_input_ocr_recognized_postprocess.dart';
-import 'smart_input_image_ocr_service.dart';
-import 'utilitarios_local_service.dart';
+import 'package:gestao_yahweh/services/smart_input_image_ocr_service.dart';
+import 'package:gestao_yahweh/services/utilitarios_local_service.dart';
 import 'utilitarios_photo_service.dart';
 
 /// Parágrafo detectado na foto (preserva estrutura para Word/PDF).

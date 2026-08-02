@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_unified_image_pipeline.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
+import 'package:gestao_yahweh/services/church_unified_photo_upload.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
@@ -80,9 +81,15 @@ abstract final class MemberProfilePhotoSaveService {
       storageFolderId,
     );
     await ChurchMediaUploadFacade.ensureReady(requireAuth: requireAuth);
+    onProgress?.call(0.08);
+    // Prepare unificado (mesmo motor avisos/eventos) antes dos tiers de perfil.
+    final prepared = await ChurchUnifiedPhotoUpload.prepareBytes(
+      rawBytes,
+      module: ChurchPhotoModules.membro,
+    );
     onProgress?.call(0.12);
     final tiers = await MemberProfileVariantsService.encodeProfileTiers(
-      rawBytes,
+      prepared,
     );
     onProgress?.call(0.18);
     final uploaded = await MemberProfileVariantsService.uploadProfileVariants(
@@ -167,11 +174,17 @@ abstract final class MemberProfilePhotoSaveService {
 
     try {
       await ChurchMediaUploadFacade.ensureReady(requireAuth: requireAuth);
+      onPhase?.call('A preparar…');
+      onProgress?.call(0.08);
+      final prepared = await ChurchUnifiedPhotoUpload.prepareBytes(
+        rawBytes,
+        module: ChurchPhotoModules.membro,
+      );
       onPhase?.call('A enviar…');
-      onProgress?.call(0.10);
+      onProgress?.call(0.12);
 
       final tiers = await MemberProfileVariantsService.encodeProfileTiers(
-        rawBytes,
+        prepared,
       );
       onProgress?.call(0.15);
 

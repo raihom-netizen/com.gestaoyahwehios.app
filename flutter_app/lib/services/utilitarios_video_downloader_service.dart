@@ -1,3 +1,5 @@
+﻿import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -73,7 +75,10 @@ abstract final class UtilitariosVideoDownloaderService {
         u.contains('fb.com')) {
       return VideoDownPlatform.facebook;
     }
-    if (u.contains('tiktok.com') || u.contains('vm.tiktok.com')) {
+    if (u.contains('tiktok.com') ||
+        u.contains('vm.tiktok.com') ||
+        u.contains('vt.tiktok.com') ||
+        u.contains('tiktokv.com')) {
       return VideoDownPlatform.tiktok;
     }
     // Qualquer URL http/https → genérico (tenta extrair vídeo automaticamente)
@@ -235,22 +240,20 @@ abstract final class UtilitariosVideoDownloaderService {
     }
   }
 
-  /// Download YouTube via youtube_explode_dart.
+  /// Download YouTube via youtube_explode_dart (+ Cobalt fallback).
   static Future<VideoDownloadResult> _downloadYoutube(
     String url,
     bool audioOnly,
     void Function(double)? onProgress,
   ) async {
-    try {
-      // Limpa parâmetros de tracking e verifica se é playlist
-      final cleanUrl = _cleanUrl(url);
-      if (_isYoutubePlaylistOnly(url)) {
-        throw StateError(
-          'Links de playlist não são suportados. Abra a playlist no YouTube, escolha um vídeo individual e copie o link dele.',
-        );
-      }
+    final cleanUrl = _cleanUrl(url);
+    if (_isYoutubePlaylistOnly(url)) {
+      throw StateError(
+        'Links de playlist não são suportados. Abra a playlist no YouTube, escolha um vídeo individual e copie o link dele.',
+      );
+    }
 
-      // Se a URL não tem ID de vídeo direto, tenta extrair
+    try {
       final videoId = _extractYoutubeVideoId(cleanUrl);
       final video = videoId != null
           ? await _yt.videos.get(videoId)
@@ -259,7 +262,6 @@ abstract final class UtilitariosVideoDownloaderService {
       final safeName = title.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
 
       if (audioOnly) {
-        // Audio only — best quality M4A/MP3
         final manifest = await _yt.videos.streamsClient.getManifest(video.id);
         final audioStream = manifest.audioOnly.withHighestBitrate();
         final stream = _yt.videos.streamsClient.get(audioStream);
@@ -274,13 +276,16 @@ abstract final class UtilitariosVideoDownloaderService {
         final total = audioStream.size.totalBytes;
         await for (final chunk in stream) {
           sink.add(chunk);
-          downloaded += chunk.length.toInt();
+          downloaded += chunk.length;
           if (total > 0) onProgress?.call(downloaded / total);
         }
         await sink.flush();
         await sink.close();
 
         final bytes = await file.readAsBytes();
+        try {
+          await file.delete();
+        } catch (_) {}
         return VideoDownloadResult(
           bytes: bytes,
           fileName: '${safeName.isEmpty ? "audio" : safeName}.m4a',
@@ -290,7 +295,7 @@ abstract final class UtilitariosVideoDownloaderService {
         );
       }
 
-      // Video + audio — muxed stream (fastest, no FFmpeg needed)
+      // Video + audio — muxed stream (rápido, sem FFmpeg)
       final manifest = await _yt.videos.streamsClient.getManifest(video.id);
       final videoStream = manifest.muxed.withHighestBitrate();
       final stream = _yt.videos.streamsClient.get(videoStream);
@@ -305,13 +310,16 @@ abstract final class UtilitariosVideoDownloaderService {
       final total = videoStream.size.totalBytes;
       await for (final chunk in stream) {
         sink.add(chunk);
-        downloaded += chunk.length.toInt();
+        downloaded += chunk.length;
         if (total > 0) onProgress?.call(downloaded / total);
       }
       await sink.flush();
       await sink.close();
 
       final bytes = await file.readAsBytes();
+      try {
+        await file.delete();
+      } catch (_) {}
       return VideoDownloadResult(
         bytes: bytes,
         fileName: '${safeName.isEmpty ? "video" : safeName}.mp4',
@@ -320,7 +328,18 @@ abstract final class UtilitariosVideoDownloaderService {
         isAudioOnly: false,
       );
     } catch (e) {
-      debugPrint('[VideoDown] YouTube download error: $e');
+      debugPrint('[VideoDown] YouTube explode error: $e — tentando Cobalt…');
+      // Fallback rápido via Cobalt quando o player do YouTube muda.
+      final cobaltUrl = await _cobaltExtract(cleanUrl);
+      if (cobaltUrl != null && cobaltUrl.isNotEmpty) {
+        return _downloadDirectFile(
+          cobaltUrl,
+          title: 'video_youtube',
+          audioOnly: audioOnly,
+          onProgress: onProgress,
+          referer: 'https://www.youtube.com/',
+        );
+      }
       throw StateError(
         'Não foi possível baixar o vídeo do YouTube. Verifique o link e tente novamente.',
       );
@@ -347,8 +366,8 @@ abstract final class UtilitariosVideoDownloaderService {
       final shortcode = shortcodeMatch.group(1)!;
       final postUrl = 'https://www.instagram.com/p/$shortcode/';
 
-      // Passo 1: Cobalt API (serviço externo — mais confiável, sem contato direto com IG)
-      String? videoUrl = await _instagramCobalt(resolvedUrl);
+      // Passo 1: Cobalt API (paralelo — mais rápido e confiável)
+      String? videoUrl = await _cobaltExtract(resolvedUrl);
 
       // Passo 2: obter sessão (CSRF token + cookies reais)
       if (videoUrl == null || videoUrl.isEmpty) {
@@ -391,6 +410,7 @@ abstract final class UtilitariosVideoDownloaderService {
         title: 'instagram_$shortcode',
         audioOnly: audioOnly,
         onProgress: onProgress,
+        referer: 'https://www.instagram.com/',
       );
     } catch (e) {
       debugPrint('[VideoDown] Instagram download error: $e');
@@ -636,9 +656,80 @@ abstract final class UtilitariosVideoDownloaderService {
     return _igExtractVideoFromJson(html);
   }
 
-  /// Download via Cobalt API — serviço externo que extrai vídeos de redes sociais.
-  /// Tenta múltiplas instâncias públicas para redundância.
-  static Future<String?> _instagramCobalt(String igUrl) async {
+  /// Retorna a primeira URL não-nula entre várias tentativas em paralelo.
+  static Future<String?> _raceFirstUrl(List<Future<String?>> futures) async {
+    if (futures.isEmpty) return null;
+    final completer = Completer<String?>();
+    var pending = futures.length;
+    for (final f in futures) {
+      unawaited(f.then((v) {
+        final url = (v ?? '').trim();
+        if (url.isNotEmpty &&
+            url.startsWith('http') &&
+            !completer.isCompleted) {
+          completer.complete(url);
+        }
+      }).catchError((_) {
+        // ignora falhas individuais
+      }).whenComplete(() {
+        pending--;
+        if (pending <= 0 && !completer.isCompleted) {
+          completer.complete(null);
+        }
+      }));
+    }
+    return completer.future.timeout(
+      const Duration(seconds: 22),
+      onTimeout: () => null,
+    );
+  }
+
+  /// Resolve short links (vm.tiktok / vt.tiktok / fb.watch) seguindo redirects.
+  static Future<String> _resolveRedirectUrl(String url) async {
+    final u = url.trim();
+    final lower = u.toLowerCase();
+    final needsResolve = lower.contains('vm.tiktok.com') ||
+        lower.contains('vt.tiktok.com') ||
+        lower.contains('fb.watch') ||
+        lower.contains('fb.com/') ||
+        RegExp(r'tiktok\.com/t/').hasMatch(lower);
+    if (!needsResolve) return u;
+    try {
+      final client = http.Client();
+      try {
+        var current = Uri.parse(u);
+        for (var hop = 0; hop < 8; hop++) {
+          final req = http.Request('GET', current)
+            ..followRedirects = false
+            ..headers.addAll({
+              'User-Agent':
+                  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+              'Accept': 'text/html,*/*',
+            });
+          final res =
+              await client.send(req).timeout(const Duration(seconds: 10));
+          if (res.statusCode >= 300 && res.statusCode < 400) {
+            final loc = res.headers['location'];
+            if (loc == null || loc.isEmpty) break;
+            current = Uri.parse(loc).isAbsolute
+                ? Uri.parse(loc)
+                : current.resolve(loc);
+            continue;
+          }
+          return current.toString();
+        }
+        return current.toString();
+      } finally {
+        client.close();
+      }
+    } catch (e) {
+      debugPrint('[VideoDown] resolveRedirect: $e');
+      return u;
+    }
+  }
+
+  /// Cobalt API — instâncias em paralelo (primeira que responder ganha).
+  static Future<String?> _cobaltExtract(String mediaUrl) {
     const instances = [
       'https://api.cobalt.tools',
       'https://cobalt-api.ayo.tf',
@@ -647,66 +738,90 @@ abstract final class UtilitariosVideoDownloaderService {
       'https://cblt.fariz.dev',
       'https://api.cobalt.tacohitbox.com',
     ];
-    for (final base in instances) {
-      try {
-        // Detectar formato: novo (POST /) vs legado (POST /api/json)
-        final isNewApi = !base.contains('tacohitbox');
-        final endpoint = isNewApi ? '$base/' : '$base/api/json';
-        final body = isNewApi
-            ? '{"url":"$igUrl","downloadMode":"auto","videoQuality":"1080"}'
-            : '{"url":"$igUrl","vQuality":"1080"}';
-        final response = await http
-            .post(
-              Uri.parse(endpoint),
-              headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-              },
-              body: body,
-            )
-            .timeout(const Duration(seconds: 20));
-        if (response.statusCode != 200) continue;
-        final data = response.body;
-        // Tunnel ou redirect → campo "url"
-        final urlMatch = RegExp(r'"url"\s*:\s*"([^"]+)"').firstMatch(data);
-        if (urlMatch == null) continue;
-        var videoUrl = urlMatch.group(1)!;
-        videoUrl = videoUrl
-            .replaceAll(r'\u0026', '&')
-            .replaceAll(r'\/', '/')
-            .replaceAll(r'\u002F', '/');
-        if (videoUrl.startsWith('http')) {
-          debugPrint(
-              '[VideoDown] Cobalt OK ($base): ${videoUrl.substring(0, videoUrl.length > 80 ? 80 : videoUrl.length)}...');
-          return videoUrl;
-        }
-      } catch (e) {
-        debugPrint('[VideoDown] Cobalt error ($base): $e');
-      }
-    }
-    return null;
+    return _raceFirstUrl([
+      for (final base in instances) _cobaltTryOne(base, mediaUrl),
+    ]);
   }
 
-  /// Download Facebook — múltiplas estratégias de extração.
+  static Future<String?> _cobaltTryOne(String base, String mediaUrl) async {
+    try {
+      final isNewApi = !base.contains('tacohitbox');
+      final endpoint = isNewApi ? '$base/' : '$base/api/json';
+      final bodyMap = isNewApi
+          ? {
+              'url': mediaUrl,
+              'downloadMode': 'auto',
+              'videoQuality': '1080',
+            }
+          : {
+              'url': mediaUrl,
+              'vQuality': '1080',
+            };
+      final response = await http
+          .post(
+            Uri.parse(endpoint),
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+              'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            },
+            body: jsonEncode(bodyMap),
+          )
+          .timeout(const Duration(seconds: 14));
+      if (response.statusCode < 200 || response.statusCode >= 300) return null;
+
+      String? videoUrl;
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map) {
+          final u = (decoded['url'] ??
+                  decoded['tunnel'] ??
+                  (decoded['picker'] is List &&
+                          (decoded['picker'] as List).isNotEmpty
+                      ? ((decoded['picker'] as List).first is Map
+                          ? (decoded['picker'] as List).first['url']
+                          : null)
+                      : null) ??
+                  '')
+              .toString()
+              .trim();
+          if (u.startsWith('http')) videoUrl = u;
+        }
+      } catch (_) {
+        final urlMatch =
+            RegExp(r'"url"\s*:\s*"([^"]+)"').firstMatch(response.body);
+        if (urlMatch != null) videoUrl = urlMatch.group(1);
+      }
+      if (videoUrl == null || videoUrl.isEmpty) return null;
+      videoUrl = _decodeMediaUrl(videoUrl);
+      if (!videoUrl.startsWith('http')) return null;
+      debugPrint(
+        '[VideoDown] Cobalt OK ($base): ${videoUrl.substring(0, videoUrl.length > 70 ? 70 : videoUrl.length)}…',
+      );
+      return videoUrl;
+    } catch (e) {
+      debugPrint('[VideoDown] Cobalt error ($base): $e');
+      return null;
+    }
+  }
+
+  /// Download Facebook — Cobalt + scrape em paralelo.
   static Future<VideoDownloadResult> _downloadFacebook(
     String url,
     bool audioOnly,
     void Function(double)? onProgress,
   ) async {
     try {
-      final cleanUrl = _cleanUrl(url);
-      // Estratégia 1: mbasic.facebook.com (HTML simples com link direto)
-      String? videoUrl = await _facebookMbasicScrape(cleanUrl);
+      final resolved = await _resolveRedirectUrl(url);
+      final cleanUrl = _cleanUrl(resolved);
 
-      // Estratégia 2: mobile UA scraping
-      if (videoUrl == null || videoUrl.isEmpty) {
-        videoUrl = await _facebookMobileScrape(cleanUrl);
-      }
-
-      // Estratégia 3: desktop scraping
-      if (videoUrl == null || videoUrl.isEmpty) {
-        videoUrl = await _facebookDesktopScrape(cleanUrl);
-      }
+      final videoUrl = await _raceFirstUrl([
+        _cobaltExtract(cleanUrl),
+        _facebookMbasicScrape(cleanUrl),
+        _facebookMobileScrape(cleanUrl),
+        _facebookDesktopScrape(cleanUrl),
+      ]);
 
       if (videoUrl == null || videoUrl.isEmpty) {
         throw StateError(
@@ -719,6 +834,7 @@ abstract final class UtilitariosVideoDownloaderService {
         title: 'video_facebook',
         audioOnly: audioOnly,
         onProgress: onProgress,
+        referer: 'https://www.facebook.com/',
       );
     } catch (e) {
       debugPrint('[VideoDown] Facebook download error: $e');
@@ -921,85 +1037,59 @@ abstract final class UtilitariosVideoDownloaderService {
     return _extractOgVideoUrl(html);
   }
 
-  /// Download TikTok — scraping og:video e JSON.
+  /// Download TikTok — Cobalt paralelo + scrape reforçado + Referer no CDN.
   static Future<VideoDownloadResult> _downloadTikTok(
     String url,
     bool audioOnly,
     void Function(double)? onProgress,
   ) async {
     try {
-      final cleanUrl = _cleanUrl(url);
-      final response = await http.get(
-        Uri.parse(cleanUrl),
-        headers: {
-          'User-Agent':
-              'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9',
-          'Accept-Language': 'en-US,en;q=0.9',
-        },
-      );
+      final resolved = await _resolveRedirectUrl(url);
+      final cleanUrl = _cleanUrl(resolved);
 
-      if (response.statusCode != 200) {
-        throw StateError('TikTok retornou código ${response.statusCode}.');
-      }
-
-      final html = response.body;
-      String? videoUrl;
-
-      // 1) og:video meta tag
-      videoUrl = _extractOgVideoUrl(html);
-
-      // 2) "downloadAddr" no JSON
-      if (videoUrl == null || videoUrl.isEmpty) {
-        final dlMatch = RegExp(
-          r'"downloadAddr"\s*:\s*"([^"]+)"',
-          caseSensitive: false,
-        ).firstMatch(html);
-        if (dlMatch != null) videoUrl = _decodeHtmlEntity(dlMatch.group(1)!);
-      }
-
-      // 3) "playAddr" no JSON
-      if (videoUrl == null || videoUrl.isEmpty) {
-        final playMatch = RegExp(
-          r'"playAddr"\s*:\s*"([^"]+)"',
-          caseSensitive: false,
-        ).firstMatch(html);
-        if (playMatch != null) {
-          videoUrl = _decodeHtmlEntity(playMatch.group(1)!);
-        }
-      }
-
-      // 4) "video"."url" no JSON-LD
-      if (videoUrl == null || videoUrl.isEmpty) {
-        final ldMatch = RegExp(
-          r'"contentUrl"\s*:\s*"([^"]+\.mp4[^"]*)"',
-          caseSensitive: false,
-        ).firstMatch(html);
-        if (ldMatch != null) videoUrl = _decodeHtmlEntity(ldMatch.group(1)!);
-      }
+      final videoUrl = await _raceFirstUrl([
+        _cobaltExtract(cleanUrl),
+        _tikTokScrapeVideoUrl(cleanUrl),
+        // Segunda passagem Cobalt com URL original (às vezes short link resolve melhor no Cobalt)
+        if (resolved != url.trim()) _cobaltExtract(_cleanUrl(url.trim())),
+      ]);
 
       if (videoUrl == null || videoUrl.isEmpty) {
         throw StateError(
-          'Não foi possível extrair o vídeo do TikTok. O vídeo pode ser privado.',
+          'Não foi possível extrair o vídeo do TikTok. Verifique se o vídeo é público e o link está completo.',
         );
       }
 
-      // Extrai título se disponível
       String title = 'video_tiktok';
-      final titleMatch = RegExp(
-        r'<title>([^<]+)</title>',
-        caseSensitive: false,
-      ).firstMatch(html);
-      if (titleMatch != null) {
-        title = titleMatch.group(1)!.trim().replaceAll(' | TikTok', '').trim();
-        if (title.isEmpty) title = 'video_tiktok';
-      }
+      try {
+        final meta = await http
+            .get(
+              Uri.parse(cleanUrl),
+              headers: {
+                'User-Agent':
+                    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+                'Accept': 'text/html',
+              },
+            )
+            .timeout(const Duration(seconds: 8));
+        final titleMatch = RegExp(
+          r'<title>([^<]+)</title>',
+          caseSensitive: false,
+        ).firstMatch(meta.body);
+        if (titleMatch != null) {
+          title =
+              titleMatch.group(1)!.trim().replaceAll(' | TikTok', '').trim();
+          if (title.isEmpty) title = 'video_tiktok';
+          if (title.length > 80) title = title.substring(0, 80);
+        }
+      } catch (_) {}
 
       return await _downloadDirectFile(
         videoUrl,
         title: title,
         audioOnly: audioOnly,
         onProgress: onProgress,
+        referer: 'https://www.tiktok.com/',
       );
     } catch (e) {
       debugPrint('[VideoDown] TikTok download error: $e');
@@ -1008,6 +1098,68 @@ abstract final class UtilitariosVideoDownloaderService {
         'Não foi possível baixar o vídeo do TikTok. Verifique o link.',
       );
     }
+  }
+
+  /// Scrape TikTok HTML (mobile + desktop) — downloadAddr / playAddr / og:video.
+  static Future<String?> _tikTokScrapeVideoUrl(String url) async {
+    Future<String?> tryOnce(Map<String, String> headers) async {
+      try {
+        final response = await http
+            .get(Uri.parse(url), headers: headers)
+            .timeout(const Duration(seconds: 12));
+        if (response.statusCode != 200) return null;
+        return _extractTikTokVideoUrl(response.body);
+      } catch (e) {
+        debugPrint('[VideoDown] TikTok scrape: $e');
+        return null;
+      }
+    }
+
+    return _raceFirstUrl([
+      tryOnce({
+        'User-Agent':
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,pt-BR;q=0.8',
+        'Referer': 'https://www.tiktok.com/',
+      }),
+      tryOnce({
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.tiktok.com/',
+      }),
+    ]);
+  }
+
+  static String? _extractTikTokVideoUrl(String html) {
+    // 1) og:video
+    var videoUrl = _extractOgVideoUrl(html);
+    if (videoUrl != null && videoUrl.isNotEmpty) return _decodeMediaUrl(videoUrl);
+
+    // 2) downloadAddr (preferido — sem marca d'água quando disponível)
+    final patterns = <RegExp>[
+      RegExp(r'"downloadAddr"\s*:\s*"([^"]+)"', caseSensitive: false),
+      RegExp(r'"playAddr"\s*:\s*"([^"]+)"', caseSensitive: false),
+      RegExp(r'"play_addr"[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"',
+          caseSensitive: false),
+      RegExp(r'"download_addr"[^}]*"url_list"\s*:\s*\[\s*"([^"]+)"',
+          caseSensitive: false),
+      RegExp(r'"contentUrl"\s*:\s*"([^"]+\.mp4[^"]*)"', caseSensitive: false),
+      RegExp(r'"(https:\\?/\\?/[^"]*tiktokcdn[^"]+\.mp4[^"]*)"',
+          caseSensitive: false),
+      RegExp(r'(https://[^"\s\\]+tiktokcdn[^"\s\\]+\.mp4[^"\s\\]*)',
+          caseSensitive: false),
+    ];
+    for (final re in patterns) {
+      final m = re.firstMatch(html);
+      if (m != null) {
+        final decoded = _decodeMediaUrl(m.group(1)!);
+        if (decoded.startsWith('http')) return decoded;
+      }
+    }
+    return null;
   }
 
   /// Download genérico — tenta extrair vídeo de qualquer URL via og:video.
@@ -1113,14 +1265,32 @@ abstract final class UtilitariosVideoDownloaderService {
     }
   }
 
-  static String _decodeHtmlEntity(String s) {
-    return s
+  static String _decodeHtmlEntity(String s) => _decodeMediaUrl(s);
+
+  /// Decodifica URL escapada (HTML entities + JSON unicode + bars).
+  static String _decodeMediaUrl(String raw) {
+    var s = raw.trim();
+    // Unicode escapes comuns no JSON do TikTok/IG/FB
+    s = s.replaceAllMapped(RegExp(r'\\u([0-9a-fA-F]{4})'), (m) {
+      final code = int.tryParse(m.group(1)!, radix: 16);
+      if (code == null) return m.group(0)!;
+      return String.fromCharCode(code);
+    });
+    s = s
+        .replaceAll(r'\u0026', '&')
+        .replaceAll(r'\u002F', '/')
+        .replaceAll(r'\u003D', '=')
+        .replaceAll(r'\u003F', '?')
+        .replaceAll(r'\/', '/')
+        .replaceAll('\\/', '/')
         .replaceAll('&amp;', '&')
         .replaceAll('&#39;', "'")
         .replaceAll('&quot;', '"')
-        .replaceAll('\\/', '/')
         .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>');
+        .replaceAll('&gt;', '>')
+        .replaceAll('%3A', ':')
+        .replaceAll('%2F', '/');
+    return s;
   }
 
   static Future<VideoDownloadResult> _downloadDirectFile(
@@ -1128,46 +1298,75 @@ abstract final class UtilitariosVideoDownloaderService {
     required String title,
     required bool audioOnly,
     void Function(double)? onProgress,
+    String? referer,
   }) async {
+    final decodedUrl = _decodeMediaUrl(fileUrl);
     final client = http.Client();
-    final response = await client.send(
-      http.Request('GET', Uri.parse(fileUrl))
-        ..headers.addAll({
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        }),
-    );
+    try {
+      Future<http.StreamedResponse> sendGet(Map<String, String> headers) {
+        final req = http.Request('GET', Uri.parse(decodedUrl))
+          ..headers.addAll(headers);
+        return client.send(req).timeout(const Duration(seconds: 90));
+      }
 
-    if (response.statusCode != 200) {
-      throw StateError('Download falhou (HTTP ${response.statusCode}).');
+      final baseHeaders = <String, String>{
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        if (referer != null && referer.isNotEmpty) 'Referer': referer,
+        if (referer != null && referer.isNotEmpty)
+          'Origin': referer.replaceAll(RegExp(r'/$'), ''),
+      };
+
+      var response = await sendGet(baseHeaders);
+
+      // CDN TikTok/IG às vezes exige Referer; tenta de novo com fallback.
+      if ((response.statusCode == 403 || response.statusCode == 401) &&
+          (referer == null || referer.isEmpty)) {
+        response = await sendGet({
+          ...baseHeaders,
+          'Referer': 'https://www.tiktok.com/',
+        });
+      }
+
+      if (response.statusCode != 200 && response.statusCode != 206) {
+        throw StateError('Download falhou (HTTP ${response.statusCode}).');
+      }
+
+      final total = response.contentLength ?? 0;
+      final tmpDir = await getTemporaryDirectory();
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final ext = audioOnly ? 'm4a' : 'mp4';
+      final outPath = '${tmpDir.path}/ct_dl_$stamp.$ext';
+      final file = File(outPath);
+      final sink = file.openWrite();
+
+      var downloaded = 0;
+      await for (final chunk in response.stream) {
+        sink.add(chunk);
+        downloaded += chunk.length;
+        if (total > 0) onProgress?.call(downloaded / total);
+      }
+      await sink.flush();
+      await sink.close();
+
+      final bytes = await file.readAsBytes();
+      try {
+        await file.delete();
+      } catch (_) {}
+
+      final safeName = title.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
+      return VideoDownloadResult(
+        bytes: bytes,
+        fileName: '${safeName.isEmpty ? "video" : safeName}.$ext',
+        mimeType: audioOnly ? 'audio/mp4' : 'video/mp4',
+        title: title,
+        isAudioOnly: audioOnly,
+      );
+    } finally {
+      client.close();
     }
-
-    final total = response.contentLength ?? 0;
-    final tmpDir = await getTemporaryDirectory();
-    final stamp = DateTime.now().millisecondsSinceEpoch;
-    final ext = audioOnly ? 'm4a' : 'mp4';
-    final outPath = '${tmpDir.path}/ct_dl_$stamp.$ext';
-    final file = File(outPath);
-    final sink = file.openWrite();
-
-    var downloaded = 0;
-    await for (final chunk in response.stream) {
-      sink.add(chunk);
-      downloaded += chunk.length;
-      if (total > 0) onProgress?.call(downloaded / total);
-    }
-    await sink.flush();
-    await sink.close();
-
-    final bytes = await file.readAsBytes();
-    final safeName = title.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
-    return VideoDownloadResult(
-      bytes: bytes,
-      fileName: '${safeName.isEmpty ? "video" : safeName}.$ext',
-      mimeType: audioOnly ? 'audio/mp4' : 'video/mp4',
-      title: title,
-      isAudioOnly: audioOnly,
-    );
   }
 
   /// Libera recursos.

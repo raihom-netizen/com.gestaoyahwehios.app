@@ -43,6 +43,8 @@ abstract final class ChurchFeedLinearPublishService {
     required int startSlotIndex,
     List<Uint8List>? newImagesBytes,
     List<String>? newImagePaths,
+    bool hasVideo = false,
+    String? videoStoragePath,
     bool publicSite = true,
     DateTime? calendarDate,
     bool syncCalendar = true,
@@ -62,7 +64,8 @@ abstract final class ChurchFeedLinearPublishService {
       calendarDate: calendarDate,
       syncCalendar: syncCalendar,
       onUploadProgress: onUploadProgress,
-      hasVideo: false,
+      hasVideo: hasVideo,
+      videoStoragePath: videoStoragePath,
     );
   }
 

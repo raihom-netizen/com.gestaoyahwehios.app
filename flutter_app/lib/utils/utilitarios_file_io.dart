@@ -1,4 +1,5 @@
-﻿import 'dart:io';
+﻿import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -10,7 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'package:gestao_yahweh/services/relatorio_service.dart';
-import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
 import 'utilitarios_web_io_stub.dart'
     if (dart.library.html) 'utilitarios_web_io_web.dart' as web_io;
 
@@ -106,7 +107,7 @@ Future<List<PlatformFile>> utilitariosPickPlatformFiles({
             (!allowMultiple && mobile) ||
             (allowMultiple && mobile && onlyImages));
 
-    final r = await FilePicker.pickFiles(
+    final r = await YahwehFilePicker.pickFiles(
       type: pickType,
       allowedExtensions: !useAnyPicker &&
               pickType == FileType.custom &&
@@ -232,7 +233,7 @@ Future<bool> utilitariosSaveOrShareBytes({
       return true;
     }
     if (isDesktop) {
-      final path = await FilePicker.saveFile(
+      final path = await YahwehFilePicker.saveFile(
         dialogTitle: 'Salvar arquivo',
         fileName: safe,
         type: FileType.custom,
@@ -245,7 +246,7 @@ Future<bool> utilitariosSaveOrShareBytes({
     }
     // Mobile: escolher pasta salva diretamente via FilePicker (requer bytes).
     if (chooseSaveLocation) {
-      final picked = await FilePicker.saveFile(
+      final picked = await YahwehFilePicker.saveFile(
         dialogTitle: 'Salvar em…',
         fileName: safe,
         type: FileType.custom,
@@ -256,7 +257,7 @@ Future<bool> utilitariosSaveOrShareBytes({
     }
 
     final baseDir = await getApplicationDocumentsDirectory();
-    final outDir = Directory('${baseDir.path}/Utilitarios_ControleTotal');
+    final outDir = Directory('${baseDir.path}/Utilitarios_GestaoYahweh');
     if (!await outDir.exists()) {
       await outDir.create(recursive: true);
     }
@@ -560,7 +561,7 @@ Future<int> utilitariosFileSizeAtPath(String path) async {
   return file.length();
 }
 
-/// Quick save: salva direto em Downloads/Utilitarios_ControleTotal/ sem prompt.
+/// Quick save: salva direto em Downloads/Utilitarios_GestaoYahweh/ sem prompt.
 ///
 /// Devolve `true` se salvou com sucesso. Mostra toast no contexto.
 Future<bool> utilitariosQuickSave({
@@ -571,7 +572,7 @@ Future<bool> utilitariosQuickSave({
   final safe = fileName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
   try {
     final baseDir = await getApplicationDocumentsDirectory();
-    final outDir = Directory('${baseDir.path}/Utilitarios_ControleTotal');
+    final outDir = Directory('${baseDir.path}/Utilitarios_GestaoYahweh');
     if (!await outDir.exists()) {
       await outDir.create(recursive: true);
     }
@@ -581,7 +582,7 @@ Future<bool> utilitariosQuickSave({
     if (!context.mounted) return true;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Salvo em Utilitarios_ControleTotal no aparelho.'),
+        content: Text('Salvo em Utilitarios_GestaoYahweh no aparelho.'),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 2),
       ),

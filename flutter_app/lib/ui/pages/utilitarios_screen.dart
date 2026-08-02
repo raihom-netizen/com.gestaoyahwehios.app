@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -13,12 +13,13 @@ import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
 import 'package:gestao_yahweh/utils/home_shell_layout.dart';
 import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
 import 'package:gestao_yahweh/ui/pages/utilitarios_photo_camera_pdf_flow.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_document_scanner_flow.dart';
 import 'package:gestao_yahweh/ui/pages/utilitarios_pdf_tools_flow.dart';
 import 'package:gestao_yahweh/ui/pages/utilitarios_photo_edit_flow.dart';
 import 'package:gestao_yahweh/ui/pages/utilitarios_photo_text_extract_flow.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_video_downloader_flow.dart';
 
 /// Módulo Utilitários — conversões, compressores e editores locais (sem servidor).
-/// Espelho do Controle Total; API GY: [isAdmin] em vez de UserProfile.
 class UtilitariosScreen extends StatefulWidget {
   final String uid;
   final bool isAdmin;
@@ -46,7 +47,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
   DateTime? _lightUnlockAt;
   DateTime? _heavyUnlockAt;
 
-  // Estado da barra de resultado padronizada (Compartilhar / Escolher pasta).
+  // Inline result bar state
   Uint8List? _resultBytes;
   String? _resultFileName;
   String? _resultMime;
@@ -209,114 +210,135 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       left: 0,
       right: 0,
       child: Material(
-        elevation: 12,
+        elevation: 16,
         color: Colors.transparent,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
               begin: Alignment.bottomCenter,
               end: Alignment.topCenter,
             ),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
             border: Border(
               top: BorderSide(
-                color: const Color(0xFF22C55E).withValues(alpha: 0.4),
+                color: const Color(0xFF22C55E).withValues(alpha: 0.45),
                 width: 1.5,
               ),
             ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 24,
+                offset: const Offset(0, -6),
+              ),
+            ],
           ),
           child: SafeArea(
             top: false,
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Success icon + message
-                const Icon(
-                  Icons.check_circle_rounded,
-                  color: Color(0xFF22C55E),
-                  size: 22,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'Pronto!',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 13,
-                        ),
+                Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF22C55E).withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      if (_resultMessage != null)
-                        Text(
-                          _resultMessage!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.7),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                      child: const Icon(
+                        Icons.check_circle_rounded,
+                        color: Color(0xFF22C55E),
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'Pronto!',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 14,
+                              letterSpacing: -0.2,
+                            ),
                           ),
-                        ),
-                    ],
-                  ),
+                          if (_resultMessage != null)
+                            Text(
+                              _resultMessage!,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.72),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                height: 1.25,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _dismissResultBar,
+                      tooltip: 'Fechar',
+                      icon: Icon(
+                        Icons.close_rounded,
+                        color: Colors.white.withValues(alpha: 0.55),
+                        size: 22,
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 44,
+                        minHeight: 44,
+                      ),
+                    ),
+                  ],
                 ),
-                // Compartilhar
-                Expanded(
-                  child: ModernModuleUI.gradientFilledButton(
-                    onPressed: () async {
-                      _dismissResultBar();
-                      await utilitariosSaveOrShareBytes(
+                const SizedBox(height: 12),
+                ModernModuleUI.shareSaveActionRow(
+                  shareFirst: true,
+                  shareLabel: 'Compartilhar',
+                  saveLabel: 'Salvar',
+                  height: 50,
+                  onShare: () {
+                    // Dispara na hora — sem await na UI (mais rápido).
+                    final b = bytes;
+                    final n = fileName;
+                    final m = mime;
+                    _dismissResultBar();
+                    unawaited(
+                      utilitariosSaveOrShareBytes(
                         context: context,
-                        bytes: bytes,
-                        fileName: fileName,
-                        mimeType: mime,
+                        bytes: b,
+                        fileName: n,
+                        mimeType: m,
                         preferShare: true,
-                      );
-                    },
-                    icon: Icons.share_rounded,
-                    label: 'Compartilhar',
-                    gradient: const [Color(0xFF22C55E), Color(0xFF16A34A)],
-                    height: 42,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Salvar com escolha de pasta
-                Expanded(
-                  child: ModernModuleUI.gradientFilledButton(
-                    onPressed: () async {
-                      _dismissResultBar();
-                      await utilitariosSaveOrShareBytes(
+                      ),
+                    );
+                  },
+                  onSave: () {
+                    final b = bytes;
+                    final n = fileName;
+                    final m = mime;
+                    _dismissResultBar();
+                    unawaited(
+                      utilitariosSaveOrShareBytes(
                         context: context,
-                        bytes: bytes,
-                        fileName: fileName,
-                        mimeType: mime,
+                        bytes: b,
+                        fileName: n,
+                        mimeType: m,
                         preferShare: false,
                         chooseSaveLocation: true,
-                      );
-                    },
-                    icon: Icons.folder_open_rounded,
-                    label: 'Escolher pasta',
-                    gradient: const [Color(0xFF2563EB), Color(0xFF3B82F6)],
-                    height: 42,
-                    fontSize: 13,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                // Close icon
-                IconButton(
-                  onPressed: _dismissResultBar,
-                  icon: Icon(
-                    Icons.close_rounded,
-                    color: Colors.white.withValues(alpha: 0.5),
-                    size: 18,
-                  ),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -442,7 +464,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
           isAdmin: _isAdmin);
       await _afterResult(
         bytes: out,
-        fileName: 'imagens_controle_total.pdf',
+        fileName: 'imagens_gestao_yahweh.pdf',
         mimeType: 'application/pdf',
         okMessage:
             'PDF criado localmente com ${images.length} imagem(ns) (JPEG/PNG).',
@@ -1350,6 +1372,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
           'png',
           'webp',
           'pdf',
+          'docx',
           'mp4',
           'mov',
           'm4v',
@@ -1366,6 +1389,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       late final String fileName;
       late final String mimeType;
       late final int before;
+      String? note;
 
       if (_isVideoPlatformFile(f)) {
         if (!utilitariosVideoCompressSupported) {
@@ -1380,6 +1404,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
           level: level,
         );
         out = compressed.bytes;
+        note = compressed.note;
         final base = f.name.replaceAll(
           RegExp(r'\.(mp4|mov|m4v|avi|mkv|webm)$', caseSensitive: false),
           '',
@@ -1400,6 +1425,17 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
           fileName =
               '${base.isEmpty ? 'documento' : base}_compacto_${level.fileSuffix}.pdf';
           mimeType = 'application/pdf';
+        } else if (name.endsWith('.docx')) {
+          out = await UtilitariosLocalService.compressDocx(
+            bytes,
+            level: level,
+          );
+          final base =
+              f.name.replaceAll(RegExp(r'\.docx$', caseSensitive: false), '');
+          fileName =
+              '${base.isEmpty ? 'documento' : base}_compacto_${level.fileSuffix}.docx';
+          mimeType =
+              'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
         } else {
           out = await UtilitariosLocalService.compressImage(
             bytes,
@@ -1425,6 +1461,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         level: level,
         originalBytes: before,
         compressedBytes: after,
+        note: note,
       );
     });
   }
@@ -1439,6 +1476,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     required int compressedBytes,
     String title = 'Compressão concluída',
     String? subtitle,
+    String? note,
   }) async {
     if (!mounted || _cancelBusy) return;
     final saved = (originalBytes - compressedBytes).clamp(0, originalBytes);
@@ -1600,27 +1638,42 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                 : const Color(0xFF4F46E5)),
                       ),
                     ),
+                    if (note != null && note.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline_rounded,
+                            size: 16,
+                            color:
+                                dark ? Colors.white60 : const Color(0xFF64748B),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              note,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: dark
+                                    ? Colors.white60
+                                    : const Color(0xFF64748B),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
               const SizedBox(height: 18),
-              FilledButton.icon(
-                onPressed: () => Navigator.pop(ctx, 'share'),
-                icon: const Icon(Icons.share_rounded),
-                label: const Text('Compartilhar (WhatsApp e outros)'),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(0, 52),
-                  backgroundColor: const Color(0xFF4F46E5),
-                ),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: () => Navigator.pop(ctx, 'save'),
-                icon: const Icon(Icons.download_rounded),
-                label: const Text('Baixar local'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(0, 50),
-                ),
+              ModernModuleUI.shareSaveActionRow(
+                shareFirst: true,
+                shareLabel: 'Compartilhar',
+                saveLabel: 'Salvar',
+                height: 52,
+                onShare: () => Navigator.pop(ctx, 'share'),
+                onSave: () => Navigator.pop(ctx, 'save'),
               ),
               const SizedBox(height: 6),
               TextButton(
@@ -1848,7 +1901,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       if (!mounted) return;
       await _afterResult(
         bytes: pdf,
-        fileName: 'foto_camera_controle_total.pdf',
+        fileName: 'foto_camera_gestao_yahweh.pdf',
         mimeType: 'application/pdf',
         okMessage: 'PDF com $pageCount página(s) — pronto para compartilhar.',
         preferShareFirst: true,
@@ -1865,6 +1918,51 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       final pdf = await UtilitariosLocalService.imagesToPdf(pages);
       await deliver(pdf, pages.length);
     });
+  }
+
+  Future<void> _openDocumentScanner() async {
+    if (!await _ensureLightQuota()) return;
+    if (!mounted) return;
+    final result = await openUtilitariosDocumentScannerFlow(context);
+    if (result == null || !mounted) return;
+    final prebuilt = result.pdfBytes;
+    final pages = result.pages;
+    if (prebuilt == null && pages.isEmpty) return;
+
+    Future<void> deliver(Uint8List pdf, int pageCount) async {
+      await UtilitariosDailyQuotaService.consumeLight(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      );
+      if (!mounted) return;
+      await _afterResult(
+        bytes: pdf,
+        fileName: 'scanner_documentos_gestao_yahweh.pdf',
+        mimeType: 'application/pdf',
+        okMessage:
+            'PDF escaneado com $pageCount página(s) — pronto para compartilhar.',
+        preferShareFirst: true,
+        shareButtonLabel: 'Compartilhar PDF (WhatsApp)',
+      );
+    }
+
+    if (prebuilt != null) {
+      await deliver(prebuilt, pages.isEmpty ? 1 : pages.length);
+      return;
+    }
+
+    await _runBusy('Gerando PDF…', () async {
+      final pdf = await UtilitariosLocalService.imagesToPdf(pages);
+      await deliver(pdf, pages.length);
+    });
+  }
+
+  Future<void> _openVideoDownloader() async {
+    if (!await _ensureLightQuota()) return;
+    if (!mounted) return;
+    await openUtilitariosVideoDownloaderFlow(context);
+    if (!mounted) return;
+    await _refreshQuota();
   }
 
   Future<void> _openPhotoTextExtract() async {
@@ -1974,8 +2072,15 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       gradient: const [Color(0xFF14B8A6), Color(0xFF0EA5E9)],
                       title: 'Foto/Câmera para PDF',
                       subtitle:
-                          'Câmera do aparelho · até 20 fotos · PDF rápido',
+                          'Câmera do aparelho · até ${UtilitariosLocalService.kMaxImagesPerPdf} fotos · PDF rápido',
                       onTap: lightOk ? _openPhotoCameraPdf : null,
+                    ),
+                    _ToolTile(
+                      icon: UtilitariosModuleIcons.documentScanner,
+                      gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
+                      title: 'Scanner de Documentos',
+                      subtitle: 'Original · recorte auto/manual · PDF rápido',
+                      onTap: lightOk ? _openDocumentScanner : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.pdfWord,
@@ -2037,7 +2142,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       icon: UtilitariosModuleIcons.compress,
                       gradient: const [Color(0xFF4F46E5), Color(0xFF06B6D4)],
                       title: 'Compressor',
-                      subtitle: 'Ultra Smart · Imagem · PDF · MP4',
+                      subtitle: 'Ultra Smart · Imagem · PDF · Word · MP4',
                       onTap: heavyOk ? _compress : null,
                     ),
                   ];
@@ -2074,6 +2179,13 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                 builder: (context, c) {
                   final narrow = c.maxWidth < 520;
                   final videoTools = [
+                    _ToolTile(
+                      icon: UtilitariosModuleIcons.videoDownload,
+                      gradient: const [Color(0xFFE11D48), Color(0xFF7C3AED)],
+                      title: 'Baixar Vídeo',
+                      subtitle: 'TikTok · YouTube · IG · FB · MP4/MP3',
+                      onTap: lightOk ? _openVideoDownloader : null,
+                    ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.videoMp4,
                       gradient: const [Color(0xFF7C3AED), Color(0xFF2563EB)],
@@ -2274,7 +2386,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                 ),
               ),
             ),
-          _buildResultBar(),
+          if (_resultBytes != null && !_busy) _buildResultBar(),
         ],
       ),
     );

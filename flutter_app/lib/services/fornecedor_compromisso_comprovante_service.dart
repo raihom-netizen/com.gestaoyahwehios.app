@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
+import 'package:gestao_yahweh/services/church_unified_photo_upload.dart';
 
 /// Resultado do upload — path real (= ficheiro no Storage, não mime do picker).
 class FornecedorComprovanteUploadResult {
@@ -17,7 +18,7 @@ class FornecedorComprovanteUploadResult {
 }
 
 /// Upload de comprovante (print/imagem/PDF) — path fixo com overwrite no Storage.
-/// Mesmo pipeline do financeiro (CT): 1 compress → putData → URL.
+/// Mesmo pipeline unificado (avisos/eventos/financeiro): 1 compress → putData → URL.
 abstract final class FornecedorCompromissoComprovanteService {
   FornecedorCompromissoComprovanteService._();
 
@@ -49,15 +50,34 @@ abstract final class FornecedorCompromissoComprovanteService {
 
     await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
 
+    var uploadBytes = bytes;
+    var uploadMime = mime;
+    var uploadExt = ext;
+    final isImage = mime.startsWith('image/') ||
+        ext.toLowerCase() == 'jpg' ||
+        ext.toLowerCase() == 'jpeg' ||
+        ext.toLowerCase() == 'png' ||
+        ext.toLowerCase() == 'webp';
+    if (isImage && !alreadyCompressed && !mime.contains('png')) {
+      onProgress?.call(0.08);
+      uploadBytes = await ChurchUnifiedPhotoUpload.prepareBytes(
+        bytes,
+        module: ChurchPhotoModules.fornecedor,
+      );
+      uploadMime = 'image/jpeg';
+      uploadExt = 'jpg';
+      alreadyCompressed = true;
+    }
+
     final uploaded =
         await ChurchCentralStorageUpload.uploadFornecedorCompromissoComprovante(
       churchId: cid,
       fornecedorId: fid,
       compromissoId: compId,
-      bytes: bytes,
-      mimeType: mime,
-      ext: ext,
-      onProgress: (p) => onProgress?.call(p.clamp(0.0, 1.0)),
+      bytes: uploadBytes,
+      mimeType: uploadMime,
+      ext: uploadExt,
+      onProgress: (p) => onProgress?.call(0.12 + p.clamp(0.0, 1.0) * 0.88),
       alreadyCompressed: alreadyCompressed,
       skipEnsureReady: true,
     );

@@ -19,15 +19,7 @@ Future<Uint8List> buildEscalaPremiumTablePdf({
   required List<List<String>> rows,
 }) async {
   final doc = await PdfSuperPremiumTheme.newPdfDocument();
-  final accent = branding.accent;
   final ink = PdfColor.fromInt(0xFF0F172A);
-  final muted = PdfColor.fromInt(0xFF64748B);
-
-  pw.Widget logoBlock() {
-    final b = branding.logoBytes;
-    if (b == null || b.isEmpty) return pw.SizedBox();
-    return pw.Image(pw.MemoryImage(b), width: 68, height: 68, fit: pw.BoxFit.contain);
-  }
 
   pw.Widget cell(String text, {bool bold = false, double size = 9}) {
     return pw.Padding(
@@ -58,80 +50,44 @@ Future<Uint8List> buildEscalaPremiumTablePdf({
   final flex = List<double>.filled(colCount, 1.0);
   if (colCount >= 3) flex[0] = 1.35;
 
+  final extras = <String>[
+    if (periodLabel.isNotEmpty) periodLabel,
+    if (churchAddress.isNotEmpty) churchAddress,
+    if (churchPhone.isNotEmpty) 'Tel.: $churchPhone',
+  ];
+
   doc.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(26),
+      header: (ctx) => pw.Padding(
+        padding: const pw.EdgeInsets.only(bottom: 10),
+        child: PdfSuperPremiumTheme.header(
+          reportTitle,
+          branding: branding,
+          extraLines: extras,
+        ),
+      ),
+      footer: (ctx) => PdfSuperPremiumTheme.footer(ctx),
       build: (context) => [
-        pw.Row(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            logoBlock(),
-            pw.SizedBox(width: 10),
-            pw.Expanded(
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    pdfSafeText(branding.churchName.isEmpty ? 'Igreja' : branding.churchName),
-                    style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: ink),
-                  ),
-                  if (churchAddress.isNotEmpty)
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.only(top: 3),
-                      child: pw.Text(pdfSafeText(churchAddress), style: pw.TextStyle(fontSize: 9.5, color: muted)),
-                    ),
-                  if (churchPhone.isNotEmpty)
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.only(top: 2),
-                      child: pw.Text('Tel.: $churchPhone', style: pw.TextStyle(fontSize: 9.5, color: muted)),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        pw.SizedBox(height: 10),
-        pw.Container(height: 3, color: accent),
-        pw.SizedBox(height: 12),
-        pw.Text(
-          pdfSafeText(reportTitle.toUpperCase()),
-          style: pw.TextStyle(
-            fontSize: 10,
-            fontWeight: pw.FontWeight.bold,
-            color: accent,
-            letterSpacing: 0.85,
-          ),
-        ),
-        pw.SizedBox(height: 6),
         pw.Text(
           'Relatório de escala — dados do período filtrado',
-          style: pw.TextStyle(fontSize: 17, fontWeight: pw.FontWeight.bold, color: ink),
+          style: pw.TextStyle(
+              fontSize: 12, fontWeight: pw.FontWeight.bold, color: ink),
         ),
-        if (periodLabel.isNotEmpty) ...[
-          pw.SizedBox(height: 6),
-          pw.Text(
-            pdfSafeText(periodLabel),
-            style: pw.TextStyle(fontSize: 10.5, color: muted, fontWeight: pw.FontWeight.bold),
-          ),
-        ],
-        pw.SizedBox(height: 14),
+        pw.SizedBox(height: 12),
         pw.Table(
-          border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCBD5E1), width: 0.7),
+          border: pw.TableBorder.all(
+              color: PdfColor.fromInt(0xFFCBD5E1), width: 0.7),
           columnWidths: {
             for (var i = 0; i < colCount; i++) i: pw.FlexColumnWidth(flex[i]),
           },
           children: tableRows,
         ),
-        pw.SizedBox(height: 18),
+        pw.SizedBox(height: 14),
         pw.Text(
           'Emitido em ${DateFormat('dd/MM/yyyy HH:mm', 'pt_BR').format(DateTime.now())}',
-          style: pw.TextStyle(fontSize: 8.2, color: muted),
-        ),
-        pw.SizedBox(height: 3),
-        pw.Text(
-          pdfSafeText('Gestão YAHWEH — uso interno / gestão ministerial.'),
-          style: pw.TextStyle(fontSize: 8.2, color: muted, fontStyle: pw.FontStyle.italic),
+          style: pw.TextStyle(fontSize: 8.2, color: PdfColor.fromInt(0xFF64748B)),
         ),
       ],
     ),

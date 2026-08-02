@@ -2168,7 +2168,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
     }
     txRows.sort((a, b) => (a['sortMs'] as int).compareTo(b['sortMs'] as int));
 
-    final logo = await RelatorioService.loadPdfLogoBytesOnce();
+    final branding = await RelatorioService.loadFinanceReportPdfBranding();
+    final brand = RelatorioService.financeBrandTitle(branding);
+    final systemLogo = await RelatorioService.loadFinanceSystemLogoBytes();
     final bytes = await gerarPdfFinanceiroSuperExtrato(
       transacoes: txRows,
       nomeUsuario: widget.profile.name,
@@ -2177,7 +2179,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
       saldoAbertura: saldoAbertura,
       totalReceitas: totalIncome,
       totalDespesas: totalExpense,
-      logoPngBytes: logo,
+      logoPngBytes: RelatorioService.financeHeaderLogoBytes(branding),
+      brandTitle: brand,
+      footerBrand: RelatorioService.kFinanceFooterBrand,
+      churchDetailLines: branding.churchDetailLines,
+      systemLogoPngBytes: systemLogo,
     );
     return (bytes, filenameBase, heavyExport);
   }

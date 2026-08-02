@@ -4,16 +4,21 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_auth_state.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_service.dart';
+import 'package:gestao_yahweh/ui/widgets/church_chat_audio_waveform_player.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:video_player/video_player.dart';
 
-/// Mídia recebida pelo TDLib. O próprio Telegram baixa e mantém o ficheiro no
-/// cache local; foto carrega sob demanda visual e ficheiros grandes só no tap.
+/// Mídia recebida pelo TDLib — thumb rápido + full no tap; áudio com ondas.
 class TdlibLocalMedia extends StatefulWidget {
-  const TdlibLocalMedia({super.key, required this.message});
+  const TdlibLocalMedia({
+    super.key,
+    required this.message,
+    this.outgoing = false,
+  });
 
   final TdlibMessageItem message;
+  final bool outgoing;
 
   @override
   State<TdlibLocalMedia> createState() => _TdlibLocalMediaState();
@@ -21,6 +26,7 @@ class TdlibLocalMedia extends StatefulWidget {
 
 class _TdlibLocalMediaState extends State<TdlibLocalMedia> {
   String? _path;
+  String? _thumbPath;
   bool _loading = false;
   Object? _error;
   VideoPlayerController? _video;
@@ -31,10 +37,12 @@ class _TdlibLocalMediaState extends State<TdlibLocalMedia> {
   @override
   void initState() {
     super.initState();
-    final local = (widget.message.mediaLocalPath ?? '').trim();
-    if (local.isNotEmpty) _path = local;
+    final full = (widget.message.mediaLocalPath ?? '').trim();
+    final thumb = (widget.message.mediaThumbLocalPath ?? '').trim();
+    if (full.isNotEmpty) _path = full;
+    if (thumb.isNotEmpty) _thumbPath = thumb;
     if (_kind == 'photo') {
-      unawaited(_ensureDownloaded());
+      unawaited(_ensureDownloaded(preferThumb: true));
     } else if (_path != null) {
       unawaited(_preparePlayer());
     }
@@ -44,19 +52,56 @@ class _TdlibLocalMediaState extends State<TdlibLocalMedia> {
   void didUpdateWidget(covariant TdlibLocalMedia oldWidget) {
     super.didUpdateWidget(oldWidget);
     final next = (widget.message.mediaLocalPath ?? '').trim();
+    final nextThumb = (widget.message.mediaThumbLocalPath ?? '').trim();
+    if (nextThumb.isNotEmpty && nextThumb != _thumbPath) {
+      _thumbPath = nextThumb;
+    }
     if (next.isNotEmpty && next != _path) {
       _path = next;
       unawaited(_preparePlayer());
     }
   }
 
-  Future<void> _ensureDownloaded() async {
+  Future<void> _ensureDownloaded({bool preferThumb = false}) async {
     if (_loading) return;
     final current = _path;
     if (current != null && await File(current).exists()) {
       await _preparePlayer();
       if (mounted) setState(() {});
       return;
+    }
+    if (preferThumb) {
+      final thumb = _thumbPath;
+      if (thumb != null && await File(thumb).exists()) {
+        if (mounted) setState(() {});
+        // Full em background.
+        unawaited(_downloadFullQuiet());
+        return;
+      }
+      if (widget.message.mediaThumbFileId != null) {
+        if (mounted) {
+          setState(() {
+            _loading = true;
+            _error = null;
+          });
+        }
+        try {
+          final thumbMsg = widget.message.copyWith(
+            mediaFileId: widget.message.mediaThumbFileId,
+            mediaLocalPath: widget.message.mediaThumbLocalPath,
+          );
+          final path = await TdLibService.instance.ensureMediaDownloaded(
+            thumbMsg,
+            priority: 10,
+          );
+          if (path != null && path.isNotEmpty) {
+            _thumbPath = path;
+          }
+        } catch (_) {}
+        if (mounted) setState(() => _loading = false);
+        unawaited(_downloadFullQuiet());
+        return;
+      }
     }
     if (mounted) {
       setState(() {
@@ -78,6 +123,18 @@ class _TdlibLocalMediaState extends State<TdlibLocalMedia> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _downloadFullQuiet() async {
+    try {
+      final path = await TdLibService.instance.ensureMediaDownloaded(
+        widget.message,
+        priority: 6,
+      );
+      if (path == null || path.isEmpty) return;
+      _path = path;
+      if (mounted) setState(() {});
+    } catch (_) {}
   }
 
   Future<void> _preparePlayer() async {
@@ -103,33 +160,58 @@ class _TdlibLocalMediaState extends State<TdlibLocalMedia> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
+    if (_loading && _thumbPath == null && _path == null) {
       return const SizedBox(
         width: 34,
         height: 34,
         child: CircularProgressIndicator(strokeWidth: 2),
       );
     }
-    if (_error != null) {
+    if (_error != null && _thumbPath == null && _path == null) {
       return TextButton.icon(
-        onPressed: _ensureDownloaded,
+        onPressed: () => _ensureDownloaded(),
         icon: const Icon(Icons.refresh_rounded),
         label: const Text('Tentar mídia novamente'),
       );
     }
     final path = _path;
-    if (_kind == 'photo' && path != null) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Image.file(
-          File(path),
-          width: 240,
-          height: 180,
-          fit: BoxFit.cover,
-          cacheWidth: 720,
-          errorBuilder: (_, _, _) => _downloadButton(
-            icon: Icons.image_not_supported_outlined,
-            label: 'Recarregar foto',
+    final displayPhoto = path ?? _thumbPath;
+    if (_kind == 'photo' && displayPhoto != null) {
+      return GestureDetector(
+        onTap: () async {
+          await _ensureDownloaded();
+          final full = _path ?? displayPhoto;
+          if (!context.mounted) return;
+          await Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => Scaffold(
+                backgroundColor: Colors.black,
+                appBar: AppBar(
+                  backgroundColor: Colors.black,
+                  foregroundColor: Colors.white,
+                  title: const Text('Foto'),
+                ),
+                body: Center(
+                  child: InteractiveViewer(
+                    child: Image.file(File(full), fit: BoxFit.contain),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.file(
+            File(displayPhoto),
+            width: 240,
+            height: 180,
+            fit: BoxFit.cover,
+            cacheWidth: path == null ? 360 : 720,
+            errorBuilder: (_, _, _) => _downloadButton(
+              icon: Icons.image_not_supported_outlined,
+              label: 'Recarregar foto',
+            ),
           ),
         ),
       );
@@ -161,6 +243,13 @@ class _TdlibLocalMediaState extends State<TdlibLocalMedia> {
             ),
           ),
         ),
+      );
+    }
+    if ((_kind == 'voice' || _kind == 'audio') && path != null) {
+      return ChurchChatAudioWaveformPlayer(
+        playablePath: path,
+        messageId: 'tdlib_${widget.message.chatId}_${widget.message.id}',
+        mine: widget.outgoing,
       );
     }
     if ((_kind == 'voice' || _kind == 'audio') && _audio != null) {
@@ -203,7 +292,7 @@ class _TdlibLocalMediaState extends State<TdlibLocalMedia> {
 
   Widget _downloadButton({required IconData icon, required String label}) {
     return TextButton.icon(
-      onPressed: _ensureDownloaded,
+      onPressed: () => _ensureDownloaded(),
       icon: Icon(icon),
       label: Text(label),
     );

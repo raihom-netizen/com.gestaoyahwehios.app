@@ -79,6 +79,7 @@ import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
+import 'package:gestao_yahweh/services/relatorio_service.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
 import 'package:gestao_yahweh/utils/member_signature_eligibility.dart';
@@ -7399,6 +7400,7 @@ class _MembersPageState extends State<MembersPage> {
       final results = await Future.wait<Object?>([
         _membersDocsForExport(),
         loadReportPdfBranding(_effectiveTenantId),
+        RelatorioService.ensureSystemReportFooterLogo(),
       ]);
       final docs = results[0] as List<_MemberDoc>;
       final branding = results[1] as ReportPdfBranding;

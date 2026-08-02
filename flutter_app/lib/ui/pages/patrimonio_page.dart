@@ -55,6 +55,7 @@ import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
 import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
+import 'package:gestao_yahweh/services/relatorio_service.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/widgets/church_signatory_picker_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_document_signature_panel.dart';
@@ -436,6 +437,7 @@ Future<void> _exportPatrimonioRelatorioPdf({
   );
   if (signerCfg == null) return;
   final branding = await loadReportPdfBranding(tenantId);
+  await RelatorioService.ensureSystemReportFooterLogo();
   final pdf = await PdfSuperPremiumTheme.newPdfDocument();
   double valorTotal = 0;
   int emManut = 0;
@@ -527,6 +529,7 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
   );
   if (signerCfg == null) return;
   final branding = await loadReportPdfBranding(tenantId);
+  await RelatorioService.ensureSystemReportFooterLogo();
   final pdf = await PdfSuperPremiumTheme.newPdfDocument();
   final titulo = (data['titulo'] ?? 'Inventário').toString();
   final por = (data['criadoPorNome'] ?? '').toString();

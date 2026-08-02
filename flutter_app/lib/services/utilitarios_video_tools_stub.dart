@@ -1,6 +1,6 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 
-import 'utilitarios_local_service.dart';
+import 'package:gestao_yahweh/services/utilitarios_local_service.dart';
 import 'utilitarios_video_models.dart';
 
 class UtilitariosVideoToolResult {

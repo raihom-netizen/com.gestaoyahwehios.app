@@ -5,9 +5,12 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import 'package:gestao_yahweh/constants/currency_formats.dart';
-import 'package:gestao_yahweh/services/relatorio_service.dart';
 
-/// PDF financeiro: cabeçalho moderno + cards de resumo + lista de movimentos (estilo extrato app), sem tabela.
+/// PDF financeiro: cabeçalho = dados/logo da igreja; rodapé = autoria Gestão YAHWEH.
+///
+/// [brandTitle] / [churchDetailLines]: igreja no cabeçalho.
+/// [footerBrand] / [systemLogoPngBytes]: plataforma no rodapé (padrão Gestão YAHWEH).
+/// [closingAttestation]: bloco opcional (ex.: assinaturas digitais do Relatórios).
 Future<Uint8List> gerarPdfFinanceiroSuperExtrato({
   required List<Map<String, dynamic>> transacoes,
   required String nomeUsuario,
@@ -17,6 +20,12 @@ Future<Uint8List> gerarPdfFinanceiroSuperExtrato({
   required double totalReceitas,
   required double totalDespesas,
   Uint8List? logoPngBytes,
+  String brandTitle = 'Gestão YAHWEH',
+  String footerBrand = 'Gestão YAHWEH',
+  String documentSubtitle = 'Extrato Financeiro',
+  List<String> churchDetailLines = const [],
+  Uint8List? systemLogoPngBytes,
+  pw.Widget? closingAttestation,
 }) async {
   return _financeSuperExtratoComputeAsync(<String, dynamic>{
     'transacoes': transacoes.map((m) => Map<String, dynamic>.from(m)).toList(),
@@ -27,6 +36,12 @@ Future<Uint8List> gerarPdfFinanceiroSuperExtrato({
     'totalReceitas': totalReceitas,
     'totalDespesas': totalDespesas,
     'logoPngBytes': logoPngBytes,
+    'brandTitle': brandTitle,
+    'footerBrand': footerBrand,
+    'documentSubtitle': documentSubtitle,
+    'churchDetailLines': List<String>.from(churchDetailLines),
+    'systemLogoPngBytes': systemLogoPngBytes,
+    'closingAttestation': closingAttestation,
   });
 }
 
@@ -117,6 +132,16 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
   final totalReceitas = (p['totalReceitas'] as num?)?.toDouble() ?? 0.0;
   final totalDespesas = (p['totalDespesas'] as num?)?.toDouble() ?? 0.0;
   final logoBytes = p['logoPngBytes'] as Uint8List?;
+  final brandTitle = (p['brandTitle'] ?? 'Gestão YAHWEH').toString().trim();
+  final footerBrand = (p['footerBrand'] ?? 'Gestão YAHWEH').toString().trim();
+  final documentSubtitle =
+      (p['documentSubtitle'] ?? 'Extrato Financeiro').toString().trim();
+  final churchDetailLines = ((p['churchDetailLines'] as List?) ?? const [])
+      .map((e) => e.toString().trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
+  final systemLogoBytes = p['systemLogoPngBytes'] as Uint8List?;
+  final closingAttestation = p['closingAttestation'] as pw.Widget?;
 
   rawList.sort((a, b) {
     final ma = (a['sortMs'] as num?)?.toInt() ?? 0;
@@ -133,12 +158,13 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
   final emitido =
       '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
 
-  final primary = PdfColor.fromInt(0xFF122B6B);
+  final primary = PdfColor.fromInt(0xFF14532D);
   final onPrimary = PdfColors.white;
   final muted = PdfColors.grey700;
   final green = PdfColor.fromInt(0xFF166534);
   final red = PdfColor.fromInt(0xFF991B1B);
   final blueSaldo = PdfColor.fromInt(0xFF1D4ED8);
+  final footerAccent = PdfColor.fromInt(0xFF0F172A);
 
   /// Insight: categoria de despesa com maior valor no conjunto exportado.
   String? insightTopDespesa;
@@ -161,71 +187,191 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
   }
 
   pw.Widget footer(pw.Context ctx) {
+    final brand =
+        footerBrand.isEmpty ? 'Gestão YAHWEH' : _clamp(footerBrand, 40);
     return pw.Container(
-      alignment: pw.Alignment.center,
-      padding: const pw.EdgeInsets.only(top: 8),
-      child: pw.Column(
+      margin: const pw.EdgeInsets.only(top: 6),
+      padding: const pw.EdgeInsets.fromLTRB(12, 10, 12, 8),
+      decoration: pw.BoxDecoration(
+        color: PdfColor.fromInt(0xFFF8FAFC),
+        borderRadius: pw.BorderRadius.circular(10),
+        border: pw.Border.all(color: PdfColor.fromInt(0xFFE2E8F0), width: 0.8),
+      ),
+      child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.center,
-        mainAxisSize: pw.MainAxisSize.min,
         children: [
-          pw.Text(
-            'Gerado por Controle Total App',
-            style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: muted),
+          if (systemLogoBytes != null && systemLogoBytes.length > 32)
+            pw.Container(
+              width: 22,
+              height: 22,
+              margin: const pw.EdgeInsets.only(right: 8),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.white,
+                borderRadius: pw.BorderRadius.circular(6),
+                border: pw.Border.all(
+                    color: PdfColor.fromInt(0xFFE2E8F0), width: 0.6),
+              ),
+              child: pw.Padding(
+                padding: const pw.EdgeInsets.all(2),
+                child: pw.Image(pw.MemoryImage(systemLogoBytes),
+                    fit: pw.BoxFit.contain),
+              ),
+            )
+          else
+            pw.Container(
+              width: 22,
+              height: 22,
+              margin: const pw.EdgeInsets.only(right: 8),
+              decoration: pw.BoxDecoration(
+                color: footerAccent,
+                borderRadius: pw.BorderRadius.circular(6),
+              ),
+              alignment: pw.Alignment.center,
+              child: pw.Text(
+                'GY',
+                style: pw.TextStyle(
+                  fontSize: 7,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.white,
+                ),
+              ),
+            ),
+          pw.Expanded(
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              mainAxisSize: pw.MainAxisSize.min,
+              children: [
+                pw.Text(
+                  'Gerado por $brand',
+                  style: pw.TextStyle(
+                    fontSize: 8.5,
+                    fontWeight: pw.FontWeight.bold,
+                    color: footerAccent,
+                  ),
+                ),
+                pw.Text(
+                  'Sistema de gestão ministerial · Autoria oficial',
+                  style: pw.TextStyle(fontSize: 7.2, color: muted),
+                ),
+              ],
+            ),
           ),
-          pw.SizedBox(height: 2),
           pw.Text(
-            'Emitido em $emitido  |  Pag. ${ctx.pageNumber} de ${ctx.pagesCount}',
-            style: pw.TextStyle(fontSize: 8, color: muted),
+            'Emitido $emitido  ·  Pag. ${ctx.pageNumber}/${ctx.pagesCount}',
+            style: pw.TextStyle(fontSize: 7.5, color: muted),
           ),
         ],
       ),
     );
   }
 
-  pw.Widget headerBand() {
+  pw.Widget headerLogoBadge() {
+    if (logoBytes != null && logoBytes.length > 32) {
+      return pw.Container(
+        width: 54,
+        height: 54,
+        margin: const pw.EdgeInsets.only(right: 12),
+        padding: const pw.EdgeInsets.all(4),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.white,
+          borderRadius: pw.BorderRadius.circular(12),
+          border: pw.Border.all(
+              color: const PdfColor(1, 1, 1, 0.35), width: 1),
+        ),
+        child: pw.Image(pw.MemoryImage(logoBytes), fit: pw.BoxFit.contain),
+      );
+    }
+    // Ícone moderno placeholder quando a igreja ainda não tem logo.
     return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(vertical: 16, horizontal: 18),
+      width: 54,
+      height: 54,
+      margin: const pw.EdgeInsets.only(right: 12),
+      decoration: pw.BoxDecoration(
+        color: const PdfColor(1, 1, 1, 0.18),
+        borderRadius: pw.BorderRadius.circular(12),
+        border: pw.Border.all(
+            color: const PdfColor(1, 1, 1, 0.35), width: 1),
+      ),
+      alignment: pw.Alignment.center,
+      child: pw.Text(
+        '✝',
+        style: pw.TextStyle(fontSize: 22, color: onPrimary),
+      ),
+    );
+  }
+
+  pw.Widget headerBand() {
+    final church =
+        brandTitle.isEmpty ? 'Igreja' : _clamp(brandTitle, 52);
+    return pw.Container(
+      padding: const pw.EdgeInsets.symmetric(vertical: 16, horizontal: 16),
       decoration: pw.BoxDecoration(
         gradient: pw.LinearGradient(
-          colors: [PdfColor.fromInt(0xFF0B1F4B), PdfColor.fromInt(0xFF2D5BFF), PdfColor.fromInt(0xFF12B5A5)],
+          colors: [
+            PdfColor.fromInt(0xFF14532D),
+            PdfColor.fromInt(0xFF166534),
+            PdfColor.fromInt(0xFF15803D),
+          ],
         ),
         borderRadius: pw.BorderRadius.circular(14),
       ),
       child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          RelatorioService.buildPdfLogoBadge(
-            logoBytes,
-            margin: const pw.EdgeInsets.only(right: 12),
-          ),
+          headerLogoBadge(),
           pw.Expanded(
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text(
-                  'Controle Total App',
-                  style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: onPrimary),
+                  church,
+                  style: pw.TextStyle(
+                    fontSize: 16,
+                    fontWeight: pw.FontWeight.bold,
+                    color: onPrimary,
+                  ),
                 ),
-                pw.SizedBox(height: 4),
+                pw.SizedBox(height: 3),
                 pw.Text(
-                  'Extrato Financeiro',
-                  style: pw.TextStyle(fontSize: 11, color: onPrimary),
+                  documentSubtitle.isEmpty
+                      ? 'Extrato Financeiro'
+                      : _clamp(documentSubtitle, 60),
+                  style: pw.TextStyle(fontSize: 10.5, color: onPrimary),
                 ),
+                if (churchDetailLines.isNotEmpty) ...[
+                  pw.SizedBox(height: 6),
+                  ...churchDetailLines.take(4).map(
+                        (line) => pw.Padding(
+                          padding: const pw.EdgeInsets.only(bottom: 2),
+                          child: pw.Text(
+                            _clamp(line, 90),
+                            style: pw.TextStyle(
+                              fontSize: 8,
+                              color: const PdfColor(1, 1, 1, 0.92),
+                            ),
+                          ),
+                        ),
+                      ),
+                ],
               ],
             ),
           ),
           pw.Container(
-            constraints: const pw.BoxConstraints(maxWidth: 190),
+            constraints: const pw.BoxConstraints(maxWidth: 150),
             padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: pw.BoxDecoration(
-              color: const PdfColor(1, 1, 1, 0.2),
+              color: const PdfColor(1, 1, 1, 0.18),
               borderRadius: pw.BorderRadius.circular(10),
             ),
             child: pw.Text(
-              periodo.isEmpty ? 'Período' : _clamp('Período: $periodo', 90),
-              maxLines: 4,
+              periodo.isEmpty ? 'Período' : _clamp('Período\n$periodo', 90),
+              maxLines: 5,
               textAlign: pw.TextAlign.right,
-              style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, color: onPrimary),
+              style: pw.TextStyle(
+                fontSize: 9,
+                fontWeight: pw.FontWeight.bold,
+                color: onPrimary,
+              ),
             ),
           ),
         ],
@@ -445,9 +591,9 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
   final pdf = pw.Document(
     compress: true,
     theme: pw.ThemeData(),
-    title: 'Extrato Financeiro',
-    author: 'Controle Total App',
-    creator: 'Controle Total App',
+    title: documentSubtitle.isEmpty ? 'Extrato Financeiro' : documentSubtitle,
+    author: brandTitle.isEmpty ? 'Igreja' : brandTitle,
+    creator: footerBrand.isEmpty ? 'Gestão YAHWEH' : footerBrand,
     subject: periodo.isEmpty ? 'Financeiro' : periodo,
   );
 
@@ -491,6 +637,10 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
           )
         else
           ...movimentoWidgets,
+        if (closingAttestation != null) ...[
+          pw.SizedBox(height: 22),
+          closingAttestation,
+        ],
       ],
     ),
   );

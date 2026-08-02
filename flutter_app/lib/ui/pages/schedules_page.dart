@@ -29,6 +29,7 @@ import 'package:gestao_yahweh/services/department_member_integration_service.dar
 import 'package:gestao_yahweh/services/church_departments_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_departments_load_service.dart';
 import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
+import 'package:gestao_yahweh/services/relatorio_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -1060,6 +1061,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           ),
         );
       }
+      unawaited(RelatorioService.ensureSystemReportFooterLogo());
       final branding = await loadReportPdfBranding(tid);
       final op = ChurchRepository.churchId(tid.trim());
       final tenantSnap = await ChurchUiCollections.churchDoc(op).get();
@@ -1190,6 +1192,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           const SnackBar(content: Text('Gerando PDF…'), duration: Duration(seconds: 2)),
         );
       }
+      unawaited(RelatorioService.ensureSystemReportFooterLogo());
       final branding = await loadReportPdfBranding(tid);
       final op = ChurchRepository.churchId(tid.trim());
       final tenantSnap = await ChurchUiCollections.churchDoc(op).get();
@@ -1316,6 +1319,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           ),
         );
       }
+      unawaited(RelatorioService.ensureSystemReportFooterLogo());
       final branding = await loadReportPdfBranding(tid);
       final op = ChurchRepository.churchId(tid.trim());
       final tenantSnap = await ChurchUiCollections.churchDoc(op).get();

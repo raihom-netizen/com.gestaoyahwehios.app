@@ -13,8 +13,8 @@ import 'package:pdf/pdf.dart' hide PdfDocument, PdfRect;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfrx/pdfrx.dart';
 
-import 'relatorio_service.dart';
-import 'smart_input_image_ocr_service.dart';
+import 'package:gestao_yahweh/services/relatorio_service.dart';
+import 'package:gestao_yahweh/services/smart_input_image_ocr_service.dart';
 import 'package:gestao_yahweh/constants/utilitarios_export_page_format.dart';
 
 /// Anotação no editor PDF — exportada como edição nativa (PDF real, sem raster).
@@ -320,14 +320,18 @@ abstract final class UtilitariosLocalService {
   static const double kPdfEditRenderWidth = 2480;
   static const double kPdfCompressWidth = 780;
 
-  /// Scanner — preview rápido na UI; export final em A4 (~2800 px, rápido e nítido).
-  static const int kScanPreviewMaxSide = 1100;
-  static const int kScanThumbMaxSide = 900;
-  static const int kScanWorkMaxSide = 2000;
-  static const int kScanExportMaxSide = 2800;
+  /// Scanner — preview leve na UI; export nítido sem travar o isolate.
+  static const int kScanPreviewMaxSide = 960;
+  static const int kScanThumbMaxSide = 720;
+  /// Resolução de trabalho (menor = bem mais rápido na detecção de bordas).
+  static const int kScanWorkMaxSide = 1600;
+  /// Export final — ainda nítido para PDF, sem peso desnecessário.
+  static const int kScanExportMaxSide = 1800;
   static const int kScanPreviewJpegQuality = 82;
-  static const int kScanWorkJpegQuality = 86;
-  static const int kScanExportJpegQuality = 92;
+  static const int kScanWorkJpegQuality = 88;
+  static const int kScanExportJpegQuality = 88;
+  /// Proxy interno só para achar bordas (coords escalam de volta).
+  static const int kScanDetectMaxSide = 640;
 
   static Future<void> _ensurePdfrx() async {
     if (_pdfrxReady) return;
@@ -420,7 +424,7 @@ abstract final class UtilitariosLocalService {
   /// [exportQuality]: monta A4 limpo em alta resolução (~4K) ao confirmar página.
   static Future<Uint8List> enhanceScanPage(
     Uint8List raw, {
-    String mode = scanModeDocument,
+    String mode = scanModeOriginal,
     bool skipAutoCrop = false,
     int? maxSide,
     int? jpegQuality,
@@ -482,7 +486,7 @@ abstract final class UtilitariosLocalService {
         Uint8List preview,
       })> prepareScanCapture(
     Uint8List raw, {
-    String mode = scanModeDocument,
+    String mode = scanModeOriginal,
   }) async {
     ensureWithinSize(raw, label: 'Foto do scanner');
     final r = await compute(
@@ -528,7 +532,7 @@ abstract final class UtilitariosLocalService {
     required double ny,
     required double nw,
     required double nh,
-    String mode = scanModeDocument,
+    String mode = scanModeOriginal,
   }) async {
     ensureWithinSize(original, label: 'Foto do scanner');
     return compute(
@@ -544,14 +548,14 @@ abstract final class UtilitariosLocalService {
     );
   }
 
-  /// Export final da página (A4) em um isolate.
+  /// Export final da página em um isolate (recorte + enhance, sem upscale A4).
   static Future<Uint8List> buildScanExport(
     Uint8List original, {
     required double nx,
     required double ny,
     required double nw,
     required double nh,
-    String mode = scanModeDocument,
+    String mode = scanModeOriginal,
   }) async {
     ensureWithinSize(original, label: 'Foto do scanner');
     return compute(
@@ -568,10 +572,51 @@ abstract final class UtilitariosLocalService {
     );
   }
 
+  /// Gira a página 90° (quarterTurns: -1 = esquerda / +1 = direita) e reprocessa preview.
+  static Future<
+      ({
+        Uint8List original,
+        double nx,
+        double ny,
+        double nw,
+        double nh,
+        Uint8List preview,
+      })> rotateScanCapture(
+    Uint8List original, {
+    required double nx,
+    required double ny,
+    required double nw,
+    required double nh,
+    String mode = scanModeOriginal,
+    int quarterTurns = -1,
+  }) async {
+    ensureWithinSize(original, label: 'Foto do scanner');
+    final r = await compute(
+      _rotateScanCaptureIsolate,
+      _RotateScanCaptureArgs(
+        original: original,
+        nx: nx,
+        ny: ny,
+        nw: nw,
+        nh: nh,
+        mode: mode,
+        quarterTurns: quarterTurns,
+      ),
+    );
+    return (
+      original: r.original,
+      nx: r.crop[0],
+      ny: r.crop[1],
+      nw: r.crop[2],
+      nh: r.crop[3],
+      preview: r.preview,
+    );
+  }
+
   /// Várias páginas do scanner — processa uma a uma com yield na UI.
   static Future<List<Uint8List>> enhanceScanPages(
     List<Uint8List> pages, {
-    String mode = scanModeDocument,
+    String mode = scanModeOriginal,
   }) async {
     if (pages.isEmpty) return const [];
     final out = <Uint8List>[];
@@ -685,7 +730,7 @@ abstract final class UtilitariosLocalService {
       }
       final s = buf.toString().trim();
       if (s.isEmpty) {
-        return 'Documento convertido no Controle Total App.\n'
+        return 'Documento convertido no GestÃ£o Yahweh.\n'
             'Este PDF não possui texto selecionável (pode ser imagem/scan).\n'
             'Use «PDF → JPEG» ou «PDF → PNG» para obter as páginas em imagem.';
       }
@@ -699,6 +744,33 @@ abstract final class UtilitariosLocalService {
   static Future<Uint8List> pdfToDocx(Uint8List pdfBytes) async {
     final doc = await _pdfExtractStructuredDocument(pdfBytes);
     return compute(_buildFormattedDocxIsolate, doc);
+  }
+
+  /// PDF → DOCX **visual** (1 imagem por página) — preserva formato/tamanho
+  /// do documento original (tabelas, formulários, scans) sem manchas.
+  static Future<Uint8List> pdfToVisualDocx(Uint8List pdfBytes) async {
+    ensureWithinSize(pdfBytes, label: 'PDF');
+    final pages = await pdfToJpegs(
+      pdfBytes,
+      maxPages: kMaxPdfPagesRender,
+      fullWidth: kIsWeb ? 1200 : 1680,
+    );
+    if (pages.isEmpty) {
+      throw StateError('PDF sem páginas para gerar Word.');
+    }
+    final sizes = await pdfAllPagePointSizes(pdfBytes);
+    final sizePairs = <List<double>>[];
+    for (var i = 0; i < pages.length; i++) {
+      if (i < sizes.length) {
+        sizePairs.add([sizes[i].widthPts, sizes[i].heightPts]);
+      } else {
+        sizePairs.add([595.27, 841.89]);
+      }
+    }
+    return compute(
+      _buildVisualDocxFromImagesIsolate,
+      _VisualDocxArgs(pages: pages, pageSizesPts: sizePairs),
+    );
   }
 
   /// PDF → Excel (XLSX): linhas/colunas e tabelas alinhadas ao documento.
@@ -1143,7 +1215,7 @@ abstract final class UtilitariosLocalService {
       final zip = await zipImages(pdfs, 'pagina', extension: 'pdf');
       return (
         bytes: zip,
-        fileName: 'pdf_dividido_controle_total.zip',
+        fileName: 'pdf_dividido_gestao_yahweh.zip',
         mime: 'application/zip',
       );
     }
@@ -1158,7 +1230,7 @@ abstract final class UtilitariosLocalService {
     }
     return (
       bytes: await imagesToPdf(images),
-      fileName: 'pdf_dividido_controle_total.pdf',
+      fileName: 'pdf_dividido_gestao_yahweh.pdf',
       mime: 'application/pdf',
     );
   }
@@ -1655,7 +1727,7 @@ abstract final class UtilitariosLocalService {
       if (plain.isEmpty) {
         return _PdfExportDocument(
           blocks: const [],
-          plainFallback: 'Documento convertido no Controle Total App.\n'
+          plainFallback: 'Documento convertido no GestÃ£o Yahweh.\n'
               'Este PDF não possui texto selecionável (pode ser imagem/scan).\n'
               'Use «PDF → JPEG» ou «PDF → PNG» para obter as páginas em imagem.',
         );
@@ -1924,6 +1996,58 @@ class _RebuildScanPreviewArgs {
   final bool exportQuality;
 }
 
+class _RotateScanCaptureArgs {
+  const _RotateScanCaptureArgs({
+    required this.original,
+    required this.nx,
+    required this.ny,
+    required this.nw,
+    required this.nh,
+    required this.mode,
+    required this.quarterTurns,
+  });
+  final Uint8List original;
+  final double nx;
+  final double ny;
+  final double nw;
+  final double nh;
+  final String mode;
+  final int quarterTurns;
+}
+
+List<double> _rotateCropNorm(
+  double nx,
+  double ny,
+  double nw,
+  double nh,
+  int quarterTurns,
+) {
+  // Normaliza para -3..3 e reduz módulo 4.
+  var q = quarterTurns % 4;
+  if (q < 0) q += 4;
+  var x = nx;
+  var y = ny;
+  var w = nw;
+  var h = nh;
+  for (var i = 0; i < q; i++) {
+    // 90° horário: (x,y,w,h) → (1-y-h, x, h, w)
+    final nx2 = 1.0 - y - h;
+    final ny2 = x;
+    final nw2 = h;
+    final nh2 = w;
+    x = nx2;
+    y = ny2;
+    w = nw2;
+    h = nh2;
+  }
+  return [
+    x.clamp(0.0, 1.0),
+    y.clamp(0.0, 1.0),
+    w.clamp(0.02, 1.0),
+    h.clamp(0.02, 1.0),
+  ];
+}
+
 List<double> _detectScanCropNormFromImage(img.Image decoded) {
   final w = decoded.width;
   final h = decoded.height;
@@ -1995,40 +2119,42 @@ img.Image _enhanceScanImage(
   img.Image work, {
   required String mode,
   required bool previewOnly,
-  required bool exportA4,
+  required bool exportA4, // legado — export não monta mais canvas A4
   required int maxSide,
 }) {
+  // Mantém assinatura estável; exportA4 ignorado de propósito (sem upscale).
+  // ignore: avoid_unused_constructor_parameters
+  final _ = exportA4;
   if (mode == UtilitariosLocalService.scanModeOriginal) {
     work = _resizeScanLongEdge(work, maxSide);
-    if (exportA4) work = _fitScanExportA4(work, maxSide);
+    // Sem canvas A4: evita upscale artificial que borra texto.
     return work;
   }
   if (mode == UtilitariosLocalService.scanModeColor) {
     work = _reduceShadowsMild(work);
     work = img.adjustColor(
       work,
-      brightness: 1.06,
-      contrast: 1.18,
-      saturation: 1.2,
+      brightness: 1.04,
+      contrast: 1.12,
+      saturation: 1.15,
     );
-    if (exportA4) work = _fitScanExportA4(work, maxSide);
-    return work;
+    return _resizeScanLongEdge(work, maxSide);
   }
   if (mode == UtilitariosLocalService.scanModeVivid) {
     work = _flattenCrumpledDocument(work, vivid: true, preview: previewOnly);
-    if (exportA4) work = _fitScanExportA4(work, maxSide);
-    return work;
+    return _resizeScanLongEdge(work, maxSide);
   }
+  // Documento = "Melhorar" estilo CamScanner (limpo, sem estourar branco).
   work = _flattenCrumpledDocument(work, preview: previewOnly);
-  if (exportA4) work = _fitScanExportA4(work, maxSide);
-  return work;
+  return _resizeScanLongEdge(work, maxSide);
 }
 
 _PrepareScanFrameResult _prepareScanFrameIsolate(Uint8List raw) {
   final decoded = img.decodeImage(raw);
   if (decoded == null) throw StateError('Foto inválida para o scanner.');
+  final oriented = img.bakeOrientation(decoded);
   final work = _resizeScanLongEdge(
-    decoded,
+    oriented,
     UtilitariosLocalService.kScanWorkMaxSide,
   );
   final original = Uint8List.fromList(
@@ -2048,7 +2174,7 @@ _PrepareScanFrameResult _prepareScanFrameIsolate(Uint8List raw) {
   final thumb = Uint8List.fromList(
     img.encodeJpg(
       _resizeScanLongEdge(cropped, UtilitariosLocalService.kScanThumbMaxSide),
-      quality: 78,
+      quality: 80,
     ),
   );
   return _PrepareScanFrameResult(original: original, crop: crop, thumb: thumb);
@@ -2058,8 +2184,9 @@ _PrepareScanCaptureResult _prepareScanCaptureIsolate(
     _PrepareScanCaptureArgs a) {
   final decoded = img.decodeImage(a.raw);
   if (decoded == null) throw StateError('Foto inválida para o scanner.');
+  final oriented = img.bakeOrientation(decoded);
   final work = _resizeScanLongEdge(
-    decoded,
+    oriented,
     UtilitariosLocalService.kScanWorkMaxSide,
   );
   final original = Uint8List.fromList(
@@ -2085,10 +2212,7 @@ _PrepareScanCaptureResult _prepareScanCaptureIsolate(
   );
   final preview = Uint8List.fromList(
     img.encodeJpg(
-      _resizeScanLongEdge(
-        previewImg,
-        UtilitariosLocalService.kScanPreviewMaxSide,
-      ),
+      previewImg,
       quality: UtilitariosLocalService.kScanPreviewJpegQuality,
     ),
   );
@@ -2109,7 +2233,7 @@ Uint8List _rebuildScanPreviewIsolate(_RebuildScanPreviewArgs a) {
   );
   return Uint8List.fromList(
     img.encodeJpg(
-      _resizeScanLongEdge(out, UtilitariosLocalService.kScanPreviewMaxSide),
+      out,
       quality: UtilitariosLocalService.kScanPreviewJpegQuality,
     ),
   );
@@ -2119,15 +2243,55 @@ Uint8List _buildScanExportIsolate(_RebuildScanPreviewArgs a) {
   final decoded = img.decodeImage(a.original);
   if (decoded == null) throw StateError('Foto inválida para o scanner.');
   final cropped = _cropScanNormImage(decoded, a.nx, a.ny, a.nw, a.nh);
+  // Export usa enhance médio (rápido + nítido), sem canvas A4/upscale.
   final out = _enhanceScanImage(
     cropped,
     mode: a.mode,
     previewOnly: false,
-    exportA4: true,
+    exportA4: false,
     maxSide: UtilitariosLocalService.kScanExportMaxSide,
   );
   return Uint8List.fromList(
     img.encodeJpg(out, quality: UtilitariosLocalService.kScanExportJpegQuality),
+  );
+}
+
+_PrepareScanCaptureResult _rotateScanCaptureIsolate(_RotateScanCaptureArgs a) {
+  final decoded = img.decodeImage(a.original);
+  if (decoded == null) throw StateError('Foto inválida para o scanner.');
+  final angle = (a.quarterTurns % 4) * 90;
+  final rotated = angle == 0 ? decoded : img.copyRotate(decoded, angle: angle);
+  final crop = _rotateCropNorm(a.nx, a.ny, a.nw, a.nh, a.quarterTurns);
+  final original = Uint8List.fromList(
+    img.encodeJpg(
+      rotated,
+      quality: UtilitariosLocalService.kScanWorkJpegQuality,
+    ),
+  );
+  final cropped = _cropScanNormImage(
+    rotated,
+    crop[0],
+    crop[1],
+    crop[2],
+    crop[3],
+  );
+  final previewImg = _enhanceScanImage(
+    cropped,
+    mode: a.mode,
+    previewOnly: true,
+    exportA4: false,
+    maxSide: UtilitariosLocalService.kScanPreviewMaxSide,
+  );
+  final preview = Uint8List.fromList(
+    img.encodeJpg(
+      previewImg,
+      quality: UtilitariosLocalService.kScanPreviewJpegQuality,
+    ),
+  );
+  return _PrepareScanCaptureResult(
+    original: original,
+    crop: crop,
+    preview: preview,
   );
 }
 
@@ -2224,18 +2388,36 @@ img.Image _autoCropDocument(img.Image src) {
 ({int minX, int minY, int maxX, int maxY})? _detectDocumentBoundsCombined(
   img.Image src,
 ) {
-  final byEdge = _detectDocumentBoundsByEdge(src);
-  final byContent = _detectDocumentBoundsByContent(src);
-  var box = byEdge ?? byContent;
-  if (box == null && byEdge != null && byContent != null) {
-    box = (
-      minX: byEdge.minX > byContent.minX ? byEdge.minX : byContent.minX,
-      minY: byEdge.minY > byContent.minY ? byEdge.minY : byContent.minY,
-      maxX: byEdge.maxX < byContent.maxX ? byEdge.maxX : byContent.maxX,
-      maxY: byEdge.maxY < byContent.maxY ? byEdge.maxY : byContent.maxY,
+  // Detecta em proxy pequeno e escala as coords — ordem de magnitude mais rápido.
+  final maxDim = src.width > src.height ? src.width : src.height;
+  final detectMax = UtilitariosLocalService.kScanDetectMaxSide;
+  img.Image probe = src;
+  var scaleX = 1.0;
+  var scaleY = 1.0;
+  if (maxDim > detectMax) {
+    final nw = (src.width * detectMax / maxDim).round().clamp(48, detectMax);
+    final nh = (src.height * detectMax / maxDim).round().clamp(48, detectMax);
+    probe = img.copyResize(
+      src,
+      width: nw,
+      height: nh,
+      interpolation: img.Interpolation.average,
     );
+    scaleX = src.width / probe.width;
+    scaleY = src.height / probe.height;
   }
-  return box ?? byEdge ?? byContent;
+
+  // Conteúdo primeiro (barato no proxy); edge só se conteúdo falhar.
+  final byContent = _detectDocumentBoundsByContent(probe);
+  final box = byContent ?? _detectDocumentBoundsByEdge(probe);
+  if (box == null) return null;
+
+  return (
+    minX: (box.minX * scaleX).round().clamp(0, src.width - 1),
+    minY: (box.minY * scaleY).round().clamp(0, src.height - 1),
+    maxX: (box.maxX * scaleX).round().clamp(0, src.width - 1),
+    maxY: (box.maxY * scaleY).round().clamp(0, src.height - 1),
+  );
 }
 
 ({int minX, int minY, int maxX, int maxY})? _detectDocumentBoundsByEdge(
@@ -2243,7 +2425,7 @@ img.Image _autoCropDocument(img.Image src) {
 ) {
   final w = src.width;
   final h = src.height;
-  final step = w > 1200 || h > 1200 ? 3 : 2;
+  final step = w > 500 || h > 500 ? 3 : 2;
 
   int colEnergy(int x) {
     var e = 0;
@@ -2339,19 +2521,17 @@ img.Image _autoCropDocument(img.Image src) {
   var maxX = 0;
   var maxY = 0;
   var hits = 0;
-  const step = 2;
+  final step = w > 480 || h > 480 ? 3 : 2;
 
   for (var y = 0; y < h; y += step) {
     for (var x = 0; x < w; x += step) {
       final p = src.getPixel(x, y);
       final l = ((0.299 * p.r) + (0.587 * p.g) + (0.114 * p.b)).round();
-      final sat = () {
-        final mx =
-            p.r > p.g ? (p.r > p.b ? p.r : p.b) : (p.g > p.b ? p.g : p.b);
-        final mn =
-            p.r < p.g ? (p.r < p.b ? p.r : p.b) : (p.g < p.b ? p.g : p.b);
-        return (mx - mn).toInt();
-      }();
+      final mx =
+          p.r > p.g ? (p.r > p.b ? p.r : p.b) : (p.g > p.b ? p.g : p.b);
+      final mn =
+          p.r < p.g ? (p.r < p.b ? p.r : p.b) : (p.g < p.b ? p.g : p.b);
+      final sat = (mx - mn).toInt();
       // Papel / conteúdo: difere da mesa OU tem cor viva (desenhos).
       final isDoc = (l - bg).abs() >= 22 || sat >= 38 || l >= 200;
       if (!isDoc) continue;
@@ -2405,6 +2585,7 @@ double _illuminationFactor(double sample, double background, double target) {
 }
 
 /// Normaliza iluminação — remove vincos/sombras locais mantendo texto.
+// ignore: unused_element
 img.Image _normalizeIllumination(img.Image src) {
   final bg = _estimateScanBackground(src);
   final out = img.Image.from(src);
@@ -2450,6 +2631,7 @@ img.Image _normalizeIlluminationPreview(img.Image src) {
   return out;
 }
 
+// ignore: unused_element
 img.Image _reduceShadowsStrong(img.Image src) {
   final out = img.Image.from(src);
   for (var y = 0; y < out.height; y++) {
@@ -2541,57 +2723,40 @@ img.Image _suppressCreaseHighlights(img.Image src) {
   return out;
 }
 
-/// Papel amassado → folha limpa com texto/cores preservados.
+/// Papel limpo estilo CamScanner "Melhorar" — preserva detalhe, sem estourar branco.
 img.Image _flattenCrumpledDocument(
   img.Image src, {
   bool vivid = false,
   bool preview = false,
 }) {
-  if (preview) {
+  // Preview e Documento padrão: caminho leve e rápido (sem ruído/halftone).
+  if (preview || !vivid) {
     var work = _reduceShadowsMild(src);
-    if (!vivid) {
-      work = img.adjustColor(
-        work,
-        brightness: 1.04,
-        contrast: 1.06,
-        saturation: 0.98,
-      );
-      return work;
-    }
-    work = _normalizeIlluminationPreview(work);
-    work = _smoothPaperWrinkles(work);
-    work = _suppressCreaseHighlights(work);
     work = img.adjustColor(
       work,
-      brightness: 1.03,
-      contrast: 1.06,
-      saturation: 1.08,
+      brightness: vivid ? 1.03 : 1.02,
+      contrast: vivid ? 1.10 : 1.08,
+      saturation: vivid ? 1.06 : 1.0,
     );
-    return work;
+    if (vivid && !preview) {
+      work = _normalizeIlluminationPreview(work);
+      work = _smoothPaperWrinkles(work);
+    }
+    return _sharpenMild(work, strength: vivid ? 0.22 : 0.12);
   }
 
-  var work = _reduceShadowsStrong(src);
-  work = _normalizeIllumination(work);
+  // Vivido export: limpeza um pouco mais forte, ainda sem branqueamento agressivo.
+  var work = _reduceShadowsMild(src);
+  work = _normalizeIlluminationPreview(work);
   work = _smoothPaperWrinkles(work);
   work = _suppressCreaseHighlights(work);
-  work = _smoothPaperWrinkles(work);
-  work = _whitenPaper(work);
-  if (vivid) {
-    work = img.adjustColor(
-      work,
-      brightness: 1.03,
-      contrast: 1.1,
-      saturation: 1.1,
-    );
-  } else {
-    work = img.adjustColor(
-      work,
-      brightness: 1.04,
-      contrast: 1.14,
-      saturation: 0.94,
-    );
-  }
-  return _sharpenMild(work, strength: vivid ? 0.35 : 0.2);
+  work = img.adjustColor(
+    work,
+    brightness: 1.03,
+    contrast: 1.12,
+    saturation: 1.08,
+  );
+  return _sharpenMild(work, strength: 0.28);
 }
 
 /// Monta canvas A4 branco em alta resolução e centraliza o documento.
@@ -2627,6 +2792,7 @@ img.Image _fitScanExportA4(img.Image work, int longEdge) {
 }
 
 /// Empurra pixels claros para branco (papel) sem matar o texto.
+// ignore: unused_element
 img.Image _whitenPaper(img.Image src) {
   final out = img.Image.from(src);
   for (final p in out) {
@@ -3523,6 +3689,163 @@ Uint8List _buildFormattedDocxIsolate(_PdfExportDocument doc) {
   return Uint8List.fromList(ZipEncoder().encode(archive));
 }
 
+class _VisualDocxArgs {
+  const _VisualDocxArgs({
+    required this.pages,
+    required this.pageSizesPts,
+  });
+  final List<Uint8List> pages;
+  final List<List<double>> pageSizesPts;
+}
+
+/// DOCX visual: cada página do PDF vira uma página Word com a imagem em
+/// tamanho físico original (EMU) — sem comprimir/achatar o layout.
+Uint8List _buildVisualDocxFromImagesIsolate(_VisualDocxArgs args) {
+  final n = args.pages.length;
+  if (n == 0) throw StateError('Nenhuma página para o Word.');
+
+  final archive = Archive();
+  void addXml(String name, String data) {
+    final b = utf8.encode(data);
+    archive.addFile(ArchiveFile(name, b.length, b));
+  }
+
+  void addBin(String name, Uint8List data) {
+    final f = ArchiveFile(name, data.length, data)
+      ..compression = CompressionType.none;
+    archive.addFile(f);
+  }
+
+  // 1 pt = 12700 EMUs
+  const emuPerPt = 12700.0;
+
+  final overrides = StringBuffer();
+  final rels = StringBuffer();
+  final body = StringBuffer();
+
+  for (var i = 0; i < n; i++) {
+    final idx = i + 1;
+    var ptW = 595.27;
+    var ptH = 841.89;
+    if (i < args.pageSizesPts.length && args.pageSizesPts[i].length >= 2) {
+      ptW = args.pageSizesPts[i][0].clamp(72.0, 2500.0);
+      ptH = args.pageSizesPts[i][1].clamp(72.0, 2500.0);
+    }
+    // Ajusta à proporção real da imagem se divergir.
+    final decoded = img.decodeImage(args.pages[i]);
+    if (decoded != null && decoded.width > 0 && decoded.height > 0) {
+      final imgAspect = decoded.width / decoded.height;
+      final pageAspect = ptW / ptH;
+      if ((imgAspect - pageAspect).abs() > 0.015) {
+        if (ptW >= ptH) {
+          ptH = (ptW / imgAspect).clamp(72.0, 2500.0);
+        } else {
+          ptW = (ptH * imgAspect).clamp(72.0, 2500.0);
+        }
+      }
+    }
+    final cx = (ptW * emuPerPt).round();
+    final cy = (ptH * emuPerPt).round();
+    // Page margins 0 — imagem full page.
+    final pgWTwips = (ptW * 20).round();
+    final pgHTwips = (ptH * 20).round();
+
+    final mediaName = 'media/image$idx.jpeg';
+    addBin('word/$mediaName', args.pages[i]);
+    overrides.writeln(
+      '  <Override PartName="/word/$mediaName" ContentType="image/jpeg"/>',
+    );
+    rels.writeln(
+      '  <Relationship Id="rId$idx" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="$mediaName"/>',
+    );
+
+    body.writeln('''
+<w:p>
+  <w:pPr><w:spacing w:before="0" w:after="0"/><w:jc w:val="center"/></w:pPr>
+  <w:r>
+    <w:drawing>
+      <wp:inline distT="0" distB="0" distL="0" distR="0"
+        xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+        xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+        xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"
+        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+        <wp:extent cx="$cx" cy="$cy"/>
+        <wp:docPr id="$idx" name="Page$idx"/>
+        <a:graphic>
+          <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+            <pic:pic>
+              <pic:nvPicPr>
+                <pic:cNvPr id="0" name="image$idx.jpeg"/>
+                <pic:cNvPicPr/>
+              </pic:nvPicPr>
+              <pic:blipFill>
+                <a:blip r:embed="rId$idx"/>
+                <a:stretch><a:fillRect/></a:stretch>
+              </pic:blipFill>
+              <pic:spPr>
+                <a:xfrm>
+                  <a:off x="0" y="0"/>
+                  <a:ext cx="$cx" cy="$cy"/>
+                </a:xfrm>
+                <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+              </pic:spPr>
+            </pic:pic>
+          </a:graphicData>
+        </a:graphic>
+      </wp:inline>
+    </w:drawing>
+  </w:r>
+</w:p>
+<w:p>
+  <w:pPr>
+    <w:sectPr>
+      <w:pgSz w:w="$pgWTwips" w:h="$pgHTwips"/>
+      <w:pgMar w:top="0" w:right="0" w:bottom="0" w:left="0" w:header="0" w:footer="0" w:gutter="0"/>
+    </w:sectPr>
+  </w:pPr>
+</w:p>''');
+  }
+
+  final contentTypes =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="jpeg" ContentType="image/jpeg"/>
+  <Default Extension="jpg" ContentType="image/jpeg"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+$overrides</Types>''';
+
+  const rootRels = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>''';
+
+  final docRels =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+$rels</Relationships>''';
+
+  final document =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+ xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+ xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+ xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+  <w:body>
+$body
+  </w:body>
+</w:document>''';
+
+  addXml('[Content_Types].xml', contentTypes);
+  addXml('_rels/.rels', rootRels);
+  addXml('word/_rels/document.xml.rels', docRels);
+  addXml('word/document.xml', document);
+
+  return Uint8List.fromList(ZipEncoder().encode(archive));
+}
+
 String _colIndexToLetters(int index) {
   var n = index;
   final chars = <int>[];
@@ -3574,7 +3897,7 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
   }
 
   if (sheetSpecs.isEmpty) {
-    addRow(['Conteúdo convertido no Controle Total App']);
+    addRow(['Conteúdo convertido no GestÃ£o Yahweh']);
   }
 
   final sst = <String>[];
@@ -3654,8 +3977,8 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
  xmlns:dcterms="http://purl.org/dc/terms/"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <dc:title>PDF → Excel</dc:title>
-  <dc:creator>Controle Total App</dc:creator>
-  <cp:lastModifiedBy>Controle Total App</cp:lastModifiedBy>
+  <dc:creator>GestÃ£o Yahweh</dc:creator>
+  <cp:lastModifiedBy>GestÃ£o Yahweh</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">$now</dcterms:created>
   <dcterms:modified xsi:type="dcterms:W3CDTF">$now</dcterms:modified>
 </cp:coreProperties>''';
@@ -3663,8 +3986,8 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
   const app = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
  xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-  <Application>Controle Total App</Application>
-  <Company>Controle Total App</Company>
+  <Application>GestÃ£o Yahweh</Application>
+  <Company>GestÃ£o Yahweh</Company>
 </Properties>''';
 
   const workbook = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -3876,9 +4199,9 @@ $overrideSlides</Types>''';
  xmlns:dcterms="http://purl.org/dc/terms/"
  xmlns:dcmitype="http://purl.org/dc/dcmitype/"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dc:title>Controle Total App</dc:title>
-  <dc:creator>Controle Total App</dc:creator>
-  <cp:lastModifiedBy>Controle Total App</cp:lastModifiedBy>
+  <dc:title>GestÃ£o Yahweh</dc:title>
+  <dc:creator>GestÃ£o Yahweh</dc:creator>
+  <cp:lastModifiedBy>GestÃ£o Yahweh</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">$now</dcterms:created>
   <dcterms:modified xsi:type="dcterms:W3CDTF">$now</dcterms:modified>
 </cp:coreProperties>''';
@@ -3886,11 +4209,11 @@ $overrideSlides</Types>''';
   final app = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
  xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-  <Application>Controle Total App</Application>
+  <Application>GestÃ£o Yahweh</Application>
   <PresentationFormat>Widescreen</PresentationFormat>
   <Slides>$n</Slides>
   <ScaleCrop>false</ScaleCrop>
-  <Company>Controle Total App</Company>
+  <Company>GestÃ£o Yahweh</Company>
 </Properties>''';
 
   // rId1 = slideMaster; rId2.. = slides; último = theme
@@ -3933,7 +4256,7 @@ $sldIdLst  </p:sldIdLst>
 $presRels</Relationships>''';
 
   const theme = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="ControleTotal">
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="GestaoYahweh">
   <a:themeElements>
     <a:clrScheme name="Office">
       <a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>
@@ -4261,7 +4584,7 @@ Future<Uint8List> _rowsToPdfWithTheme(
           const pw.EdgeInsets.all(UtilitariosExportPageFormat.pdfTableMarginPt),
       build: (_) => [
         pw.Text(
-          'Planilha — Controle Total App',
+          'Planilha — GestÃ£o Yahweh',
           style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 10),

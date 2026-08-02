@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show File;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,10 +8,12 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
+import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_event_video_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
@@ -18,6 +21,7 @@ import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show eventNoticiaDocHasPhotoMedia;
+import 'package:gestao_yahweh/utils/youtube_url_helper.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show noticiaGalleryRefsForShare;
 import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
@@ -38,6 +42,8 @@ class ChurchAvisoItem {
     required this.permanent,
     this.expiresAt,
     this.authorName = '',
+    this.videoUrl = '',
+    this.youtubeVideoId = '',
   });
 
   final String id;
@@ -49,9 +55,14 @@ class ChurchAvisoItem {
   final bool permanent;
   final DateTime? expiresAt;
   final String authorName;
+  final String videoUrl;
+  final String youtubeVideoId;
 
   bool get hasImages =>
       imageUrls.isNotEmpty || eventNoticiaDocHasPhotoMedia(rawData);
+
+  bool get hasVideo =>
+      youtubeVideoId.isNotEmpty || videoUrl.trim().isNotEmpty;
 
   /// URLs + paths Storage para carrossel (igual eventos / site público).
   List<String> mediaRefs() => noticiaGalleryRefsForShare(rawData);
@@ -93,6 +104,18 @@ class ChurchAvisoItem {
     final e1 = m['avisoExpiresAt'] ?? m['validUntil'];
     if (e1 is Timestamp) exp = e1.toDate();
 
+    final videoUrl = (m['videoUrl'] ?? m['mediaUrl'] ?? '').toString().trim();
+    var ytId = (m['youtubeVideoId'] ?? '').toString().trim();
+    if (ytId.isEmpty) {
+      ytId = YoutubeUrlHelper.extractVideoId(videoUrl) ?? '';
+    }
+    if (ytId.isEmpty) {
+      ytId = YoutubeUrlHelper.extractVideoId(
+            (m['youtubeUrl'] ?? '').toString(),
+          ) ??
+          '';
+    }
+
     return ChurchAvisoItem(
       id: d.id,
       title: (m['title'] ?? m['titulo'] ?? '').toString().trim(),
@@ -103,6 +126,8 @@ class ChurchAvisoItem {
       permanent: m['permanent'] == true || exp == null,
       expiresAt: exp,
       authorName: (m['authorName'] ?? m['autor'] ?? '').toString().trim(),
+      videoUrl: videoUrl,
+      youtubeVideoId: ytId,
     );
   }
 }
@@ -146,6 +171,8 @@ abstract final class ChurchAvisosService {
     required bool publicSite,
     DateTime? calendarDate,
     bool syncCalendar = true,
+    bool hasVideo = false,
+    String? videoStoragePath,
     void Function(double progress)? onUploadProgress,
   }) async {
     Object? last;
@@ -164,6 +191,8 @@ abstract final class ChurchAvisosService {
           existingPhotoRefs: existingPhotoRefs,
           startSlotIndex: startSlotIndex,
           newImagesBytes: newImagesBytes,
+          hasVideo: hasVideo,
+          videoStoragePath: videoStoragePath,
           publicSite: publicSite,
           calendarDate: calendarDate,
           syncCalendar: syncCalendar,
@@ -244,7 +273,33 @@ abstract final class ChurchAvisosService {
     }
   }
 
-  /// Publica aviso: Storage (até 3 fotos) → Firestore (push FCM via Cloud Function).
+  static Future<String> _uploadAvisoLocalVideo({
+    required String churchId,
+    required String postId,
+    required String localPath,
+    void Function(double progress)? onProgress,
+  }) async {
+    if (kIsWeb) {
+      throw StateError(
+        'Upload de vídeo do aparelho no aviso: use o app Android/iOS, '
+        'ou cole o link do YouTube na web.',
+      );
+    }
+    final file = File(localPath);
+    if (!await file.exists() || await file.length() <= 0) {
+      throw StateError('Vídeo vazio — selecione outro ficheiro.');
+    }
+    final storagePath =
+        ChurchStorageLayout.avisoHostedVideoMp4Path(churchId, postId, 0);
+    await EcoFireEventVideoUpload.putVideoFile(
+      storagePath: storagePath,
+      file: file,
+      onProgress: onProgress,
+    );
+    return storagePath;
+  }
+
+  /// Publica aviso: fotos (Instagram) + YouTube/vídeo opcional → Firestore.
   static Future<String> publish({
     required String churchIdHint,
     required String title,
@@ -252,6 +307,9 @@ abstract final class ChurchAvisosService {
     required bool permanent,
     DateTime? expiresAtEndOfDay,
     required List<Uint8List> photoBytes,
+    String youtubeUrl = '',
+    String? videoStoragePath,
+    String? videoLocalPath,
     String role = '',
     List<String>? permissions,
     void Function(double progress)? onUploadProgress,
@@ -280,6 +338,17 @@ abstract final class ChurchAvisosService {
     final docRef = ChurchUiCollections.avisos(cid).doc();
     final postId = docRef.id;
 
+    var resolvedVideoPath = (videoStoragePath ?? '').trim();
+    final localVideo = (videoLocalPath ?? '').trim();
+    if (resolvedVideoPath.isEmpty && localVideo.isNotEmpty) {
+      resolvedVideoPath = await _uploadAvisoLocalVideo(
+        churchId: cid,
+        postId: postId,
+        localPath: localVideo,
+        onProgress: onUploadProgress,
+      );
+    }
+
     final now = FieldValue.serverTimestamp();
     Timestamp? expTs;
     Timestamp? validUntil;
@@ -295,6 +364,11 @@ abstract final class ChurchAvisosService {
       expTs = Timestamp.fromDate(end);
       validUntil = expTs;
     }
+
+    final ytId = YoutubeUrlHelper.extractVideoId(youtubeUrl);
+    final ytWatch =
+        ytId != null ? YoutubeUrlHelper.normalizeYoutubeUrl(youtubeUrl) : '';
+    final videoPath = resolvedVideoPath;
 
     final corePayload = <String, dynamic>{
       'type': 'aviso',
@@ -313,11 +387,16 @@ abstract final class ChurchAvisosService {
         'avisoExpiresAt': expTs,
         'validUntil': validUntil,
       },
+      if (ytId != null) ...{
+        'youtubeVideoId': ytId,
+        'youtubeUrl': ytWatch,
+        'videoUrl': ytWatch,
+      },
     };
 
     logFirebasePublishPhase(
       'avisos_service_publish_start',
-      'path=${docRef.path} photos=${imgs.length}',
+      'path=${docRef.path} photos=${imgs.length} yt=${ytId != null} video=$videoPath',
     );
 
     try {
@@ -329,6 +408,8 @@ abstract final class ChurchAvisosService {
         existingPhotoRefs: const [],
         startSlotIndex: 0,
         newImagesBytes: imgs.isNotEmpty ? imgs : null,
+        hasVideo: videoPath.isNotEmpty,
+        videoStoragePath: videoPath.isNotEmpty ? videoPath : null,
         publicSite: true,
         calendarDate: permanent ? null : expiresAtEndOfDay,
         syncCalendar: true,
@@ -365,7 +446,7 @@ abstract final class ChurchAvisosService {
     return postId;
   }
 
-  /// Atualiza aviso existente (título, mensagem, validade e fotos opcionais).
+  /// Atualiza aviso existente (título, mensagem, validade, fotos e vídeo).
   static Future<void> update({
     required String churchIdHint,
     required String docId,
@@ -375,6 +456,10 @@ abstract final class ChurchAvisosService {
     DateTime? expiresAtEndOfDay,
     List<String> existingImageUrls = const [],
     List<Uint8List> newPhotoBytes = const [],
+    String youtubeUrl = '',
+    String? videoStoragePath,
+    String? videoLocalPath,
+    bool clearVideo = false,
     String role = '',
     List<String>? permissions,
     void Function(double progress)? onUploadProgress,
@@ -387,6 +472,17 @@ abstract final class ChurchAvisosService {
     final id = docId.trim();
     if (cid.isEmpty || id.isEmpty) {
       throw StateError('Aviso não identificado para edição.');
+    }
+
+    var resolvedVideoPath = (videoStoragePath ?? '').trim();
+    final localVideo = (videoLocalPath ?? '').trim();
+    if (resolvedVideoPath.isEmpty && localVideo.isNotEmpty) {
+      resolvedVideoPath = await _uploadAvisoLocalVideo(
+        churchId: cid,
+        postId: id,
+        localPath: localVideo,
+        onProgress: onUploadProgress,
+      );
     }
 
     final titulo = title.trim();
@@ -426,6 +522,11 @@ abstract final class ChurchAvisosService {
       validUntil = expTs;
     }
 
+    final ytId = YoutubeUrlHelper.extractVideoId(youtubeUrl);
+    final ytWatch =
+        ytId != null ? YoutubeUrlHelper.normalizeYoutubeUrl(youtubeUrl) : '';
+    final videoPath = resolvedVideoPath;
+
     final corePayload = <String, dynamic>{
       'type': 'aviso',
       'title': titulo,
@@ -441,6 +542,16 @@ abstract final class ChurchAvisosService {
       } else ...{
         'avisoExpiresAt': FieldValue.delete(),
         'validUntil': FieldValue.delete(),
+      },
+      if (clearVideo && ytId == null && videoPath.isEmpty) ...{
+        'youtubeVideoId': FieldValue.delete(),
+        'youtubeUrl': FieldValue.delete(),
+        'videoUrl': FieldValue.delete(),
+        'videos': FieldValue.delete(),
+      } else if (ytId != null) ...{
+        'youtubeVideoId': ytId,
+        'youtubeUrl': ytWatch,
+        'videoUrl': ytWatch,
       },
     };
 
@@ -460,6 +571,8 @@ abstract final class ChurchAvisosService {
         existingPhotoRefs: keepUrls,
         startSlotIndex: keepUrls.length,
         newImagesBytes: newImages.isNotEmpty ? newImages : null,
+        hasVideo: videoPath.isNotEmpty,
+        videoStoragePath: videoPath.isNotEmpty ? videoPath : null,
         publicSite: true,
         calendarDate: permanent ? null : expiresAtEndOfDay,
         syncCalendar: true,

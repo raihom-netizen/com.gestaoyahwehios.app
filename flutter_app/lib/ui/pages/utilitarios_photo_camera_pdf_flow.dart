@@ -18,6 +18,7 @@ class UtilitariosPhotoCameraPdfResult {
 
   final List<Uint8List> pages;
   final bool onePdfPerPage;
+
   /// PDF já montado no fluxo (compartilhar sem segunda espera).
   final Uint8List? pdfBytes;
 }
@@ -78,7 +79,10 @@ class _PhotoCameraPdfSimplePageState extends State<_PhotoCameraPdfSimplePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            e.toString().replaceFirst('StateError: ', '').replaceFirst('Bad state: ', ''),
+            e
+                .toString()
+                .replaceFirst('StateError: ', '')
+                .replaceFirst('Bad state: ', ''),
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -173,7 +177,7 @@ class _PhotoCameraPdfSimplePageState extends State<_PhotoCameraPdfSimplePage> {
       return;
     }
     await _withBusy(() async {
-      // PDF montado aqui — tela Utilitários só compartilha (sem segunda espera).
+      // PDF montado aqui — tela Utilitários oferece compartilhar/salvar.
       final pdf = await UtilitariosLocalService.imagesToPdf(
         List<Uint8List>.from(_photos),
       );

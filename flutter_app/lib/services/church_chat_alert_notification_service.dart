@@ -223,4 +223,52 @@ class ChurchChatAlertNotificationService {
     );
     return true;
   }
+
+  /// Alerta local para mensagem TDLib (app em foreground, chat não aberto).
+  Future<void> showTdlibLocalAlert({
+    required String title,
+    required String body,
+    required int chatId,
+  }) async {
+    if (kIsWeb) return;
+    await _ensureInitialized();
+    final groupKey = 'gyh_tdlib_$chatId';
+    await _plugin.show(
+      id: (chatId.abs() % 100000) +
+          (DateTime.now().millisecondsSinceEpoch % 1000),
+      title: title.trim().isEmpty ? 'Yahweh Chat' : title.trim(),
+      body: body.trim().isEmpty ? 'Nova mensagem' : body.trim(),
+      notificationDetails: NotificationDetails(
+        android: AndroidNotificationDetails(
+          _channelSoundId,
+          'Conversas (som)',
+          channelDescription: 'Notificações de chat com som e vibração.',
+          importance: Importance.high,
+          priority: Priority.high,
+          playSound: true,
+          sound: const RawResourceAndroidNotificationSound('chat_whatsapp'),
+          enableVibration: true,
+          groupKey: groupKey,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
+          presentBadge: true,
+          presentSound: true,
+          sound: 'chat_whatsapp.aiff',
+          threadIdentifier: groupKey,
+        ),
+        macOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBanner: true,
+          presentList: true,
+          presentBadge: true,
+          presentSound: true,
+          threadIdentifier: groupKey,
+        ),
+      ),
+      payload: 'tdlib_$chatId',
+    );
+  }
 }

@@ -7,6 +7,8 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
+import 'package:gestao_yahweh/services/church_unified_photo_upload.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show sanitizeImageUrl;
@@ -62,7 +64,8 @@ abstract final class ChurchCanonicalMediaPublish {
     if (rawBytes.isEmpty) {
       throw StateError('Imagem vazia — selecione outro ficheiro.');
     }
-    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
+    // Mesmo gate dos avisos/membros/patrimônio.
+    await ChurchMediaUploadFacade.ensureReady(requireAuth: requireAuth);
 
     onProgress?.call(0.05);
     late final Uint8List uploadBytes;
@@ -71,9 +74,10 @@ abstract final class ChurchCanonicalMediaPublish {
       uploadBytes = rawBytes;
       mime = MediaService.contentTypeForProfile(profile, uploadBytes);
     } else {
-      uploadBytes = await MediaService.compressImageBytes(
+      // Prepare unificado (Master / divulgação) — igual avisos/eventos.
+      uploadBytes = await ChurchUnifiedPhotoUpload.prepareBytes(
         rawBytes,
-        profile: profile,
+        module: ChurchPhotoModules.master,
       );
       mime = MediaService.contentTypeForProfile(profile, uploadBytes);
     }

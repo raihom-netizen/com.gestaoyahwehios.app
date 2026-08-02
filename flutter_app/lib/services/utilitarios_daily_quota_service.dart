@@ -1,4 +1,4 @@
-import 'package:shared_preferences/shared_preferences.dart';
+﻿import 'package:shared_preferences/shared_preferences.dart';
 
 /// Status da cota local (aparelho) — janela de **24 horas** após estourar o limite.
 class UtilitariosQuotaStatus {

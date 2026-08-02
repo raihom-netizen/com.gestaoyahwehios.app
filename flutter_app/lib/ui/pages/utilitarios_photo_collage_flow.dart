@@ -173,14 +173,14 @@ class _UtilitariosPhotoCollagePanelState
   }
 
   ButtonStyle _sessionOutlinedStyle() => OutlinedButton.styleFrom(
-    minimumSize: const Size(0, 44),
-    foregroundColor: const Color(0xFF7C3AED),
-    side: BorderSide(
-      color: const Color(0xFF7C3AED).withValues(alpha: 0.38),
-      width: 1.3,
-    ),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-  );
+        minimumSize: const Size(0, 44),
+        foregroundColor: const Color(0xFF7C3AED),
+        side: BorderSide(
+          color: const Color(0xFF7C3AED).withValues(alpha: 0.38),
+          width: 1.3,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      );
 
   Widget _exportGradientButton({required bool ready}) {
     return Material(
@@ -287,7 +287,7 @@ class _UtilitariosPhotoCollagePanelState
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             itemCount: UtilitariosPhotoService.collageTemplates.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
             itemBuilder: (context, i) {
               final t = UtilitariosPhotoService.collageTemplates[i];
               final sel = t.id == _template.id;
@@ -328,7 +328,9 @@ class _UtilitariosPhotoCollagePanelState
                   colors: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
                   onTap: widget.busy
                       ? null
-                      : () => setState(() => _gap = _gap >= 20 ? 6 : _gap + 4),
+                      : () => setState(
+                            () => _gap = _gap >= 20 ? 6 : _gap + 4,
+                          ),
                 ),
               ),
             ],
@@ -636,15 +638,15 @@ class _UtilitariosPhotoCollagePanelState
             color: selected
                 ? null
                 : (dark
-                      ? context.appDarkModuleSurface
-                      : const Color(0xFFF8FAFC)),
+                    ? context.appDarkModuleSurface
+                    : const Color(0xFFF8FAFC)),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: selected
                   ? Colors.white.withValues(alpha: 0.5)
                   : (dark
-                        ? Colors.white.withValues(alpha: 0.12)
-                        : const Color(0xFFE2E8F0)),
+                      ? Colors.white.withValues(alpha: 0.12)
+                      : const Color(0xFFE2E8F0)),
               width: selected ? 2 : 1,
             ),
             boxShadow: selected
@@ -759,7 +761,11 @@ class _UtilitariosPhotoCollagePanelState
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 18, color: active ? Colors.white : colors.first),
+              Icon(
+                icon,
+                size: 18,
+                color: active ? Colors.white : colors.first,
+              ),
               const SizedBox(width: 6),
               Flexible(
                 child: Text(

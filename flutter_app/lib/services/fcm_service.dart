@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/services/notification_deep_link_router.dart';
 import 'package:gestao_yahweh/services/panel_notification_service.dart';
+import 'package:gestao_yahweh/features/chat/data/tdlib_push_bridge.dart';
 import 'package:gestao_yahweh/services/yahweh_push_cache_refresh.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -213,6 +214,7 @@ class FcmService {
     await _onMessageOpenedSub?.cancel();
     _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
       YahwehPushCacheRefresh.handleMessage(message);
+      unawaited(TdlibPushBridge.handleRemoteMessage(message));
       _foregroundHandler?.call(message);
     });
     _onMessageOpenedSub = FirebaseMessaging.onMessageOpenedApp.listen(
@@ -335,6 +337,7 @@ class FcmService {
       await _onMessageOpenedSub?.cancel();
       _onMessageSub = FirebaseMessaging.onMessage.listen((message) {
         YahwehPushCacheRefresh.handleMessage(message);
+        unawaited(TdlibPushBridge.handleRemoteMessage(message));
         _foregroundHandler?.call(message);
       });
       _onMessageOpenedSub = FirebaseMessaging.onMessageOpenedApp.listen(

@@ -45,8 +45,6 @@ class _ChurchTelegramInAppPageState extends State<ChurchTelegramInAppPage> {
   final GlobalKey<ChurchTelegramWebViewState> _webKey =
       GlobalKey<ChurchTelegramWebViewState>();
 
-  static const _accent = YahwehContactButtonLabels.accent;
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -116,21 +114,6 @@ class _ChurchTelegramInAppPageState extends State<ChurchTelegramInAppPage> {
         top: false,
         child: Column(
           children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              color: _accent.withValues(alpha: 0.22),
-              child: const Text(
-                'Motor Telegram · fotos, vídeos, áudios e arquivos. '
-                'Na 1ª vez, entre com o número do seu Telegram.',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  height: 1.3,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
             Expanded(
               child: ChurchTelegramWebView(
                 key: _webKey,

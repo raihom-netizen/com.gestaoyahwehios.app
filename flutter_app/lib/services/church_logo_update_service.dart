@@ -9,7 +9,9 @@ import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
+import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
+import 'package:gestao_yahweh/services/church_unified_photo_upload.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
@@ -68,9 +70,16 @@ abstract final class ChurchLogoUpdateService {
     String? previousStoragePath,
     void Function(double progress)? onProgress,
   }) async {
-    onProgress?.call(0.05);
-    final png = await encodeChurchLogoAsPngInIsolate(
+    onProgress?.call(0.04);
+    await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
+    // Prepare unificado antes do PNG institucional (evita fotos 10+ MB).
+    final prepared = await ChurchUnifiedPhotoUpload.prepareBytes(
       rawBytes,
+      module: ChurchPhotoModules.logo,
+    );
+    onProgress?.call(0.08);
+    final png = await encodeChurchLogoAsPngInIsolate(
+      prepared,
       maxSide: kLogoMaxSidePx,
     );
     onProgress?.call(0.15);
@@ -81,7 +90,7 @@ abstract final class ChurchLogoUpdateService {
       churchId: cid,
       pngBytes: png,
       onProgress: (p) => onProgress?.call(0.15 + p.clamp(0.0, 1.0) * 0.77),
-      skipEnsureReady: false,
+      skipEnsureReady: true,
     );
     onProgress?.call(0.92);
 

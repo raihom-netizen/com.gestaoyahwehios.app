@@ -380,6 +380,15 @@ abstract final class ChurchStorageLayout {
     return '${churchRoot(tid)}/$kSegEventos/$kSegVideos/${pid}_v${s}_thumb.jpg';
   }
 
+  /// Vídeo MP4 de aviso — `avisos/videos/{postId}_v0.mp4`.
+  static String avisoHostedVideoMp4Path(
+      String tenantId, String postDocId, int videoSlot) {
+    final tid = tenantId.trim();
+    final pid = _safeDocId(postDocId);
+    final s = videoSlot.clamp(0, 0);
+    return '${churchRoot(tid)}/$kSegAvisos/videos/${pid}_v$s.mp4';
+  }
+
   /// Post **aviso** — directo: `avisos/{postId}/capa_aviso.jpg` (+ galeria).
   static String avisoPostPhotoPath(
           String tenantId, String postDocId, int slotIndex) =>

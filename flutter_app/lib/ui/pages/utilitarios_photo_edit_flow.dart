@@ -1,10 +1,11 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
 
@@ -28,7 +29,13 @@ class UtilitariosPhotoEditResult {
 
 enum _PhotoPageMode { editor, collage }
 
-enum _PhotoTool { none, manualBlur, faces, crop, caption }
+enum _PhotoTool {
+  none,
+  manualBlur,
+  faces,
+  crop,
+  caption,
+}
 
 enum _CropAspectPreset {
   free(null, 'Livre'),
@@ -697,10 +704,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   }
 
   String get _outputFileName {
-    final base = (_fileName ?? 'foto').replaceAll(
-      RegExp(r'\.(jpe?g|png|webp)$', caseSensitive: false),
-      '',
-    );
+    final base = (_fileName ?? 'foto')
+        .replaceAll(RegExp(r'\.(jpe?g|png|webp)$', caseSensitive: false), '');
     return '${base.isEmpty ? 'foto' : base}_editada.jpg';
   }
 
@@ -755,12 +760,69 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   }
 
   void _startCropMode() {
+    if (!kIsWeb) {
+      // No Android/iOS usamos o cortador nativo (estilo WhatsApp).
+      _openNativeCropper();
+      return;
+    }
+    // Fallback web: editor de corte customizado em Flutter.
     setState(() {
       _blurWorkspaceOpen = false;
       _tool = _PhotoTool.crop;
       _cropRect ??= const Rect.fromLTWH(0.1, 0.1, 0.8, 0.8);
       _regions.clear();
       _selectedId = null;
+    });
+  }
+
+  Future<void> _openNativeCropper() async {
+    final raw = _image;
+    if (raw == null) return;
+    await _withBusy('Abrindo corte…', () async {
+      final sourcePath = await utilitariosWriteBytesToTempFile(
+        raw,
+        _fileName ?? 'foto.jpg',
+      );
+      final cropper = ImageCropper();
+      final cropped = await cropper.cropImage(
+        sourcePath: sourcePath,
+        maxWidth: 4096,
+        maxHeight: 4096,
+        compressFormat: ImageCompressFormat.jpg,
+        compressQuality: 95,
+        uiSettings: [
+          AndroidUiSettings(
+            toolbarTitle: 'Cortar foto',
+            toolbarColor: const Color(0xFF0B1220),
+            toolbarWidgetColor: Colors.white,
+            backgroundColor: const Color(0xFF0B1220),
+            activeControlsWidgetColor: const Color(0xFF8B5CF6),
+            dimmedLayerColor: Colors.black.withValues(alpha: 0.55),
+            cropFrameColor: Colors.white,
+            cropGridColor: Colors.white.withValues(alpha: 0.5),
+            cropFrameStrokeWidth: 2,
+            cropGridStrokeWidth: 1,
+            showCropGrid: true,
+            hideBottomControls: false,
+            initAspectRatio: CropAspectRatioPreset.original,
+            lockAspectRatio: false,
+          ),
+          IOSUiSettings(
+            title: 'Cortar foto',
+            doneButtonTitle: 'OK',
+            cancelButtonTitle: 'Cancelar',
+            rotateButtonsHidden: false,
+            rotateClockwiseButtonHidden: false,
+            aspectRatioPickerButtonHidden: false,
+            resetAspectRatioEnabled: true,
+            aspectRatioLockEnabled: false,
+          ),
+        ],
+      );
+      if (cropped == null || !mounted) return;
+      final bytes = await cropped.readAsBytes();
+      await _setImage(bytes);
+      _hapticLight();
     });
   }
 
@@ -874,10 +936,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     await _ensureCaptionsCommitted();
     final bytes = _image;
     if (bytes == null) return;
-    final base = (_fileName ?? 'foto').replaceAll(
-      RegExp(r'\.(jpe?g|png|webp)$', caseSensitive: false),
-      '',
-    );
+    final base = (_fileName ?? 'foto')
+        .replaceAll(RegExp(r'\.(jpe?g|png|webp)$', caseSensitive: false), '');
     if (!mounted) return;
     Navigator.pop(
       context,
@@ -1066,9 +1126,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                   child: Center(
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
+                          horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.55),
                         borderRadius: BorderRadius.circular(20),
@@ -1094,7 +1152,14 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
         if (_chromeVisible && !_captionSheetOpen && _tool != _PhotoTool.crop)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-            child: _buildFloatingDock(),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildQuickActionsStrip(),
+                const SizedBox(height: 6),
+                _buildFloatingDock(),
+              ],
+            ),
           ),
       ],
     );
@@ -1106,10 +1171,12 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     final steps = _editStepCount;
     final openForSave = _previewOpenForSave;
     final maxImgH = MediaQuery.sizeOf(context).height * 0.42;
+    final sizeKb = (bytes.length / 1024).toStringAsFixed(0);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Header with file info
         Container(
           width: double.infinity,
           margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
@@ -1122,18 +1189,31 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
             ),
             borderRadius: BorderRadius.circular(14),
           ),
-          child: Text(
-            openForSave
-                ? 'Revise a foto final antes de exportar.'
-                : steps > 0
-                    ? '$steps edição(ões) aplicada(s).'
-                    : 'Visualização da foto atual.',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-              fontSize: 13,
-            ),
+          child: Column(
+            children: [
+              Text(
+                openForSave
+                    ? 'Revise a foto final antes de exportar.'
+                    : steps > 0
+                        ? '$steps edição(ões) aplicada(s).'
+                        : 'Visualização da foto atual.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '$sizeKb KB',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.75),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11,
+                ),
+              ),
+            ],
           ),
         ),
         Expanded(
@@ -1164,7 +1244,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: _historyStack.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
                       itemBuilder: (context, i) {
                         final selected = i == _historyIndex;
                         return ClipRRect(
@@ -1190,7 +1270,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                     ),
                   ),
                 ],
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 OutlinedButton.icon(
                   onPressed: _busy
                       ? null
@@ -1201,65 +1281,124 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                     style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                   style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(50),
+                    minimumSize: const Size.fromHeight(46),
                     foregroundColor: Colors.white,
-                    side: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.4),
-                    ),
+                    side:
+                        BorderSide(color: Colors.white.withValues(alpha: 0.4)),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
-                _previewGradientButton(
-                  icon: Icons.folder_open_rounded,
-                  label: 'Escolher pasta',
-                  colors: const [Color(0xFF1D4ED8), Color(0xFF2563EB)],
-                  onPressed: _busy
-                      ? null
-                      : () => _handlePreviewAction(_PhotoPreviewAction.save),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        ),
+        // Fixed bottom bar: Save + Share + Copy
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0B1220),
+            border: Border(
+              top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Row(
+              children: [
+                // Copy to clipboard
+                _previewIconBtn(
+                  icon: Icons.content_copy_rounded,
+                  tooltip: 'Copiar',
+                  onTap: _busy ? null : _copyPhotoToClipboard,
                 ),
-                const SizedBox(height: 10),
-                _previewGradientButton(
-                  icon: Icons.share_rounded,
-                  label: 'Compartilhar',
-                  colors: _gradient,
-                  onPressed: _busy
-                      ? null
-                      : () => _handlePreviewAction(_PhotoPreviewAction.share),
+                const SizedBox(width: 8),
+                // Salvar com escolha de pasta
+                Expanded(
+                  child: _previewGradientButton(
+                    icon: Icons.folder_open_rounded,
+                    label: 'Salvar',
+                    colors: const [Color(0xFF1D4ED8), Color(0xFF2563EB)],
+                    onPressed: _busy
+                        ? null
+                        : () => _handlePreviewAction(_PhotoPreviewAction.save),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Share button
+                Expanded(
+                  child: _previewGradientButton(
+                    icon: Icons.share_rounded,
+                    label: 'Compartilhar',
+                    colors: _gradient,
+                    onPressed: _busy
+                        ? null
+                        : () => _handlePreviewAction(_PhotoPreviewAction.share),
+                  ),
                 ),
                 if (openForSave) ...[
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    onPressed: _busy
+                  const SizedBox(width: 8),
+                  _previewIconBtn(
+                    icon: Icons.check_circle_outline_rounded,
+                    tooltip: 'Concluir',
+                    onTap: _busy
                         ? null
                         : () =>
                             _handlePreviewAction(_PhotoPreviewAction.finish),
-                    icon: const Icon(Icons.check_rounded, size: 18),
-                    label: const Text(
-                      'Concluir e voltar',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(50),
-                      foregroundColor: Colors.white,
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.35),
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
                   ),
                 ],
-                const SizedBox(height: 8),
               ],
             ),
           ),
         ),
       ],
     );
+  }
+
+  Widget _previewIconBtn({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback? onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: Tooltip(
+        message: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+            ),
+            child: Icon(icon, color: Colors.white70, size: 20),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _copyPhotoToClipboard() async {
+    final bytes = _image;
+    if (bytes == null) return;
+    await _withBusy('Copiando…', () async {
+      await Clipboard.setData(ClipboardData(
+        text: 'Foto editada — GestÃ£o Yahweh',
+      ));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Foto copiada para a área de transferência.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
   }
 
   Widget _previewGradientButton({
@@ -1297,12 +1436,17 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
               children: [
                 Icon(icon, color: Colors.white, size: 18),
                 const SizedBox(width: 8),
-                Text(
-                  label,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 14,
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    softWrap: false,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                    ),
                   ),
                 ),
               ],
@@ -1342,7 +1486,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         itemCount: _historyStack.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final selected = i == _historyIndex;
           return GestureDetector(
@@ -1361,9 +1505,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                 boxShadow: selected
                     ? [
                         BoxShadow(
-                          color: const Color(
-                            0xFFDB2777,
-                          ).withValues(alpha: 0.45),
+                          color:
+                              const Color(0xFFDB2777).withValues(alpha: 0.45),
                           blurRadius: 8,
                         ),
                       ]
@@ -1610,10 +1753,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                       ],
                     ),
                     alignment: Alignment.center,
-                    child: _captionPreviewStyledText(
-                      previewText,
-                      isHint: draft.isEmpty,
-                    ),
+                    child: _captionPreviewStyledText(previewText,
+                        isHint: draft.isEmpty),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -1841,7 +1982,9 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
           Shadow(color: Colors.black, blurRadius: 0, offset: Offset(1, 1)),
         ];
       case UtilPhotoCaptionStyle.neon:
-        shadows = [Shadow(color: color.withValues(alpha: 0.7), blurRadius: 10)];
+        shadows = [
+          Shadow(color: color.withValues(alpha: 0.7), blurRadius: 10),
+        ];
       case UtilPhotoCaptionStyle.bold:
         shadows = null;
     }
@@ -1932,7 +2075,11 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                   width: noneSelected ? 3 : 1,
                 ),
               ),
-              child: const Icon(Icons.block, size: 18, color: Colors.white70),
+              child: const Icon(
+                Icons.block,
+                size: 18,
+                color: Colors.white70,
+              ),
             ),
           ),
           for (final c in colors) ...[
@@ -2021,80 +2168,56 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
 
   Widget _buildFloatingDock() {
     return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(22),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(6, 8, 6, 8),
+          padding: const EdgeInsets.fromLTRB(4, 6, 4, 6),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+            color: Colors.white.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
           ),
           child: SafeArea(
             top: false,
-            child: LayoutBuilder(
-              builder: (context, c) {
-                final narrow = c.maxWidth < 380;
-                final tools = <Widget>[
-                  _dockTool(
-                    icon: Icons.palette_rounded,
-                    label: 'Cores',
-                    accent: const Color(0xFF34D399),
-                    onTap: _busy ? null : _applyColorEnhance,
-                    expanded: !narrow,
-                  ),
-                  _dockTool(
-                    icon: Icons.text_fields_rounded,
-                    label: 'Texto',
-                    accent: const Color(0xFFF59E0B),
-                    selected: _tool == _PhotoTool.caption,
-                    onTap: _busy ? null : _openCaptionTool,
-                    expanded: !narrow,
-                  ),
-                  _dockTool(
-                    icon: Icons.crop_rounded,
-                    label: 'Cortar',
-                    accent: const Color(0xFFA78BFA),
-                    selected: _tool == _PhotoTool.crop,
-                    onTap: _busy ? null : _startCropMode,
-                    expanded: !narrow,
-                  ),
-                  _dockTool(
-                    icon: Icons.blur_on_rounded,
-                    label: 'Borrar',
-                    accent: const Color(0xFFF472B6),
-                    onTap: _busy
-                        ? null
-                        : () => _openBlurWorkspace(mode: _PhotoTool.manualBlur),
-                    expanded: !narrow,
-                  ),
-                  _dockTool(
-                    icon: Icons.face_retouching_off_rounded,
-                    label: 'Rostos',
-                    accent: const Color(0xFF818CF8),
-                    onTap: _busy ? null : _detectFaces,
-                    expanded: !narrow,
-                  ),
-                ];
-                if (narrow) {
-                  return SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        for (var i = 0; i < tools.length; i++) ...[
-                          SizedBox(width: 68, child: tools[i]),
-                          if (i < tools.length - 1) const SizedBox(width: 4),
-                        ],
-                      ],
-                    ),
-                  );
-                }
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: tools,
-                );
-              },
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _dockTool(
+                  icon: Icons.auto_fix_high_rounded,
+                  label: 'Realce',
+                  accent: const Color(0xFF34D399),
+                  onTap: _busy ? null : _applyColorEnhance,
+                ),
+                _dockTool(
+                  icon: Icons.crop_rounded,
+                  label: 'Cortar',
+                  accent: const Color(0xFFA78BFA),
+                  selected: _tool == _PhotoTool.crop,
+                  onTap: _busy ? null : _startCropMode,
+                ),
+                _dockTool(
+                  icon: Icons.blur_on_rounded,
+                  label: 'Borrar',
+                  accent: const Color(0xFFF472B6),
+                  onTap: _busy
+                      ? null
+                      : () => _openBlurWorkspace(mode: _PhotoTool.manualBlur),
+                ),
+                _dockTool(
+                  icon: Icons.text_fields_rounded,
+                  label: 'Legenda',
+                  accent: const Color(0xFFF59E0B),
+                  selected: _tool == _PhotoTool.caption,
+                  onTap: _busy ? null : _openCaptionTool,
+                ),
+                _dockTool(
+                  icon: Icons.face_retouching_off_rounded,
+                  label: 'Rostos',
+                  accent: const Color(0xFF818CF8),
+                  onTap: _busy ? null : _detectFaces,
+                ),
+              ],
             ),
           ),
         ),
@@ -2102,101 +2225,294 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     );
   }
 
+  /// Compact quick actions strip above the dock (rotate, flip, swap).
+  Widget _buildQuickActionsStrip() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _quickActionBtn(
+                icon: Icons.rotate_right_rounded,
+                label: 'Girar',
+                onTap: _busy ? null : _rotatePhoto,
+              ),
+              const SizedBox(width: 2),
+              _quickActionBtn(
+                icon: Icons.flip_rounded,
+                label: 'Espelhar',
+                onTap: _busy ? null : _flipPhoto,
+              ),
+              const SizedBox(width: 2),
+              _quickActionBtn(
+                icon: Icons.swap_horiz_rounded,
+                label: 'Trocar',
+                onTap: _busy ? null : () => _pickImage(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _quickActionBtn({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                color: Colors.white.withValues(alpha: 0.8),
+                size: 16,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.75),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _rotatePhoto() async {
+    final raw = _image;
+    if (raw == null) return;
+    await _withBusy('Girando…', () async {
+      final out = await UtilitariosPhotoService.rotateClockwise(raw);
+      await _setImage(out);
+      if (mounted) _hapticLight();
+    });
+  }
+
+  Future<void> _flipPhoto() async {
+    final raw = _image;
+    if (raw == null) return;
+    await _withBusy('Espelhando…', () async {
+      final out = await UtilitariosPhotoService.flipHorizontal(raw);
+      await _setImage(out);
+      if (mounted) _hapticLight();
+    });
+  }
+
   Widget _buildCropFloatingBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF0F172A).withValues(alpha: 0.92),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+    // WhatsApp-style immersive crop controls: compact aspect chips at top,
+    // FAB apply button at bottom-right, X cancel at top-left.
+    return Stack(
+      children: [
+        // Top-left: Cancel button (frosted glass circle)
+        Positioned(
+          top: 8,
+          left: 12,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: _busy
+                  ? null
+                  : () => setState(() {
+                        _tool = _PhotoTool.none;
+                        _cropRect = null;
+                      }),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.close_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SingleChildScrollView(
+          ),
+        ),
+        // Top-center: Aspect ratio chips (floating frosted strip)
+        Positioned(
+          top: 8,
+          left: 60,
+          right: 60,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.45),
+                  borderRadius: BorderRadius.circular(16),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                ),
+                child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       for (final p in _CropAspectPreset.values) ...[
-                        _aspectPill(p),
-                        const SizedBox(width: 8),
+                        _aspectChip(p),
+                        const SizedBox(width: 4),
                       ],
                     ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                LayoutBuilder(
-                  builder: (context, c) {
-                    final stacked = c.maxWidth < 380;
-                    final cancelBtn = SizedBox(
-                      width: stacked ? double.infinity : null,
-                      child: OutlinedButton(
-                        onPressed: _busy
-                            ? null
-                            : () => setState(() {
-                                  _tool = _PhotoTool.none;
-                                  _cropRect = null;
-                                }),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          side: BorderSide(
-                            color: Colors.white.withValues(alpha: 0.35),
+              ),
+            ),
+          ),
+        ),
+        // Bottom-right: Apply crop FAB (gradient, prominent)
+        Positioned(
+          bottom: 16,
+          right: 16,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(28),
+              onTap: _busy || _cropRect == null ? null : _applyCrop,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: _cropRect != null
+                      ? const LinearGradient(
+                          colors: [
+                            Color(0xFF8B5CF6),
+                            Color(0xFF6366F1),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : null,
+                  color: _cropRect == null
+                      ? Colors.white.withValues(alpha: 0.15)
+                      : null,
+                  boxShadow: _cropRect != null
+                      ? [
+                          BoxShadow(
+                            color:
+                                const Color(0xFF8B5CF6).withValues(alpha: 0.5),
+                            blurRadius: 16,
+                            offset: const Offset(0, 4),
                           ),
-                          minimumSize: const Size(0, 48),
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                        ),
-                        child: const Text(
-                          'Cancelar',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    );
-                    final applyBtn = SizedBox(
-                      width: stacked ? double.infinity : null,
-                      child: FilledButton.icon(
-                        onPressed:
-                            _busy || _cropRect == null ? null : _applyCrop,
-                        icon: const Icon(Icons.crop_rounded, size: 18),
-                        label: const Text(
-                          'Aplicar corte',
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size(0, 48),
-                          backgroundColor: const Color(0xFF8B5CF6),
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                        ),
-                      ),
-                    );
-                    if (stacked) {
-                      return Column(
-                        children: [
-                          applyBtn,
-                          const SizedBox(height: 8),
-                          cancelBtn,
-                        ],
-                      );
-                    }
-                    return Row(
-                      children: [
-                        Expanded(flex: 4, child: cancelBtn),
-                        const SizedBox(width: 10),
-                        Expanded(flex: 6, child: applyBtn),
-                      ],
-                    );
-                  },
+                        ]
+                      : null,
                 ),
-              ],
+                child: Icon(
+                  Icons.crop_rounded,
+                  color: _cropRect != null ? Colors.white : Colors.white38,
+                  size: 24,
+                ),
+              ),
+            ),
+          ),
+        ),
+        // Bottom-left: Reset crop button
+        if (_cropRect != null)
+          Positioned(
+            bottom: 20,
+            left: 16,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: _busy
+                    ? null
+                    : () => setState(() {
+                          _cropRect = const Rect.fromLTWH(0.1, 0.1, 0.8, 0.8);
+                        }),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.refresh_rounded,
+                          color: Colors.white70, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Reiniciar',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// Compact aspect ratio chip (WhatsApp-style).
+  Widget _aspectChip(_CropAspectPreset preset) {
+    final selected = _cropAspect == preset;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: _busy ? null : () => setState(() => _cropAspect = preset),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected
+                ? const Color(0xFF8B5CF6)
+                : Colors.white.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(10),
+            border: selected
+                ? Border.all(color: const Color(0xFFA78BFA), width: 1.5)
+                : null,
+          ),
+          child: Text(
+            preset.label,
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: selected ? FontWeight.w900 : FontWeight.w600,
+              fontSize: 11,
             ),
           ),
         ),
@@ -2311,216 +2627,269 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     return Material(
       color: _immersiveBg,
       child: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            // Header compacto — mais espaço para a foto.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(6, 0, 10, 0),
+            // Full-height photo canvas
+            Column(
+              children: [
+                Expanded(child: _buildPhotoCanvas(blurMode: true)),
+              ],
+            ),
+            // Top bar: close + title + mode toggle
+            Positioned(
+              top: 4,
+              left: 8,
+              right: 8,
               child: Row(
                 children: [
-                  IconButton(
-                    onPressed: _busy ? null : _closeBlurWorkspace,
-                    icon: const Icon(
-                      Icons.close_rounded,
-                      color: Colors.white70,
-                    ),
-                    tooltip: 'Fechar',
+                  // Close button
+                  _blurGlassCircle(
+                    icon: Icons.close_rounded,
+                    onTap: _busy ? null : _closeBlurWorkspace,
                   ),
+                  const SizedBox(width: 8),
+                  // Title chip
                   Expanded(
-                    child: Text(
-                      _tool == _PhotoTool.faces
-                          ? 'Borrar rostos'
-                          : 'Borrar áreas',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: canApply ? _applyBlur : null,
-                    child: Text(
-                      'Confirmar',
-                      style: TextStyle(
-                        color:
-                            canApply ? const Color(0xFF4ADE80) : Colors.white38,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-              child: Text(
-                _tool == _PhotoTool.faces
-                    ? 'Rostos destacados — confira e confirme.'
-                    : 'Arraste na foto para marcar a área.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.65),
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            // Foto o maior possível (painel baixo e discreto).
-            Expanded(child: _buildPhotoCanvas(blurMode: true)),
-            Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFF0B1220).withValues(alpha: 0.97),
-                border: Border(
-                  top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-                ),
-              ),
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        'Intensidade $radiusLabel',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.7),
-                          fontWeight: FontWeight.w700,
-                          fontSize: 11,
-                        ),
-                      ),
-                      Expanded(
-                        child: SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            trackHeight: 3,
-                            thumbShape: const RoundSliderThumbShape(
-                              enabledThumbRadius: 8,
-                            ),
-                            overlayShape: const RoundSliderOverlayShape(
-                              overlayRadius: 14,
-                            ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.12)),
                           ),
-                          child: Slider(
-                            value: _blurIntensity,
-                            min: 0.05,
-                            max: 1.0,
-                            activeColor: const Color(0xFFA78BFA),
-                            inactiveColor: Colors.white.withValues(alpha: 0.12),
-                            onChanged: _busy
-                                ? null
-                                : (v) => setState(() => _blurIntensity = v),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  // Pills discretas (estilo moderno).
-                  Row(
-                    children: [
-                      for (final mode in UtilPhotoBlurMode.values) ...[
-                        Expanded(
-                          child: _blurModePill(
-                            label: mode.label,
-                            selected: _blurMode == mode,
-                            onTap: _busy
-                                ? null
-                                : () => setState(() => _blurMode = mode),
-                          ),
-                        ),
-                        if (mode != UtilPhotoBlurMode.values.last)
-                          const SizedBox(width: 8),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _busy || _selectedId == null
-                              ? null
-                              : () => setState(() {
-                                    _regions.removeWhere(
-                                      (r) => r.id == _selectedId,
-                                    );
-                                    _selectedId = null;
-                                  }),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white60,
-                            side: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.2),
-                            ),
-                            minimumSize: const Size(0, 44),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Text(
-                            'Remover',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        flex: 2,
-                        child: Material(
-                          color: Colors.transparent,
-                          borderRadius: BorderRadius.circular(12),
-                          child: InkWell(
-                            onTap: canApply ? _applyBlur : null,
-                            borderRadius: BorderRadius.circular(12),
-                            child: Ink(
-                              height: 44,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                gradient: canApply
-                                    ? const LinearGradient(
-                                        colors: [
-                                          Color(0xFF16A34A),
-                                          Color(0xFF22C55E),
-                                        ],
-                                      )
-                                    : null,
-                                color: canApply
-                                    ? null
-                                    : Colors.white.withValues(alpha: 0.08),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                _tool == _PhotoTool.faces
+                                    ? Icons.face_retouching_off_rounded
+                                    : Icons.blur_on_rounded,
+                                color: const Color(0xFFA78BFA),
+                                size: 16,
                               ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.check_rounded,
-                                    size: 18,
-                                    color: canApply
-                                        ? Colors.white
-                                        : Colors.white38,
+                              const SizedBox(width: 6),
+                              Text(
+                                _tool == _PhotoTool.faces
+                                    ? 'Borrar rostos'
+                                    : 'Borrar áreas',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              if (_regions.isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 7, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF8B5CF6),
+                                    borderRadius: BorderRadius.circular(10),
                                   ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _regions.isEmpty
-                                        ? 'Confirmar'
-                                        : 'Confirmar (${_regions.length})',
-                                    style: TextStyle(
-                                      color: canApply
-                                          ? Colors.white
-                                          : Colors.white38,
+                                  child: Text(
+                                    '${_regions.length}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
                                       fontWeight: FontWeight.w900,
-                                      fontSize: 13.5,
+                                      fontSize: 11,
                                     ),
                                   ),
-                                ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Right edge: vertical intensity slider
+            Positioned(
+              right: 10,
+              top: 60,
+              bottom: 140,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  child: Container(
+                    width: 40,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.12)),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          '$radiusLabel',
+                          style: const TextStyle(
+                            color: Color(0xFFA78BFA),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 11,
+                          ),
+                        ),
+                        Expanded(
+                          child: RotatedBox(
+                            quarterTurns: 3,
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                trackHeight: 3,
+                                thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 7,
+                                ),
+                                overlayShape: const RoundSliderOverlayShape(
+                                  overlayRadius: 12,
+                                ),
+                              ),
+                              child: Slider(
+                                value: _blurIntensity,
+                                min: 0.05,
+                                max: 1.0,
+                                activeColor: const Color(0xFFA78BFA),
+                                inactiveColor:
+                                    Colors.white.withValues(alpha: 0.12),
+                                onChanged: _busy
+                                    ? null
+                                    : (v) => setState(() => _blurIntensity = v),
                               ),
                             ),
                           ),
                         ),
+                        Icon(
+                          Icons.blur_on_rounded,
+                          color: Colors.white.withValues(alpha: 0.5),
+                          size: 16,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // Bottom: blur mode toggle + confirm FAB
+            Positioned(
+              bottom: 16,
+              left: 12,
+              right: 12,
+              child: Row(
+                children: [
+                  // Blur mode icon toggle
+                  ...UtilPhotoBlurMode.values.map((mode) {
+                    final sel = _blurMode == mode;
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _blurGlassCircle(
+                        icon: mode == UtilPhotoBlurMode.gaussian
+                            ? Icons.blur_on_rounded
+                            : Icons.grid_on_rounded,
+                        selected: sel,
+                        onTap: _busy
+                            ? null
+                            : () => setState(() => _blurMode = mode),
                       ),
-                    ],
+                    );
+                  }),
+                  // Remove selected region
+                  if (_selectedId != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _blurGlassCircle(
+                        icon: Icons.delete_outline_rounded,
+                        onTap: _busy
+                            ? null
+                            : () => setState(() {
+                                  _regions
+                                      .removeWhere((r) => r.id == _selectedId);
+                                  _selectedId = null;
+                                }),
+                      ),
+                    ),
+                  const Spacer(),
+                  // Confirm FAB
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(28),
+                      onTap: canApply ? _applyBlur : null,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: canApply
+                              ? const LinearGradient(
+                                  colors: [
+                                    Color(0xFF16A34A),
+                                    Color(0xFF22C55E),
+                                  ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                )
+                              : null,
+                          color: canApply
+                              ? null
+                              : Colors.white.withValues(alpha: 0.12),
+                          boxShadow: canApply
+                              ? [
+                                  BoxShadow(
+                                    color: const Color(0xFF22C55E)
+                                        .withValues(alpha: 0.4),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Icon(
+                          Icons.check_rounded,
+                          color: canApply
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.3),
+                          size: 26,
+                        ),
+                      ),
+                    ),
                   ),
                 ],
+              ),
+            ),
+            // Hint text at bottom-center
+            Positioned(
+              bottom: 80,
+              left: 16,
+              right: 16,
+              child: Center(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    _tool == _PhotoTool.faces
+                        ? 'Rostos detectados — confira e confirme'
+                        : 'Arraste na foto para marcar áreas',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -2529,39 +2898,36 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     );
   }
 
-  Widget _blurModePill({
-    required String label,
-    required bool selected,
+  /// Frosted glass circle button for blur workspace.
+  Widget _blurGlassCircle({
+    required IconData icon,
+    bool selected = false,
     required VoidCallback? onTap,
   }) {
     return Material(
       color: Colors.transparent,
       child: InkWell(
+        borderRadius: BorderRadius.circular(20),
         onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
-          height: 36,
-          alignment: Alignment.center,
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
             color: selected
-                ? const Color(0xFF7C3AED).withValues(alpha: 0.22)
-                : Colors.white.withValues(alpha: 0.05),
+                ? const Color(0xFF7C3AED).withValues(alpha: 0.4)
+                : Colors.black.withValues(alpha: 0.55),
+            shape: BoxShape.circle,
             border: Border.all(
               color: selected
                   ? const Color(0xFFA78BFA)
-                  : Colors.white.withValues(alpha: 0.14),
-              width: selected ? 1.4 : 1,
+                  : Colors.white.withValues(alpha: 0.2),
+              width: selected ? 1.5 : 1,
             ),
           ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: selected ? Colors.white : Colors.white70,
-              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-              fontSize: 12.5,
-            ),
+          child: Icon(
+            icon,
+            color: Colors.white,
+            size: 20,
           ),
         ),
       ),
@@ -2615,46 +2981,72 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     required Color accent,
     required VoidCallback? onTap,
     bool selected = false,
-    bool expanded = true,
   }) {
-    final child = InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
+    return Expanded(
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? accent.withValues(alpha: 0.18) : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color:
-                selected ? accent.withValues(alpha: 0.45) : Colors.transparent,
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: accent, size: 22),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                color: accent.withValues(alpha: 0.95),
-              ),
+        duration: const Duration(milliseconds: 200),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
             ),
-          ],
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? accent.withValues(alpha: 0.2)
+                        : Colors.transparent,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    icon,
+                    color: selected ? accent : accent.withValues(alpha: 0.75),
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                    color: selected
+                        ? Colors.white
+                        : Colors.white.withValues(alpha: 0.65),
+                  ),
+                ),
+                // Accent gradient underline for selected tool
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.only(top: 3),
+                  width: selected ? 24 : 0,
+                  height: 2.5,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(2),
+                    gradient: selected
+                        ? LinearGradient(
+                            colors: [accent, accent.withValues(alpha: 0.5)])
+                        : null,
+                    color: selected ? accent : Colors.transparent,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
-    if (expanded) {
-      return Expanded(child: child);
-    }
-    return child;
   }
 
   Widget _buildBody() {
@@ -2734,10 +3126,8 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                   ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF16A34A),
-                    side: const BorderSide(
-                      color: Color(0xFF16A34A),
-                      width: 1.5,
-                    ),
+                    side:
+                        const BorderSide(color: Color(0xFF16A34A), width: 1.5),
                     minimumSize: const Size.fromHeight(48),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -2898,7 +3288,11 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
       norm.height * h,
     );
     return [
-      Positioned.fill(child: CustomPaint(painter: _CropDimPainter(crop))),
+      Positioned.fill(
+        child: CustomPaint(
+          painter: _CropDimPainter(crop),
+        ),
+      ),
       Positioned.fromRect(
         rect: crop,
         child: CustomPaint(
@@ -2970,7 +3364,11 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
           ],
         );
       case UtilPhotoCaptionStyle.bold:
-        style = TextStyle(fontSize: fontSize, fontWeight: weight, color: color);
+        style = TextStyle(
+          fontSize: fontSize,
+          fontWeight: weight,
+          color: color,
+        );
       case UtilPhotoCaptionStyle.neon:
         style = TextStyle(
           fontSize: fontSize,
@@ -3067,10 +3465,12 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
         onTap: () => setState(() => _selectedId = r.id),
         child: Container(
           decoration: BoxDecoration(
-            border: Border.all(color: color, width: selected ? 3 : 2),
-            color: color.withValues(
-              alpha: selected ? 0.32 : (isFace ? 0.22 : 0.14),
+            border: Border.all(
+              color: color,
+              width: selected ? 3 : 2,
             ),
+            color: color.withValues(
+                alpha: selected ? 0.32 : (isFace ? 0.22 : 0.14)),
             boxShadow: isFace
                 ? [
                     BoxShadow(
@@ -3208,38 +3608,15 @@ class _PhotoEditPreviewScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
-              FilledButton.icon(
-                onPressed: () =>
-                    Navigator.pop(context, _PhotoPreviewAction.save),
-                icon: const Icon(Icons.download_rounded, size: 18),
-                label: const Text(
-                  'Salvar no aparelho',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(50),
-                  backgroundColor: const Color(0xFF1D4ED8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              FilledButton.icon(
-                onPressed: () =>
+              ModernModuleUI.shareSaveActionRow(
+                shareFirst: true,
+                shareLabel: 'Compartilhar',
+                saveLabel: 'Salvar',
+                height: 50,
+                onShare: () =>
                     Navigator.pop(context, _PhotoPreviewAction.share),
-                icon: const Icon(Icons.share_rounded, size: 18),
-                label: const Text(
-                  'Compartilhar',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(50),
-                  backgroundColor: _gradient[0],
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
+                onSave: () =>
+                    Navigator.pop(context, _PhotoPreviewAction.save),
               ),
               if (openForSave) ...[
                 const SizedBox(height: 10),
@@ -3287,51 +3664,6 @@ class _PhotoFinishSheet extends StatelessWidget {
   final VoidCallback onShare;
   final VoidCallback onFinish;
 
-  Widget _gradientAction({
-    required IconData icon,
-    required String label,
-    required List<Color> colors,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Ink(
-          height: 52,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: colors),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: colors.last.withValues(alpha: 0.32),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: Colors.white, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 15,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
@@ -3372,18 +3704,13 @@ class _PhotoFinishSheet extends StatelessWidget {
             style: ModernModuleUI.moduleSubtitleStyle(context, fontSize: 13),
           ),
           const SizedBox(height: 16),
-          _gradientAction(
-            icon: Icons.download_rounded,
-            label: 'Salvar no aparelho',
-            colors: const [Color(0xFF1D4ED8), Color(0xFF38BDF8)],
-            onTap: onSave,
-          ),
-          const SizedBox(height: 10),
-          _gradientAction(
-            icon: Icons.share_rounded,
-            label: 'Compartilhar',
-            colors: const [Color(0xFF16A34A), Color(0xFF22C55E)],
-            onTap: onShare,
+          ModernModuleUI.shareSaveActionRow(
+            shareFirst: true,
+            shareLabel: 'Compartilhar',
+            saveLabel: 'Salvar',
+            height: 52,
+            onShare: onShare,
+            onSave: onSave,
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(
@@ -3498,15 +3825,9 @@ class _CropGridPainter extends CustomPainter {
     final thirdH = size.height / 3;
     for (var i = 1; i <= 2; i++) {
       canvas.drawLine(
-        Offset(thirdW * i, 0),
-        Offset(thirdW * i, size.height),
-        paint,
-      );
+          Offset(thirdW * i, 0), Offset(thirdW * i, size.height), paint);
       canvas.drawLine(
-        Offset(0, thirdH * i),
-        Offset(size.width, thirdH * i),
-        paint,
-      );
+          Offset(0, thirdH * i), Offset(size.width, thirdH * i), paint);
     }
   }
 
@@ -3523,14 +3844,13 @@ class _CropDimPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final full = Rect.fromLTWH(0, 0, size.width, size.height);
     final paint = Paint()..color = Colors.black.withValues(alpha: 0.45);
-    canvas.drawPath(
-      Path.combine(
-        PathOperation.difference,
-        Path()..addRect(full),
-        Path()..addRect(crop),
-      ),
-      paint,
-    );
+    // Even-odd fill: desenha o retângulo cheio e o recorte interno,
+    // deixando a área de corte transparente. Mais robusto que Path.combine.
+    final path = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(full)
+      ..addRect(crop);
+    canvas.drawPath(path, paint);
   }
 
   @override

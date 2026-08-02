@@ -12,8 +12,8 @@ import 'package:uuid/uuid.dart';
 import 'package:gestao_yahweh/constants/utilitarios_module_icons.dart';
 import 'package:gestao_yahweh/services/utilitarios_photo_service.dart';
 import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
-import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
-import 'utilitarios_photo_collage_flow.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_module_ui_compat.dart';
+import 'package:gestao_yahweh/ui/pages/utilitarios_photo_collage_flow.dart';
 
 class UtilitariosPhotoEditResult {
   const UtilitariosPhotoEditResult({
@@ -744,7 +744,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
       fileName: _outputFileName,
       mimeType: 'image/jpeg',
       preferShare: true,
-      shareText: 'Foto editada — Controle Total App',
+      shareText: 'Foto editada — GestÃ£o Yahweh',
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -944,7 +944,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
       UtilitariosPhotoEditResult(
         bytes: bytes,
         fileName: '${base.isEmpty ? 'foto' : base}_editada.jpg',
-        message: 'Foto editada localmente no Controle Total App.',
+        message: 'Foto editada localmente no GestÃ£o Yahweh.',
       ),
     );
   }
@@ -1244,7 +1244,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: _historyStack.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                      separatorBuilder: (_, __) => const SizedBox(width: 8),
                       itemBuilder: (context, i) {
                         final selected = i == _historyIndex;
                         return ClipRRect(
@@ -1388,7 +1388,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     if (bytes == null) return;
     await _withBusy('Copiando…', () async {
       await Clipboard.setData(ClipboardData(
-        text: 'Foto editada — Controle Total App',
+        text: 'Foto editada — GestÃ£o Yahweh',
       ));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1486,7 +1486,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         itemCount: _historyStack.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final selected = i == _historyIndex;
           return GestureDetector(

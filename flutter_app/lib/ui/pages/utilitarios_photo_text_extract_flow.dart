@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -180,8 +180,8 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
         final x = await _picker.pickImage(
           source: source,
           // Sem maxWidth: evita 2º reencode no picker (demora no Android).
-          // quality 70 já deixa o JPEG leve para o ML Kit.
-          imageQuality: 70,
+          // Padrão leans: quality 80 para OCR mais preciso (ML Kit / Lens).
+          imageQuality: 80,
           requestFullMetadata: false,
           preferredCameraDevice: CameraDevice.rear,
         );
@@ -228,7 +228,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
     if (mounted) {
       setState(() {
         _busy = true;
-        _busyLabel = 'Lendo…';
+        _busyLabel = 'Extraindo…';
         if (bytes.isNotEmpty) _previewImage = bytes;
         _sourceName = sourceName;
       });

@@ -35,6 +35,8 @@ import 'package:gestao_yahweh/services/church_relatorios_load_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
+import 'package:gestao_yahweh/utils/pdf_financeiro_super_extrato.dart';
+import 'package:gestao_yahweh/services/relatorio_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show churchDepartmentNameFromDoc;
@@ -106,6 +108,7 @@ abstract final class _RelatoriosMembersDataCache {
 Future<ReportPdfBranding> _loadReportPdfBrandingFast(String tenantId) async {
   final tid = ChurchRepository.churchId(tenantId.trim());
   final effectiveTid = tid.isNotEmpty ? tid : tenantId.trim();
+  unawaited(RelatorioService.ensureSystemReportFooterLogo());
   if (effectiveTid.isEmpty) {
     return ReportPdfBranding(
       churchName: '',
@@ -3034,227 +3037,135 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
       final rows = (summary['rows'] as List).cast<Map<String, dynamic>>();
       final entradas = (summary['entradas'] as num).toDouble();
       final saidas = (summary['saidas'] as num).toDouble();
-      final saldo = (summary['saldo'] as num).toDouble();
-      final categorias = (summary['categoriasResumo'] as List).cast<Map<String, dynamic>>();
 
       if (rows.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nenhum lançamento no período selecionado.')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Nenhum lançamento no período selecionado.')));
         }
         return;
       }
 
+      final churchName = RelatorioService.financeBrandTitle(branding);
+      final systemLogo = await RelatorioService.loadFinanceSystemLogoBytes();
       final cnpj = (tenant['cnpj'] ?? tenant['CNPJ'] ?? '').toString().trim();
       final periodoTxt = _periodoLabelHumano();
-      final tituloFechamento = fechamentoOficial
+      final periodoRange = _periodoSelecionado();
+      final documentSubtitle = fechamentoOficial
           ? (_periodMode == _FinancePeriodMode.fullYear
               ? 'Fechamento anual (oficial)'
               : _periodMode == _FinancePeriodMode.custom
                   ? 'Fechamento do período (oficial)'
                   : 'Fechamento de mês (oficial)')
-          : 'Relatório financeiro';
-      final extraFinance = <String>[
-        if (cnpj.isNotEmpty) 'CNPJ: $cnpj',
-        'Período: $periodoTxt',
-        'Total de lançamentos: ${rows.length}',
+          : 'Extrato Financeiro';
+
+      final contaLabel = _filtroConta == 'todas'
+          ? 'Todas as contas'
+          : (_contas
+                  .where((c) => c.id == _filtroConta)
+                  .map((c) => c.nome)
+                  .firstOrNull ??
+              _filtroConta);
+
+      final txRows = <Map<String, dynamic>>[];
+      for (final m in rows) {
+        final tipo = (m['tipo'] ?? '').toString().toLowerCase();
+        if (tipo.contains('transfer')) continue;
+        final isInc =
+            tipo.contains('entrada') || tipo.contains('receita');
+        final isSaida =
+            tipo.contains('saida') || tipo.contains('despesa');
+        if (!isInc && !isSaida) continue;
+        final ms = (m['createdAtMs'] as num?)?.toInt() ?? 0;
+        final dt = ms > 0
+            ? DateTime.fromMillisecondsSinceEpoch(ms)
+            : DateTime.tryParse((m['data'] ?? '').toString()) ??
+                DateTime.now();
+        final cat = (m['categoria'] ?? '').toString().trim();
+        final desc = (m['descricao'] ?? '').toString().trim();
+        final titulo =
+            desc.isNotEmpty ? desc : (isInc ? 'Receita' : 'Despesa');
+        txRows.add({
+          'sortMs': ms > 0 ? ms : dt.millisecondsSinceEpoch,
+          'data': DateFormat('dd/MM/yyyy').format(dt),
+          'categoria': cat,
+          'titulo': titulo,
+          'descricao': RelatorioService.sanitizeForReport(
+            (cat.isNotEmpty ? 'Categoria: $cat' : '') +
+                (cat.isNotEmpty && desc.isNotEmpty ? ' — ' : '') +
+                (desc.isNotEmpty
+                    ? 'Descricao: $desc'
+                    : (cat.isEmpty ? (isInc ? 'Receita' : 'Despesa') : '')),
+          ),
+          'tipo': isInc ? 'receita' : 'despesa',
+          'valor': financeParseValorBr(m['valor'] ?? m['amount']).abs(),
+        });
+      }
+      if (txRows.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Nenhuma receita/despesa no período filtrado.')));
+        }
+        return;
+      }
+      txRows.sort(
+          (a, b) => (a['sortMs'] as int).compareTo(b['sortMs'] as int));
+
+      final closing = PdfSuperPremiumTheme.reportDualSignatureAttestation(
+        accent: branding.accent,
+        leftTitle: 'Responsável financeiro',
+        rightTitle: 'Responsável pastoral',
+        leftSignerName: signerSel.leftName,
+        rightSignerName: signerSel.rightName,
+        leftSignatureImageBytes: signerSel.leftSig,
+        rightSignatureImageBytes: signerSel.rightSig,
+        showDigitalSignatures: signerSel.showDigital,
+        leftDigitalStamp: signerSel.leftDigitalStamp,
+        rightDigitalStamp: signerSel.rightDigitalStamp,
+      );
+
+      // Dados da igreja no cabeçalho; extras (CNPJ/filtros) entram nas linhas.
+      final headerLines = <String>[
+        ...branding.churchDetailLines,
+        if (cnpj.isNotEmpty &&
+            !branding.churchDetailLines.any((l) => l.contains(cnpj)))
+          'CNPJ: $cnpj',
         if (fechamentoOficial)
-          'DOCUMENTO OFICIAL DE FECHAMENTO — gerado em ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
+          'DOCUMENTO OFICIAL — ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
         if (_resumoFiltros().isNotEmpty) 'Filtros: ${_resumoFiltros()}',
       ];
-      final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
-      final pdf = await PdfSuperPremiumTheme.newPdfDocument();
 
-      final headerRowPdf = pw.TableRow(
-        decoration: const pw.BoxDecoration(color: PdfColors.blue50),
-        children: [
-          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('#', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Data', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Tipo', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Categoria', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Descrição', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-          pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text('Valor', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold))),
-        ],
+      final bytes = await gerarPdfFinanceiroSuperExtrato(
+        transacoes: txRows,
+        nomeUsuario: churchName,
+        conta: contaLabel,
+        periodo: periodoTxt,
+        saldoAbertura: 0,
+        totalReceitas: entradas,
+        totalDespesas: saidas,
+        logoPngBytes: RelatorioService.financeHeaderLogoBytes(branding),
+        brandTitle: churchName,
+        footerBrand: RelatorioService.kFinanceFooterBrand,
+        documentSubtitle: documentSubtitle,
+        churchDetailLines: headerLines,
+        systemLogoPngBytes: systemLogo,
+        closingAttestation: closing,
       );
-      final dataRowsPdf = List<pw.TableRow>.generate(rows.length, (i) {
-        final m = rows[i];
-        final dt = DateTime.fromMillisecondsSinceEpoch((m['createdAtMs'] ?? 0) as int);
-        final tipo = (m['tipo'] ?? '').toString();
-        final cat = (m['categoria'] ?? '').toString();
-        final desc = (m['descricao'] ?? '').toString();
-        final val = ((m['valor'] ?? 0) as num).toDouble();
-        return pw.TableRow(
-          decoration: pw.BoxDecoration(color: i.isEven ? PdfColors.white : PdfColors.grey100),
-          children: [
-            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('${i + 1}', style: const pw.TextStyle(fontSize: 8))),
-            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(DateFormat('dd/MM/yyyy').format(dt), style: const pw.TextStyle(fontSize: 8))),
-            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(tipo, style: const pw.TextStyle(fontSize: 8))),
-            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(cat.isEmpty ? '-' : cat, style: const pw.TextStyle(fontSize: 8))),
-            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text(desc.isEmpty ? '-' : desc, style: const pw.TextStyle(fontSize: 8))),
-            pw.Padding(padding: const pw.EdgeInsets.all(5), child: pw.Text('R\$ ${val.toStringAsFixed(2)}', style: const pw.TextStyle(fontSize: 8))),
-          ],
-        );
-      });
-      const tableChunk = 28;
-      final tableWidgets = <pw.Widget>[];
-      for (var start = 0; start < dataRowsPdf.length; start += tableChunk) {
-        final end = math.min(start + tableChunk, dataRowsPdf.length);
-        if (start > 0) {
-          tableWidgets.add(
-            pw.Padding(
-              padding: const pw.EdgeInsets.only(top: 6, bottom: 4),
-              child: pw.Container(
-                padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                decoration: pw.BoxDecoration(
-                  color: PdfColors.yellow50,
-                  borderRadius: pw.BorderRadius.circular(4),
-                ),
-                child: pw.Text(
-                  'Continuação — linhas ${start + 1} a $end',
-                  style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800),
-                ),
-              ),
-            ),
-          );
-        }
-        tableWidgets.add(
-          pw.Table(
-            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
-            columnWidths: const {
-              0: pw.FlexColumnWidth(0.55),
-              1: pw.FlexColumnWidth(1.25),
-              2: pw.FlexColumnWidth(1.1),
-              3: pw.FlexColumnWidth(1.45),
-              4: pw.FlexColumnWidth(3.15),
-              5: pw.FlexColumnWidth(1.35),
-            },
-            children: [
-              if (start == 0) headerRowPdf,
-              ...dataRowsPdf.sublist(start, end),
-            ],
-          ),
-        );
-        if (end < dataRowsPdf.length) {
-          tableWidgets.add(pw.SizedBox(height: 10));
-        }
-      }
 
-      pdf.addPage(
-        pw.MultiPage(
-          pageFormat: format,
-          margin: PdfSuperPremiumTheme.pageMargin,
-          header: (ctx) => pw.Padding(
-            padding: const pw.EdgeInsets.only(bottom: 10),
-            child: PdfSuperPremiumTheme.header(
-              tituloFechamento,
-              branding: branding,
-              extraLines: extraFinance,
-            ),
-          ),
-          footer: (ctx) => PdfSuperPremiumTheme.footer(
-            ctx,
-            churchName: branding.churchName,
-          ),
-          build: (ctx) => [
-            if (fechamentoOficial)
-              pw.Container(
-                height: 48,
-                alignment: pw.Alignment.center,
-                margin: const pw.EdgeInsets.only(bottom: 8),
-                child: pw.Transform.rotate(
-                  angle: -0.3,
-                  child: pw.Opacity(
-                    opacity: 0.08,
-                    child: pw.Text(
-                      'FECHAMENTO OFICIAL',
-                      style: pw.TextStyle(
-                        fontSize: 28,
-                        fontWeight: pw.FontWeight.bold,
-                        color: PdfColors.grey800,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            pw.Table(
-              columnWidths: const {
-                0: pw.FlexColumnWidth(1),
-                1: pw.FlexColumnWidth(1),
-                2: pw.FlexColumnWidth(1),
-              },
-              children: [
-                pw.TableRow(
-                  children: [
-                    _pdfKpiCard('Total Entradas', entradas, PdfColors.green700),
-                    _pdfKpiCard('Total Saídas', saidas, PdfColors.red700),
-                    _pdfKpiCard('Saldo Final', saldo, saldo >= 0 ? PdfColors.blue700 : PdfColors.grey700),
-                  ],
-                ),
-              ],
-            ),
-            pw.SizedBox(height: 12),
-            if (categorias.isNotEmpty) ...[
-              pw.Text('Distribuição das Saídas por Categoria', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 6),
-              ...categorias.take(8).map((c) {
-                final pct = ((c['percentual'] as num).toDouble()).clamp(0, 100);
-                return pw.Padding(
-                  padding: const pw.EdgeInsets.only(bottom: 4),
-                  child: pw.Row(
-                    children: [
-                      pw.Expanded(flex: 3, child: pw.Text((c['categoria'] ?? '').toString(), style: const pw.TextStyle(fontSize: 9))),
-                      pw.Expanded(
-                        flex: 5,
-                        child: pw.Container(
-                          height: 8,
-                          decoration: pw.BoxDecoration(color: PdfColors.grey300, borderRadius: pw.BorderRadius.circular(4)),
-                          child: pw.Align(
-                            alignment: pw.Alignment.centerLeft,
-                            child: pw.Container(
-                              width: pct * 2,
-                              decoration: pw.BoxDecoration(color: PdfColors.orange600, borderRadius: pw.BorderRadius.circular(4)),
-                            ),
-                          ),
-                        ),
-                      ),
-                      pw.SizedBox(width: 6),
-                      pw.Text('${pct.toStringAsFixed(1)}%', style: const pw.TextStyle(fontSize: 8)),
-                    ],
-                  ),
-                );
-              }),
-              pw.SizedBox(height: 8),
-            ],
-            ...tableWidgets,
-            pw.SizedBox(height: 22),
-            if (fechamentoOficial)
-              pw.Padding(
-                padding: const pw.EdgeInsets.only(bottom: 10),
-                child: pw.Text(
-                  'Este PDF é um extrato fixo do período para arquivo contábil. '
-                  'Alterações posteriores nos lançamentos não modificam este documento.',
-                  style: pw.TextStyle(fontSize: 8, color: PdfColors.grey700, fontStyle: pw.FontStyle.italic),
-                ),
-              ),
-            PdfSuperPremiumTheme.reportDualSignatureAttestation(
-              accent: branding.accent,
-              leftTitle: 'Responsável financeiro',
-              rightTitle: 'Responsável pastoral',
-              leftSignerName: signerSel.leftName,
-              rightSignerName: signerSel.rightName,
-              leftSignatureImageBytes: signerSel.leftSig,
-              rightSignatureImageBytes: signerSel.rightSig,
-              showDigitalSignatures: signerSel.showDigital,
-              leftDigitalStamp: signerSel.leftDigitalStamp,
-              rightDigitalStamp: signerSel.rightDigitalStamp,
-            ),
-          ],
-        ),
-      );
-      final bytes = Uint8List.fromList(await pdf.save());
-      final fname = fechamentoOficial ? _fechamentoPdfFilename() : 'relatorio_financeiro.pdf';
+      final fname = fechamentoOficial
+          ? _fechamentoPdfFilename()
+          : RelatorioService.reportFilenameFromPeriod(
+              'relatorio_financeiro',
+              periodoRange.inicio,
+              periodoRange.fim,
+              null,
+            );
       if (mounted) await showPdfActions(context, bytes: bytes, filename: fname);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Erro: $e')));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }

@@ -5,12 +5,26 @@ import 'package:flutter/material.dart' show BuildContext, MediaQuery, Offset, Re
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/core/gestao_yahweh_brand_asset_service.dart';
+import 'package:gestao_yahweh/utils/pdf_super_premium_theme.dart';
+import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
+
 /// Subconjunto do RelatorioService CT — PDF local (Utilitários) + share iOS.
+/// Branding financeiro: cabeçalho igreja · rodapé Gestão YAHWEH.
 abstract final class RelatorioService {
   RelatorioService._();
 
+  /// Autoria oficial no rodapé dos PDFs financeiros.
+  static const String kFinanceFooterBrand = 'Gestão YAHWEH';
+
   static pw.ThemeData? _latinPdfThemeReady;
   static Future<pw.ThemeData>? _latinPdfThemeInFlight;
+  static Future<ReportPdfBranding>? _financeBrandingInFlight;
+  static ReportPdfBranding? _financeBrandingReady;
+  static String? _financeBrandingTenant;
+  static Uint8List? _systemLogoReady;
+  static Future<Uint8List?>? _systemLogoInFlight;
 
   static Future<pw.ThemeData> latinPdfThemeForExport() async {
     final ok = _latinPdfThemeReady;
@@ -69,8 +83,15 @@ abstract final class RelatorioService {
     );
   }
 
-  /// Aquece assets PDF (fontes, logos) em background — CT compat.
-  static Future<void> warmUpPdfAssets() async {/* no-op — lazy loading */}
+  /// Aquece assets PDF (fontes, logos) em background.
+  static Future<void> warmUpPdfAssets() async {
+    unawaited(loadFinanceReportPdfBranding());
+    unawaited(loadFinanceSystemLogoBytes());
+  }
+
+  /// Garante ícone GY no rodapé antes de gerar qualquer relatório do sistema.
+  static Future<void> ensureSystemReportFooterLogo() =>
+      loadFinanceSystemLogoBytes();
 
   /// Gera nome de ficheiro para relatorio PDF a partir do periodo — CT compat.
   static String reportFilenameFromPeriod(
@@ -88,8 +109,75 @@ abstract final class RelatorioService {
   /// Sanitiza texto para uso em relatorio PDF — CT compat.
   static String sanitizeForReport(String text) => text;
 
-  /// Carrega bytes do logo para PDF uma unica vez — CT compat.
-  static Future<Uint8List?> loadPdfLogoBytesOnce() async => null;
+  /// Branding PDF financeiro: logo igreja → Storage → fallback Gestão YAHWEH.
+  static Future<ReportPdfBranding> loadFinanceReportPdfBranding({
+    String? tenantId,
+  }) async {
+    final tid = (tenantId ?? ChurchContextService.currentChurchId ?? '').trim();
+    final cached = _financeBrandingReady;
+    if (cached != null && _financeBrandingTenant == tid) return cached;
+    final inflight = _financeBrandingInFlight;
+    if (inflight != null && _financeBrandingTenant == tid) return inflight;
+    _financeBrandingTenant = tid;
+    final fut = loadReportPdfBranding(tid).then((b) {
+      _financeBrandingReady = b;
+      return b;
+    });
+    _financeBrandingInFlight = fut;
+    try {
+      return await fut;
+    } finally {
+      if (identical(_financeBrandingInFlight, fut)) {
+        _financeBrandingInFlight = null;
+      }
+    }
+  }
+
+  /// Título de marca para cabeçalho do extrato (sempre dados da igreja).
+  static String financeBrandTitle(ReportPdfBranding branding) {
+    final name = branding.churchName.trim();
+    return name.isNotEmpty ? name : 'Igreja';
+  }
+
+  /// Logo da igreja para o cabeçalho (null se ainda não houver logo cadastrada).
+  static Uint8List? financeHeaderLogoBytes(ReportPdfBranding branding) {
+    if (!branding.logoIsChurch) return null;
+    final b = branding.logoBytes;
+    if (b == null || b.length < 32) return null;
+    return b;
+  }
+
+  /// Escudo Gestão YAHWEH para o rodapé (autoria).
+  static Future<Uint8List?> loadFinanceSystemLogoBytes() async {
+    final hit = _systemLogoReady;
+    if (hit != null && hit.length > 32) return hit;
+    final inflight = _systemLogoInFlight;
+    if (inflight != null) return inflight;
+    final fut = () async {
+      try {
+        final b = await GestaoYahwehBrandAssetService.loadPngBytes();
+        _systemLogoReady = b;
+        PdfSuperPremiumTheme.setSystemFooterLogo(b);
+        return b;
+      } catch (_) {
+        return null;
+      }
+    }();
+    _systemLogoInFlight = fut;
+    try {
+      return await fut;
+    } finally {
+      if (identical(_systemLogoInFlight, fut)) {
+        _systemLogoInFlight = null;
+      }
+    }
+  }
+
+  /// Carrega bytes do logo da igreja (cabeçalho financeiro).
+  static Future<Uint8List?> loadPdfLogoBytesOnce({String? tenantId}) async {
+    final b = await loadFinanceReportPdfBranding(tenantId: tenantId);
+    return financeHeaderLogoBytes(b);
+  }
 
   /// Partilha bytes PDF (printing sharePdf) — CT compat.
   static Future<void> sharePdfBytes(

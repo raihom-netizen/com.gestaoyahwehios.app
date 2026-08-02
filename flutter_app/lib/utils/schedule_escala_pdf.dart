@@ -41,20 +41,8 @@ Future<Uint8List> buildScheduleEscalaPdf({
   final confirmations =
       (escalaData['confirmations'] as Map<String, dynamic>?) ?? {};
 
-  final accent = branding.accent;
   final ink = PdfColor.fromInt(0xFF0F172A);
   final muted = PdfColor.fromInt(0xFF64748B);
-
-  pw.Widget logoBlock() {
-    final b = branding.logoBytes;
-    if (b == null || b.isEmpty) return pw.SizedBox();
-    return pw.Image(
-      pw.MemoryImage(b),
-      width: 76,
-      height: 76,
-      fit: pw.BoxFit.contain,
-    );
-  }
 
   String statusFor(String cpf) {
     final s = (confirmations[cpf] ?? '').toString();
@@ -155,73 +143,36 @@ Future<Uint8List> buildScheduleEscalaPdf({
     return '';
   }();
 
+  final headerExtras = <String>[
+    if (dept.isNotEmpty) 'Departamento: $dept',
+    'Data: $dateStr${time.isNotEmpty ? ' · Horário: $time' : ''}',
+    if (churchAddress.isNotEmpty) churchAddress,
+    if (churchPhone.isNotEmpty) 'Tel.: $churchPhone',
+  ];
+
   doc.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
-      margin: const pw.EdgeInsets.all(32),
+      margin: const pw.EdgeInsets.all(26),
+      header: (ctx) => pw.Padding(
+        padding: const pw.EdgeInsets.only(bottom: 10),
+        child: PdfSuperPremiumTheme.header(
+          'Escala de serviço',
+          branding: branding,
+          extraLines: headerExtras,
+        ),
+      ),
+      footer: (ctx) => PdfSuperPremiumTheme.footer(ctx),
       build: (context) => [
-        pw.Row(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            logoBlock(),
-            pw.SizedBox(width: 14),
-            pw.Expanded(
-              child: pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    pdfSafeText(branding.churchName.isEmpty
-                        ? 'Igreja'
-                        : branding.churchName),
-                    style: pw.TextStyle(
-                      fontSize: 18,
-                      fontWeight: pw.FontWeight.bold,
-                      color: ink,
-                    ),
-                  ),
-                  if (churchAddress.isNotEmpty)
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.only(top: 5),
-                      child: pw.Text(
-                        pdfSafeText(churchAddress),
-                        style: pw.TextStyle(fontSize: 10.5, color: muted),
-                      ),
-                    ),
-                  if (churchPhone.isNotEmpty)
-                    pw.Padding(
-                      padding: const pw.EdgeInsets.only(top: 2),
-                      child: pw.Text(
-                        'Tel.: $churchPhone',
-                        style: pw.TextStyle(fontSize: 10.5, color: muted),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        pw.SizedBox(height: 14),
-        pw.Container(height: 4, color: accent),
-        pw.SizedBox(height: 18),
-        pw.Text(
-          'ESCALA DE SERVIÇO',
-          style: pw.TextStyle(
-            fontSize: 11,
-            fontWeight: pw.FontWeight.bold,
-            color: accent,
-            letterSpacing: 1.1,
-          ),
-        ),
-        pw.SizedBox(height: 6),
         pw.Text(
           pdfSafeText(title),
           style: pw.TextStyle(
-            fontSize: 24,
+            fontSize: 20,
             fontWeight: pw.FontWeight.bold,
             color: ink,
           ),
         ),
-        pw.SizedBox(height: 16),
+        pw.SizedBox(height: 12),
         pw.DefaultTextStyle(
           style: pw.TextStyle(fontSize: 13, color: ink),
           child: pw.Column(
@@ -368,16 +319,6 @@ Future<Uint8List> buildScheduleEscalaPdf({
         pw.Text(
           'Data de impressão: ${DateFormat('dd/MM/yyyy HH:mm', 'pt_BR').format(DateTime.now())}',
           style: pw.TextStyle(fontSize: 9, color: muted),
-        ),
-        pw.SizedBox(height: 4),
-        pw.Text(
-          pdfSafeText(
-              'Gestão YAHWEH - documento para afixação em quadro de avisos ou arquivo da igreja.'),
-          style: pw.TextStyle(
-            fontSize: 9,
-            color: muted,
-            fontStyle: pw.FontStyle.italic,
-          ),
         ),
       ],
     ),

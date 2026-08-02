@@ -1,4 +1,4 @@
-import 'utilitarios_local_service.dart';
+﻿import 'package:gestao_yahweh/services/utilitarios_local_service.dart';
 
 /// Resolução de exportação MP4.
 enum UtilitariosVideoExportResolution {

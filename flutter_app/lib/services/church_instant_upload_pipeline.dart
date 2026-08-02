@@ -61,7 +61,8 @@ abstract final class ChurchInstantUploadPipeline {
         maxBytes: kAvisoCapaMaxUploadBytes,
       );
     }
-    final isEvento = postType?.trim().toLowerCase() == 'evento';
+    final type = postType?.trim().toLowerCase() ?? '';
+    final isEvento = type == 'evento';
     if (isEvento) {
       var work = base;
       if (work.length > kEventoFotoMaxUploadBytes) {
@@ -76,6 +77,18 @@ abstract final class ChurchInstantUploadPipeline {
         work,
         maxBytes: kEventoFotoMaxUploadBytes,
       );
+    }
+    // Demais módulos (membro, patrimônio, fornecedor, financeiro, logo, master):
+    // se já está leve, não recomprime; senão pipeline iOS/Web unificado.
+    if (type == 'membro' ||
+        type == 'patrimonio' ||
+        type == 'fornecedor' ||
+        type == 'financeiro' ||
+        type == 'logo' ||
+        type == 'master' ||
+        type == 'chat') {
+      if (base.length <= kAutoCompressImageThresholdBytes) return base;
+      return IosPublishImagePipeline.compressForPublishBytes(base);
     }
     if (base.length <= kAutoCompressImageThresholdBytes) return base;
     return IosPublishImagePipeline.compressForPublishBytes(base);
