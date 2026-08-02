@@ -125,9 +125,11 @@ workflows:
         IOS_BUNDLE_ID: "com.gestaoyahwehios.app"
         FIREBASE_IOS_APP_ID: "1:157235497908:ios:81977b3cd1ba58614ac0e1"
         FIREBASE_APP_DISTRIBUTION_GROUPS: "testers"
-        # TDLib iOS: o script auto tenta binário estático; se falhar, fallback
-        # seguro (plugin removido). Dart também tem soft-fail em runtime.
-        YAHWEH_TDLIB_IOS_ENABLED: "1"
+        # TDLib iOS: CI usa fallback seguro (sem flutter_libtdjson). Opt-in nativo:
+        # YAHWEH_TDLIB_IOS_TRY_NATIVE=1 + binário libtdjson.a válido.
+        # Dart soft-fail em runtime; Android mantém TDLib.
+        YAHWEH_TDLIB_IOS_ENABLED: "0"
+        YAHWEH_TDLIB_IOS_TRY_NATIVE: "0"
       # 3.44+ exige flutter_quill 11.5.1 (onFocusReceived) e font_awesome 11 (IconData final).
       flutter: 3.44.1
       xcode: latest
@@ -417,15 +419,23 @@ workflows:
           FLUTTER_IPA_EXIT=$?
           set -e
           echo "flutter build ipa exit code: $FLUTTER_IPA_EXIT"
-          # Se o linker TDLib falhar, reaplicar fallback e rebuild automático uma vez.
+          # Se o linker/archive TDLib falhar, forçar fallback + pod reinstall + rebuild.
           if [ "$FLUTTER_IPA_EXIT" -ne 0 ] && \
-             [ "${YAHWEH_TDLIB_IOS_ENABLED:-0}" = "1" ] && \
-             grep -Eiq 'tdlib|libtdjson|force_load|Undefined symbols' /tmp/cm_flutter_ipa.log; then
-            echo "TDLib iOS linker falhou — rebuild automático com fallback seguro…"
+             grep -Eiq 'tdlib|libtdjson|flutter_libtdjson|force_load|Undefined symbols|XCFrameworkIntermediates' /tmp/cm_flutter_ipa.log; then
+            echo "TDLib iOS archive falhou — rebuild automático com fallback seguro…"
             FLUTTER_DIR="$FLUTTER_PWD"
-            bash "$ROOT/scripts/codemagic_ios_apply_tdlib_fallback.sh" "$FLUTTER_DIR"
+            export YAHWEH_TDLIB_IOS_ENABLED=0
+            export YAHWEH_TDLIB_FORCE_FALLBACK=1
             echo "0" > /tmp/cm_yw_tdlib_ios_enabled
+            bash "$ROOT/scripts/codemagic_ios_apply_tdlib_fallback.sh" "$FLUTTER_DIR" --force
             flutter pub get
+            rm -rf ios/Pods/flutter_libtdjson ios/.symlinks/plugins/libtdjson 2>/dev/null || true
+            if [ -f ios/Podfile.lock ] && grep -Eiq 'flutter_libtdjson|libtdjson' ios/Podfile.lock; then
+              rm -f ios/Podfile.lock
+            fi
+            # Regenerar Pods sem flutter_libtdjson (obrigatório — só pub get não basta).
+            bash "$ROOT/scripts/codemagic_ios_pod_install.sh"
+            bash "$ROOT/scripts/codemagic_ios_bump_pods_deployment_to_15.sh" || true
             set +e
             flutter build ipa --release \
               --no-pub \

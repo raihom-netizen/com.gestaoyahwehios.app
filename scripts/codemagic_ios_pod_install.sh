@@ -40,7 +40,20 @@ fi
 echo "=== pod install (Crashlytics) — $IOS_DIR ==="
 bash "$ROOT/scripts/codemagic_ios_ensure_deployment_target_15.sh"
 (cd "$FLUTTER_DIR" && flutter pub get)
-bash "$ROOT/scripts/codemagic_ios_apply_tdlib_fallback.sh" "$FLUTTER_DIR"
+
+# Respeitar decisão do passo TDLib auto (/tmp). Sem flag=1 com binário → fallback forçado.
+TDLIB_FLAG=0
+if [ -f /tmp/cm_yw_tdlib_ios_enabled ]; then
+  TDLIB_FLAG="$(tr -d '\r\n' < /tmp/cm_yw_tdlib_ios_enabled)"
+fi
+if [ "$TDLIB_FLAG" = "1" ]; then
+  echo "TDLib iOS nativo solicitado — pod install com flutter_libtdjson."
+else
+  echo "TDLib iOS fallback — removendo plugin nativo antes do pod install."
+  export YAHWEH_TDLIB_FORCE_FALLBACK=1
+  bash "$ROOT/scripts/codemagic_ios_apply_tdlib_fallback.sh" "$FLUTTER_DIR" --force
+fi
+
 (cd "$FLUTTER_DIR" && flutter config --no-enable-swift-package-manager 2>/dev/null || true)
 rm -rf "$IOS_DIR/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm" 2>/dev/null || true
 
@@ -53,7 +66,25 @@ if [ -d "$IOS_DIR/Pods" ] && ! crashlytics_run; then
   rm -rf "$IOS_DIR/Pods" "$IOS_DIR/Podfile.lock" "$IOS_DIR/.symlinks"
 fi
 
+# Se ainda houver restos do pod TDLib após fallback, limpar antes do install.
+if [ "$TDLIB_FLAG" != "1" ]; then
+  rm -rf "$IOS_DIR/Pods/flutter_libtdjson" "$IOS_DIR/.symlinks/plugins/libtdjson" 2>/dev/null || true
+fi
+
 (cd "$IOS_DIR" && pod install --repo-update)
+
+# Fail-fast: fallback não pode deixar flutter_libtdjson nos Pods.
+if [ "$TDLIB_FLAG" != "1" ] && [ -d "$IOS_DIR/Pods/flutter_libtdjson" ]; then
+  echo "ERRO: Pods/flutter_libtdjson ainda presente após fallback — regenerando Pods…"
+  rm -rf "$IOS_DIR/Pods" "$IOS_DIR/Podfile.lock" "$IOS_DIR/.symlinks"
+  (cd "$FLUTTER_DIR" && flutter pub get)
+  bash "$ROOT/scripts/codemagic_ios_apply_tdlib_fallback.sh" "$FLUTTER_DIR" --force
+  (cd "$IOS_DIR" && pod install --repo-update)
+fi
+if [ "$TDLIB_FLAG" != "1" ] && [ -d "$IOS_DIR/Pods/flutter_libtdjson" ]; then
+  echo "ERRO: flutter_libtdjson persiste após reinstall — abortando."
+  exit 1
+fi
 
 if ! crashlytics_run; then
   echo "ERRO: apos pod install, falta $IOS_DIR/Pods/FirebaseCrashlytics/run"
