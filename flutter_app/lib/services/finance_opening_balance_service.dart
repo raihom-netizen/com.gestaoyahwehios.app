@@ -1,11 +1,11 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/finance_account_balance_utils.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_realtime.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/firestore_query_batched_collect.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 
 /// Saldo de abertura: total via [finance_month_buckets]; por conta via
 /// [finance_account_month_buckets] (servidor) + sÃ³ o mÃªs parcial em transactions.
@@ -18,13 +18,13 @@ class FinanceOpeningBalanceService {
       ({double total, Map<String, double> byAccount, DateTime at})> _cache = {};
 
   static String _cacheKey(String uid, DateTime periodStart, bool withAccounts) {
-    final id = firestoreUserDocIdForAppShell(uid);
+    final id = uid.trim();
     final d = DateTime(periodStart.year, periodStart.month, periodStart.day);
     return '$id|${d.toIso8601String().substring(0, 10)}|acc:$withAccounts';
   }
 
   static void invalidateForUser(String uid) {
-    final id = firestoreUserDocIdForAppShell(uid);
+    final id = uid.trim();
     _cache.removeWhere((k, _) => k.startsWith('$id|'));
   }
 
@@ -48,7 +48,7 @@ class FinanceOpeningBalanceService {
   }
 
   static void invalidateIfBefore(String uid, DateTime effectiveDate) {
-    final id = firestoreUserDocIdForAppShell(uid);
+    final id = uid.trim();
     for (final k in _cache.keys.toList()) {
       if (!k.startsWith('$id|')) continue;
       final datePart = k.split('|');
@@ -113,15 +113,13 @@ class FinanceOpeningBalanceService {
       );
     }
 
-    final fsId = firestoreUserDocIdForAppShell(uid);
+    final fsId = uid.trim();
     final partialKey = FinanceLineOpening.monthKeySaoPaulo(start);
     final monthStart = FinanceLineOpening.startOfMonthWallLocal(start);
 
     var prefix = 0.0;
     try {
-      final buckets = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(fsId)
+      final buckets = await ChurchUiCollections.churchDoc(fsId)
           .collection('finance_month_buckets')
           .orderBy(FieldPath.documentId)
           .where(FieldPath.documentId, isLessThan: partialKey)
@@ -155,9 +153,7 @@ class FinanceOpeningBalanceService {
 
     if (loadAccounts) {
       try {
-        final accBuckets = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(fsId)
+        final accBuckets = await ChurchUiCollections.churchDoc(fsId)
             .collection('finance_account_month_buckets')
             .orderBy(FieldPath.documentId)
             .where(FieldPath.documentId, isLessThan: partialKey)
@@ -187,10 +183,7 @@ class FinanceOpeningBalanceService {
     if (loadAccounts) {
       try {
         final monthDocs = await firestoreQueryCollectDocumentsBatched(
-          FirebaseFirestore.instance
-              .collection('users')
-              .doc(fsId)
-              .collection('transactions')
+          ChurchUiCollections.financeiro(fsId)
               .where('date',
                   isGreaterThanOrEqualTo: Timestamp.fromDate(monthStart))
               .where('date', isLessThan: Timestamp.fromDate(start))
@@ -278,10 +271,16 @@ class FinanceOpeningBalanceService {
     if (_rebuildAsked || uid.isEmpty) return;
     _rebuildAsked = true;
     try {
-      final fsId = firestoreUserDocIdForAppShell(uid);
-      final meta = await FirebaseFirestore.instance
-          .doc('users/$fsId/finance_stats/meta')
-          .get();
+      final fsId = uid.trim();
+      // TODO(financeiro-por-igreja): a Cloud Function `ctFinanceRebuildOpeningBuckets`
+      // ainda lê/escreve em users/{uid}/finance_month_buckets (pessoal) — não
+      // foi migrada nesta passagem (código server-side, fora do app Flutter).
+      // Até essa função ser atualizada para igrejas/{churchId}/finance_month_buckets,
+      // esta checagem sempre falha e cai no fallback correto (recomputa on-the-fly
+      // via financePeriodMergedDocumentsCollect) — mais lento, mas nunca errado.
+      final meta = await ChurchUiCollections.churchDoc(
+        fsId,
+      ).collection('finance_stats').doc('meta').get();
       if (meta.exists &&
           (meta.data()?['openingBucketsVersion'] as num? ?? 0) >=
               _openingBucketsVersionExpected) {

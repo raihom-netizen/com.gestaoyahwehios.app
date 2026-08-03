@@ -287,7 +287,7 @@ class _UtilitariosPhotoCollagePanelState
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             itemCount: UtilitariosPhotoService.collageTemplates.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
             itemBuilder: (context, i) {
               final t = UtilitariosPhotoService.collageTemplates[i];
               final sel = t.id == _template.id;

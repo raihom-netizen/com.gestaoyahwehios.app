@@ -1,4 +1,4 @@
-import 'dart:async' show TimeoutException, unawaited;
+import 'dart:async' show unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -358,15 +358,13 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
 
   /// Padrão CT: pick JPEG leve (1600/78) sem MediaHandler.
   Future<Uint8List?> _pickCtJpegBytes({required ImageSource source}) async {
+    // Sem timeout artificial: isto envolve UI interativa do picker (câmara/
+    // galeria), não rede — um timeout aqui só gera falso "demorou demais"
+    // quando o utilizador demora a escolher a foto.
     final picked = await ChurchCtModuleUpload.pickImage(
       source: source,
       imageQuality: 78,
       maxWidth: 1600,
-    ).timeout(
-      const Duration(seconds: 60),
-      onTimeout: () => throw TimeoutException(
-        'Seleção de foto demorou demais.',
-      ),
     );
     if (picked == null || picked.bytes.isEmpty) return null;
     // Mesmo prepare dos avisos/eventos — 1 compressão, teto patrimônio.

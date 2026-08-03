@@ -44,6 +44,7 @@ class ChurchAvisoItem {
     this.authorName = '',
     this.videoUrl = '',
     this.youtubeVideoId = '',
+    this.instagramUrl = '',
   });
 
   final String id;
@@ -57,6 +58,7 @@ class ChurchAvisoItem {
   final String authorName;
   final String videoUrl;
   final String youtubeVideoId;
+  final String instagramUrl;
 
   bool get hasImages =>
       imageUrls.isNotEmpty || eventNoticiaDocHasPhotoMedia(rawData);
@@ -128,6 +130,7 @@ class ChurchAvisoItem {
       authorName: (m['authorName'] ?? m['autor'] ?? '').toString().trim(),
       videoUrl: videoUrl,
       youtubeVideoId: ytId,
+      instagramUrl: (m['instagramUrl'] ?? '').toString().trim(),
     );
   }
 }
@@ -300,6 +303,18 @@ abstract final class ChurchAvisosService {
   }
 
   /// Publica aviso: fotos (Instagram) + YouTube/vídeo opcional → Firestore.
+  /// Aceita link de perfil/post/reel — só valida que é um http(s) utilizável.
+  static String? _normalizeInstagramUrl(String raw) {
+    final t = raw.trim();
+    if (t.isEmpty) return null;
+    final withScheme = t.startsWith('http://') || t.startsWith('https://')
+        ? t
+        : 'https://$t';
+    final uri = Uri.tryParse(withScheme);
+    if (uri == null || uri.host.isEmpty) return null;
+    return uri.toString();
+  }
+
   static Future<String> publish({
     required String churchIdHint,
     required String title,
@@ -308,6 +323,7 @@ abstract final class ChurchAvisosService {
     DateTime? expiresAtEndOfDay,
     required List<Uint8List> photoBytes,
     String youtubeUrl = '',
+    String instagramUrl = '',
     String? videoStoragePath,
     String? videoLocalPath,
     String role = '',
@@ -369,6 +385,7 @@ abstract final class ChurchAvisosService {
     final ytWatch =
         ytId != null ? YoutubeUrlHelper.normalizeYoutubeUrl(youtubeUrl) : '';
     final videoPath = resolvedVideoPath;
+    final igUrl = _normalizeInstagramUrl(instagramUrl);
 
     final corePayload = <String, dynamic>{
       'type': 'aviso',
@@ -392,6 +409,7 @@ abstract final class ChurchAvisosService {
         'youtubeUrl': ytWatch,
         'videoUrl': ytWatch,
       },
+      if (igUrl != null) 'instagramUrl': igUrl,
     };
 
     logFirebasePublishPhase(
@@ -457,6 +475,7 @@ abstract final class ChurchAvisosService {
     List<String> existingImageUrls = const [],
     List<Uint8List> newPhotoBytes = const [],
     String youtubeUrl = '',
+    String instagramUrl = '',
     String? videoStoragePath,
     String? videoLocalPath,
     bool clearVideo = false,
@@ -526,6 +545,7 @@ abstract final class ChurchAvisosService {
     final ytWatch =
         ytId != null ? YoutubeUrlHelper.normalizeYoutubeUrl(youtubeUrl) : '';
     final videoPath = resolvedVideoPath;
+    final igUrl = _normalizeInstagramUrl(instagramUrl);
 
     final corePayload = <String, dynamic>{
       'type': 'aviso',
@@ -553,6 +573,7 @@ abstract final class ChurchAvisosService {
         'youtubeUrl': ytWatch,
         'videoUrl': ytWatch,
       },
+      'instagramUrl': igUrl ?? FieldValue.delete(),
     };
 
     final docRef = ChurchUiCollections.avisos(cid).doc(id);

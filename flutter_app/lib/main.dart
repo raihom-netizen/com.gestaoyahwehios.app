@@ -457,23 +457,18 @@ void main() async {
   // 3. Health + settings Firestore/Auth/Storage — exige app [DEFAULT] pronto.
   final firebaseBoot = await FirebaseBootstrapService.initialize();
 
-  // 3b. Credenciais TDLib do painel Master (`config/telegram_tdlib`) — após Firebase.
-  //     Requer sessão; se ainda não houver login, o TDLib tenta de novo no init.
+  // 3b/4. Credenciais TDLib (config/telegram_tdlib) e Offline/Hive são
+  // independentes entre si — em paralelo corta esse trecho do startup quase
+  // pela metade (antes: um `await` esperava o outro terminar à toa).
   if (firebaseBoot.isReady) {
-    try {
-      await ensureTelegramCredentialsLoaded();
-    } catch (_) {}
-  }
-
-  // 4. Offline/Hive — só após bootstrap OK (configureFirestoreForOfflineAndSpeed).
-  if (firebaseBoot.isReady) {
-    try {
-      await OfflineFirstCoordinator.initialize();
-    } catch (e, st) {
-      if (kDebugMode) {
-        debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');
-      }
-    }
+    await Future.wait([
+      ensureTelegramCredentialsLoaded().catchError((_) {}),
+      OfflineFirstCoordinator.initialize().catchError((e, st) {
+        if (kDebugMode) {
+          debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');
+        }
+      }),
+    ]);
   }
 
   // Controle Total: cache de imagens conservador (menos GC em listas com fotos).

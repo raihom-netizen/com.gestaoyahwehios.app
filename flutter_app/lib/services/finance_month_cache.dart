@@ -3,7 +3,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'finance_calendar_bridge.dart';
 
 /// Dados financeiros de um mês civil já processados para o calendário.
@@ -78,7 +77,7 @@ class FinanceMonthCache {
       '${day.year}-${day.month.toString().padLeft(2, '0')}';
 
   static String _cacheKey(String uid, DateTime day) {
-    final fsUid = firestoreUserDocIdForModuleReads(uid);
+    final fsUid = uid.trim();
     return '$fsUid|${monthKey(day)}';
   }
 
@@ -97,7 +96,7 @@ class FinanceMonthCache {
   }
 
   static void clearUid(String uid) {
-    final fsUid = firestoreUserDocIdForModuleReads(uid);
+    final fsUid = uid.trim();
     if (fsUid.isEmpty) return;
     final prefix = '$fsUid|';
     _dataByKey.removeWhere((k, _) => k.startsWith(prefix));

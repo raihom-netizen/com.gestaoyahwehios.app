@@ -69,6 +69,46 @@ class _TdlibSessionsPageState extends State<TdlibSessionsPage> {
     }
   }
 
+  Future<void> _disconnectThisDevice() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Desconectar o Telegram?'),
+        content: const Text(
+          'Este aparelho sai da conta conectada. Para usar o chat de novo, '
+          'informe o telefone e confirme o código outra vez.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            child: const Text('Desconectar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await TdLibService.instance.logOut();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar('Telegram desconectado.'),
+        );
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.errorSnackBarWithRetry(formatTdlibErrorForUser(e)),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -136,7 +176,14 @@ class _TdlibSessionsPageState extends State<TdlibSessionsPage> {
                         ].where((e) => e.trim().isNotEmpty).join(' · '),
                       ),
                       trailing: s.isCurrent
-                          ? null
+                          ? IconButton(
+                              tooltip: 'Desconectar este aparelho',
+                              onPressed: _disconnectThisDevice,
+                              icon: const Icon(
+                                Icons.link_off_rounded,
+                                color: Color(0xFFB91C1C),
+                              ),
+                            )
                           : IconButton(
                               tooltip: 'Encerrar',
                               onPressed: () => _terminate(s),

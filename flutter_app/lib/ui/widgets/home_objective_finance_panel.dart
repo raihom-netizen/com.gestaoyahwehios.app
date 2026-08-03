@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
 
 import 'package:gestao_yahweh/models/user_profile.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/ui/widgets/create_financial_goal_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/goal_52_weeks_objective_card.dart';
 
@@ -22,7 +21,7 @@ class HomeObjectiveFinancePanel extends StatelessWidget {
   final UserProfile profile;
   final VoidCallback onOpenObjetivoModule;
 
-  String get _userFsId => firestoreUserDocIdForAppShell(uid);
+  String get _userFsId => uid.trim();
 
   static bool _excludeGoal(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final title = ((doc.data()['title'] ?? '') as String).toLowerCase();

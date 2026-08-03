@@ -481,7 +481,7 @@ class _VideoDownloaderPageState extends State<_VideoDownloaderPage> {
                 width: 90,
                 height: 60,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Container(
+                errorBuilder: (_, _, _) => Container(
                   width: 90,
                   height: 60,
                   decoration: BoxDecoration(

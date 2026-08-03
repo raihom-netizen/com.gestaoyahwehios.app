@@ -22,7 +22,7 @@ class SupportedBanksScreen extends StatelessWidget {
       body: ListView.separated(
         padding: const EdgeInsets.all(16),
         itemCount: _banks.length,
-        separatorBuilder: (_, __) => const Divider(height: 1),
+        separatorBuilder: (_, _) => const Divider(height: 1),
         itemBuilder: (context, i) => ListTile(
           leading: const Icon(Icons.account_balance_rounded),
           title: Text(_banks[i]),

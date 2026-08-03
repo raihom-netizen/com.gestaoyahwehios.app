@@ -1,9 +1,9 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_status_resolver.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'finance_month_cache.dart';
 
 /// Representa um lançamento financeiro pendente exibido no calendário.
@@ -43,10 +43,7 @@ abstract final class FinanceCalendarBridge {
   FinanceCalendarBridge._();
 
   static CollectionReference<Map<String, dynamic>> _txCol(String uid) =>
-      FirebaseFirestore.instance
-          .collection('users')
-          .doc(firestoreUserDocIdForAppShell(uid))
-          .collection('transactions');
+      ChurchUiCollections.financeiro(uid.trim());
 
   /// Retorna o DocumentSnapshot completo de uma transação (para edição).
   static Future<DocumentSnapshot<Map<String, dynamic>>> transactionDoc(
@@ -272,11 +269,9 @@ abstract final class FinanceCalendarBridge {
         fixedUpdates[fixedId] = (collection: collection, monthKey: monthKey);
       }
       for (final entry in fixedUpdates.entries) {
-        final ref = FirebaseFirestore.instance
-            .collection('users')
-            .doc(firestoreUserDocIdForAppShell(uid))
-            .collection(entry.value.collection)
-            .doc(entry.key);
+        final ref = ChurchUiCollections.churchDoc(
+          uid.trim(),
+        ).collection(entry.value.collection).doc(entry.key);
         batch.update(ref, {
           'excludedMonths': FieldValue.arrayUnion([entry.value.monthKey]),
           'updatedAt': FieldValue.serverTimestamp(),
@@ -349,15 +344,13 @@ abstract final class FinanceCalendarBridge {
     }
     if (monthKey == null || monthKey.isEmpty) return;
 
-    final fsUid = firestoreUserDocIdForAppShell(uid);
+    final fsUid = uid.trim();
     if (fsUid.isEmpty) return;
 
     final collection = feId.isNotEmpty ? 'fixed_expenses' : 'fixed_incomes';
-    final ref = FirebaseFirestore.instance
-        .collection('users')
-        .doc(fsUid)
-        .collection(collection)
-        .doc(fixedId);
+    final ref = ChurchUiCollections.churchDoc(
+      fsUid,
+    ).collection(collection).doc(fixedId);
 
     try {
       await FirebaseFirestore.instance.runTransaction((tx) async {

@@ -7,16 +7,36 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:gestao_yahweh/constants/currency_formats.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_datetime.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_status_resolver.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/utils/module_write_guard.dart';
 import 'package:gestao_yahweh/utils/connectivity_offline.dart';
+import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
 import 'package:gestao_yahweh/services/finance_month_cache.dart';
 import 'package:gestao_yahweh/services/finance_receipt_upload_service.dart';
 import 'logs_service.dart';
+
+/// Deriva os campos que o motor por-igreja usa para manter `contas.saldo`
+/// (mesma regra de flutter_app/lib/core/finance_saldo_policy.dart e do
+/// script de migração `scripts/migrate_financeiro_pessoal_para_igreja.cjs`).
+Map<String, dynamic> _contaEStatusFields({
+  required String type,
+  required String status,
+  required String financeAccountId,
+}) {
+  final out = <String, dynamic>{};
+  if (type == 'income') {
+    out['recebimentoConfirmado'] = status != 'pending';
+    if (financeAccountId.isNotEmpty) out['contaDestinoId'] = financeAccountId;
+  } else {
+    out['pagamentoConfirmado'] = status != 'pending';
+    if (financeAccountId.isNotEmpty) out['contaOrigemId'] = financeAccountId;
+  }
+  return out;
+}
 
 /// Resultado de [TransactionSaveService.saveFromNovoLancamentoResult] para UI otimista.
 class TransactionSaveResult {
@@ -28,11 +48,9 @@ class TransactionSaveResult {
 class TransactionSaveService {
   TransactionSaveService._();
 
+  /// [uid] aqui é o `churchId` — Financeiro é por igreja, não por login pessoal.
   static CollectionReference<Map<String, dynamic>> txRef(String uid) =>
-      FirebaseFirestore.instance
-          .collection('users')
-          .doc(firestoreUserDocIdForAppShell(uid))
-          .collection('transactions');
+      ChurchUiCollections.financeiro(uid.trim());
 
   /// Evita segundo lançamento de fechamento de Escalas para o mesmo vínculo + período.
   static Future<bool> transactionExistsWithScaleClosureDedupKey(
@@ -123,6 +141,11 @@ class TransactionSaveService {
           'installmentCount': 1,
           'installmentIndex': 1,
           if (financeAccountId.isNotEmpty) 'financeAccountId': financeAccountId,
+          ..._contaEStatusFields(
+            type: 'income',
+            status: status,
+            financeAccountId: financeAccountId,
+          ),
           ..._optionalClosureAndSourceFields(data),
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
@@ -237,16 +260,17 @@ class TransactionSaveService {
       return null;
     }
 
-    return ModuleWriteGuard.run(uid, (userDocId) async {
-      final col = FirebaseFirestore.instance
-          .collection('users')
-          .doc(userDocId)
-          .collection('transactions');
+    // ModuleWriteGuard só garante sessão Auth pronta + retry (web/mobile) —
+    // o alvo da escrita continua sendo a igreja (`uid` = churchId), nunca o
+    // uid pessoal que o guard resolveria internamente.
+    return ModuleWriteGuard.run(uid, (_) async {
+      final churchId = uid.trim();
+      final col = ChurchUiCollections.financeiro(churchId);
       final savedIds = <String>[];
       String? firstDocId;
       if (installments <= 1) {
         final ref = col.doc();
-        await ref.set({
+        final payload = {
           'type': type,
           'amount': amount,
           'category': category,
@@ -265,10 +289,23 @@ class TransactionSaveService {
           'addToCalendar': addToCalendar,
           if (addToCalendar && calendarColorHex.isNotEmpty)
             'calendarColorHex': calendarColorHex,
+          ..._contaEStatusFields(
+            type: type,
+            status: resolvedStatus,
+            financeAccountId: financeAccountId,
+          ),
           ..._optionalClosureAndSourceFields(data),
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
-        });
+        };
+        // Grava + ajusta saldo da conta atomicamente (mesmo motor do resto
+        // do Financeiro por-igreja — igual FinanceAccountMigrateService).
+        await FinanceLancamentoWriteService.commitInTransaction(
+          churchId: churchId,
+          lancamentoRef: ref,
+          payload: payload,
+          merge: false,
+        );
         firstDocId = ref.id;
         savedIds.add(ref.id);
         unawaited(
@@ -295,12 +332,13 @@ class TransactionSaveService {
               .showSnackBar(SnackBar(content: Text(msg)));
         }
       } else {
-        final batch = FirebaseFirestore.instance.batch();
         final groupId = col.doc().id;
         final valueIsPerParcel = data['installmentValueIsPerParcel'] == true;
         final amountPerParcel =
             valueIsPerParcel ? amount : amount / installments;
         final parcelCount = installments - installmentStartIndex + 1;
+        // Uma transação por parcela (ajusta `contas.saldo` em cada uma) —
+        // mesmo padrão de FinanceAccountMigrateService.migrateDocuments.
         for (var k = 0; k < parcelCount; k++) {
           final i = installmentStartIndex + k;
           final d = addMonths(date, k);
@@ -315,7 +353,7 @@ class TransactionSaveService {
           final ref = col.doc();
           if (k == 0) firstDocId = ref.id;
           savedIds.add(ref.id);
-          batch.set(ref, {
+          final payload = {
             'type': type,
             'amount': amountPerParcel,
             'category': category,
@@ -336,12 +374,22 @@ class TransactionSaveService {
             'addToCalendar': addToCalendar,
             if (addToCalendar && calendarColorHex.isNotEmpty)
               'calendarColorHex': calendarColorHex,
+            ..._contaEStatusFields(
+              type: type,
+              status: parcelStatus,
+              financeAccountId: financeAccountId,
+            ),
             ..._optionalClosureAndSourceFields(data),
             'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
-          });
+          };
+          await FinanceLancamentoWriteService.commitInTransaction(
+            churchId: churchId,
+            lancamentoRef: ref,
+            payload: payload,
+            merge: false,
+          );
         }
-        await batch.commit();
         unawaited(
           LogsService()
               .saveLog(
@@ -372,9 +420,9 @@ class TransactionSaveService {
       if (savedIds.isEmpty) return null;
       final result = TransactionSaveResult(docIds: savedIds);
       // Pendente novo deve pintar no dia da Agenda/Escalas sem esperar cache antigo.
-      FinanceMonthCache.clearUid(userDocId);
+      FinanceMonthCache.clearUid(churchId);
       FinanceTransactionsHub.notifyMutated(
-        uid: userDocId,
+        uid: churchId,
         effectiveDate: date,
       );
 
@@ -389,7 +437,7 @@ class TransactionSaveService {
             bytes.lengthInBytes > 0) {
           unawaited(
             FinanceReceiptUploadService.attachToTransaction(
-              uid: userDocId,
+              uid: churchId,
               txDocId: firstDocId,
               bytes: bytes,
               filename: name,

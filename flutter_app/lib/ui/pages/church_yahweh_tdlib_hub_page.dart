@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_auth_state.dart';
 import 'package:gestao_yahweh/features/chat/data/tdlib_chat_local_prefs.dart';
@@ -278,6 +279,15 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
   bool get _tdlibReady =>
       TdLibService.instance.isSupported && _auth.phase == TdlibAuthPhase.ready;
 
+  /// TDLib nativo indisponível — seja porque a plataforma não suporta
+  /// (Web, ou iOS com o flag de build desligado), seja porque o `init`
+  /// tentou e falhou em runtime (linker/plugin ausente no device). Nos dois
+  /// casos a UI deve cair no Telegram Web embutido, nunca ficar presa num
+  /// cartão de login que nunca vai completar.
+  bool get _nativeUnavailable =>
+      !TdLibService.instance.isSupported ||
+      _auth.phase == TdlibAuthPhase.unsupported;
+
   List<TdlibChatPreview> get _churchChats {
     final allowed = <int>{..._openedChurchChatIds};
     for (final department in _depts) {
@@ -326,19 +336,16 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
       if (!mounted) return;
       setState(() => _auth = snap);
       if (snap.phase == TdlibAuthPhase.ready) {
-        unawaited(svc.refreshChats());
-        unawaited(svc.prefetchChatPhotos());
+        // refreshChats+warm já correm no handler ready do serviço — não duplicar.
+        unawaited(svc.prefetchChatPhotos(limit: 12));
         unawaited(TdlibPushBridge.onTdlibReady());
-        unawaited(_syncAllDeptGroupsInBackground());
+        unawaited(_scheduleDeptGroupsSync());
       }
     });
     _chatsSub = svc.chatsStream.listen((list) {
       if (!mounted) return;
       setState(() => _chats = list);
       unawaited(_refreshChatLocalPrefs(list));
-      if (_tdlibReady) {
-        unawaited(svc.prefetchChatPhotos());
-      }
     });
     // TDLib init is fully non-blocking — chat UI shows immediately.
     if (svc.isSupported) {
@@ -346,9 +353,9 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
         svc.init(churchId: _churchId).then((_) {
           if (mounted) setState(() => _auth = svc.currentAuth);
           if (svc.currentAuth.phase == TdlibAuthPhase.ready) {
-            unawaited(svc.prefetchChatPhotos());
+            unawaited(svc.prefetchChatPhotos(limit: 12));
             unawaited(TdlibPushBridge.onTdlibReady());
-            unawaited(_syncAllDeptGroupsInBackground());
+            unawaited(_scheduleDeptGroupsSync());
           }
         }),
       );
@@ -358,23 +365,26 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
   }
 
   Future<void> _refreshChatLocalPrefs(List<TdlibChatPreview> chats) async {
-    final muted = <int>{};
-    final archived = <int>{};
-    for (final c in chats) {
-      if (await TdlibChatLocalPrefs.isMuted(_churchId, c.id)) muted.add(c.id);
-      if (await TdlibChatLocalPrefs.isArchived(_churchId, c.id)) {
-        archived.add(c.id);
-      }
-    }
+    final sets = await TdlibChatLocalPrefs.loadMuteArchiveSets(
+      _churchId,
+      chats.map((c) => c.id),
+    );
     if (!mounted) return;
     setState(() {
       _mutedChatIds
         ..clear()
-        ..addAll(muted);
+        ..addAll(sets.muted);
       _archivedChatIds
         ..clear()
-        ..addAll(archived);
+        ..addAll(sets.archived);
     });
+  }
+
+  /// Sync de membros nos grupos só depois da lista ficar usável.
+  Future<void> _scheduleDeptGroupsSync() async {
+    await Future<void>.delayed(const Duration(seconds: 8));
+    if (!mounted || !_tdlibReady) return;
+    await _syncAllDeptGroupsInBackground();
   }
 
   Future<void> _syncAllDeptGroupsInBackground() async {
@@ -490,7 +500,7 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
     } catch (_) {}
   }
 
-  Future<void> _reloadDepts() async {
+  Future<void> _reloadDepts({bool forceServer = false}) async {
     if (!mounted) return;
     if (_depts.isEmpty) {
       setState(() {
@@ -501,7 +511,8 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
     try {
       final r = await ChurchChatHubDepartmentsService.load(
         seedTenantId: widget.tenantId,
-        forceServer: true,
+        // Cache-first no 1º paint; pull-to-refresh pede servidor.
+        forceServer: forceServer || _depts.isEmpty,
       );
       if (!mounted) return;
       setState(() {
@@ -551,8 +562,15 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
     });
     try {
       await action();
-    } catch (e) {
-      if (mounted) setState(() => _authLocalError = e.toString());
+    } catch (e, st) {
+      // Erro real do TDLib (code/message) — sem isto, toda falha de login
+      // (telefone inválido, flood-wait, rede) virava a mesma mensagem
+      // genérica e era impossível diagnosticar depois.
+      debugPrint('[TdLib auth] $e\n$st');
+      unawaited(CrashlyticsService.record(e, st, reason: 'tdlib_auth'));
+      if (mounted) {
+        setState(() => _authLocalError = formatTdlibErrorForUser(e));
+      }
     } finally {
       if (mounted) setState(() => _authBusy = false);
     }
@@ -698,8 +716,7 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
         int chatId;
         if (storedChatId != null && storedChatId != 0) {
           chatId = storedChatId;
-          await TdLibService.instance.loadChatHistory(chatId);
-          // Membros já estão no departamento — só garante no grupo do chat.
+          // Abrir na hora — histórico carrega no thread (cache/warm local).
           unawaited(_syncDeptMembersToChat(chatId, doc));
         } else {
           // Cria automático e inclui todos do departamento (sem diálogo / link).
@@ -875,9 +892,10 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
           ),
         if (!_tdlibReady &&
             TdLibService.instance.isSupported &&
-            _auth.phase != TdlibAuthPhase.initializing)
+            _auth.phase != TdlibAuthPhase.initializing &&
+            _auth.phase != TdlibAuthPhase.unsupported)
           _buildAuthCard(accent)
-        else if (!TdLibService.instance.isSupported)
+        else if (_nativeUnavailable)
           _buildWebHint(accent),
         Container(
           margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
@@ -1186,7 +1204,7 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
 
   Widget _buildChatsTab(Color accent) {
     if (!_tdlibReady) {
-      final webParity = !TdLibService.instance.isSupported;
+      final webParity = _nativeUnavailable;
       return _buildEmptyAction(
         accent: accent,
         icon: webParity ? Icons.public_rounded : Icons.forum_outlined,
@@ -1554,7 +1572,7 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
         isSyncing: false,
         errorTitle: 'Não foi possível carregar departamentos',
         error: _deptError,
-        onRetry: _reloadDepts,
+        onRetry: () => _reloadDepts(forceServer: true),
       );
     }
     if (_depts.isEmpty) {
@@ -1588,7 +1606,7 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
         ),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: _reloadDepts,
+            onRefresh: () => _reloadDepts(forceServer: true),
             child: filtered.isEmpty
                 ? ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
@@ -1599,9 +1617,9 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
                   )
                 : ListView.separated(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 28),
                     itemCount: filtered.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    separatorBuilder: (_, _) => const SizedBox(height: 12),
                     itemBuilder: (_, i) {
                       final d = filtered[i];
                       final name = churchDepartmentNameFromDoc(d);
@@ -1623,55 +1641,67 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
                           : ready
                               ? '${stats.withPhone}/${stats.total} no Telegram · ${stats.withoutPhone} sem telefone'
                               : '${stats.total} membro${stats.total == 1 ? '' : 's'} · abre automático';
-                      return Material(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            side: BorderSide(
-                              color: color.withValues(alpha: 0.35),
+                      return Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.05),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
                             ),
-                          ),
-                          leading: _deptMemberStack(members, color),
-                          title: Text(
-                            name,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                          subtitle: Text(subtitle),
-                          trailing: stats.withoutPhone > 0
-                              ? Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      tooltip: 'Cobrar telefone',
-                                      icon: Icon(
-                                        Icons.sms_rounded,
+                          ],
+                        ),
+                        child: Material(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          clipBehavior: Clip.antiAlias,
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              side: BorderSide(
+                                color: color.withValues(alpha: 0.35),
+                              ),
+                            ),
+                            leading: _deptMemberStack(members, color),
+                            title: Text(
+                              name,
+                              style: const TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            subtitle: Text(subtitle),
+                            trailing: stats.withoutPhone > 0
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        tooltip: 'Cobrar telefone',
+                                        icon: Icon(
+                                          Icons.sms_rounded,
+                                          color: color,
+                                          size: 22,
+                                        ),
+                                        onPressed: () =>
+                                            _showMissingPhoneBottomSheet(members),
+                                      ),
+                                      Icon(
+                                        Icons.chat_bubble_rounded,
                                         color: color,
-                                        size: 22,
                                       ),
-                                      onPressed: () => _showMissingPhoneBottomSheet(
-                                        members,
-                                      ),
-                                    ),
-                                    Icon(
-                                      Icons.chat_bubble_rounded,
-                                      color: color,
-                                    ),
-                                  ],
-                                )
-                              : Icon(
-                                  Icons.chat_bubble_rounded,
-                                  color: color,
-                                ),
-                          onTap: () => unawaited(_openDept(d)),
-                          onLongPress: stats.withoutPhone > 0
-                              ? () => _showMissingPhoneBottomSheet(members)
-                              : null,
+                                    ],
+                                  )
+                                : Icon(
+                                    Icons.chat_bubble_rounded,
+                                    color: color,
+                                  ),
+                            onTap: () => unawaited(_openDept(d)),
+                            onLongPress: stats.withoutPhone > 0
+                                ? () => _showMissingPhoneBottomSheet(members)
+                                : null,
+                          ),
                         ),
                       );
                     },
@@ -1767,9 +1797,9 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
                   },
                 )
               : ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 28),
                   itemCount: limited.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (_, i) {
                     final e = limited[i];
                     final phone =
@@ -1779,13 +1809,25 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
                     final deptHint = e.departamentos.isEmpty
                         ? null
                         : e.departamentos.take(2).join(' · ');
-                    return Material(
+                    return Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.05),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: Material(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
+                      clipBehavior: Clip.antiAlias,
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
+                          horizontal: 14,
+                          vertical: 8,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
@@ -1829,6 +1871,7 @@ class _ChurchYahwehTdlibHubPageState extends State<ChurchYahwehTdlibHubPage>
                                     title: e.displayName,
                                   ),
                                 ),
+                      ),
                       ),
                     );
                   },

@@ -19,7 +19,6 @@ import 'package:gestao_yahweh/services/user_categories_service.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
 import 'package:gestao_yahweh/utils/date_picker_a11y.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
 import 'package:gestao_yahweh/ui/widgets/brl_amount_text_field.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_bank_brand_thumb.dart';
@@ -146,7 +145,7 @@ class _SmartInputBatchPreviewScreenState
   SmartBatchPersistMode _persistMode = SmartBatchPersistMode.umPorLinha;
   bool _onlyUncategorized = false;
 
-  String get _fsUid => firestoreUserDocIdForAppShell(widget.uid);
+  String get _fsUid => widget.uid.trim();
 
   bool _isInstallmentOrFinancingText(String text) {
     final t = text.toLowerCase();

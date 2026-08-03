@@ -1,7 +1,9 @@
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart' show FileType;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart' as ph;
 import 'package:gestao_yahweh/core/church_central_storage_upload.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart'
@@ -36,6 +38,20 @@ abstract final class ChurchCtModuleUpload {
   static const int kMaxImageBytes = kStorageRulesMaxFeedImageBytes;
   static const int kMaxReceiptBytes = 5 * 1024 * 1024;
 
+  /// Permissão de câmera — evita `PlatformException(camera_access_denied)`
+  /// cru chegando à UI (painel, Master, cadastro público de membros).
+  static Future<bool> _ensureCameraPermission() async {
+    if (kIsWeb) return true;
+    try {
+      final status = await ph.Permission.camera.status;
+      if (status.isGranted || status.isLimited) return true;
+      final requested = await ph.Permission.camera.request();
+      return requested.isGranted || requested.isLimited;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Warm gate — use antes de qualquer upload (painel, Master, signup, divulgação).
   static Future<void> ensureReady({
     YahwehMediaModule? gateModule,
@@ -54,6 +70,11 @@ abstract final class ChurchCtModuleUpload {
     int imageQuality = 88,
     double? maxWidth = 1920,
   }) async {
+    if (source == ImageSource.camera && !await _ensureCameraPermission()) {
+      throw StateError(
+        'Permissão de câmera negada. Ative nas configurações do aparelho.',
+      );
+    }
     final x = await ImagePicker().pickImage(
       source: source,
       imageQuality: imageQuality,

@@ -46,33 +46,31 @@ abstract final class MemberProfileVariantsService {
       folderId,
     );
 
-    void report(double p) => onProgress?.call(p * 0.85);
-
-    final fullUrl = await MemberProfileMediaUpload.uploadProfileFull(
+    // Full e thumb são objetos Storage independentes — sobem em paralelo
+    // (antes: sequencial, quase dobrando o tempo de espera do usuário).
+    final tb = thumbBytes;
+    final fullFuture = MemberProfileMediaUpload.uploadProfileFull(
       churchId: churchId,
       storageFolderId: folderId,
       fullBytes: fullBytes,
       requireAuth: requireAuth,
-      onProgress: report,
+      onProgress: (p) => onProgress?.call(p * 0.85),
     );
-    var thumbUrl = fullUrl;
-    var thumbPathResolved = fullPath;
-    final tb = thumbBytes;
-    if (tb != null && tb.isNotEmpty) {
-      try {
-        thumbUrl = await MemberProfileMediaUpload.uploadProfileThumb(
-          churchId: churchId,
-          storageFolderId: folderId,
-          thumbBytes: tb,
-          requireAuth: requireAuth,
-          onProgress: (p) => onProgress?.call(0.85 + p * 0.15),
-        );
-        thumbPathResolved = thumbPath;
-      } catch (_) {
-        thumbUrl = fullUrl;
-        thumbPathResolved = fullPath;
-      }
-    }
+    final thumbFuture = (tb != null && tb.isNotEmpty)
+        ? MemberProfileMediaUpload.uploadProfileThumb(
+            churchId: churchId,
+            storageFolderId: folderId,
+            thumbBytes: tb,
+            requireAuth: requireAuth,
+            onProgress: (p) => onProgress?.call(0.85 + p * 0.15),
+          ).then<String?>((u) => u).catchError((_) => null)
+        : Future<String?>.value(null);
+
+    final results = await Future.wait([fullFuture, thumbFuture.then((v) => v ?? '')]);
+    final fullUrl = results[0];
+    final thumbUploaded = results[1];
+    final thumbUrl = thumbUploaded.isNotEmpty ? thumbUploaded : fullUrl;
+    final thumbPathResolved = thumbUploaded.isNotEmpty ? thumbPath : fullPath;
     onProgress?.call(1.0);
 
     return (

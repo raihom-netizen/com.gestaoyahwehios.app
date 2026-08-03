@@ -180,21 +180,35 @@ abstract final class MemberCardSignService {
       }
     }
 
-    // Verifica no Firestore se os campos realmente persistiram antes de dizer OK.
-    final verifiedIds = await _verifySignaturesPersisted(
-      col: col,
-      signedIds: signedIds,
-      signatoryMemberId: signatory.memberId,
-    );
+    // Confirmação pós-escrita é só diagnóstico em background — NÃO deve
+    // rebaixar para "falhou" uma assinatura cujo write já foi confirmado
+    // pelo próprio Firestore (o `await` do commit/set acima só retorna sem
+    // erro quando o servidor reconheceu a escrita). Um timeout na releitura
+    // (comum na web, streams instáveis) não significa que a gravação
+    // falhou — antes disso, `ok`/`signedIds` já refletiam o que realmente
+    // foi persistido, e usar `verifiedIds` para reconciliar fazia a UI
+    // mostrar "não assinado" para carteirinhas já gravadas com sucesso.
+    if (signedIds.isNotEmpty) {
+      unawaited(
+        _verifySignaturesPersisted(
+          col: col,
+          signedIds: signedIds,
+          signatoryMemberId: signatory.memberId,
+        ).then((verifiedIds) {
+          if (verifiedIds.length < signedIds.length) {
+            debugPrint(
+              'MemberCardSignService: releitura confirmou '
+              '${verifiedIds.length}/${signedIds.length} — write já tinha '
+              'sido confirmado pelo Firestore; diferença é releitura '
+              'lenta/timeout, não falha de escrita.',
+            );
+          }
+        }),
+      );
 
-    // Reconcilia contador com o que de fato foi gravado.
-    ok = verifiedIds.length;
-    fail = memberIds.length - ok;
-
-    if (verifiedIds.isNotEmpty) {
       MembersDirectorySnapshotService.patchMembersSignatureInMemory(
         tenantId: churchId,
-        memberIds: verifiedIds,
+        memberIds: signedIds,
         signatureFields: {
           'carteirinhaAssinadaEm': signedAt,
           'carteirinhaAssinadaPor': signatory.memberId,
@@ -213,7 +227,154 @@ abstract final class MemberCardSignService {
       ok: ok,
       fail: fail,
       lastError: lastError,
-      signedIds: List<String>.unmodifiable(verifiedIds),
+      signedIds: List<String>.unmodifiable(signedIds),
+    );
+  }
+
+  /// Remove a assinatura da carteirinha (contrário de [signBatch]).
+  static Future<({int ok, int fail, String? lastError, List<String> clearedIds})>
+  clearBatch({
+    required String tenantId,
+    required List<String> memberIds,
+  }) async {
+    final ids = memberIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (ids.isEmpty) {
+      return (ok: 0, fail: 0, lastError: null, clearedIds: const <String>[]);
+    }
+
+    final churchId = MemberCardDirectoryService.resolveChurchId(
+      tenantId.trim(),
+    );
+    if (churchId.isEmpty) {
+      return (
+        ok: 0,
+        fail: ids.length,
+        lastError: 'Igreja não identificada.',
+        clearedIds: const <String>[],
+      );
+    }
+
+    return _clearBatchImpl(churchId: churchId, memberIds: ids).timeout(
+      batchCapFor(ids.length),
+      onTimeout: () => throw TimeoutException(
+        'A remoção da assinatura demorou demais. Verifique a rede e tente novamente.',
+        batchCapFor(ids.length),
+      ),
+    );
+  }
+
+  static Future<({int ok, int fail, String? lastError, List<String> clearedIds})>
+  _clearBatchImpl({
+    required String churchId,
+    required List<String> memberIds,
+  }) async {
+    await AppFinalizeBootstrap.ensureSessionForPublish(
+      logLabel: 'cartao_membro_limpar_assinatura',
+    );
+    if (kIsWeb) {
+      await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    }
+
+    final col = ChurchUiCollections.membros(churchId);
+    final payload = <String, dynamic>{
+      'carteirinhaAssinadaEm': FieldValue.delete(),
+      'carteirinhaAssinadaPor': FieldValue.delete(),
+      'carteirinhaAssinadaPorNome': FieldValue.delete(),
+      'carteirinhaAssinadaPorCargo': FieldValue.delete(),
+      'carteirinhaAssinaturaUrl': FieldValue.delete(),
+      'ATUALIZADO_EM': Timestamp.now(),
+    };
+
+    var ok = 0;
+    var fail = 0;
+    String? lastError;
+    final clearedIds = <String>[];
+
+    Future<void> writeOneLight(String id) async {
+      await col
+          .doc(id)
+          .set(payload, SetOptions(merge: true))
+          .timeout(const Duration(seconds: kIsWeb ? 18 : 15));
+    }
+
+    Future<void> writeChunkBatch(List<String> chunk) async {
+      final batch = col.firestore.batch();
+      for (final id in chunk) {
+        batch.set(col.doc(id), payload, SetOptions(merge: true));
+      }
+      await runFirestorePublishWithRecovery(
+        () => batch.commit(),
+        maxAttempts: 2,
+        criticalWrite: true,
+      ).timeout(_kChunkTimeout);
+    }
+
+    Future<void> writeChunkSequential(List<String> chunk) async {
+      for (final id in chunk) {
+        try {
+          await writeOneLight(id);
+          ok++;
+          clearedIds.add(id);
+        } catch (e1) {
+          try {
+            await Future<void>.delayed(const Duration(milliseconds: 350));
+            await writeOneLight(id);
+            ok++;
+            clearedIds.add(id);
+          } catch (e2, st) {
+            fail++;
+            lastError = e2.toString();
+            debugPrint('MemberCardSignService clear $id: $e2\n$st');
+          }
+        }
+      }
+    }
+
+    for (var i = 0; i < memberIds.length; i += _kBatchChunkSize) {
+      final chunk = memberIds.sublist(
+        i,
+        min(i + _kBatchChunkSize, memberIds.length),
+      );
+      try {
+        await writeChunkBatch(chunk);
+        ok += chunk.length;
+        clearedIds.addAll(chunk);
+      } catch (batchError, batchSt) {
+        debugPrint(
+          'MemberCardSignService clear batch chunk fallback ($i): $batchError\n$batchSt',
+        );
+        if (kIsWeb &&
+            (FirestoreWebGuard.isInternalAssertionError(batchError) ||
+                FirestoreWebGuard.isClientTerminated(batchError))) {
+          await FirestoreWebGuard.softRecoverWebSession().catchError((_) {});
+          try {
+            await writeChunkBatch(chunk);
+            ok += chunk.length;
+            clearedIds.addAll(chunk);
+            continue;
+          } catch (_) {}
+        }
+        await writeChunkSequential(chunk);
+      }
+    }
+
+    if (clearedIds.isNotEmpty) {
+      // Cache RAM (MembersDirectorySnapshotService) não sabe "limpar" campos
+      // string via merge (fallback mantém o valor antigo quando o campo
+      // chega vazio) — invalida para forçar releitura real do Firestore
+      // em vez de deixar o cache mostrar assinatura removida incorretamente.
+      MembersDirectorySnapshotService.invalidateMemory(churchId);
+      unawaited(ChurchMembersLoadService.invalidate(churchId));
+    }
+
+    return (
+      ok: ok,
+      fail: fail,
+      lastError: lastError,
+      clearedIds: List<String>.unmodifiable(clearedIds),
     );
   }
 

@@ -21,7 +21,6 @@ import 'package:gestao_yahweh/utils/premium_upgrade.dart';
 import 'modern_pdf_period_dialog.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:gestao_yahweh/utils/finance_fatura_transaction_sort.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_transaction_list_tile.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_transaction_sort_bar.dart';
 
@@ -131,7 +130,7 @@ class _FinanceAccountCategorySheetState
     });
     try {
       final docs = await financePeriodMergedDocumentsCollect(
-        uid: firestoreUserDocIdForAppShell(widget.uid),
+        uid: widget.uid.trim(),
         from: widget.from,
         to: widget.to,
         statusFilter: widget.statusFilter,

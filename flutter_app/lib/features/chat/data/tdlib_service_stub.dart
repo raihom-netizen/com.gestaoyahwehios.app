@@ -56,9 +56,11 @@ class TdLibService {
 
   Future<void> refreshChats({int limit = 40}) async {}
 
-  Future<void> warmTopChats({int count = 8}) async {}
+  Future<void> warmTopChats({int count = 6}) async {}
 
   Future<void> ensureChatPhoto(int chatId) async {}
+
+  List<TdlibMessageItem> cachedMessages(int chatId) => const [];
 
   Future<TdlibMessageItem?> refreshPinnedMessage(int chatId) async => null;
 
@@ -90,6 +92,7 @@ class TdLibService {
     int limit = 40,
     bool preferLocalFirst = true,
     bool setActive = true,
+    bool remoteRefresh = true,
   }) async =>
       const [];
 
@@ -210,6 +213,10 @@ class TdLibService {
   }
 
   Future<void> terminateAllOtherSessions() async {
+    throw UnsupportedError('TDLib não disponível na Web');
+  }
+
+  Future<void> logOut() async {
     throw UnsupportedError('TDLib não disponível na Web');
   }
 

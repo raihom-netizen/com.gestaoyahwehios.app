@@ -104,6 +104,26 @@ class FinanceAccount {
     }
   }
 
+  /// productType (pessoal) <-> tipoConta (`igrejas/{churchId}/contas`, PT-BR).
+  static const Map<String, String> _productTypeToTipoConta = {
+    kChecking: 'corrente',
+    kSavings: 'poupanca',
+    kCard: 'cartao',
+    kBankAndCard: 'corrente',
+    kVault: 'caixa',
+  };
+  static String tipoContaFor(String productType) =>
+      _productTypeToTipoConta[productType] ?? 'corrente';
+
+  static const Map<String, String> _tipoContaToProductType = {
+    'corrente': kChecking,
+    'poupanca': kSavings,
+    'poupança': kSavings,
+    'cartao': kCard,
+    'cartão': kCard,
+    'caixa': kVault,
+  };
+
   factory FinanceAccount.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data() ?? {};
     final created = d['createdAt'];
@@ -124,14 +144,25 @@ class FinanceAccount {
         rawPt == kVault) {
       pt = rawPt;
     } else {
-      final legacyKind = (d['kind'] ?? 'bank').toString();
-      pt = legacyKind == 'card' ? kCard : kChecking;
+      // `igrejas/{churchId}/contas` (padrão Controle Total por igreja) usa
+      // `tipoConta` em vez de `productType` — mesma conta, nome PT-BR.
+      final tipoConta = (d['tipoConta'] ?? '').toString().trim().toLowerCase();
+      final mapped = _tipoContaToProductType[tipoConta];
+      if (mapped != null) {
+        pt = mapped;
+      } else {
+        final legacyKind = (d['kind'] ?? 'bank').toString();
+        pt = legacyKind == 'card' ? kCard : kChecking;
+      }
     }
+    final nickname = (d['nickname'] as String?)?.trim().isNotEmpty == true
+        ? (d['nickname'] as String).trim()
+        : (d['nome'] as String?)?.trim();
     return FinanceAccount(
       id: doc.id,
       presetId: (d['presetId'] ?? 'outro_banco').toString(),
       productType: pt,
-      nickname: (d['nickname'] as String?)?.trim(),
+      nickname: nickname,
       sortOrder: (d['sortOrder'] is num) ? (d['sortOrder'] as num).toInt() : 0,
       createdAt: created is Timestamp ? created.toDate() : null,
       statementClosingDay: statementClosingDay,
@@ -139,8 +170,15 @@ class FinanceAccount {
     );
   }
 
+  /// Grava no formato de `igrejas/{churchId}/contas` (nome/tipoConta/ativo) —
+  /// mesma coleção lida por doações, OFX e o motor de saldo do Financeiro.
   Map<String, dynamic> toMap() {
     return {
+      'nome': displayName,
+      'tipoConta': _productTypeToTipoConta[productType] ?? 'corrente',
+      'ativo': true,
+      // Compat: mantém os campos "pessoais" também, para telas ainda não
+      // migradas que leem `productType`/`nickname` diretamente do doc.
       'presetId': presetId,
       'productType': productType,
       'kind': kind,

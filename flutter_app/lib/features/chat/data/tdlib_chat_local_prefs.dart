@@ -21,6 +21,21 @@ abstract final class TdlibChatLocalPrefs {
     return p.getBool(_k(churchId, 'mute', chatId)) ?? false;
   }
 
+  /// Uma leitura SharedPreferences para mute+arquivo de toda a lista.
+  static Future<({Set<int> muted, Set<int> archived})> loadMuteArchiveSets(
+    String churchId,
+    Iterable<int> chatIds,
+  ) async {
+    final p = await SharedPreferences.getInstance();
+    final muted = <int>{};
+    final archived = <int>{};
+    for (final id in chatIds) {
+      if (p.getBool(_k(churchId, 'mute', id)) == true) muted.add(id);
+      if (p.getBool(_k(churchId, 'arch', id)) == true) archived.add(id);
+    }
+    return (muted: muted, archived: archived);
+  }
+
   static Future<void> setMuted(String churchId, int chatId, bool value) async {
     final p = await SharedPreferences.getInstance();
     await p.setBool(_k(churchId, 'mute', chatId), value);

@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/data/app_global_firestore_access.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -16,24 +16,63 @@ abstract final class TelegramTdlibConfigService {
   static DocumentReference<Map<String, dynamic>> get docRef =>
       AppGlobalFirestoreAccess.configDoc(docId);
 
-  /// Carrega do Firestore (cache → servidor).
-  static Future<TelegramTdlibConfig> load() async {
-    try {
-      if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+  /// Carrega do Firestore. Preferência: servidor (painel master) → cache.
+  /// Não engole erro em silêncio — o caller mostra o problema.
+  static Future<TelegramTdlibConfig> load({bool preferServer = true}) async {
+    if (kIsWeb) {
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
+
+    Object? lastError;
+
+    if (preferServer) {
+      try {
+        final snap = await FirestoreWebGuard.runWithWebRecovery(
+          () => AppGlobalFirestoreAccess.getConfig(
+            docId,
+            source: Source.server,
+          ),
+          maxAttempts: 3,
+        );
+        if (snap.exists) {
+          return TelegramTdlibConfig.fromMap(snap.data());
+        }
+      } catch (e) {
+        lastError = e;
+        debugPrint('[TelegramTdlibConfig] load server: $e');
       }
+    }
+
+    try {
       final snap = await FirestoreWebGuard.runWithWebRecovery(
-        () => AppGlobalFirestoreAccess.getConfig(docId),
+        () => AppGlobalFirestoreAccess.getConfig(
+          docId,
+          source: Source.serverAndCache,
+        ),
         maxAttempts: 3,
       );
-      return TelegramTdlibConfig.fromMap(snap.data());
-    } catch (_) {
+      if (snap.exists) {
+        return TelegramTdlibConfig.fromMap(snap.data());
+      }
       return const TelegramTdlibConfig.empty();
+    } catch (e) {
+      lastError ??= e;
+      debugPrint('[TelegramTdlibConfig] load cache: $e');
+      // Última tentativa: cache puro (offline).
+      try {
+        final cached = await docRef.get(const GetOptions(source: Source.cache));
+        if (cached.exists) {
+          return TelegramTdlibConfig.fromMap(cached.data());
+        }
+      } catch (_) {}
+      throw TelegramTdlibConfigException(
+        'Não foi possível ler $firestorePath. $lastError',
+      );
     }
   }
 
-  /// Grava no Firestore (merge). Só master via regras.
-  static Future<void> save({
+  /// Grava no Firestore (merge) e confirma leitura de volta.
+  static Future<TelegramTdlibConfig> save({
     required int apiId,
     required String apiHash,
     String? deviceModel,
@@ -51,22 +90,55 @@ abstract final class TelegramTdlibConfigService {
     ).catchError((_) {});
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final email = firebaseDefaultAuth.currentUser?.email ?? '';
+    final payload = <String, dynamic>{
+      'apiId': apiId,
+      'apiHash': hash,
+      'api_id': apiId,
+      'api_hash': hash,
+      'deviceModel': (deviceModel ?? '').trim().isEmpty
+          ? 'Gestao YAHWEH'
+          : deviceModel!.trim(),
+      'systemLanguageCode': (systemLanguageCode ?? '').trim().isEmpty
+          ? 'pt-br'
+          : systemLanguageCode!.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedByUid': uid,
+      'updatedByEmail': email,
+      'source': 'master_panel',
+      'configured': true,
+    };
+
     await FirestoreWebGuard.runWithWebRecovery(
-      () => docRef.set({
-        'apiId': apiId,
-        'apiHash': hash,
-        if ((deviceModel ?? '').trim().isNotEmpty)
-          'deviceModel': deviceModel!.trim(),
-        if ((systemLanguageCode ?? '').trim().isNotEmpty)
-          'systemLanguageCode': systemLanguageCode!.trim(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'updatedByUid': uid,
-        'updatedByEmail': email,
-        'source': 'master_panel',
-      }, SetOptions(merge: true)),
+      () => docRef.set(payload, SetOptions(merge: true)),
       maxAttempts: 4,
     );
+
+    // Confirmação — evita “salvei” sem dados no doc.
+    final verified = await FirestoreWebGuard.runWithWebRecovery(
+      () => AppGlobalFirestoreAccess.getConfig(docId, source: Source.server),
+      maxAttempts: 3,
+    );
+    if (!verified.exists) {
+      throw TelegramTdlibConfigException(
+        'Gravação sem confirmação: $firestorePath não existe após set.',
+      );
+    }
+    final cfg = TelegramTdlibConfig.fromMap(verified.data());
+    if (!cfg.isConfigured || cfg.apiId != apiId || cfg.apiHash != hash) {
+      throw TelegramTdlibConfigException(
+        'Gravação inconsistente em $firestorePath '
+        '(lido apiId=${cfg.apiId}). Tente novamente.',
+      );
+    }
+    return cfg;
   }
+}
+
+class TelegramTdlibConfigException implements Exception {
+  TelegramTdlibConfigException(this.message);
+  final String message;
+  @override
+  String toString() => message;
 }
 
 class TelegramTdlibConfig {

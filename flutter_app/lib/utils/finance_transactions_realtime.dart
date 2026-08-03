@@ -1,21 +1,17 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 import 'finance_line_opening.dart';
 import 'firestore_query_batched_collect.dart';
-import 'firestore_user_doc_id.dart';
 
 /// Limite padrão para streams de pendentes (índice `status`+`date`).
 const int kFinancePendingStreamLimit = 500;
 
-CollectionReference<Map<String, dynamic>> _transactionsCol(String uid) {
-  final id = firestoreUserDocIdForModuleReads(uid);
-  return FirebaseFirestore.instance
-      .collection('users')
-      .doc(id)
-      .collection('transactions');
-}
+/// [uid] aqui é o `churchId` — Financeiro é por igreja, não por login pessoal.
+CollectionReference<Map<String, dynamic>> _transactionsCol(String uid) =>
+    ChurchUiCollections.financeiro(uid.trim());
 
 bool _docEffectiveInPeriod(
   Map<String, dynamic> d,
@@ -69,7 +65,7 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> financeTransactionsPer
   required DateTime rangeStart,
   required DateTime rangeEnd,
 }) {
-  final fsUid = firestoreUserDocIdForModuleReads(uid);
+  final fsUid = uid.trim();
   if (fsUid.isEmpty) {
     return Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>.value(
       const <QueryDocumentSnapshot<Map<String, dynamic>>>[],
@@ -158,17 +154,15 @@ Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> financePeriodMergedDoc
   int pageSize = 400,
   int maxDocuments = 8000,
 }) async {
-  final id = firestoreUserDocIdForModuleReads(uid);
+  final id = uid.trim();
   if (id.isEmpty) return const [];
   final f = DateTime(from.year, from.month, from.day);
   final t = DateTime(to.year, to.month, to.day, 23, 59, 59);
-  final col = FirebaseFirestore.instance.collection('users').doc(id).collection('transactions');
+  final col = ChurchUiCollections.financeiro(id);
 
   Query<Map<String, dynamic>> base(String field) {
-    var q = col
-        .where(field, isGreaterThanOrEqualTo: Timestamp.fromDate(f))
-        .where(field, isLessThanOrEqualTo: Timestamp.fromDate(t))
-        .orderBy(field, descending: false);
+    // Igualdades antes do intervalo (índices compostos Firestore).
+    Query<Map<String, dynamic>> q = col;
     if (statusFilter == 'pending') {
       q = q.where('status', isEqualTo: 'pending');
     } else if (statusFilter == 'paid') {
@@ -183,7 +177,10 @@ Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> financePeriodMergedDoc
     if (acc != null && acc.isNotEmpty) {
       q = q.where('financeAccountId', isEqualTo: acc);
     }
-    return q;
+    return q
+        .where(field, isGreaterThanOrEqualTo: Timestamp.fromDate(f))
+        .where(field, isLessThanOrEqualTo: Timestamp.fromDate(t))
+        .orderBy(field, descending: false);
   }
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> safeCollect(
@@ -282,14 +279,11 @@ Stream<QuerySnapshot<Map<String, dynamic>>> financeTransactionsPendingSnapshots(
   int limit = kFinancePendingStreamLimit,
 }) {
   assert(type == 'income' || type == 'expense');
-  final fsUid = firestoreUserDocIdForModuleReads(uid);
+  final fsUid = uid.trim();
   if (fsUid.isEmpty) {
     return const Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
   }
-  final query = FirebaseFirestore.instance
-      .collection('users')
-      .doc(fsUid)
-      .collection('transactions')
+  final query = ChurchUiCollections.financeiro(fsUid)
       .where('status', isEqualTo: 'pending')
       .orderBy('date', descending: false)
       .limit(limit);

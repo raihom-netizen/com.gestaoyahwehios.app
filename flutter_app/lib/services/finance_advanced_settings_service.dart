@@ -1,5 +1,5 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Preferências opcionais do painel Financeiro (ex.: faixa de contas).
 
@@ -10,11 +10,10 @@ import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 class FinanceAdvancedSettingsService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  DocumentReference<Map<String, dynamic>> _doc(String uid) => _db
-      .collection('users')
-      .doc(firestoreUserDocIdForAppShell(uid))
-      .collection('settings')
-      .doc('finance_prefs');
+  /// [uid] aqui é o `churchId` — prefs do Financeiro são por igreja
+  /// (`igrejas/{churchId}/config/finance_prefs`), compartilhadas pela equipe.
+  DocumentReference<Map<String, dynamic>> _doc(String uid) =>
+      ChurchUiCollections.config(uid.trim()).doc('finance_prefs');
 
   static const String _keyStripHideZero = 'financeStripHideZeroBalances';
 
@@ -29,7 +28,7 @@ class FinanceAdvancedSettingsService {
 
   /// Leitura única (entrada rápida no Financeiro; o stream continua a atualizar).
   Future<bool> getStripHideZeroBalancesOnce(String uid) async {
-    if (firestoreUserDocIdStrictFromSession().isEmpty) return false;
+    if (uid.trim().isEmpty) return false;
     try {
       final snap = await _doc(uid).get();
       return snap.data()?[_keyStripHideZero] == true;

@@ -14,7 +14,6 @@ import 'package:gestao_yahweh/ui/widgets/bank_card_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/open_finance_entitlement_guard.dart';
 import 'package:gestao_yahweh/ui/widgets/pluggy_sync_schedule_banner.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_pro_value_copy.dart';
-import 'package:gestao_yahweh/services/biometric_auth_service.dart';
 import 'bank_connection_page.dart';
 import 'open_finance_coverage_page.dart';
 import 'supported_banks_page.dart';

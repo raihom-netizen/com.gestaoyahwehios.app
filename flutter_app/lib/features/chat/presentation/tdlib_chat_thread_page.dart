@@ -264,7 +264,18 @@ class _TdlibChatThreadPageState extends State<TdlibChatThreadPage> {
   }
 
   Future<void> _loadHistory() async {
-    setState(() => _loading = true);
+    // Pinta RAM/warm na hora — evita spinner se o chat já foi aquecido.
+    final cached = TdLibService.instance.cachedMessages(widget.chatId);
+    final peekPinned = TdLibService.instance.peekPinnedMessage(widget.chatId);
+    if (mounted && cached.isNotEmpty) {
+      setState(() {
+        _messages = cached;
+        _pinned = peekPinned;
+        _loading = false;
+      });
+    } else if (mounted) {
+      setState(() => _loading = true);
+    }
     try {
       final items = await TdLibService.instance.loadChatHistory(
         widget.chatId,

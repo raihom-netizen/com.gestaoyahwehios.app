@@ -14,7 +14,7 @@ import 'package:gestao_yahweh/utils/premium_upgrade.dart';
 import 'package:gestao_yahweh/ui/widgets/create_financial_goal_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/goal_52_weeks_objective_card.dart';
 import 'package:gestao_yahweh/utils/date_picker_a11y.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/ui/widgets/brl_amount_text_field.dart';
 import 'package:gestao_yahweh/utils/keyboard_form_scaffold.dart';
 import 'package:gestao_yahweh/utils/home_shell_layout.dart';
@@ -70,25 +70,15 @@ class _MetaFinanceiraScreenState extends State<MetaFinanceiraScreen> {
 
   _GoalListSort _goalListSort = _GoalListSort.prazo;
 
-  /// Blindagem: usa UID efetivo (titular quando sub-login).
-  String get _userDocId => firestoreUserDocIdStrictFromSession();
+  /// Metas do Financeiro são por igreja — nunca pela sessão pessoal.
+  String get _userDocId => widget.uid.trim();
 
   CollectionReference<Map<String, dynamic>> get _goals =>
-      FirebaseFirestore.instance
-          .collection('users')
-          .doc(_userDocId)
-          .collection('goals');
+      ChurchUiCollections.churchDoc(_userDocId).collection('goals');
   CollectionReference<Map<String, dynamic>> get _tx =>
-      FirebaseFirestore.instance
-          .collection('users')
-          .doc(_userDocId)
-          .collection('transactions');
+      ChurchUiCollections.financeiro(_userDocId);
   DocumentReference<Map<String, dynamic>> get _planningRef =>
-      FirebaseFirestore.instance
-          .collection('users')
-          .doc(_userDocId)
-          .collection('settings')
-          .doc('planning');
+      ChurchUiCollections.config(_userDocId).doc('finance_planning');
 
   @override
   void initState() {

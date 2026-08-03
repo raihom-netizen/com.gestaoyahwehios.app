@@ -2,13 +2,10 @@ import 'dart:async' show Completer, TimeoutException, Timer, unawaited;
 import 'dart:convert';
 import 'dart:io' show File;
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:http/http.dart' as http;
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
@@ -21,35 +18,25 @@ import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/shared/widgets/app_publish_footer.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
-import 'package:gestao_yahweh/services/feed_post_media_upload.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:gestao_yahweh/ui/widgets/async_upload_progress_strip.dart';
-import 'package:gestao_yahweh/services/upload_storage_task.dart'
-    hide formatUploadErrorForUser;
 import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 import 'package:gestao_yahweh/services/evento_create_publish_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
-import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/evento_media_upload.dart';
 import 'package:gestao_yahweh/services/church_ct_module_upload.dart';
 import 'package:gestao_yahweh/services/evento_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
-import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
-import 'package:gestao_yahweh/core/app_finalize_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
 import 'package:gestao_yahweh/services/church_event_categories_load_service.dart';
@@ -69,9 +56,6 @@ import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap_service.dart';
-import 'package:gestao_yahweh/services/unified_upload_service.dart';
-import 'package:gestao_yahweh/core/firebase_publish_guard.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/ui/widgets/feed_editor_local_photo_thumb.dart';
@@ -82,13 +66,10 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
     show scheduleFeedMediaWarmup, YahwehPremiumFeedShimmer;
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
-import 'package:gestao_yahweh/services/performance_service.dart';
-import 'package:gestao_yahweh/core/image_aspect_ratio_util.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
     show eventTemplateIncludeInAgenda;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
-import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
     show
@@ -118,7 +99,11 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
 import 'package:gestao_yahweh/ui/widgets/painel_programacao_event_leading.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
-    show bytesLookLikeWebp, kEffectiveMuralFeedWebpQuality;
+    show
+        bytesLookLikeWebp,
+        kEffectiveMuralFeedWebpQuality,
+        pickCropEncodeWebp,
+        HighResCropProfile;
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
@@ -126,17 +111,13 @@ import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/video_thumb_capture.dart';
 import 'package:gestao_yahweh/services/video_duration.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
-import 'package:gestao_yahweh/services/feed_publish_preflight.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
 import 'package:gestao_yahweh/services/immediate_feed_photo_attach.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
-import 'package:gestao_yahweh/services/ecofire_feed_publish_service.dart';
-import 'package:gestao_yahweh/services/immediate_media_warm.dart';
 import 'package:gestao_yahweh/services/mural_fast_publish_service.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
-import 'package:gestao_yahweh/services/video_handler_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         SafeNetworkImage,
@@ -955,15 +936,18 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     ) async {
       if (uploadingPhoto.value) return;
       try {
-        // Padrão CT: escolher → preview imediato → upload silencioso.
-        final picked = await ChurchCtModuleUpload.pickImage(
+        // Capa moderna: mesmo editor de recorte do mural (avisos/eventos) —
+        // enquadramento antes do upload, não só escolher e mandar direto.
+        final encoded = await pickCropEncodeWebp(
           source: ImageSource.gallery,
-          imageQuality: 78,
-          maxWidth: 1600,
+          profile: HighResCropProfile.feedFree,
+          webCropContext: context,
         );
-        if (picked == null) return;
+        if (encoded == null) return;
+        final bytes = await encoded.readAsBytes();
+        if (bytes.isEmpty) return;
         coverClearedByUser = false;
-        pendingCoverBytes.value = picked.bytes;
+        pendingCoverBytes.value = bytes;
         defaultPhotoUrl.value = '';
         setSheetState(() {});
         uploadingPhoto.value = true;
@@ -973,7 +957,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           final uploaded = await EventoMediaUpload.uploadTemplateCover(
             churchId: churchId,
             templateId: stableTemplateId,
-            compressedBytes: picked.bytes,
+            compressedBytes: bytes,
           );
           FirebaseStorageCleanupService.scheduleCleanupAfterEventTemplateCoverUpload(
             tenantId: churchId,
@@ -7407,19 +7391,14 @@ const double _kMuralLightboxMaxWidthWeb = 760;
 const double _kMuralLightboxMaxHeightWeb = 520;
 const double _kMuralLightboxMaxWidthTablet = 720;
 
-/// Miniaturas na página de detalhe do evento (antes de abrir o lightbox).
+/// Miniaturas na página de detalhe do evento (antes de abrir o lightbox) —
+/// estilo Instagram: quadrados justos, 3 colunas fixas, gap mínimo.
 SliverGridDelegate _muralDetailPhotosGridDelegate(double listViewportWidth) {
-  final inner = max(200.0, listViewportWidth - 32);
-  final maxExt = inner < 360
-      ? (inner - 8) / 2
-      : inner < 620
-      ? (inner - 16) / 3
-      : min(220.0, (inner - 24) / 4);
-  return SliverGridDelegateWithMaxCrossAxisExtent(
-    maxCrossAxisExtent: max(115.0, maxExt),
-    mainAxisSpacing: 12,
-    crossAxisSpacing: 12,
-    childAspectRatio: 0.92,
+  return const SliverGridDelegateWithFixedCrossAxisCount(
+    crossAxisCount: 3,
+    mainAxisSpacing: 2,
+    crossAxisSpacing: 2,
+    childAspectRatio: 1.0,
   );
 }
 
@@ -7642,7 +7621,7 @@ class _EventoFormPage extends StatefulWidget {
 }
 
 class _EventoFormPageState extends State<_EventoFormPage> {
-  late TextEditingController _title, _videoUrl, _bodyDescription;
+  late TextEditingController _title, _videoUrl, _instagramUrl, _bodyDescription;
   late TextEditingController _cep,
       _logradouro,
       _numero,
@@ -8453,6 +8432,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     _videoUrl = TextEditingController(
       text: (data['videoUrl'] ?? '').toString(),
     );
+    _instagramUrl = TextEditingController(
+      text: (data['instagramUrl'] ?? '').toString(),
+    );
     _cep = TextEditingController();
     _logradouro = TextEditingController();
     _numero = TextEditingController();
@@ -8777,6 +8759,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     _title.dispose();
     _bodyDescription.dispose();
     _videoUrl.dispose();
+    _instagramUrl.dispose();
     _cep.dispose();
     _logradouro.dispose();
     _numero.dispose();
@@ -9500,6 +9483,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'videoUrl': firstVideoUrl,
       'thumbUrl': firstThumbUrl,
       'videos': videosClean,
+      if (_instagramUrl.text.trim().isNotEmpty)
+        'instagramUrl': _instagramUrl.text.trim()
+      else
+        'instagramUrl': FieldValue.delete(),
       if (allUrlsSafe.isNotEmpty) 'fotos': allUrlsSafe,
       if (fotoPaths.isNotEmpty) 'fotoStoragePaths': fotoPaths,
       if (fotoPaths.isNotEmpty) 'imageStoragePaths': fotoPaths,
@@ -10640,6 +10627,19 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       hintText: 'https://...',
                       helperText:
                           'Opcional. Use o botão inferior para foto/vídeo em arquivo.',
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  TextField(
+                    controller: _instagramUrl,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      labelText: 'Instagram (opcional)',
+                      prefixIcon: Icon(
+                        Icons.camera_alt_rounded,
+                        color: Color(0xFFE1306C),
+                      ),
+                      hintText: 'Cole o link do perfil, post ou reel',
                     ),
                   ),
                   const SizedBox(height: 18),

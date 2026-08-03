@@ -17,7 +17,8 @@ class AdminTelegramTdlibPage extends StatefulWidget {
   State<AdminTelegramTdlibPage> createState() => _AdminTelegramTdlibPageState();
 }
 
-class _AdminTelegramTdlibPageState extends State<AdminTelegramTdlibPage> {
+class _AdminTelegramTdlibPageState extends State<AdminTelegramTdlibPage>
+    with AutomaticKeepAliveClientMixin {
   final _apiIdCtrl = TextEditingController();
   final _apiHashCtrl = TextEditingController();
   final _deviceCtrl = TextEditingController(text: 'Gestao YAHWEH');
@@ -25,8 +26,14 @@ class _AdminTelegramTdlibPageState extends State<AdminTelegramTdlibPage> {
 
   bool _loading = true;
   bool _saving = false;
-  bool _obscureHash = true;
+  /// Master precisa ver o hash na edição — oculto só sob pedido.
+  bool _obscureHash = false;
+  bool _configured = false;
   String _updatedBy = '';
+  String? _loadError;
+
+  @override
+  bool get wantKeepAlive => true;
 
   @override
   void initState() {
@@ -43,20 +50,48 @@ class _AdminTelegramTdlibPageState extends State<AdminTelegramTdlibPage> {
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
-    final cfg = await TelegramTdlibConfigService.load();
-    if (!mounted) return;
-    if (cfg.apiId > 0) _apiIdCtrl.text = '${cfg.apiId}';
-    if (cfg.apiHash.isNotEmpty) _apiHashCtrl.text = cfg.apiHash;
-    if (cfg.deviceModel.isNotEmpty) _deviceCtrl.text = cfg.deviceModel;
+  void _applyConfigToFields(TelegramTdlibConfig cfg) {
+    if (cfg.apiId > 0) {
+      _apiIdCtrl.text = '${cfg.apiId}';
+    }
+    if (cfg.apiHash.isNotEmpty) {
+      _apiHashCtrl.text = cfg.apiHash;
+    }
+    if (cfg.deviceModel.isNotEmpty) {
+      _deviceCtrl.text = cfg.deviceModel;
+    }
     if (cfg.systemLanguageCode.isNotEmpty) {
       _langCtrl.text = cfg.systemLanguageCode;
     }
+    _configured = cfg.isConfigured;
+    _updatedBy = cfg.updatedByEmail;
+  }
+
+  Future<void> _load() async {
     setState(() {
-      _updatedBy = cfg.updatedByEmail;
-      _loading = false;
+      _loading = true;
+      _loadError = null;
     });
+    try {
+      final cfg = await TelegramTdlibConfigService.load(preferServer: true);
+      if (!mounted) return;
+      _applyConfigToFields(cfg);
+      if (cfg.isConfigured) {
+        applyTelegramCredentialsCache(
+          apiId: cfg.apiId,
+          apiHash: cfg.apiHash,
+          deviceModel: cfg.deviceModel,
+          systemLanguageCode: cfg.systemLanguageCode,
+        );
+      }
+      setState(() => _loading = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadError = formatFirebaseErrorForUser(e, logToCrashlytics: false);
+      });
+    }
   }
 
   Future<void> _save() async {
@@ -72,25 +107,27 @@ class _AdminTelegramTdlibPageState extends State<AdminTelegramTdlibPage> {
     }
     setState(() => _saving = true);
     try {
-      await TelegramTdlibConfigService.save(
+      final saved = await TelegramTdlibConfigService.save(
         apiId: id,
         apiHash: hash,
         deviceModel: _deviceCtrl.text.trim(),
         systemLanguageCode: _langCtrl.text.trim(),
       );
       applyTelegramCredentialsCache(
-        apiId: id,
-        apiHash: hash,
-        deviceModel: _deviceCtrl.text.trim(),
-        systemLanguageCode: _langCtrl.text.trim(),
+        apiId: saved.apiId,
+        apiHash: saved.apiHash,
+        deviceModel: saved.deviceModel,
+        systemLanguageCode: saved.systemLanguageCode,
       );
       if (!mounted) return;
+      _applyConfigToFields(saved);
+      setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'Integração Telegram salva em ${TelegramTdlibConfigService.firestorePath}.',
+          'Integração Telegram gravada e confirmada em '
+          '${TelegramTdlibConfigService.firestorePath}.',
         ),
       );
-      await _load();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -110,6 +147,7 @@ class _AdminTelegramTdlibPageState extends State<AdminTelegramTdlibPage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final pad = ThemeCleanPremium.pagePadding(context);
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -122,13 +160,77 @@ class _AdminTelegramTdlibPageState extends State<AdminTelegramTdlibPage> {
           const MasterModuleSectionTitle(
             title: 'Telegram / TDLib',
             subtitle:
-                'Guarde o api_id e api_hash da app Telegram. O app Android/iOS lê do Firestore e liga o motor TDLib (Yahweh Chat).',
+                'Guarde o api_id e api_hash da app Telegram. O Android lê do Firestore e liga o motor TDLib nativo. '
+                'iOS e Web usam o Telegram Web embutido (mesma conta) — iOS só liga o motor nativo se o build for compilado com '
+                'YAHWEH_TDLIB_IOS_ENABLED=1 e o dispositivo suportar.',
           ),
           const SizedBox(height: 12),
+          if (_loadError != null) ...[
+            Material(
+              color: const Color(0xFFFFF1F0),
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.error_outline, color: Color(0xFFCF1322)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Falha ao carregar: $_loadError',
+                        style: const TextStyle(
+                          color: Color(0xFFCF1322),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _loading ? null : _load,
+                      child: const Text('Recarregar'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           MasterPremiumCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _configured
+                            ? const Color(0xFFE6F7F1)
+                            : const Color(0xFFFFF7E6),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        _configured ? 'Configurado' : 'Não configurado',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _configured
+                              ? const Color(0xFF0F766E)
+                              : const Color(0xFFD48806),
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: _loading || _saving ? null : _load,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Recarregar'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 Text(
                   'Path: ${TelegramTdlibConfigService.firestorePath}',
                   style: TextStyle(
@@ -165,6 +267,7 @@ class _AdminTelegramTdlibPageState extends State<AdminTelegramTdlibPage> {
                     labelText: 'App api_id',
                     hintText: 'Ex.: 37029102',
                     border: OutlineInputBorder(),
+                    helperText: 'Visível na edição — valor gravado no Firestore',
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -175,6 +278,7 @@ class _AdminTelegramTdlibPageState extends State<AdminTelegramTdlibPage> {
                     labelText: 'App api_hash',
                     hintText: 'Cole o hash de 32 caracteres',
                     border: const OutlineInputBorder(),
+                    helperText: 'Visível por defeito no painel Master',
                     suffixIcon: IconButton(
                       tooltip: _obscureHash ? 'Mostrar' : 'Ocultar',
                       onPressed: () =>
@@ -206,7 +310,9 @@ class _AdminTelegramTdlibPageState extends State<AdminTelegramTdlibPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Na web o TDLib não corre (limitação do browser). No telemóvel, após salvar aqui, o motor Telegram usa estes valores sem novo AAB.',
+                  'Após salvar com sucesso, estes campos voltam preenchidos ao reabrir o menu. '
+                  'No telemóvel, o motor Telegram (TDLib) usa estes valores sem novo AAB. '
+                  'Na web o TDLib nativo não corre (limitação do browser).',
                   style: TextStyle(
                     fontSize: 12,
                     color: ThemeCleanPremium.onSurfaceVariant,

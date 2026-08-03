@@ -1,7 +1,7 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fa;
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/models/finance_account.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'finance_advanced_settings_service.dart';
 import 'goal_deposit_service.dart';
@@ -9,10 +9,10 @@ import 'goal_deposit_service.dart';
 class FinanceAccountsService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  CollectionReference<Map<String, dynamic>> _col(String uid) => _db
-      .collection('users')
-      .doc(firestoreUserDocIdForModuleReads(uid))
-      .collection('finance_accounts');
+  /// [uid] aqui é o `churchId` — contas do Financeiro são por igreja
+  /// (`igrejas/{churchId}/contas`, mesma coleção usada por doações/OFX).
+  CollectionReference<Map<String, dynamic>> _col(String uid) =>
+      ChurchUiCollections.contas(uid.trim());
 
   /// Mesma ordenação em todo o app: [sortOrder] crescente, empate por data de criação.
   static void sortFinanceAccounts(List<FinanceAccount> list) {
@@ -64,7 +64,7 @@ class FinanceAccountsService {
   }
 
   Future<List<FinanceAccount>> listOnce(String uid) async {
-    if (firestoreUserDocIdStrictFromSession().isEmpty) return const [];
+    if (uid.trim().isEmpty) return const [];
     try {
       final snap = await _col(uid).get();
       final list = snap.docs.map(FinanceAccount.fromDoc).toList();
@@ -96,7 +96,7 @@ class FinanceAccountsService {
 
   /// Garante uma conta «Cofre pessoal» por usuário (reserva / dinheiro físico).
   Future<String> ensureVaultAccount(String uid) async {
-    if (firestoreUserDocIdStrictFromSession().isEmpty) return '';
+    if (uid.trim().isEmpty) return '';
     final prefs = FinanceAdvancedSettingsService();
     final savedId = await prefs.getVaultAccountId(uid);
     if (savedId != null && savedId.isNotEmpty) {
@@ -188,6 +188,8 @@ class FinanceAccountsService {
       cardColorId: cc,
     );
     final data = <String, dynamic>{
+      'nome': acc.displayName,
+      'tipoConta': FinanceAccount.tipoContaFor(acc.productType),
       'presetId': acc.presetId,
       'productType': acc.productType,
       'kind': acc.kind,
@@ -225,14 +227,12 @@ class FinanceAccountsService {
     await _deleteTransactionsByIds(uid, linkedIds);
     await _col(uid).doc(accountId).delete();
     await FinanceAdvancedSettingsService().clearDefaultFinanceAccountIfMatches(uid, accountId);
-    FinanceTransactionsHub.notifyMutated(uid: firestoreUserDocIdForAppShell(uid));
+    FinanceTransactionsHub.notifyMutated(uid: uid.trim());
     return linkedIds.length;
   }
 
-  CollectionReference<Map<String, dynamic>> _txCol(String uid) => _db
-      .collection('users')
-      .doc(firestoreUserDocIdForAppShell(uid))
-      .collection('transactions');
+  CollectionReference<Map<String, dynamic>> _txCol(String uid) =>
+      ChurchUiCollections.financeiro(uid.trim());
 
   Future<void> _forEachTxByField(
     String uid,
@@ -319,7 +319,7 @@ class FinanceAccountsService {
 
   /// Persiste a ordem exibida (campo [FinanceAccount.sortOrder]).
   Future<void> setAccountOrder(String uid, List<String> orderedAccountIds) async {
-    if (orderedAccountIds.isEmpty || firestoreUserDocIdStrictFromSession().isEmpty) return;
+    if (orderedAccountIds.isEmpty || uid.trim().isEmpty) return;
     final batch = _db.batch();
     for (var i = 0; i < orderedAccountIds.length; i++) {
       batch.update(_col(uid).doc(orderedAccountIds[i]), {
@@ -334,10 +334,14 @@ class FinanceAccountsService {
     final data = <String, dynamic>{
       'updatedAt': FieldValue.serverTimestamp(),
     };
-    if (nickname == null || nickname.trim().isEmpty) {
+    final trimmed = nickname?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
       data['nickname'] = FieldValue.delete();
+      // `nome` fica como está — é o campo lido por doações/OFX/saldo, não
+      // pode ficar vazio só porque o apelido pessoal foi removido.
     } else {
-      data['nickname'] = nickname.trim();
+      data['nickname'] = trimmed;
+      data['nome'] = trimmed;
     }
     await _col(uid).doc(accountId).update(data);
   }

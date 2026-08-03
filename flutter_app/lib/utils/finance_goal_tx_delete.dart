@@ -1,9 +1,9 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/finance_month_cache.dart';
 import 'package:gestao_yahweh/services/goal_deposit_service.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/ui/widgets/goal_deposit_ui.dart';
 
 /// Confirma exclusão de lançamento — aviso Meta / semanas (padrão integrado).
@@ -102,15 +102,13 @@ Future<void> _markFixedMonthExcludedIfNeeded(
   }
   if (monthKey == null || monthKey.isEmpty) return;
 
-  final fsUid = firestoreUserDocIdForAppShell(uid);
+  final fsUid = uid.trim();
   if (fsUid.isEmpty) return;
 
   final collection = feId.isNotEmpty ? 'fixed_expenses' : 'fixed_incomes';
-  final ref = FirebaseFirestore.instance
-      .collection('users')
-      .doc(fsUid)
-      .collection(collection)
-      .doc(fixedId);
+  final ref = ChurchUiCollections.churchDoc(
+    fsUid,
+  ).collection(collection).doc(fixedId);
 
   try {
     await FirebaseFirestore.instance.runTransaction((tx) async {

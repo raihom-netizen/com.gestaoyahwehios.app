@@ -22,7 +22,7 @@ import 'package:gestao_yahweh/utils/finance_goal_tx_delete.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_status_resolver.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/models/finance_account.dart';
 import 'package:gestao_yahweh/constants/finance_account_visuals.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_bank_brand_thumb.dart';
@@ -658,10 +658,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         }
       }
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(firestoreUserDocIdForAppShell(widget.uid))
-          .collection('transactions')
+      await ChurchUiCollections.financeiro(widget.uid.trim())
           .doc(docId)
           .update(updateData);
 
@@ -725,10 +722,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     if (confirmed != true || !mounted) return;
 
     try {
-      final txCol = FirebaseFirestore.instance
-          .collection('users')
-          .doc(firestoreUserDocIdForAppShell(widget.uid))
-          .collection('transactions');
+      final txCol = ChurchUiCollections.financeiro(widget.uid.trim());
       await deleteFinanceTransactionRecord(
         uid: widget.uid,
         docId: widget.editingTransactionId!,

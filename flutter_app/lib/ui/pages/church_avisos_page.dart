@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/ui/widgets/aviso_evento_social_link_button.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
@@ -1755,6 +1756,15 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
                       accent: tone.primary,
                       aspectRatio: 4 / 5,
                     ),
+                  if (item.instagramUrl.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    AvisoEventoSocialLinkButton(
+                      url: item.instagramUrl,
+                      icon: Icons.camera_alt_rounded,
+                      label: 'Abrir no Instagram',
+                      color: const Color(0xFFE1306C),
+                    ),
+                  ],
                   if (item.body.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Container(
@@ -1859,6 +1869,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   final _titleCtrl = TextEditingController();
   final _bodyCtrl = TextEditingController();
   final _youtubeCtrl = TextEditingController();
+  final _instagramCtrl = TextEditingController();
   bool _permanent = true;
   DateTime _expiresAt = DateTime.now().add(const Duration(days: 7));
   final List<String> _existingImageUrls = [];
@@ -1888,6 +1899,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     } else if (item.videoUrl.isNotEmpty) {
       _existingVideoUrl = item.videoUrl;
     }
+    _instagramCtrl.text = item.instagramUrl;
   }
 
   @override
@@ -1895,6 +1907,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     _titleCtrl.dispose();
     _bodyCtrl.dispose();
     _youtubeCtrl.dispose();
+    _instagramCtrl.dispose();
     super.dispose();
   }
 
@@ -2134,6 +2147,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
               existingImageUrls: existing,
               newPhotoBytes: photos,
               youtubeUrl: yt,
+              instagramUrl: _instagramCtrl.text,
               videoLocalPath: localVideo,
               clearVideo: _clearVideo && yt.isEmpty && localVideo == null,
               role: widget.role,
@@ -2149,6 +2163,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
               expiresAtEndOfDay: permanent ? null : expires,
               photoBytes: photos,
               youtubeUrl: yt,
+              instagramUrl: _instagramCtrl.text,
               videoLocalPath: localVideo,
               role: widget.role,
               permissions: widget.permissions,
@@ -2322,6 +2337,22 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                         }
                       },
                     ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _instagramCtrl,
+                      keyboardType: TextInputType.url,
+                      decoration: InputDecoration(
+                        labelText: 'Instagram (opcional)',
+                        hintText: 'Cole o link do perfil, post ou reel',
+                        prefixIcon: const Icon(Icons.camera_alt_rounded,
+                            color: Color(0xFFDB2777)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                      ),
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       children: [
@@ -2379,7 +2410,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      'Fotos Instagram (${_existingImageUrls.length + _photos.length}/${ChurchAvisosService.kMaxPhotos})',
+                      'Fotos (${_existingImageUrls.length + _photos.length}/${ChurchAvisosService.kMaxPhotos})',
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 8),

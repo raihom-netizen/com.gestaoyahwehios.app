@@ -21,7 +21,6 @@ import 'package:gestao_yahweh/services/finance_month_cache.dart';
 import 'package:gestao_yahweh/services/user_categories_service.dart';
 import 'package:gestao_yahweh/utils/date_picker_a11y.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/ui/widgets/brl_amount_text_field.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_calendar_color_picker.dart';
 import 'package:gestao_yahweh/ui/widgets/fixed_flow_finance_account_field.dart';
@@ -96,7 +95,7 @@ class _ReceitasFixasScreenState extends State<ReceitasFixasScreen> {
   Future<List<Map<String, dynamic>>>? _fixedIncomesFuture;
   StreamSubscription<fa.User?>? _authUidSub;
 
-  String get _fsUid => firestoreUserDocIdForAppShell(widget.uid);
+  String get _fsUid => widget.uid.trim();
 
   /// Modelos de descrição (app) + depois mesclamos descrições já guardadas em `fixed_incomes`.
   static const List<String> _kPresetFixedIncomeDescriptions = [

@@ -1,6 +1,6 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'bank_notification_parser.dart';
 
 /// Dados lidos uma vez de `config_categorias` (palavras-chave + aprendizado).
@@ -18,11 +18,8 @@ abstract final class SmartCategoryHintsService {
 
   static final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  static DocumentReference<Map<String, dynamic>> _ref(String uid) => _db
-      .collection('users')
-      .doc(firestoreUserDocIdForAppShell(uid))
-      .collection('settings')
-      .doc('config_categorias');
+  static DocumentReference<Map<String, dynamic>> _ref(String uid) =>
+      ChurchUiCollections.config(uid.trim()).doc('finance_smart_hints');
 
   /// Padrão: palavra-chave (maiúscula) → categoria.
   static const Map<String, String> kDefaultKeywordToCategory = {
@@ -145,7 +142,7 @@ abstract final class SmartCategoryHintsService {
   static final Map<String, Future<_HintsSnapshot>> _inflight = {};
 
   static Future<_HintsSnapshot> _snapshotForUid(String uid) {
-    final key = firestoreUserDocIdForAppShell(uid);
+    final key = uid.trim();
     final hit = _cache[key];
     final now = DateTime.now();
     if (hit != null && now.difference(hit.at) < _cacheTtl) {
@@ -178,7 +175,7 @@ abstract final class SmartCategoryHintsService {
 
   /// Invalida cache após gravar aprendizado (próxima leitura traz lista nova).
   static void invalidateHintsCache(String uid) {
-    _cache.remove(firestoreUserDocIdForAppShell(uid));
+    _cache.remove(uid.trim());
   }
 
   static String? _pickAllowed(String cat, List<String> allowed) {

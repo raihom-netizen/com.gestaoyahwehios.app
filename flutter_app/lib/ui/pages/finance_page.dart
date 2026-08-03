@@ -24,6 +24,7 @@ import 'package:gestao_yahweh/services/logs_service.dart';
 import 'package:gestao_yahweh/services/functions_service.dart';
 import 'package:gestao_yahweh/services/finance_receipt_upload_service.dart';
 import 'package:gestao_yahweh/services/transaction_save_service.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -81,11 +82,6 @@ import 'finance_transactions_fullscreen_page.dart';
 import 'finance_categories_fullscreen_page.dart';
 import 'finance_assistant_insights_page.dart';
 import 'package:gestao_yahweh/services/delegate_access_service.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart'
-    show
-        firestoreUserDocIdForAppShell,
-        firestoreUserDocIdForModuleReads,
-        firestoreUserDocIdStrictFromSession;
 import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
 import 'package:gestao_yahweh/utils/finance_shell_navigation.dart';
@@ -99,6 +95,7 @@ import 'package:gestao_yahweh/ui/widgets/finance_credit_card_fatura_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_fatura_em_aberto_hub.dart';
 import 'package:gestao_yahweh/utils/finance_account_balance_utils.dart';
 import 'package:gestao_yahweh/utils/pdf_financeiro_super_extrato.dart';
+import 'package:gestao_yahweh/ui/widgets/controle_total_finance_clone_widgets.dart';
 
 class FinanceScreen extends StatefulWidget {
   final String uid;
@@ -138,7 +135,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
   late DateTime _to;
 
   /// Padrão: despesas pagas e receitas recebidas (usuário pode alterar para Todos/Pendente).
-  String _statusFilter = 'paid';
+  /// `all` evita índice composto no 1º open; paid/pending filtram depois.
+  String _statusFilter = 'all';
 
   /// `all` | `income` | `expense` — filtra a lista e os totais do período na tela.
   String _typeFilter = 'all';
@@ -257,7 +255,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   /// Uma query `status`+`date` (índice já no projeto) — filtra `type` em memória nas faixas.
   Stream<QuerySnapshot<Map<String, dynamic>>> get _pendingTransactionsStream {
-    final uid = firestoreUserDocIdForModuleReads(widget.uid);
+    final uid = widget.uid.trim();
     if (uid.isEmpty) {
       return const Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
     }
@@ -292,7 +290,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
   Stream<Map<String, dynamic>> get _fixedIncomePrefsStream {
     if (_fixedIncomePrefsStreamCache == null) {
       final s = FixedIncomePreferencesService()
-          .watch(firestoreUserDocIdForAppShell(widget.uid))
+          .watch(widget.uid.trim())
           .asBroadcastStream();
       _fixedIncomePrefsStreamCache = s;
       _fixedIncomePrefsTrackerSub =
@@ -304,7 +302,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
   Stream<Map<String, dynamic>> get _fixedExpensePrefsStream {
     if (_fixedExpensePrefsStreamCache == null) {
       final s = FixedExpensePreferencesService()
-          .watch(firestoreUserDocIdForAppShell(widget.uid))
+          .watch(widget.uid.trim())
           .asBroadcastStream();
       _fixedExpensePrefsStreamCache = s;
       _fixedExpensePrefsTrackerSub =
@@ -437,10 +435,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
       Iterable<String> docIds) async {
     final uid = _effectiveFinanceSessionUid;
     if (uid == null || docIds.isEmpty || !mounted) return false;
-    final col = FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .collection('transactions');
+    final col = ChurchUiCollections.financeiro(uid);
     final ids =
         docIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList();
     if (ids.isEmpty) return false;
@@ -925,7 +920,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
       }
       return;
     }
-    final fsUid = firestoreUserDocIdForAppShell(widget.uid);
+    final fsUid = widget.uid.trim();
     if (_financeUserStreamsBound &&
         _lastBoundFinanceAuthUid == cu.uid &&
         _lastBoundFinanceDataUid == fsUid) {
@@ -1029,7 +1024,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   /// Contas + «ocultar saldo zero» em paralelo ao stream; primeira pintura mais rápida.
   Future<void> _primeFinanceBootstrap() async {
-    if (!mounted || firestoreUserDocIdStrictFromSession().isEmpty) return;
+    if (!mounted || widget.uid.trim().isEmpty) return;
     try {
       final results = await Future.wait<Object>([
         FinanceAccountsService().listOnce(widget.uid),
@@ -1215,7 +1210,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   Future<List<String>> _loadCategoryFilterOptions() async {
     final x = await UserCategoriesService()
-        .load(firestoreUserDocIdForAppShell(widget.uid));
+        .load(widget.uid.trim());
     return UserCategoriesService.sortedWithoutIncluirNova([
       ...x.income,
       ...x.expense,
@@ -1266,7 +1261,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     if (!mounted) return;
     final picked = await pickFinanceCategoryForFilter(
       context: context,
-      uid: firestoreUserDocIdForAppShell(widget.uid),
+      uid: widget.uid.trim(),
       typeFilter: _typeFilter,
       currentFilter: _categoryFilter,
       periodExtraCategories: options,
@@ -1283,7 +1278,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
         .push<FinanceFullscreenFilterSnapshot?>(
       MaterialPageRoute<FinanceFullscreenFilterSnapshot?>(
         builder: (ctx) => FinanceTransactionsFullscreenPage(
-          uid: firestoreUserDocIdForAppShell(widget.uid),
+          uid: widget.uid.trim(),
           profile: widget.profile,
           initialFrom: _from,
           initialTo: _to,
@@ -1404,7 +1399,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     HapticFeedback.selectionClick();
     try {
       await FinanceAccountsService().setAccountOrder(
-        firestoreUserDocIdForAppShell(widget.uid),
+        widget.uid.trim(),
         newOrder,
       );
     } catch (e) {
@@ -1448,7 +1443,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   ? (v) async {
                       await FinanceAdvancedSettingsService()
                           .setStripHideZeroBalances(
-                              firestoreUserDocIdForAppShell(widget.uid), v);
+                              widget.uid.trim(), v);
                       if (mounted) setState(() {});
                       if (ctx.mounted) Navigator.pop(ctx);
                     }
@@ -1503,8 +1498,16 @@ class _FinanceScreenState extends State<FinanceScreen> {
     String sessionUid, {
     bool preserveExistingDocs = false,
     bool accountFilterOnly = false,
+    bool isRetryAfterWebRecovery = false,
   }) async {
     if (!mounted || myGen != _mainPeriodLoadGeneration) return;
+
+    if (kIsWeb) {
+      // Mesma preparação usada pelos outros painéis (doações, leitura
+      // resiliente) antes de qualquer leitura — evita boa parte dos
+      // "INTERNAL ASSERTION FAILED" que o Financeiro nunca prevenia.
+      await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+    }
 
     final useServerPage = financeMainPeriodCanServerPage(
       searchLowerTrim: _search,
@@ -1564,15 +1567,74 @@ class _FinanceScreenState extends State<FinanceScreen> {
           // Cache pode estar vazio/indisponível; segue para servidor.
         }
         try {
-          final snap =
-              await firstPageQuery.get().timeout(const Duration(seconds: 4));
+          QuerySnapshot<Map<String, dynamic>> snap;
+          try {
+            snap = await firstPageQuery
+                .get()
+                .timeout(const Duration(seconds: 8));
+          } catch (e) {
+            if (!financeIsMissingIndexError(e)) rethrow;
+            debugPrint(
+              '_executeMainPeriodLoad: indice ausente — fallback date-only: $e',
+            );
+            final fallbackQ = financeMainPeriodFirestoreQuery(
+              sessionUid: sessionUid,
+              from: _from,
+              to: _to,
+              statusFilter: 'all',
+              typeFilter: 'all',
+              omitStatusFilter: true,
+              omitTypeFilter: true,
+            ).limit(_kMainPeriodFirestorePageSize);
+            snap = await fallbackQ.get().timeout(const Duration(seconds: 8));
+            if (!mounted || myGen != _mainPeriodLoadGeneration) return;
+            var docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+              snap.docs,
+            );
+            if (_statusFilter != 'all') {
+              docs = docs
+                  .where(
+                    (d) =>
+                        (d.data()['status'] ?? 'paid').toString() ==
+                        _statusFilter,
+                  )
+                  .toList();
+            }
+            if (_typeFilter == 'income' || _typeFilter == 'expense') {
+              docs = docs
+                  .where(
+                    (d) =>
+                        (d.data()['type'] ?? 'expense').toString() ==
+                        _typeFilter,
+                  )
+                  .toList();
+            }
+            setState(() {
+              _mainPeriodDocs = docs;
+              _mainPeriodFirestoreCursor =
+                  snap.docs.isEmpty ? null : snap.docs.last;
+              _mainPeriodHasMoreServer =
+                snap.docs.length >= _kMainPeriodFirestorePageSize;
+              _mainPeriodLoadedCount = docs.length;
+              _mainPeriodLoading = false;
+              _mainPeriodServerPagingActive = false;
+              _pruneOptimisticEditedTxAgainstDocs(_mainPeriodDocs);
+            });
+            unawaited(_refreshMainPeriodServerKpis());
+            unawaited(_refreshMainPeriodStripAccountNets(sessionUid, myGen));
+            unawaited(
+              _mergeMainPeriodDocsFromEffectiveDate(sessionUid, myGen),
+            );
+            _notifyFinanceTransactionsChanged();
+            return;
+          }
           if (!mounted || myGen != _mainPeriodLoadGeneration) return;
           setState(() {
             _mainPeriodDocs = snap.docs;
             _mainPeriodFirestoreCursor =
                 snap.docs.isEmpty ? null : snap.docs.last;
             _mainPeriodHasMoreServer =
-                snap.docs.length >= _kMainPeriodFirestorePageSize;
+              snap.docs.length >= _kMainPeriodFirestorePageSize;
             _mainPeriodLoadedCount = snap.docs.length;
             _mainPeriodLoading = false;
             _pruneOptimisticEditedTxAgainstDocs(_mainPeriodDocs);
@@ -1648,11 +1710,25 @@ class _FinanceScreenState extends State<FinanceScreen> {
           _scheduleMainPeriodReloadAfterMutationDebounced();
           return;
         }
-        if (kIsWeb && FirestoreWebGuard.isTerminatedClientError(e)) {
-          FirestoreWebGuard.handleFatalWebFirestoreIfNeeded(e);
-        }
-        if (kIsWeb && FirestoreWebGuard.isInternalAssertionError(e)) {
-          FirestoreWebGuard.handleFatalWebFirestoreIfNeeded(e);
+        final isWebAssertionClass =
+            kIsWeb &&
+            (FirestoreWebGuard.isTerminatedClientError(e) ||
+                FirestoreWebGuard.isInternalAssertionError(e));
+        if (isWebAssertionClass && !isRetryAfterWebRecovery) {
+          // Reconecta de verdade (enableNetwork + refresh do token) e
+          // repete o load automaticamente — antes disso o utilizador
+          // ficava preso na caixa vermelha até tocar "Tentar de novo"
+          // manualmente, e um retry sem reconectar tende a repetir o
+          // mesmo erro.
+          await FirestoreWebGuard.softRecoverWebSession();
+          if (!mounted || myGen != _mainPeriodLoadGeneration) return;
+          return _executeMainPeriodLoad(
+            myGen,
+            sessionUid,
+            preserveExistingDocs: preserveExistingDocs,
+            accountFilterOnly: accountFilterOnly,
+            isRetryAfterWebRecovery: true,
+          );
         }
         setState(() {
           _mainPeriodLoading = false;
@@ -1668,7 +1744,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     if (!mounted) return;
     try {
       final r = await FinancePeriodSummary.load(
-        uid: firestoreUserDocIdForAppShell(widget.uid),
+        uid: widget.uid.trim(),
         from: _from,
         to: _to,
         statusFilter: _statusFilter,
@@ -1889,12 +1965,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
     );
   }
 
-  /// UID do documento `users/{id}/…` (titular quando sub-login).
+  /// Igreja dona dos dados (`igrejas/{churchId}/finance`) — Financeiro é
+  /// por igreja, não por login: NUNCA usar a sessão pessoal aqui (isso
+  /// faria cada staff logado ver um livro-caixa diferente do mesmo tenant).
   String? get _effectiveFinanceSessionUid {
-    final dataUid = firestoreUserDocIdStrictFromSession();
-    if (dataUid.isNotEmpty) return dataUid;
-    final shellUid = firestoreUserDocIdForModuleReads(widget.uid);
-    if (shellUid.isNotEmpty) return shellUid;
+    final churchId = widget.uid.trim();
+    if (churchId.isNotEmpty) return churchId;
     final last = _lastKnownGoodFinanceUid;
     if (last != null && last.isNotEmpty) return last;
     return null;
@@ -2418,10 +2494,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
     if (tEnd.isBefore(f)) tEnd = DateTime(f.year, f.month, f.day, 23, 59, 59);
     try {
       Query<Map<String, dynamic>> baseRangeQuery() {
-        Query<Map<String, dynamic>> q = _txRef()
-            .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(f))
-            .where('date', isLessThanOrEqualTo: Timestamp.fromDate(tEnd))
-            .orderBy('date', descending: false);
+        // Igualdades antes do intervalo em date (índice composto).
+        Query<Map<String, dynamic>> q = _txRef();
         if (_statusFilter != 'all') {
           q = q.where('status', isEqualTo: _statusFilter);
         }
@@ -2431,8 +2505,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
         if (_financeAccountFilterId != null) {
           q = q.where('financeAccountId', isEqualTo: _financeAccountFilterId);
         }
-        // Categoria: sempre refinado em [_txMatchesPdfFilters] (case-insensitive / grupo).
-        return q;
+        return q
+            .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(f))
+            .where('date', isLessThanOrEqualTo: Timestamp.fromDate(tEnd))
+            .orderBy('date', descending: false);
       }
 
       // Um único overlay: busca Firestore + geração PDF (evita 2.ª fase «Gerando PDF…» a ficar pendente na Web se as fontes ou o save atrasarem).
@@ -2603,7 +2679,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
         return _FinanceReportsPremiumSheet(
           screenFrom: _from,
           screenTo: _to,
-          uid: firestoreUserDocIdForAppShell(widget.uid),
+          uid: widget.uid.trim(),
           statusFilter: _statusFilter,
           filenameAccountSuffix: _filenameAccountSuffix(),
           semCategoriaToken: _kRelatorioSemCategoria,
@@ -2648,13 +2724,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
     );
   }
 
-  CollectionReference<Map<String, dynamic>> _txRef() {
-    final id = firestoreUserDocIdForModuleReads(widget.uid);
-    return FirebaseFirestore.instance
-        .collection('users')
-        .doc(id)
-        .collection('transactions');
-  }
+  CollectionReference<Map<String, dynamic>> _txRef() =>
+      ChurchUiCollections.financeiro(widget.uid.trim());
 
   /// Pendentes (receitas + despesas) — índice `status`+`date` em [firestore.indexes.json].
   static const int _kPendingStreamLimit = 500;
@@ -2670,7 +2741,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
       mostrarAvisoSeLicencaInativa(context, widget.profile);
       return;
     }
-    if (firestoreUserDocIdStrictFromSession().isEmpty) {
+    if (widget.uid.trim().isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -2684,7 +2755,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     final result = await Navigator.of(context).push<SmartInputPopResult?>(
       MaterialPageRoute<SmartInputPopResult?>(
         builder: (_) => SmartInputScreen(
-          uid: firestoreUserDocIdForAppShell(widget.uid),
+          uid: widget.uid.trim(),
           profile: widget.profile,
         ),
         fullscreenDialog: true,
@@ -2706,7 +2777,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
             label: 'Desfazer',
             onPressed: () async {
               await FinanceService.deleteTransactionsByDocumentIds(
-                uid: firestoreUserDocIdForAppShell(widget.uid),
+                uid: widget.uid.trim(),
                 context: context,
                 documentIds: result.createdTransactionIds,
               );
@@ -2754,7 +2825,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     final financeAccounts = _financeAccounts.isNotEmpty
         ? List<FinanceAccount>.from(_financeAccounts)
         : await FinanceAccountsService()
-            .listOnce(firestoreUserDocIdForAppShell(widget.uid));
+            .listOnce(widget.uid.trim());
     if (!context.mounted) return;
 
     final result = await showFinanceConfirmPaymentBatchSheet(
@@ -2834,7 +2905,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
         .push<Map<String, dynamic>>(
       MaterialPageRoute(
         builder: (_) => NovoLancamentoPage(
-          uid: firestoreUserDocIdForAppShell(widget.uid),
+          uid: widget.uid.trim(),
           initialType: type,
           canAttachReceipt: widget.profile.temAcessoPremium,
           hasActiveLicense: widget.profile.hasActiveLicense,
@@ -2847,7 +2918,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     try {
       final saveResult =
           await TransactionSaveService.saveFromNovoLancamentoResult(
-        uid: firestoreUserDocIdForAppShell(widget.uid),
+        uid: widget.uid.trim(),
         data: result,
         context: context,
       );
@@ -2970,7 +3041,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     final financeAccounts = _financeAccounts.isNotEmpty
         ? List<FinanceAccount>.from(_financeAccounts)
         : await FinanceAccountsService()
-            .listOnce(firestoreUserDocIdForAppShell(widget.uid));
+            .listOnce(widget.uid.trim());
     final rawAid = (preData['financeAccountId'] ?? '').toString().trim();
     FinanceAccount? cardAccount;
     for (final a in financeAccounts) {
@@ -3081,7 +3152,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
       final accounts = _financeAccounts.isNotEmpty
           ? List<FinanceAccount>.from(_financeAccounts)
           : await FinanceAccountsService()
-              .listOnce(firestoreUserDocIdForAppShell(widget.uid));
+              .listOnce(widget.uid.trim());
       if (!context.mounted) return;
       final saved = await FinanceTransferBottomSheet.showEdit(
         context,
@@ -3527,7 +3598,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => FinanceBulkAssignScreen(
-          uid: firestoreUserDocIdForAppShell(widget.uid),
+          uid: widget.uid.trim(),
           profile: widget.profile,
           initialRangeFrom: _from,
           initialRangeTo: _to,
@@ -3547,7 +3618,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => FinanceAccountCategorySheet(
-        uid: firestoreUserDocIdForAppShell(widget.uid),
+        uid: widget.uid.trim(),
         profile: widget.profile,
         account: account,
         from: _from,
@@ -3579,7 +3650,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => FinanceAccountCategorySheet(
-        uid: firestoreUserDocIdForAppShell(widget.uid),
+        uid: widget.uid.trim(),
         profile: widget.profile,
         account: null,
         from: _from,
@@ -3764,7 +3835,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                             MaterialPageRoute<void>(
                               builder: (_) => FinanceAccountsScreen(
                                   uid:
-                                      firestoreUserDocIdForAppShell(widget.uid),
+                                      widget.uid.trim(),
                                   profile: widget.profile),
                             ),
                           );
@@ -3781,8 +3852,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                               .push<void>(
                             MaterialPageRoute<void>(
                               builder: (_) => CategoriesConfigScreen(
-                                  uid: firestoreUserDocIdForAppShell(
-                                      widget.uid)),
+                                  uid: widget.uid.trim()),
                             ),
                           )
                               .then((_) {
@@ -3858,8 +3928,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                             Navigator.of(context).push<void>(
                               MaterialPageRoute<void>(
                                 builder: (_) => FinanceAccountsScreen(
-                                    uid: firestoreUserDocIdForAppShell(
-                                        widget.uid),
+                                    uid: widget.uid.trim(),
                                     profile: widget.profile),
                               ),
                             );
@@ -4000,7 +4069,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => FinanceInsightSheet(
-        uid: firestoreUserDocIdForAppShell(widget.uid),
+        uid: widget.uid.trim(),
         initialScope: scope,
         initialFrom: initialFrom,
         initialTo: initialTo,
@@ -4027,7 +4096,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (ctx) => FinanceCategoriesFullscreenPage(
-          uid: firestoreUserDocIdForAppShell(widget.uid),
+          uid: widget.uid.trim(),
           profile: widget.profile,
           from: _from,
           to: _to,
@@ -4040,7 +4109,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
               isScrollControlled: true,
               backgroundColor: Theme.of(context).colorScheme.surface,
               builder: (_) => FinanceInsightSheet(
-                uid: firestoreUserDocIdForAppShell(widget.uid),
+                uid: widget.uid.trim(),
                 initialScope: FinanceInsightScope.expense,
                 initialFrom: _from,
                 initialTo: _to,
@@ -4077,7 +4146,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => FinanceAssistantInsightsPage(
-          uid: firestoreUserDocIdForAppShell(widget.uid),
+          uid: widget.uid.trim(),
           profile: widget.profile,
           from: _from,
           to: _to,
@@ -5264,7 +5333,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 .push(
               MaterialPageRoute(
                   builder: (_) => DespesasFixasScreen(
-                      uid: firestoreUserDocIdForAppShell(widget.uid))),
+                      uid: widget.uid.trim())),
             )
                 .then((_) {
               if (!mounted) return;
@@ -5353,7 +5422,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 .push(
               MaterialPageRoute(
                   builder: (_) => ReceitasFixasScreen(
-                      uid: firestoreUserDocIdForAppShell(widget.uid))),
+                      uid: widget.uid.trim())),
             )
                 .then((_) {
               if (!mounted) return;
@@ -5653,7 +5722,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
           SizedBox(height: 10),
           FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
             future: financePeriodMergedDocumentsCollect(
-              uid: firestoreUserDocIdForAppShell(widget.uid),
+              uid: widget.uid.trim(),
               from: _from,
               to: _to,
               statusFilter: _statusFilter,
@@ -5694,9 +5763,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
         FutureBuilder<List<List<Map<String, dynamic>>>>(
           future: Future.wait([
             FixedExpenseService()
-                .list(firestoreUserDocIdForAppShell(widget.uid)),
+                .list(widget.uid.trim()),
             FixedIncomeService()
-                .list(firestoreUserDocIdForAppShell(widget.uid)),
+                .list(widget.uid.trim()),
           ]),
           builder: (context, snap) {
             if (!snap.hasData) return const SizedBox.shrink();
@@ -5804,7 +5873,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
         FutureBuilder(
           key: ValueKey(compareKey),
           future: FinancePeriodSummary.load(
-            uid: firestoreUserDocIdForAppShell(widget.uid),
+            uid: widget.uid.trim(),
             from: pf,
             to: pt,
             statusFilter: _statusFilter,
@@ -5840,7 +5909,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
           },
         ),
         FinanceSmartTipsInsightBlock(
-          uid: firestoreUserDocIdForAppShell(widget.uid),
+          uid: widget.uid.trim(),
           docs: docs,
           totalIncome: totalIncome,
           totalExpense: totalExpense,
@@ -5877,7 +5946,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }) {
     return showFinanceSmartTipsPreviewSheet(
       context: context,
-      uid: firestoreUserDocIdForAppShell(widget.uid),
+      uid: widget.uid.trim(),
       docs: docs,
       totalIncome: totalIncome,
       totalExpense: totalExpense,
@@ -5902,100 +5971,39 @@ class _FinanceScreenState extends State<FinanceScreen> {
     required double totalExpense,
     required double saldoAcumulado,
   }) {
+    final mes = DateFormat('MMM./yyyy', 'pt_BR').format(_from).toLowerCase();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Resumo do período',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    fontSize: 15,
-                    color: context.appTextPrimary,
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ),
-              IconButton.filledTonal(
-                tooltip: 'Exportar PDF (padrão premium)',
-                onPressed: widget.profile.hasActiveLicense
-                    ? () => unawaited(_openFinancialReportsPremiumSheet())
-                    : () =>
-                        mostrarAvisoSeLicencaInativa(context, widget.profile),
-                icon: Icon(Icons.picture_as_pdf_rounded, size: 22),
-                style: IconButton.styleFrom(
-                  foregroundColor: _kPdfActionOrange,
-                  backgroundColor: _kPdfActionOrange.withValues(alpha: 0.12),
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            child: _FinanceKpiCard(
-              title: 'Saldo de abertura',
-              value: CurrencyFormats.formatBRL(saldoAbertura),
-              color: saldoAbertura >= 0
-                  ? AppColors.saldoPositive
-                  : AppColors.saldoNegative,
-              icon: Icons.account_balance_rounded,
-            ),
-          ),
-          SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _FinanceKpiCard(
-                  title: 'Receitas',
-                  value: CurrencyFormats.formatBRL(totalIncome),
-                  color: AppColors.financeReceita,
-                  icon: Icons.arrow_downward,
-                  onTap: () => _openFinanceInsightSheet(
-                    scope: FinanceInsightScope.income,
-                    initialFrom: _from,
-                    initialTo: _to,
-                  ),
-                ),
-              ),
-              SizedBox(width: 8),
-              Expanded(
-                child: _FinanceKpiCard(
-                  title: 'Despesas',
-                  value: CurrencyFormats.formatBRL(totalExpense),
-                  color: AppColors.financeDespesa,
-                  icon: Icons.arrow_upward,
-                  onTap: () => _openFinanceInsightSheet(
-                    scope: FinanceInsightScope.expense,
-                    initialFrom: _from,
-                    initialTo: _to,
-                  ),
-                ),
-              ),
-              SizedBox(width: 8),
-              Expanded(
-                child: _FinanceKpiCard(
-                  title: 'Saldo (acum.)',
-                  value: CurrencyFormats.formatBRL(saldoAcumulado),
-                  color: saldoAcumulado >= 0
-                      ? AppColors.saldoPositive
-                      : AppColors.saldoNegative,
-                  icon: Icons.account_balance_wallet,
-                  onTap: () => _openFinanceInsightSheet(
-                    scope: FinanceInsightScope.balance,
-                    initialFrom: _from,
-                    initialTo: _to,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
+      child: ControleTotalFinanceDashboardCard(
+        monthLabel: mes,
+        saldoAbertura: CurrencyFormats.formatBRL(saldoAbertura),
+        receitas: CurrencyFormats.formatBRL(totalIncome),
+        despesas: CurrencyFormats.formatBRL(totalExpense),
+        saldo: CurrencyFormats.formatBRL(saldoAcumulado),
+        onTapSaldoAbertura: () => _openFinanceInsightSheet(
+          scope: FinanceInsightScope.balance,
+          initialFrom: _from,
+          initialTo: _to,
+        ),
+        onTapReceitas: () => _openFinanceInsightSheet(
+          scope: FinanceInsightScope.income,
+          initialFrom: _from,
+          initialTo: _to,
+        ),
+        onTapDespesas: () => _openFinanceInsightSheet(
+          scope: FinanceInsightScope.expense,
+          initialFrom: _from,
+          initialTo: _to,
+        ),
+        onTapSaldo: () => _openFinanceInsightSheet(
+          scope: FinanceInsightScope.balance,
+          initialFrom: _from,
+          initialTo: _to,
+        ),
+        onTapSaldoContas: () => _openAllAccountsCategoryBreakdown(context),
+        onExportPdf: widget.profile.hasActiveLicense
+            ? () => unawaited(_openFinancialReportsPremiumSheet())
+            : () => mostrarAvisoSeLicencaInativa(context, widget.profile),
       ),
     );
   }
@@ -8414,12 +8422,9 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
 
   void _bindTransactionsWatch() {
     _txWatchSub?.cancel();
-    final fsId = firestoreUserDocIdForAppShell(widget.uid);
+    final fsId = widget.uid.trim();
     if (fsId.isEmpty) return;
-    _txWatchSub = FirebaseFirestore.instance
-        .collection('users')
-        .doc(fsId)
-        .collection('transactions')
+    _txWatchSub = ChurchUiCollections.financeiro(fsId)
         .limit(1)
         .snapshots(includeMetadataChanges: true)
         .listen((_) => _scheduleDocsReloadDebounced());
@@ -9669,7 +9674,7 @@ class _FinanceReportsPremiumSheetState
     _cFrom = widget.screenFrom;
     _cTo = widget.screenTo;
     _catsFuture =
-        UserCategoriesService().load(firestoreUserDocIdForAppShell(widget.uid));
+        UserCategoriesService().load(widget.uid.trim());
   }
 
   String _previewFilenameBase(DateTime rf, DateTime rt) {
@@ -10011,7 +10016,7 @@ class _FinanceReportsPremiumSheetState
                   '${rf.millisecondsSinceEpoch}|${rt.millisecondsSinceEpoch}|${_categoryChoice ?? ''}|${widget.statusFilter}',
                 ),
                 future: FinancePeriodSummary.load(
-                  uid: firestoreUserDocIdForAppShell(widget.uid),
+                  uid: widget.uid.trim(),
                   from: rf,
                   to: rt,
                   statusFilter: widget.statusFilter,
@@ -10650,8 +10655,7 @@ class _FinanceKpiCard extends StatelessWidget {
     required this.value,
     required this.color,
     required this.icon,
-    this.onTap,
-  });
+  }) : onTap = null;
 
   @override
   Widget build(BuildContext context) {

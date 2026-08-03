@@ -18,7 +18,6 @@ import 'package:gestao_yahweh/utils/finance_account_category_sheet_launcher.dart
 import 'package:gestao_yahweh/utils/finance_account_balance_utils.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_realtime.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_sparkline.dart';
 import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
@@ -51,7 +50,7 @@ class _HomeFinanceOverviewPanelState extends State<HomeFinanceOverviewPanel> {
   String _saldoAberturaKey = '';
   ({double total, Map<String, double> byAccount})? _saldoAberturaCached;
 
-  String get _userFsId => firestoreUserDocIdForAppShell(widget.uid);
+  String get _userFsId => widget.uid.trim();
 
   (DateTime, DateTime) _rangeForPeriod() {
     final now = DateTime.now();

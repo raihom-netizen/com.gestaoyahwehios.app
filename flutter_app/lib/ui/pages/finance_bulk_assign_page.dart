@@ -15,7 +15,7 @@ import 'package:gestao_yahweh/services/finance_accounts_service.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
 import 'package:gestao_yahweh/utils/debounced_text_controller.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:gestao_yahweh/utils/keyboard_form_scaffold.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
@@ -71,10 +71,7 @@ class _FinanceBulkAssignScreenState extends State<FinanceBulkAssignScreen> {
   StreamSubscription<fa.User?>? _authUidSub;
 
   CollectionReference<Map<String, dynamic>> get _txRef =>
-      FirebaseFirestore.instance
-          .collection('users')
-          .doc(firestoreUserDocIdForAppShell(widget.uid))
-          .collection('transactions');
+      ChurchUiCollections.financeiro(widget.uid.trim());
 
   @override
   void initState() {
@@ -403,7 +400,7 @@ class _FinanceBulkAssignScreenState extends State<FinanceBulkAssignScreen> {
         await batch.commit();
       }
       FinanceTransactionsHub.notifyMutated(
-          uid: firestoreUserDocIdForAppShell(widget.uid));
+          uid: widget.uid.trim());
       if (!mounted) return;
       final msg = _modo == _MigracaoModo.semConta
           ? '${targets.length} lançamento(s) vinculados a ${_accountLabel(accounts, dest)}.'
@@ -855,7 +852,7 @@ class _FinanceBulkAssignScreenState extends State<FinanceBulkAssignScreen> {
       body: keyboardScaffoldBody(
         StreamBuilder<List<FinanceAccount>>(
           stream: FinanceAccountsService()
-              .streamAccounts(firestoreUserDocIdForAppShell(widget.uid)),
+              .streamAccounts(widget.uid.trim()),
           builder: (context, accSnap) {
             final accounts = accSnap.data ?? [];
             return Column(

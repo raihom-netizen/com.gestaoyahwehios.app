@@ -21,7 +21,7 @@ import 'package:gestao_yahweh/utils/finance_category_grouping.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_realtime.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
 import 'package:gestao_yahweh/ui/widgets/app_bar_chart.dart';
 import 'package:gestao_yahweh/ui/widgets/app_pie_chart.dart';
@@ -559,10 +559,8 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
   String get _periodRangeLabel =>
       '${DateFormat('dd/MM/yyyy').format(_from)} — ${DateFormat('dd/MM/yyyy').format(_to)}';
 
-  CollectionReference<Map<String, dynamic>> get _txCol {
-    final fsId = firestoreUserDocIdForAppShell(widget.uid);
-    return FirebaseFirestore.instance.collection('users').doc(fsId).collection('transactions');
-  }
+  CollectionReference<Map<String, dynamic>> get _txCol =>
+      ChurchUiCollections.financeiro(widget.uid.trim());
 
   Query<Map<String, dynamic>> get _pendingOnCardQuery => _txCol
       .where('financeAccountId', isEqualTo: widget.cardAccount.id)

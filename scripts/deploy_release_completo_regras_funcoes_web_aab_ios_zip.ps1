@@ -317,6 +317,8 @@ if (-not $SkipGitPush) {
     }
     else {
         Push-Location $RepoRoot
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
         try {
             $branch = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
             if (-not $branch) { $branch = "main" }
@@ -344,6 +346,7 @@ if (-not $SkipGitPush) {
             Write-Host "Push concluido: origin/$branch" -ForegroundColor Green
         }
         finally {
+            $ErrorActionPreference = $prevEap
             Pop-Location
         }
     }

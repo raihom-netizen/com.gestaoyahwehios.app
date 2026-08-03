@@ -17,7 +17,7 @@ import 'package:gestao_yahweh/services/functions_service.dart';
 import 'package:gestao_yahweh/services/logs_service.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/ui/pages/anexo_viewer_page.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/keyboard_form_scaffold.dart';
 import 'package:gestao_yahweh/utils/date_picker_a11y.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
@@ -787,11 +787,8 @@ class _FinanceTransferEdit {
       pairData =
           await FunctionsService().getFinanceTransferPair(pairId: pairId);
     } catch (_) {
-      final fsUid = firestoreUserDocIdForAppShell(uid);
-      final pairSnap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(fsUid)
-          .collection('transactions')
+      final fsUid = uid.trim();
+      final pairSnap = await ChurchUiCollections.financeiro(fsUid)
           .where('transferPairId', isEqualTo: pairId)
           .get();
       if (pairSnap.docs.length < 2 || !context.mounted) return false;
@@ -818,14 +815,11 @@ class _FinanceTransferEdit {
     }
     if (!context.mounted) return false;
 
-    final fsUid = firestoreUserDocIdForAppShell(uid);
+    final fsUid = uid.trim();
     var receiptLink = '';
     final outIdForReceipt = (pairData['outId'] ?? '').toString();
     if (outIdForReceipt.isNotEmpty) {
-      final outSnap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(fsUid)
-          .collection('transactions')
+      final outSnap = await ChurchUiCollections.financeiro(fsUid)
           .doc(outIdForReceipt)
           .get();
       final receipt =

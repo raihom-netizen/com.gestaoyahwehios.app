@@ -34,7 +34,6 @@ import 'package:gestao_yahweh/services/express_compromisso_agenda_sync.dart';
 import 'package:gestao_yahweh/services/scale_entry_save_service.dart';
 import 'package:gestao_yahweh/services/scales_entries_hub.dart';
 import 'package:gestao_yahweh/services/yearly_commitment_repeat_service.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'agenda_form_footer_actions.dart';
 import 'compromisso_contact_field_actions.dart';
 import 'recurring_entry_kind_selector.dart';
@@ -162,7 +161,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
   /// Repetir todo ano (aniversário, casamento) — só com um único dia selecionado.
   bool _repeatYearly = false;
 
-  String get _userDocId => firestoreUserDocIdForModuleReads(widget.uid);
+  String get _userDocId => widget.uid.trim();
   bool get _isEditing => widget.editingEntry?.id != null;
 
   /// true = compromisso particular (sem financeiro); false = escala/plantão.

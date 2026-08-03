@@ -1244,7 +1244,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: _historyStack.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
                       itemBuilder: (context, i) {
                         final selected = i == _historyIndex;
                         return ClipRRect(
@@ -1486,7 +1486,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         itemCount: _historyStack.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, i) {
           final selected = i == _historyIndex;
           return GestureDetector(

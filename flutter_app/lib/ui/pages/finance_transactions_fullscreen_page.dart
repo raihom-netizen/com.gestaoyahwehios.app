@@ -23,7 +23,7 @@ import 'package:gestao_yahweh/utils/finance_fatura_transaction_sort.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_realtime.dart';
 import 'package:gestao_yahweh/constants/date_time_formats.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/date_picker_a11y.dart';
 import 'package:gestao_yahweh/utils/keyboard_form_scaffold.dart';
 
@@ -284,7 +284,7 @@ class _FinanceTransactionsFullscreenPageState
   void initState() {
     super.initState();
     _accountsStream = FinanceAccountsService()
-        .streamAccounts(firestoreUserDocIdForAppShell(widget.uid));
+        .streamAccounts(widget.uid.trim());
     _from = widget.initialFrom;
     _to = widget.initialTo;
     _statusFilter = widget.initialStatusFilter;
@@ -312,7 +312,7 @@ class _FinanceTransactionsFullscreenPageState
       _mergedLoadError = null;
     });
     try {
-      final uid = firestoreUserDocIdForAppShell(widget.uid);
+      final uid = widget.uid.trim();
       final docs = await financePeriodMergedDocumentsCollect(
         uid: uid,
         from: _from,
@@ -390,10 +390,7 @@ class _FinanceTransactionsFullscreenPageState
   }
 
   CollectionReference<Map<String, dynamic>> _txRef() =>
-      FirebaseFirestore.instance
-          .collection('users')
-          .doc(firestoreUserDocIdForAppShell(widget.uid))
-          .collection('transactions');
+      ChurchUiCollections.financeiro(widget.uid.trim());
 
   (DateTime, DateTime) _rangeForPeriod() {
     final now = DateTime.now();
@@ -462,7 +459,7 @@ class _FinanceTransactionsFullscreenPageState
   Future<void> _openCategoryFilterPicker(List<String> periodCategories) async {
     final picked = await pickFinanceCategoryForFilter(
       context: context,
-      uid: firestoreUserDocIdForAppShell(widget.uid),
+      uid: widget.uid.trim(),
       typeFilter: _typeFilter,
       currentFilter: _categoryFilter,
       periodExtraCategories: periodCategories,

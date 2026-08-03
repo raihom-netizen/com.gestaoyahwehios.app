@@ -1,9 +1,9 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_datetime.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/utils/fifty_two_weeks_plan.dart';
 import 'transaction_save_service.dart';
 
@@ -115,7 +115,11 @@ class GoalDepositService {
         'installmentCount': 1,
         'installmentIndex': 1,
         'goalId': goalId,
-        if (accountId.isNotEmpty) 'financeAccountId': accountId,
+        if (accountId.isNotEmpty) ...{
+          'financeAccountId': accountId,
+          'contaDestinoId': accountId,
+        },
+        'recebimentoConfirmado': true,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -209,7 +213,10 @@ class GoalDepositService {
         'date': Timestamp.fromDate(effectiveDate),
         'effectiveDate': FinanceLineOpening.effectiveTimestampForWrite(date: effectiveDate),
         'description': 'Depósito meta: $title$weekLabel',
-        if (accountId.isNotEmpty) 'financeAccountId': accountId,
+        if (accountId.isNotEmpty) ...{
+          'financeAccountId': accountId,
+          'contaDestinoId': accountId,
+        },
         'updatedAt': FieldValue.serverTimestamp(),
       });
       FinanceTransactionsHub.notifyMutated(uid: uid);
@@ -225,14 +232,11 @@ class GoalDepositService {
     required DateTime date,
     String? financeAccountId,
   }) async {
-    final fsUid = firestoreUserDocIdForAppShell(uid);
+    final fsUid = uid.trim();
     if (fsUid.isEmpty || goalId.trim().isEmpty || txId.trim().isEmpty) return;
 
-    final goalRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(fsUid)
-        .collection('goals')
-        .doc(goalId);
+    final goalRef =
+        ChurchUiCollections.churchDoc(fsUid).collection('goals').doc(goalId);
     final goalSnap = await goalRef.get();
     if (!goalSnap.exists) return;
 
@@ -264,14 +268,11 @@ class GoalDepositService {
     if (goalId.isEmpty || (txData['type'] ?? '').toString() != 'income') {
       return null;
     }
-    final fsUid = firestoreUserDocIdForAppShell(uid);
+    final fsUid = uid.trim();
     if (fsUid.isEmpty || txId.trim().isEmpty) return null;
 
-    final goalRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(fsUid)
-        .collection('goals')
-        .doc(goalId);
+    final goalRef =
+        ChurchUiCollections.churchDoc(fsUid).collection('goals').doc(goalId);
     final goalSnap = await goalRef.get();
     if (!goalSnap.exists) return null;
     final goalData = goalSnap.data() ?? {};
@@ -317,14 +318,11 @@ class GoalDepositService {
     final goalId = (txData['goalId'] ?? '').toString().trim();
     if (goalId.isEmpty || (txData['type'] ?? '').toString() != 'income') return;
 
-    final fsUid = firestoreUserDocIdForAppShell(uid);
+    final fsUid = uid.trim();
     if (fsUid.isEmpty || txId.trim().isEmpty) return;
 
-    final goalRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(fsUid)
-        .collection('goals')
-        .doc(goalId);
+    final goalRef =
+        ChurchUiCollections.churchDoc(fsUid).collection('goals').doc(goalId);
     final contribQ = await goalRef
         .collection('contributions')
         .where('transactionId', isEqualTo: txId)

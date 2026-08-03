@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/models/user_profile.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart'
     show FinanceScreen;
@@ -97,9 +98,13 @@ class _FinancePageAdapterState extends State<FinancePage> {
     if (_profile == null) {
       return const Center(child: Text('Perfil nao carregado.'));
     }
+    // Financeiro é por igreja, não por login pessoal — dados/regras/saldo
+    // ficam em igrejas/{churchId}/finance e /contas (padrão Controle Total),
+    // compartilhado por todo staff autorizado da igreja, não só quem lançou.
+    final churchId = ChurchRepository.churchId(widget.tenantId);
     return FinanceScreen(
-      key: ValueKey('finance_screen_${widget.tenantId}'),
-      uid: _profile!.uid,
+      key: ValueKey('finance_screen_$churchId'),
+      uid: churchId,
       profile: _profile!,
       isShellVisible: widget.embeddedInShell,
     );

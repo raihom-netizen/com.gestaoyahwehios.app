@@ -79,8 +79,8 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: widget.itemCount,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, __) => singleItem,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (_, _) => singleItem,
     );
   }
 }

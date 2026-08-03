@@ -5,8 +5,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/utils/connectivity_offline.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
-import 'functions_service.dart';
+import 'finance_comprovante_publish_service.dart';
 import 'pending_storage_upload_service.dart';
 import 'transaction_save_service.dart';
 
@@ -34,23 +33,38 @@ class FinanceReceiptUploadService {
   }) async {
     if (uid.isEmpty || txDocId.isEmpty || bytes.isEmpty) return;
 
-    final fsUid = firestoreUserDocIdForAppShell(uid);
-    final txPath = 'users/$fsUid/transactions/$txDocId';
+    final fsUid = uid.trim();
     final col = TransactionSaveService.txRef(uid);
 
     final offline = await _isOffline();
     if (!offline) {
       try {
-        await FunctionsService().uploadReceiptToStorage(
-          txPath: txPath,
-          filename: filename,
-          bytes: bytes,
+        // Upload direto ao Storage (mesmo motor do comprovante do lançamento
+        // novo) — evita o round-trip morto para uma Cloud Function que não
+        // está implantada (`ctUploadReceiptToStorage`), que antes falhava
+        // sempre e só depois caía na fila local, atrasando todo anexo.
+        final result = await FinanceComprovantePublishService
+            .uploadComprovanteStorageOnly(
+          tenantId: fsUid,
+          lancamentoId: txDocId,
+          rawBytes: bytes,
           mimeType: mimeType,
+          fileName: filename,
         );
         await col.doc(txDocId).update({
+          ...FinanceComprovantePublishService.comprovanteFieldsPatch(
+            url: result.url,
+            storagePath: result.storagePath,
+            mimeType: result.mimeType,
+            fileName: result.fileName,
+          ),
+          // Compat: telas que ainda leem o formato legado (`receipt`/`hasReceipt`).
           'hasReceipt': true,
+          'receipt': {
+            'webViewLink': result.url,
+            'webContentLink': result.url,
+          },
           'receiptPendingUpload': FieldValue.delete(),
-          'updatedAt': FieldValue.serverTimestamp(),
         });
         if (showUserFeedback && context != null && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

@@ -43,6 +43,7 @@ class TdLibService {
   int? _activeChatId;
   TdlibAuthSnapshot _snapshot = TdlibAuthSnapshot.idle;
   bool _warming = false;
+  bool _refreshingChats = false;
   final _presenceController =
       StreamController<TdlibUserPresence>.broadcast(sync: true);
 
@@ -57,6 +58,10 @@ class TdLibService {
   TdlibAuthSnapshot get currentAuth => _snapshot;
   List<TdlibChatPreview> get cachedChats =>
       List<TdlibChatPreview>.from(_chatsById.values);
+
+  /// Histórico já em RAM (warm / visita anterior) — UI pinta na hora.
+  List<TdlibMessageItem> cachedMessages(int chatId) =>
+      List<TdlibMessageItem>.from(_messagesByChat[chatId] ?? const []);
 
   Stream<TdlibAuthSnapshot> get authorizationStateStream =>
       _authController.stream;
@@ -498,6 +503,8 @@ class TdLibService {
   Future<void> refreshChats({int limit = 40}) async {
     final svc = _service;
     if (svc == null || _snapshot.phase != TdlibAuthPhase.ready) return;
+    if (_refreshingChats) return;
+    _refreshingChats = true;
     try {
       await svc.sendSync({
         '@type': 'loadChats',
@@ -509,21 +516,32 @@ class TdLibService {
         'chat_list': {'@type': 'chatListMain'},
         'limit': limit,
       });
-      final ids = (result['chat_ids'] as List?) ?? const [];
-      for (final rawId in ids) {
+      final ids = <int>[];
+      for (final rawId in (result['chat_ids'] as List?) ?? const []) {
         final id = _asInt(rawId);
-        if (id == null) continue;
-        try {
-          final chat = await svc.sendSync({
-            '@type': 'getChat',
-            'chat_id': id,
-          });
-          _ingestChatObject(chat);
-        } catch (_) {}
+        if (id != null) ids.add(id);
       }
-      _emitChats();
+      // getChat em paralelo (lotes) — evita N× round-trip sequencial.
+      const batchSize = 6;
+      for (var i = 0; i < ids.length; i += batchSize) {
+        final batch = ids.skip(i).take(batchSize).toList(growable: false);
+        await Future.wait(batch.map((id) async {
+          if (_chatsById.containsKey(id)) return;
+          try {
+            final chat = await svc.sendSync({
+              '@type': 'getChat',
+              'chat_id': id,
+            });
+            _ingestChatObject(chat);
+          } catch (_) {}
+        }));
+        _emitChats();
+      }
+      if (ids.isEmpty) _emitChats();
     } catch (e) {
       debugPrint('[TdLib] refreshChats: $e');
+    } finally {
+      _refreshingChats = false;
     }
   }
 
@@ -661,6 +679,7 @@ class TdLibService {
     int limit = 40,
     bool preferLocalFirst = true,
     bool setActive = true,
+    bool remoteRefresh = true,
   }) async {
     final svc = _requireService();
     if (setActive) _activeChatId = chatId;
@@ -695,6 +714,12 @@ class TdLibService {
       } catch (_) {}
     }
 
+    if (!remoteRefresh) {
+      return List<TdlibMessageItem>.from(
+        _messagesByChat[chatId] ?? const [],
+      );
+    }
+
     final remote = await fetch(false);
     _messagesByChat[chatId] = remote;
     if (setActive || _activeChatId == chatId) _emitMessages(chatId);
@@ -702,8 +727,8 @@ class TdLibService {
     return remote;
   }
 
-  /// Pré-aquece os chats mais recentes (histórico local + foto).
-  Future<void> warmTopChats({int count = 8}) async {
+  /// Pré-aquece só DB local (rápido); remoto fica para quando o user abrir o chat.
+  Future<void> warmTopChats({int count = 6}) async {
     if (_warming || _snapshot.phase != TdlibAuthPhase.ready) return;
     _warming = true;
     try {
@@ -712,17 +737,19 @@ class TdLibService {
           (a, b) => (b.lastMessageDateEpoch ?? 0)
               .compareTo(a.lastMessageDateEpoch ?? 0),
         );
-      for (final c in sorted.take(count)) {
+      final top = sorted.take(count).toList(growable: false);
+      await Future.wait(top.map((c) async {
         try {
           await loadChatHistory(
             c.id,
             limit: 24,
             preferLocalFirst: true,
             setActive: false,
+            remoteRefresh: false,
           );
         } catch (_) {}
         unawaited(ensureChatPhoto(c.id));
-      }
+      }));
     } finally {
       _warming = false;
     }
@@ -735,20 +762,16 @@ class TdLibService {
     final path = (prev?.photoLocalPath ?? '').trim();
     if (path.isNotEmpty && await File(path).exists()) return;
     try {
+      // Assíncrono: updateFile completa o path sem bloquear a lista.
       final result = await _requireService().sendSync({
         '@type': 'downloadFile',
         'file_id': fileId,
         'priority': 8,
         'offset': 0,
         'limit': 0,
-        'synchronous': true,
+        'synchronous': false,
       });
-      final local = result['local'];
-      if (local is! Map || local['is_downloading_completed'] != true) return;
-      final pth = (local['path'] ?? '').toString().trim();
-      if (pth.isEmpty || prev == null) return;
-      _chatsById[chatId] = prev.copyWith(photoLocalPath: pth);
-      _emitChats();
+      _applyFileUpdate(result);
     } catch (e) {
       debugPrint('[TdLib] ensureChatPhoto: $e');
     }
@@ -1863,6 +1886,21 @@ class TdLibService {
     await _requireService().sendSync({
       '@type': 'terminateAllOtherSessions',
     });
+  }
+
+  /// Desconecta esta conta Telegram do aparelho — encerra a sessão no
+  /// servidor (`logOut`) e limpa o estado local. Usado pelo botão
+  /// "Desconectar" nas configurações do chat; a próxima abertura volta à
+  /// tela de telefone.
+  Future<void> logOut() async {
+    try {
+      await _requireService().sendSync({'@type': 'logOut'});
+    } catch (_) {
+      // Mesmo se a chamada ao servidor falhar, ainda limpamos a sessão
+      // local — não deixar o usuário preso numa conta que não quer mais.
+    }
+    await _softResetSession();
+    _emitAuth(TdlibAuthSnapshot.idle);
   }
 
   Future<void> addMessageReaction(

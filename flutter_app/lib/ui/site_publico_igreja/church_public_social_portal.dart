@@ -24,6 +24,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/aviso_evento_social_link_button.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
     show churchMuralCarouselClipHeight, kChurchPublicSiteMobileFrameWidth;
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_feed_video.dart';
@@ -1759,6 +1760,14 @@ class _LightboxTextPanel extends StatelessWidget {
                     color: const Color(0xFF475569),
                   ),
                 ),
+                if ((post['instagramUrl'] ?? '').toString().trim().isNotEmpty ||
+                    (eventNoticiaExternalVideoUrl(post) ?? '').isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  avisoEventoSocialLinksRow(
+                    instagramUrl: (post['instagramUrl'] ?? '').toString(),
+                    youtubeUrl: eventNoticiaExternalVideoUrl(post),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Wrap(
                   spacing: 8,

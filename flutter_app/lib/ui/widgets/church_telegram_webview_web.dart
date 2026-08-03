@@ -1,12 +1,14 @@
 // ignore_for_file: avoid_web_libraries_in_flutter
 
 import 'dart:html' as html;
-import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_telegram_launcher.dart';
 
-/// Telegram Web embutido no painel web (iframe). Sessão/cookies do browser.
+/// Web: `web.telegram.org` responde `X-Frame-Options: deny` — o navegador
+/// **sempre** recusa embutir isso num `<iframe>` (não há contorno possível
+/// no cliente). Por isso não tentamos iframe aqui: mostramos um painel claro
+/// e abrimos o Telegram Web numa nova aba (mesma conta, mesma conversa).
 class ChurchTelegramWebView extends StatefulWidget {
   const ChurchTelegramWebView({
     super.key,
@@ -22,47 +24,30 @@ class ChurchTelegramWebView extends StatefulWidget {
 }
 
 class ChurchTelegramWebViewState extends State<ChurchTelegramWebView> {
-  late final String _viewType;
   late String _src;
-  html.IFrameElement? _iframe;
 
   @override
   void initState() {
     super.initState();
     _src = ChurchTelegramLauncher.toWebClientUrl(widget.initialUrl);
-    _viewType =
-        'tg-web-${identityHashCode(this)}-${DateTime.now().microsecondsSinceEpoch}';
-    _iframe = html.IFrameElement()
-      ..src = _src
-      ..style.border = 'none'
-      ..style.width = '100%'
-      ..style.height = '100%'
-      ..allow = 'microphone; camera; clipboard-read; clipboard-write; autoplay'
-      ..allowFullscreen = true;
-    ui_web.platformViewRegistry.registerViewFactory(
-      _viewType,
-      (int _) => _iframe!,
-    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.onTitleHint?.call(_src);
     });
   }
 
-  Future<void> reload() async {
-    _iframe?.src = _src;
-  }
+  Future<void> reload() async => _openNewTab();
 
   Future<void> openHome() async {
     _src = ChurchTelegramLauncher.kWebClientHome;
-    _iframe?.src = _src;
+    if (mounted) setState(() {});
   }
 
   Future<void> openUrl(String urlOrHandle) async {
     _src = ChurchTelegramLauncher.toWebClientUrl(urlOrHandle);
-    _iframe?.src = _src;
+    if (mounted) setState(() {});
   }
 
-  Future<void> _openNewTab() async {
+  void _openNewTab() {
     html.window.open(_src, '_blank', 'noopener,noreferrer');
   }
 
@@ -76,41 +61,43 @@ class ChurchTelegramWebViewState extends State<ChurchTelegramWebView> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(
-          child: ColoredBox(
-            color: const Color(0xFF0E1621),
-            child: HtmlElementView(viewType: _viewType),
+    return ColoredBox(
+      color: const Color(0xFF0E1621),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.send_rounded, color: Colors.white70, size: 44),
+              const SizedBox(height: 16),
+              const Text(
+                'O navegador não permite embutir o Telegram Web aqui dentro.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  height: 1.3,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Toque no botão abaixo para abrir numa nova aba — mesma conta, '
+                'mesma conversa, fotos e vídeos funcionam normalmente.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white54, fontSize: 12.5, height: 1.35),
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: _openNewTab,
+                icon: const Icon(Icons.open_in_new_rounded),
+                label: const Text('Abrir Telegram Web'),
+              ),
+            ],
           ),
         ),
-        Material(
-          color: const Color(0xFF17212B),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              children: [
-                const Icon(Icons.info_outline, size: 16, color: Colors.white70),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Yahweh Chat (Telegram). Se a área ficar em branco, abra em nova aba — mídia funciona igual.',
-                    style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.3),
-                  ),
-                ),
-                TextButton(
-                  onPressed: _openNewTab,
-                  child: const Text(
-                    'Nova aba',
-                    style: TextStyle(color: Color(0xFF0D9488)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

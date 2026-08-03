@@ -123,6 +123,7 @@ class _MemberCardPageState extends State<MemberCardPage>
   bool _loadingMembers = true;
   bool _exportingPdf = false;
   bool _signingBusy = false;
+  bool _clearingSignBusy = false;
   Object? _membersError;
   Map<String, dynamic>? _tenantData;
 
@@ -489,6 +490,38 @@ class _MemberCardPageState extends State<MemberCardPage>
         if (!idSet.contains(m.id)) return m;
         final d = Map<String, dynamic>.from(m.data);
         d.addAll(signaturePatch);
+        return _MemberRow(
+          id: m.id,
+          name: m.name,
+          data: d,
+          photoUrl: m.photoUrl,
+        );
+      }).toList();
+      if (_previewMember != null && idSet.contains(_previewMember!.id)) {
+        final pm = _members.firstWhere((m) => m.id == _previewMember!.id);
+        _previewMember = pm;
+      }
+    });
+  }
+
+  static const _kSignatureFieldKeys = [
+    'carteirinhaAssinadaEm',
+    'carteirinhaAssinadaPor',
+    'carteirinhaAssinadaPorNome',
+    'carteirinhaAssinadaPorCargo',
+    'carteirinhaAssinaturaUrl',
+  ];
+
+  void _applyClearSignLocally(List<String> ids) {
+    if (ids.isEmpty) return;
+    final idSet = ids.map((e) => e.trim()).toSet();
+    setState(() {
+      _members = _members.map((m) {
+        if (!idSet.contains(m.id)) return m;
+        final d = Map<String, dynamic>.from(m.data);
+        for (final k in _kSignatureFieldKeys) {
+          d.remove(k);
+        }
         return _MemberRow(
           id: m.id,
           name: m.name,
@@ -1232,6 +1265,96 @@ class _MemberCardPageState extends State<MemberCardPage>
     }
   }
 
+  Future<void> _clearSignSelected(BuildContext context) async {
+    final ids = _selectedIds.isEmpty
+        ? (_previewMember != null ? [_previewMember!.id] : <String>[])
+        : _validSelectedIds.toList();
+    if (ids.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Selecione um ou mais membros para limpar a assinatura.',
+        ),
+      );
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Limpar assinatura de ${ids.length} carteirinha(s)?'),
+        content: const Text(
+          'A carteirinha volta a ficar "Pendente assinatura". Esta ação não pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            child: const Text('Limpar assinatura'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    setState(() => _clearingSignBusy = true);
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+      }
+      final r = await MemberCardSignService.clearBatch(
+        tenantId: _churchIdResolved,
+        memberIds: ids,
+      );
+      if (!mounted) return;
+      if (r.clearedIds.isNotEmpty) {
+        _applyClearSignLocally(r.clearedIds);
+      }
+      if (!context.mounted) return;
+      final msg = r.fail == 0
+          ? '${r.ok} assinatura(s) removida(s).'
+          : r.ok > 0
+          ? 'Removidas: ${r.ok}. Falhas: ${r.fail}.'
+          : 'Não foi possível remover a assinatura. Verifique permissão e conexão.';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(ThemeCleanPremium.feedbackSnackBar(msg));
+      if (r.ok > 0) {
+        unawaited(() async {
+          await Future<void>.delayed(
+            Duration(milliseconds: kIsWeb ? 1500 : 400),
+          );
+          if (!mounted) return;
+          await _reloadMembers(forceRefresh: true);
+          if (_previewMember != null && mounted) {
+            await _loadSingleCard(
+              memberId: _previewMember!.id,
+              seed: _previewMember!.data,
+            );
+          }
+        }());
+      }
+    } catch (e) {
+      if (!mounted) return;
+      final raw = e.toString();
+      final friendly =
+          FirestoreWebGuard.isInternalAssertionError(e) ||
+              raw.contains('INTERNAL ASSERTION') ||
+              raw.contains('Unexpected state')
+          ? 'Conexão com o banco instável na web. '
+                'Aguarde alguns segundos e tente novamente.'
+          : raw;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Erro ao limpar assinatura: $friendly',
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _clearingSignBusy = false);
+    }
+  }
+
   Future<void> _exportPng() async {
     final pr = MediaQuery.devicePixelRatioOf(context) * 1.5;
     final bytes = await _shotCtrl.capture(pixelRatio: pr);
@@ -1873,6 +1996,35 @@ class _MemberCardPageState extends State<MemberCardPage>
                   ),
                 ),
               ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red.shade600,
+                  side: BorderSide(color: Colors.red.shade300),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                onPressed: _clearingSignBusy
+                    ? null
+                    : () => unawaited(_clearSignSelected(context)),
+                icon: _clearingSignBusy
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.red.shade600,
+                        ),
+                      )
+                    : const Icon(Icons.remove_circle_outline_rounded),
+                label: Text(
+                  n == 0
+                      ? 'Limpar assinatura (preview)'
+                      : 'Limpar assinatura ($n)',
+                ),
+              ),
               if (n > 0) ...[
                 const SizedBox(height: 10),
                 TextButton(
@@ -2010,6 +2162,19 @@ class _MemberCardPageState extends State<MemberCardPage>
                   onPressed: () => unawaited(_signSelected(context)),
                   icon: const Icon(Icons.draw_rounded),
                   label: const Text('Assinar'),
+                ),
+              if (_canManage && (_previewMember?.isSigned ?? false))
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red.shade600,
+                    side: BorderSide(color: Colors.red.shade300),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  onPressed: () => unawaited(_clearSignSelected(context)),
+                  icon: const Icon(Icons.remove_circle_outline_rounded),
+                  label: const Text('Limpar assinatura'),
                 ),
             ],
           ),

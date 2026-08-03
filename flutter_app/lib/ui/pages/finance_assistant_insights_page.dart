@@ -17,7 +17,6 @@ import 'package:gestao_yahweh/utils/finance_tip_bank_selector.dart';
 import 'package:gestao_yahweh/utils/finance_health_score.dart';
 import 'package:gestao_yahweh/utils/insights_engine.dart';
 import 'package:gestao_yahweh/models/finance_tip_bank_entry.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_smart_tips_insight.dart';
 import 'package:gestao_yahweh/ui/widgets/skeleton_loader.dart';
 
@@ -107,7 +106,7 @@ class _FinanceAssistantInsightsPageState extends State<FinanceAssistantInsightsP
   }
 
   Future<List<dynamic>> _loadPanel() {
-    final sid = firestoreUserDocIdForAppShell(widget.uid);
+    final sid = widget.uid.trim();
     final (pf, pt) = FinanceAssistantInsightsPage._previousPeriodSameLength(widget.from, widget.to);
     return Future.wait<dynamic>([
       FixedExpenseService().list(sid),

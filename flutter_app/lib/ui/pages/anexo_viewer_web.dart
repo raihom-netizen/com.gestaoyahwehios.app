@@ -140,7 +140,7 @@ class _WebImagePreview extends StatelessWidget {
               ),
             );
           },
-          errorBuilder: (_, __, ___) => _WebPdfEmbedPreview(url: url, fileName: null, width: width, height: height),
+          errorBuilder: (_, _, _) => _WebPdfEmbedPreview(url: url, fileName: null, width: width, height: height),
         ),
       ),
     );

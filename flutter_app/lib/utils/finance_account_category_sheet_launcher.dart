@@ -18,7 +18,6 @@ import 'package:gestao_yahweh/utils/finance_account_balance_utils.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:gestao_yahweh/utils/finance_goal_tx_delete.dart';
 import 'package:gestao_yahweh/services/goal_deposit_service.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/utils/pdf_financeiro_super_extrato.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_confirm_payment_sheet.dart';
@@ -31,7 +30,7 @@ import 'package:gestao_yahweh/ui/widgets/finance_account_category_sheet.dart';
 abstract final class FinanceAccountCategorySheetLauncher {
   FinanceAccountCategorySheetLauncher._();
 
-  static String _fsUid(String uid) => firestoreUserDocIdForAppShell(uid);
+  static String _fsUid(String uid) => uid.trim();
 
   static CollectionReference<Map<String, dynamic>> _txCol(String uid) =>
       FirebaseFirestore.instance

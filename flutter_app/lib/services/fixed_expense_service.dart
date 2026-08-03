@@ -1,13 +1,14 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:gestao_yahweh/constants/app_business_rules.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_status_resolver.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'finance_month_cache.dart';
 
 /// Despesas fixas: todo mês o sistema cria um lançamento automaticamente no período definido pelo usuário.
+/// [uid] em todos os métodos é o `churchId` — por igreja, não por login.
 class FixedExpenseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
@@ -20,15 +21,11 @@ class FixedExpenseService {
   /// Guarda contra chamadas concorrentes de [ensureMonthlyEntries] (race condition → duplicação).
   static Future<int>? _ensureRunning;
 
-  CollectionReference<Map<String, dynamic>> _fixedRef(String uid) => _db
-      .collection('users')
-      .doc(firestoreUserDocIdForAppShell(uid))
-      .collection('fixed_expenses');
+  CollectionReference<Map<String, dynamic>> _fixedRef(String uid) =>
+      ChurchUiCollections.churchDoc(uid.trim()).collection('fixed_expenses');
 
-  CollectionReference<Map<String, dynamic>> _txRef(String uid) => _db
-      .collection('users')
-      .doc(firestoreUserDocIdForAppShell(uid))
-      .collection('transactions');
+  CollectionReference<Map<String, dynamic>> _txRef(String uid) =>
+      ChurchUiCollections.financeiro(uid.trim());
 
   /// Lista todas as despesas fixas ativas do usuário.
   Future<List<Map<String, dynamic>>> list(String uid) async {
@@ -616,7 +613,11 @@ class FixedExpenseService {
           'fixedExpenseMonthKey': monthKey,
           'addToCalendar': addToCalendar,
           if (!addToCalendar) 'hideFromCalendar': true,
-          if (financeAccountId.isNotEmpty) 'financeAccountId': financeAccountId,
+          'pagamentoConfirmado': status != 'pending',
+          if (financeAccountId.isNotEmpty) ...{
+            'financeAccountId': financeAccountId,
+            'contaOrigemId': financeAccountId,
+          },
           if (addToCalendar && calHex.isNotEmpty) 'calendarColorHex': calHex,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),

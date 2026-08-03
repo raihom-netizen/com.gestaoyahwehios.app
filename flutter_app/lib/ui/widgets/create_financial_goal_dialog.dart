@@ -13,7 +13,6 @@ import 'package:gestao_yahweh/models/user_profile.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/utils/date_picker_a11y.dart';
 import 'package:gestao_yahweh/utils/fifty_two_weeks_plan.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/utils/goal_objective_visuals.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
 import 'package:gestao_yahweh/ui/widgets/brl_amount_text_field.dart';
@@ -30,7 +29,7 @@ Future<void> showCreateFinancialGoalDialog(
     mostrarAvisoSeLicencaInativa(context, profile);
     return;
   }
-  final userDocId = firestoreUserDocIdForAppShell(uid);
+  final userDocId = uid.trim();
   if (userDocId.isEmpty) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

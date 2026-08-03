@@ -1,29 +1,26 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:gestao_yahweh/constants/app_business_rules.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_status_resolver.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'finance_month_cache.dart';
 
 /// Receitas fixas (aluguéis, comissões, juros, etc.): o sistema gera lançamentos **pendentes** por mês no período.
 /// Mesma lógica de [FixedExpenseService], com `type: income` e coleção `fixed_incomes`.
+/// [uid] em todos os métodos é o `churchId` — por igreja, não por login.
 class FixedIncomeService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   static const int batchLimit = 500;
   static const int maxMonthsAhead = 24;
 
-  CollectionReference<Map<String, dynamic>> _fixedRef(String uid) => _db
-      .collection('users')
-      .doc(firestoreUserDocIdForAppShell(uid))
-      .collection('fixed_incomes');
+  CollectionReference<Map<String, dynamic>> _fixedRef(String uid) =>
+      ChurchUiCollections.churchDoc(uid.trim()).collection('fixed_incomes');
 
-  CollectionReference<Map<String, dynamic>> _txRef(String uid) => _db
-      .collection('users')
-      .doc(firestoreUserDocIdForAppShell(uid))
-      .collection('transactions');
+  CollectionReference<Map<String, dynamic>> _txRef(String uid) =>
+      ChurchUiCollections.financeiro(uid.trim());
 
   Future<List<Map<String, dynamic>>> list(String uid) async {
     final snap =
@@ -563,7 +560,11 @@ class FixedIncomeService {
           'fixedIncomeMonthKey': monthKey,
           'addToCalendar': addToCalendar,
           if (!addToCalendar) 'hideFromCalendar': true,
-          if (financeAccountId.isNotEmpty) 'financeAccountId': financeAccountId,
+          'recebimentoConfirmado': status != 'pending',
+          if (financeAccountId.isNotEmpty) ...{
+            'financeAccountId': financeAccountId,
+            'contaDestinoId': financeAccountId,
+          },
           if (addToCalendar && calHex.isNotEmpty) 'calendarColorHex': calHex,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),

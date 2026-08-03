@@ -1,6 +1,6 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/constants/app_business_rules.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
 /// Preferências de exibição das despesas fixas: contas pendentes e quantos meses à frente.
 class FixedExpensePreferencesService {
@@ -11,11 +11,8 @@ class FixedExpensePreferencesService {
       AppBusinessRules.pendingMonthsAheadDefault;
   static const String _pendingMonthsAheadKey = 'pendingMonthsAhead';
 
-  DocumentReference<Map<String, dynamic>> _settingsRef(String uid) => _db
-      .collection('users')
-      .doc(firestoreUserDocIdForAppShell(uid))
-      .collection('settings')
-      .doc('fixed_expenses');
+  DocumentReference<Map<String, dynamic>> _settingsRef(String uid) =>
+      ChurchUiCollections.config(uid.trim()).doc('fixed_expenses_prefs');
 
   /// Mostrar parcelas de despesas fixas na lista "Despesas pendentes" (módulo financeiro).
   Future<bool> getShowInPending(String uid) async {

@@ -24,6 +24,7 @@ import 'package:gestao_yahweh/ui/widgets/finance_premium_lancamento_ui.dart'
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_fixo_premium_dialogs.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_resumo_charts_section.dart';
+import 'package:gestao_yahweh/ui/widgets/controle_total_finance_clone_widgets.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:intl/intl.dart';
@@ -411,74 +412,17 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: LayoutBuilder(
-                builder: (context, c) {
-                  final narrow = c.maxWidth < 520;
-                  final cards = [
-                    _KpiTile(
-                      label: 'Despesas',
-                      value: money.format(totals.despesas),
-                      color: const Color(0xFFB91C1C),
-                      bg: const Color(0xFFFEE2E2),
-                    ),
-                    _KpiTile(
-                      label: 'Receitas',
-                      value: money.format(totals.receitas),
-                      color: const Color(0xFF15803D),
-                      bg: const Color(0xFFDCFCE7),
-                    ),
-                    _KpiTile(
-                      label: 'Saldo',
-                      value: money.format(totals.saldo),
-                      color: totals.saldo >= 0
-                          ? const Color(0xFF0D9488)
-                          : const Color(0xFFB91C1C),
-                      bg: totals.saldo >= 0
-                          ? const Color(0xFFCCFBF1)
-                          : const Color(0xFFFEE2E2),
-                    ),
-                  ];
-                  if (narrow) {
-                    return Column(
-                      children: [
-                        _KpiTile(
-                          label: 'Saldo bancos (contas)',
-                          value: money.format(_saldoBancos),
-                          color: const Color(0xFF1D4ED8),
-                          bg: const Color(0xFFDBEAFE),
-                          fullWidth: true,
-                          onTap: () => _openGrid(),
-                        ),
-                        const SizedBox(height: 8),
-                        for (final card in cards) ...[
-                          card,
-                          const SizedBox(height: 8),
-                        ],
-                      ],
-                    );
-                  }
-                  return Column(
-                    children: [
-                      _KpiTile(
-                        label: 'Saldo bancos (contas)',
-                        value: money.format(_saldoBancos),
-                        color: const Color(0xFF1D4ED8),
-                        bg: const Color(0xFFDBEAFE),
-                        fullWidth: true,
-                        onTap: () => _openGrid(),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          for (var i = 0; i < cards.length; i++) ...[
-                            if (i > 0) const SizedBox(width: 8),
-                            Expanded(child: cards[i]),
-                          ],
-                        ],
-                      ),
-                    ],
-                  );
-                },
+              child: ControleTotalSupplierFinanceCard(
+                title: 'Financeiro do fornecedor',
+                subtitle: '${_visible.length} lançamento(s) vinculado(s)',
+                saldoBancos: money.format(_saldoBancos),
+                despesas: money.format(totals.despesas),
+                receitas: money.format(totals.receitas),
+                saldo: money.format(totals.saldo),
+                saldoNegativo: totals.saldo < 0,
+                onOpenLancamentos: () => _openGrid(filtro: 'todos'),
+                onOpenPendentes: () => _openGrid(filtro: 'pendentes'),
+                onOpenComprovantes: () => _openGrid(filtro: 'todos'),
               ),
             ),
           ),
@@ -889,110 +833,23 @@ class _FornecedoresFinanceModuloTabState
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: _KpiTile(
-                label: 'Saldo bancos (contas)',
-                value: money.format(_saldoBancos),
-                color: const Color(0xFF1D4ED8),
-                bg: const Color(0xFFDBEAFE),
-                fullWidth: true,
-                onTap: rows.isEmpty
-                    ? null
+              child: ControleTotalSupplierFinanceCard(
+                title: 'Financeiro por fornecedor',
+                subtitle: '${porFn.length} com movimentação',
+                saldoBancos: money.format(_saldoBancos),
+                despesas: money.format(totalD),
+                receitas: money.format(totalR),
+                saldo: money.format(totalR - totalD),
+                saldoNegativo: (totalR - totalD) < 0,
+                onOpenLancamentos: rows.isEmpty
+                    ? () {}
                     : () => _openLancamentosGrid(rows.first.key),
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final narrow = constraints.maxWidth < 540;
-                  final halfWidth = (constraints.maxWidth - 10) / 2;
-                  final cards = <Widget>[
-                    _KpiTile(
-                      label: 'Despesas (geral)',
-                      value: money.format(totalD),
-                      color: const Color(0xFFB91C1C),
-                      bg: const Color(0xFFFEE2E2),
-                      icon: Icons.trending_down_rounded,
-                      onTap: rows.isEmpty
-                          ? null
-                          : () => _openLancamentosGrid(
-                              rows.first.key,
-                              filtro: 'despesas',
-                            ),
-                    ),
-                    _KpiTile(
-                      label: 'Receitas (geral)',
-                      value: money.format(totalR),
-                      color: const Color(0xFF15803D),
-                      bg: const Color(0xFFDCFCE7),
-                      icon: Icons.trending_up_rounded,
-                      onTap: rows.isEmpty
-                          ? null
-                          : () {
-                              final byRec = porFn.entries.toList()
-                                ..sort(
-                                  (a, b) => b.value.receitas.compareTo(
-                                    a.value.receitas,
-                                  ),
-                                );
-                              if (byRec.first.value.receitas <= 0) return;
-                              _openLancamentosGrid(
-                                byRec.first.key,
-                                filtro: 'receitas',
-                              );
-                            },
-                    ),
-                    _KpiTile(
-                      label: 'Saldo fornecedores',
-                      value: money.format(totalR - totalD),
-                      color: (totalR - totalD) >= 0
-                          ? const Color(0xFF0D9488)
-                          : const Color(0xFFB91C1C),
-                      bg: (totalR - totalD) >= 0
-                          ? const Color(0xFFCCFBF1)
-                          : const Color(0xFFFEE2E2),
-                      icon: Icons.account_balance_wallet_rounded,
-                      onTap: rows.isEmpty
-                          ? null
-                          : () {
-                              final bySaldo = porFn.entries.toList()
-                                ..sort(
-                                  (a, b) =>
-                                      (b.value.receitas - b.value.despesas)
-                                          .abs()
-                                          .compareTo(
-                                            (a.value.receitas -
-                                                    a.value.despesas)
-                                                .abs(),
-                                          ),
-                                );
-                              _openLancamentosGrid(bySaldo.first.key);
-                            },
-                    ),
-                  ];
-                  if (!narrow) {
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        for (var i = 0; i < cards.length; i++) ...[
-                          if (i > 0) const SizedBox(width: 8),
-                          Expanded(child: cards[i]),
-                        ],
-                      ],
-                    );
-                  }
-                  return Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      SizedBox(width: halfWidth, child: cards[0]),
-                      SizedBox(width: halfWidth, child: cards[1]),
-                      SizedBox(width: constraints.maxWidth, child: cards[2]),
-                    ],
-                  );
-                },
+                onOpenPendentes: rows.isEmpty
+                    ? () {}
+                    : () => _openLancamentosGrid(rows.first.key, filtro: 'pendentes'),
+                onOpenComprovantes: rows.isEmpty
+                    ? () {}
+                    : () => _openLancamentosGrid(rows.first.key),
               ),
             ),
           ),
@@ -1067,10 +924,7 @@ class _KpiTile extends StatelessWidget {
     required this.value,
     required this.color,
     required this.bg,
-    this.onTap,
-    this.fullWidth = false,
-    this.icon,
-  });
+  }) : onTap = null, fullWidth = false, icon = null;
 
   final String label;
   final String value;

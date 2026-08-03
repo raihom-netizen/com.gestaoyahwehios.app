@@ -69,6 +69,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaUrlEligibleForHostedInlinePlayer,
         looksLikeHostedVideoFileUrl,
         postFeedCarouselAspectRatioForIndex;
+import 'package:gestao_yahweh/ui/widgets/aviso_evento_social_link_button.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_event_detail_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_post_card.dart'
     show yahwehPostGalleryRefs;
@@ -8749,6 +8750,15 @@ class _DestaqueCardState extends State<_DestaqueCard> {
                         ],
                       ),
                     ),
+                  ),
+                ),
+              if ((data['instagramUrl'] ?? '').toString().trim().isNotEmpty ||
+                  (eventNoticiaExternalVideoUrl(data) ?? '').isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: avisoEventoSocialLinksRow(
+                    instagramUrl: (data['instagramUrl'] ?? '').toString(),
+                    youtubeUrl: eventNoticiaExternalVideoUrl(data),
                   ),
                 ),
               YahwehSocialPostBar(

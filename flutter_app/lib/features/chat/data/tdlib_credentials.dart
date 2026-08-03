@@ -30,11 +30,13 @@ Future<void> loadTdlibDotEnv() async {
 
 /// Lê `config/telegram_tdlib` (painel master) e cacheia em memória.
 Future<void> ensureTelegramCredentialsLoaded({bool force = false}) async {
-  if (_firestoreLoadAttempted && !force) return;
+  if (_firestoreLoadAttempted && !force && (_firestoreApiId ?? 0) > 0) {
+    return;
+  }
   _firestoreLoadAttempted = true;
   await loadTdlibDotEnv();
   try {
-    final cfg = await TelegramTdlibConfigService.load();
+    final cfg = await TelegramTdlibConfigService.load(preferServer: true);
     if (cfg.isConfigured) {
       _firestoreApiId = cfg.apiId;
       _firestoreApiHash = cfg.apiHash;
@@ -46,7 +48,10 @@ Future<void> ensureTelegramCredentialsLoaded({bool force = false}) async {
       }
     }
   } catch (_) {
-    // mantém fallbacks build/.env
+    // Retry permitido na próxima chamada se ainda não houver credencial.
+    if ((_firestoreApiId ?? 0) <= 0) {
+      _firestoreLoadAttempted = false;
+    }
   }
 }
 

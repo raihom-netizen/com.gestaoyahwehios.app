@@ -22,7 +22,6 @@ import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/finance_goal_tx_delete.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_datetime.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/utils/date_picker_a11y.dart';
 import 'package:gestao_yahweh/utils/fifty_two_weeks_plan.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
@@ -62,7 +61,7 @@ Future<bool> showFinanceTransactionEditDialog({
     mostrarAvisoSeLicencaInativa(context, profile);
     return false;
   }
-  final fsUid = firestoreUserDocIdForAppShell(uid);
+  final fsUid = uid.trim();
   final pairId = (current['transferPairId'] ?? '').toString().trim();
   if (pairId.isNotEmpty) {
     final accounts = financeAccountsPreloaded ??

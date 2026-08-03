@@ -1,17 +1,15 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/constants/default_categories.dart';
-import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
-/// Categorias de receita e despesa do usuário: padrão + customizadas (só ele vê).
-/// Salvas em users/{uid}/settings/custom_categories. Novos usuários só têm o padrão.
+/// Categorias de receita/despesa do Financeiro: padrão + customizadas **por
+/// igreja** (`igrejas/{churchId}/config/finance_categorias`), compartilhadas
+/// por toda a equipe autorizada, não por login individual.
 class UserCategoriesService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
-  DocumentReference<Map<String, dynamic>> _ref(String uid) => _db
-      .collection('users')
-      .doc(firestoreUserDocIdForAppShell(uid))
-      .collection('settings')
-      .doc('custom_categories');
+  DocumentReference<Map<String, dynamic>> _ref(String uid) =>
+      ChurchUiCollections.config(uid.trim()).doc('finance_categorias');
 
   /// Carrega listas completas: padrão + customizadas, ordenadas alfabeticamente (pt-BR).
   /// Primeira opção é sempre "Incluir nova" (código especial).

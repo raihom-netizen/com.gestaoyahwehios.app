@@ -1,6 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'package:gestao_yahweh/models/scale_entry.dart';
 
 /// Cor padrão de compromisso particular na Agenda/Escalas.
 const String kAgendaCompromissoDefaultColor = '#12B5A5';

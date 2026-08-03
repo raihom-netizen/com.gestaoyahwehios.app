@@ -62,8 +62,8 @@ class _CompromissoFormPageState extends State<CompromissoFormPage> {
   final _titleCtrl = TextEditingController(text: 'Compromisso');
   final _notesCtrl = TextEditingController();
   late DateTime _date;
-  TimeOfDay _start = const TimeOfDay(hour: 9, minute: 0);
-  TimeOfDay _end = const TimeOfDay(hour: 10, minute: 0);
+  final TimeOfDay _start = const TimeOfDay(hour: 9, minute: 0);
+  final TimeOfDay _end = const TimeOfDay(hour: 10, minute: 0);
 
   @override
   void initState() {
