@@ -3126,15 +3126,25 @@ class ChurchChatService {
 
       final messages = messagesCol(resolved, tid);
       // Até ~50 lotes × 400 = 20k mensagens — suficiente para limpar conversa.
+      // Cada lote passa pelo wrapper de recovery da Web (client-terminated /
+      // internal assertion) — sem isso, uma falha do SDK no meio de uma
+      // conversa longa abortava a limpeza inteira sem retry.
       for (var round = 0; round < 50; round++) {
-        final snap = await messages.limit(400).get();
-        if (snap.docs.isEmpty) break;
-        final batch = _db.batch();
-        for (final doc in snap.docs) {
-          batch.delete(doc.reference);
-        }
-        await batch.commit();
-        if (snap.docs.length < 400) break;
+        final deletedInRound = await runFirestorePublishWithRecovery<int>(
+          () async {
+            final snap = await messages.limit(400).get();
+            if (snap.docs.isEmpty) return 0;
+            final batch = _db.batch();
+            for (final doc in snap.docs) {
+              batch.delete(doc.reference);
+            }
+            await batch.commit();
+            return snap.docs.length;
+          },
+          maxAttempts: 3,
+          criticalWrite: true,
+        );
+        if (deletedInRound < 400) break;
       }
 
       // Zera o preview do thread (mantém participantes / DM intacta).

@@ -412,8 +412,8 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
       if (vu.isEmpty || !isValidImageUrl(vu)) return null;
       final vBytes = await firebaseStorageBytesFromDownloadUrl(
         vu,
-        maxBytes: 10 * 1024 * 1024,
-      ).timeout(const Duration(seconds: 6), onTimeout: () => null);
+        maxBytes: 40 * 1024 * 1024,
+      ).timeout(const Duration(seconds: 25), onTimeout: () => null);
       if (vBytes == null || vBytes.length <= 512) return null;
       final low = vu.toLowerCase().split('?').first;
       final ext = low.endsWith('.webm')

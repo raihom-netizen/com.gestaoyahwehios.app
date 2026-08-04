@@ -69,7 +69,10 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
-    show eventTemplateIncludeInAgenda, formatPublicDatePt;
+    show
+        eventTemplateIncludeInAgenda,
+        expandTemplateOccurrencesInRange,
+        formatPublicDatePt;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
@@ -6065,9 +6068,11 @@ class _EventoPostState extends State<_EventoPost>
     final allImages = _eventFeedCardPhotoUrls(data);
     final hasImages =
         allImages.isNotEmpty || eventNoticiaDocHasPhotoMedia(data);
+    final hasAnyMedia = hasImages || eventNoticiaDocHasPlayableVideo(data);
     final publishState = (data['publishState'] ?? '').toString();
     final mediaUploading =
-        publishState == MuralFastPublishService.stateUploading && !hasImages;
+        publishState == MuralFastPublishService.stateUploading &&
+        !hasAnyMedia;
     final publishFailed = publishState == MuralFastPublishService.stateFailed;
     final publishError = (data['publishError'] ?? '').toString();
     final location = (data['location'] ?? '').toString();
@@ -6207,7 +6212,7 @@ class _EventoPostState extends State<_EventoPost>
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if ((mediaUploading || publishFailed) && !hasImages)
+              if ((mediaUploading || publishFailed) && !hasAnyMedia)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
                   child: FutureBuilder<List<Uint8List>?>(
@@ -7764,6 +7769,228 @@ class _FeedSkeleton extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Seletor de recorrência (vários dias da semana + período) — Novo Evento
+// ═══════════════════════════════════════════════════════════════════════════════
+class _EventoRecurrenceSection extends StatelessWidget {
+  const _EventoRecurrenceSection({
+    required this.recorrente,
+    required this.onRecorrenteChanged,
+    required this.selectedWeekdays,
+    required this.onWeekdayToggled,
+    required this.validFrom,
+    required this.validUntil,
+    required this.onValidFromChanged,
+    required this.onValidUntilChanged,
+    required this.allDay,
+    required this.onAllDayChanged,
+    required this.startTime,
+    required this.endTime,
+    required this.onStartTimeChanged,
+    required this.onEndTimeChanged,
+  });
+
+  final bool recorrente;
+  final ValueChanged<bool> onRecorrenteChanged;
+  final Set<int> selectedWeekdays;
+  final ValueChanged<int> onWeekdayToggled;
+  final DateTime? validFrom;
+  final DateTime? validUntil;
+  final ValueChanged<DateTime?> onValidFromChanged;
+  final ValueChanged<DateTime?> onValidUntilChanged;
+  final bool allDay;
+  final ValueChanged<bool> onAllDayChanged;
+  final TimeOfDay startTime;
+  final TimeOfDay endTime;
+  final ValueChanged<TimeOfDay> onStartTimeChanged;
+  final ValueChanged<TimeOfDay> onEndTimeChanged;
+
+  static const _weekdayColors = _EventsManagerPageState._eventoFixoWeekdayColors;
+  static const _weekdayLabels = _EventsManagerPageState._eventoFixoWeekdayLabels;
+
+  Future<void> _pickDate(
+    BuildContext context, {
+    required DateTime? initial,
+    required DateTime? firstDate,
+    required ValueChanged<DateTime?> onChanged,
+  }) async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial ?? firstDate ?? now,
+      firstDate: firstDate ?? DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 3),
+      locale: const Locale('pt', 'BR'),
+    );
+    if (picked != null) onChanged(picked);
+  }
+
+  String _fmtDate(DateTime? d) => d == null
+      ? '—'
+      : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+
+  String _fmtTime(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.event_repeat_rounded,
+                  size: 20, color: ThemeCleanPremium.primary),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Repetir em vários dias',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                ),
+              ),
+              Switch.adaptive(
+                value: recorrente,
+                onChanged: onRecorrenteChanged,
+              ),
+            ],
+          ),
+          Text(
+            'Ex.: toda sexta, de 07/08 até 19/09 — ou sexta, sábado e domingo, até uma data final.',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.3),
+          ),
+          if (recorrente) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: List.generate(7, (i) {
+                final wd = i + 1; // ISO 1=Seg ... 7=Dom
+                final selected = selectedWeekdays.contains(wd);
+                final color = _weekdayColors[i];
+                return ChoiceChip(
+                  label: Text(_weekdayLabels[i]),
+                  selected: selected,
+                  onSelected: (_) => onWeekdayToggled(wd),
+                  selectedColor: color.withValues(alpha: 0.18),
+                  labelStyle: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: selected ? color : Colors.grey.shade700,
+                  ),
+                  side: BorderSide(
+                    color: selected ? color : Colors.grey.shade300,
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _pickDate(
+                      context,
+                      initial: validFrom,
+                      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                      onChanged: onValidFromChanged,
+                    ),
+                    icon: const Icon(Icons.event_rounded, size: 18),
+                    label: Text('De: ${_fmtDate(validFrom)}',
+                        overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _pickDate(
+                      context,
+                      initial: validUntil,
+                      firstDate: validFrom,
+                      onChanged: onValidUntilChanged,
+                    ),
+                    icon: const Icon(Icons.event_busy_rounded, size: 18),
+                    label: Text('Até: ${_fmtDate(validUntil)}',
+                        overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: allDay,
+              onChanged: onAllDayChanged,
+              title: const Text('Dia inteiro'),
+              subtitle: Text(
+                'Aplica-se a todas as datas geradas.',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+              secondary: const Icon(Icons.calendar_view_day_rounded),
+            ),
+            if (!allDay)
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final t = await showTimePicker(
+                          context: context,
+                          initialTime: startTime,
+                          builder: (context, child) => MediaQuery(
+                            data: MediaQuery.of(context)
+                                .copyWith(alwaysUse24HourFormat: true),
+                            child: child!,
+                          ),
+                          helpText: 'Horário de início',
+                        );
+                        if (t != null) onStartTimeChanged(t);
+                      },
+                      icon: const Icon(Icons.schedule_rounded, size: 18),
+                      label: Text('Início: ${_fmtTime(startTime)}'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final t = await showTimePicker(
+                          context: context,
+                          initialTime: endTime,
+                          builder: (context, child) => MediaQuery(
+                            data: MediaQuery.of(context)
+                                .copyWith(alwaysUse24HourFormat: true),
+                            child: child!,
+                          ),
+                          helpText: 'Horário de término',
+                        );
+                        if (t != null) onEndTimeChanged(t);
+                      },
+                      icon: const Icon(Icons.schedule_rounded, size: 18),
+                      label: Text('Fim: ${_fmtTime(endTime)}'),
+                    ),
+                  ),
+                ],
+              ),
+            const SizedBox(height: 4),
+            Text(
+              'Um evento será publicado em cada dia gerado, com a mesma foto/vídeo, texto e local.',
+              style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500, height: 1.3),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Formulário de Evento (com múltiplas imagens)
 // ═══════════════════════════════════════════════════════════════════════════════
 class _EventoFormPage extends StatefulWidget {
@@ -8233,6 +8460,15 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   bool _allDay = false;
   late DateTime _allDayEndDate;
   late DateTime _endDateTime;
+  // Recorrência (evento em vários dias da semana, ex.: toda sexta 07/08→19/09,
+  // ou sexta+sábado+domingo) — reaproveita o mesmo pipeline de publicação do
+  // evento único, uma vez por data gerada.
+  bool _recorrente = false;
+  final Set<int> _recorrenteWeekdays = {}; // ISO 1=Seg ... 7=Dom
+  DateTime? _recorrenteValidFrom;
+  DateTime? _recorrenteValidUntil;
+  TimeOfDay _recorrenteStartTime = const TimeOfDay(hour: 19, minute: 30);
+  TimeOfDay _recorrenteEndTime = const TimeOfDay(hour: 21, minute: 0);
   String? _eventCategoryId;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _categoryDocs = [];
   bool _loadingCategories = false;
@@ -9916,6 +10152,238 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
+  /// Evento recorrente: publica um post completo (mesma foto/vídeo/texto) para
+  /// cada data gerada a partir dos dias da semana + período escolhidos.
+  /// A 1ª data sobe a mídia normalmente; as seguintes reaproveitam a mesma
+  /// mídia já enviada (sem novo upload) — ver [EventoPublishService.publish].
+  Future<void> _publishRecurringSeries() async {
+    if (_saving) return;
+    if (_mediaPicking) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Aguarde a preparação das fotos terminar.',
+        ),
+      );
+      return;
+    }
+    if (_title.text.trim().isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Informe o título.')));
+      return;
+    }
+    if (_recorrenteWeekdays.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecione ao menos um dia da semana.'),
+        ),
+      );
+      return;
+    }
+    final from = _recorrenteValidFrom;
+    final until = _recorrenteValidUntil;
+    if (from == null || until == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Informe o período (De / Até).')),
+      );
+      return;
+    }
+    if (until.isBefore(from)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('A data «Até» deve ser igual ou depois da «De».'),
+        ),
+      );
+      return;
+    }
+    final timeHHmm =
+        '${_recorrenteStartTime.hour.toString().padLeft(2, '0')}:'
+        '${_recorrenteStartTime.minute.toString().padLeft(2, '0')}';
+    final occSet = <DateTime>{};
+    for (final wd in _recorrenteWeekdays) {
+      occSet.addAll(
+        expandTemplateOccurrencesInRange(
+          weekday: wd,
+          timeHHmm: timeHHmm,
+          recurrence: 'weekly',
+          rangeStart: from,
+          rangeEnd: until,
+          validFrom: from,
+          validUntil: until,
+        ),
+      );
+    }
+    if (occSet.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Nenhuma data cai no período/dias escolhidos.'),
+        ),
+      );
+      return;
+    }
+    final dates = occSet.toList()..sort();
+
+    Duration eventDuration() {
+      final startMin =
+          _recorrenteStartTime.hour * 60 + _recorrenteStartTime.minute;
+      final endMin = _recorrenteEndTime.hour * 60 + _recorrenteEndTime.minute;
+      final diff = endMin - startMin;
+      return Duration(minutes: diff > 0 ? diff : 120);
+    }
+
+    setState(() => _saving = true);
+    try {
+      await DirectStorageUrlPublish.ensureReady(requireAuth: true);
+    } catch (_) {}
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Publicando ${dates.length} eventos…',
+        ),
+      );
+    }
+
+    var publishedCount = 0;
+    try {
+      List<Uint8List> compressedPhotos;
+      try {
+        compressedPhotos = await _prepareCompressedEventPhotosForPublish();
+      } catch (e, st) {
+        ChurchPublishFlowLog.logCatch(
+          e,
+          st,
+          label: 'evento_recorrente_compress',
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.errorSnackBarWithRetry(
+              formatUploadErrorForUser(e),
+              onRetry: _publishRecurringSeries,
+            ),
+          );
+          setState(() => _saving = false);
+        }
+        return;
+      }
+      final ctx = await _prepareEventoPublishContext();
+      final firstDocRef = ctx.docRef;
+      final publishTenantId = ctx.igrejaId;
+      final localVideoPath = _pendingLocalVideoPath();
+      final hasVideo = _eventHasHostedVideoForPublish(publishTenantId);
+      final videoPathForPublish = _videoStoragePathForPublish(
+        publishTenantId,
+      );
+
+      // 1ª ocorrência: pipeline normal (sobe foto/vídeo de verdade).
+      final firstDt = dates.first;
+      _date = firstDt;
+      _endDateTime = _allDay ? firstDt : firstDt.add(eventDuration());
+      if (_allDay) {
+        _allDayEndDate = DateTime(firstDt.year, firstDt.month, firstDt.day);
+      }
+      final firstPayload = _buildEventCorePayload(
+        allUrls: const [],
+        aspectRatio: null,
+        isNewDoc: true,
+      );
+      await EventoCreatePublishService.publish(
+        docRef: firstDocRef,
+        tenantId: publishTenantId,
+        corePayload: firstPayload,
+        isNewDoc: true,
+        existingUrls: const [],
+        startSlotIndex: 0,
+        hasVideo: hasVideo,
+        newImagesBytes: compressedPhotos.isNotEmpty ? compressedPhotos : null,
+        newImagePaths: null,
+        videoStoragePath: videoPathForPublish,
+        localVideoPath: localVideoPath,
+        publicSite: _publicSite,
+        eventStartAt: firstDt,
+        location: _localSalvo(),
+        agendaCategory: _agendaCategoryKeyFromEvent(),
+        agendaColorHex: _agendaColorHexForCategory(),
+      );
+      ChurchEventosLoadService.invalidate(publishTenantId);
+      publishedCount++;
+
+      // Lê de volta a mídia realmente gravada (URLs + path do vídeo) para
+      // reaproveitar nas próximas datas, sem subir foto/vídeo de novo.
+      final firstSnap = await firstDocRef.get();
+      final firstData = firstSnap.data() ?? {};
+      final reusedPhotoUrls = eventNoticiaPhotoUrls(firstData);
+      final reusedVideoPath = (firstData['videoPath'] ?? '').toString().trim();
+      final reusedHasVideo = reusedVideoPath.isNotEmpty;
+
+      for (final dt in dates.skip(1)) {
+        final ref = widget.noticias.doc();
+        _date = dt;
+        _endDateTime = _allDay ? dt : dt.add(eventDuration());
+        if (_allDay) {
+          _allDayEndDate = DateTime(dt.year, dt.month, dt.day);
+        }
+        final payload = _buildEventCorePayload(
+          allUrls: reusedPhotoUrls,
+          aspectRatio: null,
+          isNewDoc: true,
+        );
+        await EventoCreatePublishService.publish(
+          docRef: ref,
+          tenantId: publishTenantId,
+          corePayload: payload,
+          isNewDoc: true,
+          existingUrls: reusedPhotoUrls,
+          startSlotIndex: 0,
+          hasVideo: reusedHasVideo,
+          newImagesBytes: null,
+          newImagePaths: null,
+          videoStoragePath: reusedHasVideo ? reusedVideoPath : null,
+          localVideoPath: null,
+          publicSite: _publicSite,
+          eventStartAt: dt,
+          location: _localSalvo(),
+          agendaCategory: _agendaCategoryKeyFromEvent(),
+          agendaColorHex: _agendaColorHexForCategory(),
+        );
+        publishedCount++;
+      }
+
+      ChurchEventosLoadService.invalidate(publishTenantId);
+      await MuralPostPendingMediaCache.remove(
+        tenantId: publishTenantId,
+        postId: firstDocRef.id,
+      );
+      _clearPendingEventPhotosAfterPublish();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            '$publishedCount eventos publicados (recorrência).',
+          ),
+        );
+        Navigator.pop(context, true);
+      }
+    } catch (e, st) {
+      ChurchPublishFlowLog.logCatch(e, st, label: 'evento_recorrente_publish');
+      unawaited(
+        CrashlyticsService.record(e, st, reason: 'eventos_recorrente_publish'),
+      );
+      if (mounted) {
+        setState(() => _saving = false);
+        final base = formatUploadErrorForUser(e);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              publishedCount > 0
+                  ? '$publishedCount eventos publicados, mas houve um erro nos seguintes: $base'
+                  : base,
+            ),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _save() async {
     if (_saving) return;
     if (_mediaPicking) {
@@ -10543,7 +11011,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   publishLabel: publishLabel,
                   accentColor: ThemeCleanPremium.primary,
                   onCancel: () => Navigator.maybePop(context),
-                  onPublish: _save,
+                  onPublish: _recorrente ? _publishRecurringSeries : _save,
                 ),
               ],
             ),
@@ -10907,6 +11375,37 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       label: const Text('Gerir categorias'),
                     ),
                   ),
+                  if (widget.doc == null) ...[
+                    _EventoRecurrenceSection(
+                      recorrente: _recorrente,
+                      onRecorrenteChanged: (v) =>
+                          setState(() => _recorrente = v),
+                      selectedWeekdays: _recorrenteWeekdays,
+                      onWeekdayToggled: (wd) => setState(() {
+                        if (_recorrenteWeekdays.contains(wd)) {
+                          _recorrenteWeekdays.remove(wd);
+                        } else {
+                          _recorrenteWeekdays.add(wd);
+                        }
+                      }),
+                      validFrom: _recorrenteValidFrom,
+                      validUntil: _recorrenteValidUntil,
+                      onValidFromChanged: (d) =>
+                          setState(() => _recorrenteValidFrom = d),
+                      onValidUntilChanged: (d) =>
+                          setState(() => _recorrenteValidUntil = d),
+                      allDay: _allDay,
+                      onAllDayChanged: (v) => setState(() => _allDay = v),
+                      startTime: _recorrenteStartTime,
+                      endTime: _recorrenteEndTime,
+                      onStartTimeChanged: (t) =>
+                          setState(() => _recorrenteStartTime = t),
+                      onEndTimeChanged: (t) =>
+                          setState(() => _recorrenteEndTime = t),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (!_recorrente) ...[
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     value: _allDay,
@@ -11132,6 +11631,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         ),
                       ),
                     ),
+                  ],
                   ],
                   const SizedBox(height: 8),
                   Container(

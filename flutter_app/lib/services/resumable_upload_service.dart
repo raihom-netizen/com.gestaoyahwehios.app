@@ -1,3 +1,4 @@
+import 'dart:async' show TimeoutException;
 import 'dart:io';
 
 import 'package:gestao_yahweh/services/upload_bytes_core.dart';
@@ -7,6 +8,12 @@ abstract final class ResumableUploadService {
   ResumableUploadService._();
 
   static const int filePutThresholdBytes = 2 * 1024 * 1024;
+
+  /// Teto total para um upload resumível (vídeo/ficheiro grande no chat).
+  /// Sem isto, uma sessão resumível que trava (rede caiu no meio, etc.)
+  /// ficava à espera para sempre — sem nunca cair no estado de erro que a
+  /// UI já sabe mostrar ("Falha no envio" + tentar de novo).
+  static const Duration uploadTotalTimeout = Duration(minutes: 5);
 
   static bool shouldUseFileUpload(String contentType, int byteLength) {
     if (byteLength >= filePutThresholdBytes) return true;
@@ -29,6 +36,12 @@ abstract final class ResumableUploadService {
       file: file,
       contentType: contentType,
       onProgress: onProgress,
+    ).timeout(
+      uploadTotalTimeout,
+      onTimeout: () => throw TimeoutException(
+        'Envio demorou demais — verifique a rede e tente de novo.',
+        uploadTotalTimeout,
+      ),
     );
   }
 }

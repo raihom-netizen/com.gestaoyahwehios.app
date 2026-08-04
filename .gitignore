@@ -66,3 +66,6 @@ firebase-debug.log
 # CI token local (nunca commitar)
 .firebase-ci-token
 **/.firebase-ci-token
+
+# Screenshots de bug report via WhatsApp (dados pessoais de membros, nao versionar)
+/fotos erros/

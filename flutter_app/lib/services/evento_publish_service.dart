@@ -11,8 +11,11 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
+import 'package:gestao_yahweh/services/evento_media_upload.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show dedupeImageRefsByStorageIdentity;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Publicação de evento — pipeline **linear**: bootstrap → fotos/vídeo → Storage → Firestore → agenda → feed/site.
@@ -72,6 +75,13 @@ abstract final class EventoPublishService {
         (newImagesBytes?.isNotEmpty ?? false) ||
         (newImagePaths?.isNotEmpty ?? false);
     final localVideo = (localVideoPath ?? '').trim();
+    final wantsVideoUpload = hasVideo && localVideo.isNotEmpty;
+    // Pré-upload de fotos em paralelo com o vídeo só quando já há bytes prontos
+    // (caminho real do editor de evento — ver events_manager_page.dart, sempre
+    // passa newImagesBytes, nunca newImagePaths). Sem isso o vídeo (que pode
+    // demorar bastante) e as fotos subiam em série, dobrando o tempo de espera.
+    final canPreUploadPhotos =
+        wantsVideoUpload && (newImagesBytes?.isNotEmpty ?? false);
 
     await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
 
@@ -81,7 +91,8 @@ abstract final class EventoPublishService {
     var resolvedVideoPath = (videoStoragePath ?? '').trim();
     final payload = Map<String, dynamic>.from(corePayload);
 
-    if (hasVideo && localVideo.isNotEmpty) {
+    Future<void> uploadVideo() async {
+      if (!wantsVideoUpload) return;
       ChurchPublishFlowLog.uploadStart('evento video ${docRef.id}');
       try {
         final uploaded = await VideoHandlerService.instance
@@ -129,6 +140,51 @@ abstract final class EventoPublishService {
       }
     }
 
+    var mergedExistingUrls = existingUrls;
+    var remainingNewImagesBytes = newImagesBytes;
+    var remainingNewImagePaths = newImagePaths;
+
+    Future<void> preUploadPhotos() async {
+      if (!canPreUploadPhotos) return;
+      try {
+        final slots = await EventoMediaUpload.uploadPhotoBatch(
+          churchId: churchId,
+          postId: docRef.id,
+          startSlotIndex: startSlotIndex,
+          bytesList: newImagesBytes!,
+          alreadyCompressed: true,
+        );
+        final urls = [
+          for (final s in slots)
+            if (s.fullUrl.trim().isNotEmpty) s.fullUrl.trim(),
+        ];
+        // Só reaproveita o pré-upload se TODAS as fotos subiram — parcial cai
+        // no caminho normal (fotos sobem de novo dentro do publishEvento).
+        if (urls.length == newImagesBytes.length) {
+          mergedExistingUrls = dedupeImageRefsByStorageIdentity([
+            ...existingUrls,
+            ...urls,
+          ]);
+          remainingNewImagesBytes = null;
+          remainingNewImagePaths = null;
+        }
+      } catch (e, st) {
+        // Falha no pré-upload paralelo: segue com o caminho normal (fotos
+        // sobem dentro do publishEvento, sem perder o evento por causa disso).
+        ChurchPublishFlowLog.logCatch(
+          e,
+          st,
+          label: 'evento_photo_preupload_fallback',
+        );
+      }
+    }
+
+    if (wantsVideoUpload) {
+      await Future.wait([uploadVideo(), preUploadPhotos()]);
+    } else {
+      await uploadVideo();
+    }
+
     Object? last;
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
@@ -137,10 +193,10 @@ abstract final class EventoPublishService {
           tenantId: churchId,
           corePayload: payload,
           isNewDoc: isNewDoc,
-          existingPhotoRefs: existingUrls,
+          existingPhotoRefs: mergedExistingUrls,
           startSlotIndex: startSlotIndex,
-          newImagesBytes: newImagesBytes,
-          newImagePaths: newImagePaths,
+          newImagesBytes: remainingNewImagesBytes,
+          newImagePaths: remainingNewImagePaths,
           publicSite: publicSite,
           hasVideo: hasVideo && resolvedVideoPath.isNotEmpty,
           videoStoragePath: resolvedVideoPath.isNotEmpty
@@ -175,11 +231,11 @@ abstract final class EventoPublishService {
             docRef: docRef,
             corePayload: payload,
             isNewDoc: isNewDoc,
-            existingUrls: existingUrls,
+            existingUrls: mergedExistingUrls,
             startSlotIndex: startSlotIndex,
             hasVideo: hasVideo && resolvedVideoPath.isNotEmpty,
-            bytesList: newImagesBytes,
-            localPaths: newImagePaths,
+            bytesList: remainingNewImagesBytes,
+            localPaths: remainingNewImagePaths,
           );
           EcoFireResilientPublish.scheduleSync(reason: 'evento_queued');
           throw ResilientPublishQueuedException('evento:${docRef.id}');

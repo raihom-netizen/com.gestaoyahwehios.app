@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show FreshFirebaseStorageImage;
+import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
+    show noticiaShareNativeRich, shareRectFromContext;
 import 'package:gestao_yahweh/ui/widgets/yahweh_original_media_viewer.dart'
     show showYahwehOriginalMedia;
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart'
@@ -330,12 +331,21 @@ class ChurchPublicEventDetailSheet extends StatelessWidget {
                           label: const Text('Localização'),
                         ),
                       if ((shareText ?? '').trim().isNotEmpty)
-                        OutlinedButton.icon(
-                          onPressed: () {
-                            Share.share((shareText ?? '').trim());
-                          },
-                          icon: const Icon(Icons.share_rounded),
-                          label: const Text('Compartilhar'),
+                        Builder(
+                          builder: (shareCtx) => OutlinedButton.icon(
+                            onPressed: () {
+                              noticiaShareNativeRich(
+                                message: (shareText ?? '').trim(),
+                                subject: title,
+                                imageUrl: img.isNotEmpty ? img : null,
+                                videoPlayUrl: vid.isNotEmpty ? vid : null,
+                                sharePositionOrigin:
+                                    shareRectFromContext(shareCtx),
+                              );
+                            },
+                            icon: const Icon(Icons.share_rounded),
+                            label: const Text('Compartilhar'),
+                          ),
                         ),
                     ],
                   ),

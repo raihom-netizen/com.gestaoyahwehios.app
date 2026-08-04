@@ -141,7 +141,7 @@ class _ChurchChatStorageMediaImageState
       return ChurchChatMediaResolver.downloadBytes(
         storagePath: path,
         maxBytes: 4 * 1024 * 1024,
-      ).timeout(const Duration(seconds: 14), onTimeout: () => null);
+      ).timeout(const Duration(seconds: 7), onTimeout: () => null);
     }
 
     // 1) thumb → 2) full legado/sem thumb → 3) URL legada
@@ -156,7 +156,7 @@ class _ChurchChatStorageMediaImageState
         data = await ChurchChatMediaResolver.downloadBytes(
           storagePath: legacyUrl,
           maxBytes: 4 * 1024 * 1024,
-        ).timeout(const Duration(seconds: 14), onTimeout: () => null);
+        ).timeout(const Duration(seconds: 7), onTimeout: () => null);
       }
     }
 

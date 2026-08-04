@@ -204,7 +204,7 @@ class _CargosPageState extends State<CargosPage> {
   String? _cargosLoadSoftError;
 
   /// 0 = cadastro, 1 = ativos, 2 = arquivados.
-  int _cargoListTab = 0;
+  int _cargoListTab = 1;
 
   /// Busca rápida na lista de cargos.
   final TextEditingController _cargoSearchController = TextEditingController();

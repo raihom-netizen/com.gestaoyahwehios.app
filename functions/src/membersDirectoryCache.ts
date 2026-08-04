@@ -145,6 +145,49 @@ function computeMembersSummary(
 }
 
 /**
+ * Ticket monotônico por tenant — obtido ANTES do trabalho pesado (scan/merge
+ * de `membros`), para refletir a ordem de chegada dos pedidos de recompute.
+ * Escritas concorrentes do mesmo cache (ex.: assinar 59 carteirinhas de uma
+ * vez dispara 59 triggers `onWrite` em paralelo) terminam fora de ordem —
+ * sem isso, a última a TERMINAR vence, mesmo que tenha lido um estado mais
+ * antigo/incompleto de `membros`. Ver [writeMembersDirectoryIfNewer].
+ */
+async function nextMembersDirectorySeq(tid: string): Promise<number> {
+  const seqRef = admin
+    .firestore()
+    .collection("igrejas")
+    .doc(tid)
+    .collection("_panel_cache")
+    .doc("_members_directory_seq");
+  return admin.firestore().runTransaction(async (tx) => {
+    const snap = await tx.get(seqRef);
+    const current = (snap.data()?.seq as number | undefined) ?? 0;
+    const next = current + 1;
+    tx.set(seqRef, { seq: next }, { merge: true });
+    return next;
+  });
+}
+
+/**
+ * Só aplica a escrita se [ticket] for >= ao `writeSeq` já persistido —
+ * descarta resultados de execuções concorrentes mais antigas que terminaram
+ * depois de uma mais nova (condição de corrida do trigger `onWrite`).
+ */
+async function writeMembersDirectoryIfNewer(
+  ref: admin.firestore.DocumentReference,
+  ticket: number,
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  return admin.firestore().runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const currentSeq = (snap.data()?.writeSeq as number | undefined) ?? 0;
+    if (ticket < currentSeq) return false;
+    tx.set(ref, { ...payload, writeSeq: ticket }, { merge: false });
+    return true;
+  });
+}
+
+/**
  * Grava `igrejas/{tenantId}/_panel_cache/members_directory` (1 read na lista).
  * Chamado após scan de `membros` no painel (sem segunda query).
  */
@@ -158,6 +201,8 @@ export async function recomputeMembersDirectoryFromDocs(
   if (isForbiddenTestChurchId(tid)) return;
   const churchRef = admin.firestore().collection("igrejas").doc(tid);
   if (!(await churchRef.get()).exists) return;
+
+  const ticket = await nextMembersDirectorySeq(tid);
 
   const summary = computeMembersSummary(memberDocs);
   const entries = memberDocs
@@ -181,25 +226,31 @@ export async function recomputeMembersDirectoryFromDocs(
       ? totalCount
       : memberDocs.length;
 
-  await ref.set(
-    {
-      schemaVersion: 2,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      totalCount: resolvedTotal,
-      summary: {
-        ...summary,
-        total: resolvedTotal,
-      },
-      entries,
+  const applied = await writeMembersDirectoryIfNewer(ref, ticket, {
+    schemaVersion: 2,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    totalCount: resolvedTotal,
+    summary: {
+      ...summary,
+      total: resolvedTotal,
     },
-    { merge: false },
-  );
+    entries,
+  });
+
+  if (!applied) {
+    functions.logger.info("membersDirectoryCache: descartado (superado)", {
+      tenantId: tid,
+      ticket,
+    });
+    return;
+  }
 
   functions.logger.info("membersDirectoryCache: atualizado", {
     tenantId: tid,
     entries: entries.length,
     totalCount: resolvedTotal,
     ativos: summary.ativos,
+    ticket,
   });
 }
 

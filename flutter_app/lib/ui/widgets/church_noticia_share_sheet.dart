@@ -62,7 +62,7 @@ Future<void> noticiaShareNativeRich({
       try {
         final bytes = await firebaseStorageBytesFromDownloadUrl(
           vu,
-          maxBytes: 8 * 1024 * 1024,
+          maxBytes: 40 * 1024 * 1024,
         );
         if (bytes != null && bytes.length > 512) {
           await YahwehShareService.shareBytes(
@@ -181,7 +181,7 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
         collection: (noticiaDataForLazyMedia['collection'] ??
                 noticiaDataForLazyMedia['type'])
             ?.toString(),
-      ).timeout(const Duration(seconds: 8));
+      ).timeout(const Duration(seconds: 28));
       // Fecha o loading ANTES de abrir a folha nativa (sem spinner preso).
       popLoading();
       if (media.isNotEmpty) {

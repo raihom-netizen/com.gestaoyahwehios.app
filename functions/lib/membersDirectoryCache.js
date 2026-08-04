@@ -178,6 +178,44 @@ function computeMembersSummary(memberDocs) {
     };
 }
 /**
+ * Ticket monotônico por tenant — obtido ANTES do trabalho pesado (scan/merge
+ * de `membros`), para refletir a ordem de chegada dos pedidos de recompute.
+ * Escritas concorrentes do mesmo cache (ex.: assinar 59 carteirinhas de uma
+ * vez dispara 59 triggers `onWrite` em paralelo) terminam fora de ordem —
+ * sem isso, a última a TERMINAR vence, mesmo que tenha lido um estado mais
+ * antigo/incompleto de `membros`. Ver [writeMembersDirectoryIfNewer].
+ */
+async function nextMembersDirectorySeq(tid) {
+    const seqRef = admin
+        .firestore()
+        .collection("igrejas")
+        .doc(tid)
+        .collection("_panel_cache")
+        .doc("_members_directory_seq");
+    return admin.firestore().runTransaction(async (tx) => {
+        const snap = await tx.get(seqRef);
+        const current = snap.data()?.seq ?? 0;
+        const next = current + 1;
+        tx.set(seqRef, { seq: next }, { merge: true });
+        return next;
+    });
+}
+/**
+ * Só aplica a escrita se [ticket] for >= ao `writeSeq` já persistido —
+ * descarta resultados de execuções concorrentes mais antigas que terminaram
+ * depois de uma mais nova (condição de corrida do trigger `onWrite`).
+ */
+async function writeMembersDirectoryIfNewer(ref, ticket, payload) {
+    return admin.firestore().runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const currentSeq = snap.data()?.writeSeq ?? 0;
+        if (ticket < currentSeq)
+            return false;
+        tx.set(ref, { ...payload, writeSeq: ticket }, { merge: false });
+        return true;
+    });
+}
+/**
  * Grava `igrejas/{tenantId}/_panel_cache/members_directory` (1 read na lista).
  * Chamado após scan de `membros` no painel (sem segunda query).
  */
@@ -190,6 +228,7 @@ async function recomputeMembersDirectoryFromDocs(tenantId, memberDocs, totalCoun
     const churchRef = admin.firestore().collection("igrejas").doc(tid);
     if (!(await churchRef.get()).exists)
         return;
+    const ticket = await nextMembersDirectorySeq(tid);
     const summary = computeMembersSummary(memberDocs);
     const entries = memberDocs
         .map((doc) => directoryEntry(doc))
@@ -206,7 +245,7 @@ async function recomputeMembersDirectoryFromDocs(tenantId, memberDocs, totalCoun
     const resolvedTotal = typeof totalCount === "number" && totalCount > 0
         ? totalCount
         : memberDocs.length;
-    await ref.set({
+    const applied = await writeMembersDirectoryIfNewer(ref, ticket, {
         schemaVersion: 2,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         totalCount: resolvedTotal,
@@ -215,12 +254,20 @@ async function recomputeMembersDirectoryFromDocs(tenantId, memberDocs, totalCoun
             total: resolvedTotal,
         },
         entries,
-    }, { merge: false });
+    });
+    if (!applied) {
+        functions.logger.info("membersDirectoryCache: descartado (superado)", {
+            tenantId: tid,
+            ticket,
+        });
+        return;
+    }
     functions.logger.info("membersDirectoryCache: atualizado", {
         tenantId: tid,
         entries: entries.length,
         totalCount: resolvedTotal,
         ativos: summary.ativos,
+        ticket,
     });
 }
 /** Callable: 1 round-trip para lista leve de membros (módulo Membros). */
