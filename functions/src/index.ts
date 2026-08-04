@@ -46,9 +46,10 @@ const MP_WEBHOOK_URL_PARAM = defineString("MP_WEBHOOK_URL", { default: "" });
 const ADMIN_SETUP_KEY_PARAM = defineString("ADMIN_SETUP_KEY", { default: "" });
 
 function getGcsBackupBucket(): string {
-  // Backup oficial exclusivamente no bucket padrão do Firebase Storage.
-  // Não depende de parâmetro externo nem de integração com outro provedor.
-  return admin.storage().bucket().name;
+  // Bucket dedicado em southamerica-east1 — o Firestore só aceita export
+  // para um bucket na MESMA região do banco (o bucket padrão do Storage
+  // é us-central1, o que fazia todo backup diário falhar silenciosamente).
+  return "gestaoyahweh-21e23-firestore-backups";
 }
 
 function getMpAccessToken(): string {
@@ -7020,7 +7021,9 @@ export const generateThumbnail = functions
  */
 export const recordDomainDailyHit = functions
   .region("us-central1")
-  .runWith({ timeoutSeconds: 10, memory: "128MB" })
+  // 128MB (o mínimo) estava sempre no limite só com o overhead do runtime +
+  // Admin SDK, sem sobrar folga real — daí o "Memory limit exceeded" recorrente.
+  .runWith({ timeoutSeconds: 10, memory: "256MB" })
   .https.onCall(async (data) => {
     const payload = data && typeof data === "object" ? (data as Record<string, unknown>) : {};
     let dateKey = String(payload.dateKey || "").trim();

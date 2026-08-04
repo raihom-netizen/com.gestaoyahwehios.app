@@ -66,9 +66,10 @@ const MP_WEBHOOK_URL_PARAM = (0, params_1.defineString)("MP_WEBHOOK_URL", { defa
 /** Chave para o usuário virar ADMIN pelo painel (modal "Virar ADMIN agora"). Defina no Google Cloud Console > Functions > bootstrapAdmin > Variáveis de ambiente: ADMIN_SETUP_KEY. */
 const ADMIN_SETUP_KEY_PARAM = (0, params_1.defineString)("ADMIN_SETUP_KEY", { default: "" });
 function getGcsBackupBucket() {
-    // Backup oficial exclusivamente no bucket padrão do Firebase Storage.
-    // Não depende de parâmetro externo nem de integração com outro provedor.
-    return admin.storage().bucket().name;
+    // Bucket dedicado em southamerica-east1 — o Firestore só aceita export
+    // para um bucket na MESMA região do banco (o bucket padrão do Storage
+    // é us-central1, o que fazia todo backup diário falhar silenciosamente).
+    return "gestaoyahweh-21e23-firestore-backups";
 }
 function getMpAccessToken() {
     return String(MP_ACCESS_TOKEN_PARAM.value() || "").trim();
@@ -6086,7 +6087,9 @@ exports.generateThumbnail = functions
  */
 exports.recordDomainDailyHit = functions
     .region("us-central1")
-    .runWith({ timeoutSeconds: 10, memory: "128MB" })
+    // 128MB (o mínimo) estava sempre no limite só com o overhead do runtime +
+    // Admin SDK, sem sobrar folga real — daí o "Memory limit exceeded" recorrente.
+    .runWith({ timeoutSeconds: 10, memory: "256MB" })
     .https.onCall(async (data) => {
     const payload = data && typeof data === "object" ? data : {};
     let dateKey = String(payload.dateKey || "").trim();

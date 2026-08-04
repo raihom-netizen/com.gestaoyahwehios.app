@@ -99,6 +99,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
 
   /// 0 = cadastro, 1 = ativos, 2 = arquivados.
   int _deptListTab = 0;
+  bool _deptListTabAutoSet = false;
 
   /// Membros por id do documento do departamento (pré-visualização na lista).
   Map<String, List<ChurchDepartmentMemberRow>> _membersByDeptId = const {};
@@ -183,6 +184,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         _hydratedDeptDocs =
             List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(result.docs);
         _deptError = null;
+        if (!_deptListTabAutoSet) {
+          _deptListTabAutoSet = true;
+          _deptListTab = 1;
+        }
         _deptShowingStaleCache = {
           'ram',
           'hive',
@@ -249,6 +254,10 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     _hydrateDepartmentsFromInstantCache();
     if (_hydratedDeptDocs != null && _hydratedDeptDocs!.isNotEmpty) {
       _deptLoading = false;
+      // Já existe cadastro: abrir direto na grade "Ativos" — "Cadastro" (com
+      // as sugestões) só faz sentido como ponto de partida quando está vazio.
+      _deptListTab = 1;
+      _deptListTabAutoSet = true;
     }
     _startWebLoadingCap();
     unawaited(_bootstrapDepartmentsPage());
@@ -3387,21 +3396,47 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   Widget _buildDepartmentsListBody({
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> docsForTab,
   }) {
-    final listView = ListView.separated(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
-      itemCount: docsForTab.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
-      itemBuilder: (context, i) {
-        final card = _buildDepartmentCard(docsForTab[i]);
-        if (kIsWeb) return card;
-        return AnimationConfiguration.staggeredList(
-          position: i,
-          duration: const Duration(milliseconds: 300),
-          delay: Duration(milliseconds: (i % 14) * 30),
-          child: SlideAnimation(
-            verticalOffset: 16,
-            child: FadeInAnimation(child: card),
+    Widget buildCard(int i) {
+      final card = _buildDepartmentCard(docsForTab[i]);
+      if (kIsWeb) return card;
+      return AnimationConfiguration.staggeredList(
+        position: i,
+        duration: const Duration(milliseconds: 300),
+        delay: Duration(milliseconds: (i % 14) * 30),
+        child: SlideAnimation(
+          verticalOffset: 16,
+          child: FadeInAnimation(child: card),
+        ),
+      );
+    }
+
+    // Telas largas: grade de 2 colunas (mais moderno, menos rolagem) — cada
+    // card mantém a própria altura (Wrap, não GridView) porque o conteúdo
+    // varia (avatares de membros, líder, etc.) e um aspect ratio fixo cortaria.
+    final listView = LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= 720;
+        if (!wide) {
+          return ListView.separated(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+            itemCount: docsForTab.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 10),
+            itemBuilder: (context, i) => buildCard(i),
+          );
+        }
+        const spacing = 14.0;
+        final colWidth = (constraints.maxWidth - spacing) / 2;
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+          child: Wrap(
+            spacing: spacing,
+            runSpacing: spacing,
+            children: [
+              for (var i = 0; i < docsForTab.length; i++)
+                SizedBox(width: colWidth, child: buildCard(i)),
+            ],
           ),
         );
       },

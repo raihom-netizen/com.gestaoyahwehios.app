@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/church_chat_member_prefs.dart';
 import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
@@ -165,6 +166,50 @@ bool _chatHubSeesAllDepartmentGroups(String role, List<String>? permissions) =>
       role,
       permissions: permissions,
     );
+
+/// Aviso discreto: fotos/vídeos do chat expiram (ver [ChurchChatService.mediaRetention]).
+class _ChatMediaRetentionNotice extends StatelessWidget {
+  const _ChatMediaRetentionNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final days = ChurchChatService.mediaRetention.inDays;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0EA5E9).withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: const Color(0xFF0EA5E9).withValues(alpha: 0.22),
+          ),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.info_outline_rounded,
+              size: 15,
+              color: Color(0xFF0369A1),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Fotos e vídeos do chat ficam disponíveis por $days dias e depois são removidos automaticamente (economia de espaço no servidor).',
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF0369A1),
+                  height: 1.25,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// Lista estilo WhatsApp — DM + grupos por departamento (membro: só os seus; liderança: todos).
 /// DM na aba «Conversas»: dados do documento em `chat_threads` (sem segundo stream por linha),
@@ -2697,6 +2742,7 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
           role: widget.role,
           permissions: widget.permissions,
         ),
+        const _ChatMediaRetentionNotice(),
         Padding(
           padding: const EdgeInsets.fromLTRB(8, 2, 8, 0),
           child: _PremiumHubTabBar(controller: _hubTabController, dense: true),

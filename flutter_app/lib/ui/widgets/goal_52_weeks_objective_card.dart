@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/models/user_profile.dart';
 import 'package:gestao_yahweh/utils/fifty_two_weeks_plan.dart';
 import 'package:gestao_yahweh/utils/goal_objective_visuals.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'fifty_two_weeks_schedule_sheet.dart';
 import 'goal_52_weeks_summary_panel.dart';
 import 'goal_contributions_sheet.dart';
@@ -52,7 +53,7 @@ class Goal52WeeksObjectiveCard extends StatelessWidget {
     final paidWeeks = FiftyTwoWeeksPlan.paidWeeksFromData(data);
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: goalDoc.reference.collection('contributions').snapshots(),
+      stream: goalDoc.reference.collection('contributions').watchSafe(),
       builder: (context, contribSnap) {
         var current = 0.0;
         for (final d in contribSnap.data?.docs ?? []) {

@@ -82,7 +82,8 @@ class ChurchChatService {
 
   /// Alinhado a [ChurchChatStorageRetentionService] e CF `pruneExpiredChurchChatMessages`.
   /// 3 dias apagava áudio/foto/PDF quase de imediato (sintoma «enviou e sumiu»).
-  static const Duration mediaRetention = Duration(days: 90);
+  /// 60 dias — evita sobrecarregar o Storage/Firestore com mídia antiga.
+  static const Duration mediaRetention = Duration(days: 60);
 
   /// Estados de entrega (estilo WhatsApp).
   static const String deliveryLocal = 'local';

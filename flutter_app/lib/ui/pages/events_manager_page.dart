@@ -8,6 +8,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/firestore_cursor_pagination.dart';
@@ -68,7 +69,7 @@ import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/services/crashlytics_service.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/event_template_schedule.dart'
-    show eventTemplateIncludeInAgenda;
+    show eventTemplateIncludeInAgenda, formatPublicDatePt;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/noticia_social_service.dart';
 import 'package:gestao_yahweh/core/noticia_event_feed.dart'
@@ -160,6 +161,41 @@ import 'package:gestao_yahweh/core/event_gallery_archive.dart';
 import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
     show noticiaEventoEspecialCaiuDoFeedParaGaleria;
 import 'package:gestao_yahweh/services/church_context_service.dart';
+
+/// Botão "colar" num campo de link — evita digitar/copiar manualmente.
+Widget _pasteFieldButton(TextEditingController controller) {
+  return IconButton(
+    tooltip: 'Colar',
+    icon: const Icon(Icons.content_paste_rounded, size: 20),
+    onPressed: () async {
+      final data = await Clipboard.getData('text/plain');
+      final text = data?.text?.trim();
+      if (text == null || text.isEmpty) return;
+      controller.text = text;
+      controller.selection = TextSelection.collapsed(offset: text.length);
+    },
+  );
+}
+
+/// Copiar + colar juntos — útil quando o campo já tem um link/texto salvo
+/// que o usuário quer reaproveitar noutro lugar, e para colar rapidamente.
+Widget _copyPasteFieldButtons(TextEditingController controller) {
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      IconButton(
+        tooltip: 'Copiar',
+        icon: const Icon(Icons.copy_rounded, size: 19),
+        onPressed: () {
+          final text = controller.text.trim();
+          if (text.isEmpty) return;
+          Clipboard.setData(ClipboardData(text: text));
+        },
+      ),
+      _pasteFieldButton(controller),
+    ],
+  );
+}
 
 class EventsManagerPage extends StatefulWidget {
   final String tenantId;
@@ -910,6 +946,13 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     );
     final includeInAgenda = ValueNotifier<bool>(
       data['includeInAgenda'] != false,
+    );
+    // Vigência opcional — "toda sexta, só entre 07/08 e 18/09" em vez de indefinido.
+    final validFrom = ValueNotifier<DateTime?>(
+      (data['validFrom'] as Timestamp?)?.toDate(),
+    );
+    final validUntil = ValueNotifier<DateTime?>(
+      (data['validUntil'] as Timestamp?)?.toDate(),
     );
     // Mesma extração do feed/eventos: imageUrls (lista ou mapas), imageUrl, defaultImageUrl, fotos, etc.
     final urls = _eventImageUrlsFromData(data);
@@ -1678,6 +1721,98 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                             ),
                           ),
                         ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Vigência (opcional)',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
+                            color: Colors.grey.shade800,
+                          ),
+                        ),
+                        Text(
+                          'Deixe em branco para repetir sem data final. Preencha para um período fixo — ex.: toda sexta, só entre 07/08 e 18/09.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.35,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ValueListenableBuilder<DateTime?>(
+                                valueListenable: validFrom,
+                                builder: (ctx, v, _) => OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final picked = await showDatePicker(
+                                      context: ctx,
+                                      initialDate: v ?? DateTime.now(),
+                                      firstDate: DateTime(2020),
+                                      lastDate: DateTime(2100),
+                                    );
+                                    if (picked != null) validFrom.value = picked;
+                                  },
+                                  icon: const Icon(
+                                    Icons.event_rounded,
+                                    size: 18,
+                                  ),
+                                  label: Text(
+                                    v == null
+                                        ? 'Início'
+                                        : formatPublicDatePt(v),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: ValueListenableBuilder<DateTime?>(
+                                valueListenable: validUntil,
+                                builder: (ctx, v, _) => OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final picked = await showDatePicker(
+                                      context: ctx,
+                                      initialDate:
+                                          v ?? validFrom.value ?? DateTime.now(),
+                                      firstDate: DateTime(2020),
+                                      lastDate: DateTime(2100),
+                                    );
+                                    if (picked != null) validUntil.value = picked;
+                                  },
+                                  icon: const Icon(
+                                    Icons.event_busy_rounded,
+                                    size: 18,
+                                  ),
+                                  label: Text(
+                                    v == null ? 'Fim' : formatPublicDatePt(v),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            ValueListenableBuilder<DateTime?>(
+                              valueListenable: validFrom,
+                              builder: (_, vf, _) => ValueListenableBuilder<DateTime?>(
+                                valueListenable: validUntil,
+                                builder: (_, vu, _) =>
+                                    (vf == null && vu == null)
+                                    ? const SizedBox.shrink()
+                                    : IconButton(
+                                        tooltip: 'Limpar vigência',
+                                        icon: const Icon(
+                                          Icons.close_rounded,
+                                          size: 20,
+                                        ),
+                                        onPressed: () {
+                                          validFrom.value = null;
+                                          validUntil.value = null;
+                                        },
+                                      ),
+                              ),
+                            ),
+                          ],
+                        ),
                         const SizedBox(height: 20),
                         Row(
                           children: [
@@ -1791,6 +1926,12 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       'includeInAgenda': includeInAgenda.value,
       'active': true,
       'updatedAt': now,
+      'validFrom': validFrom.value == null
+          ? FieldValue.delete()
+          : Timestamp.fromDate(validFrom.value!),
+      'validUntil': validUntil.value == null
+          ? FieldValue.delete()
+          : Timestamp.fromDate(validUntil.value!),
     };
     if (coverClearedByUser) {
       payload.addAll(_eventoFixoCoverClearPatch());
@@ -1913,12 +2054,33 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final daysAhead = result.fullYear
         ? 365
         : (int.tryParse(daysCtrl.text.trim()) ?? 60);
-    final now = DateTime.now();
-    final until = now.add(Duration(days: daysAhead));
+    var now = DateTime.now();
+    var until = now.add(Duration(days: daysAhead));
+    // Vigência do evento fixo (opcional) — não gerar fora do período definido.
+    final templateValidFrom = (data['validFrom'] as Timestamp?)?.toDate();
+    final templateValidUntil = (data['validUntil'] as Timestamp?)?.toDate();
+    if (templateValidFrom != null && templateValidFrom.isAfter(now)) {
+      now = templateValidFrom;
+    }
+    if (templateValidUntil != null && templateValidUntil.isBefore(until)) {
+      until = templateValidUntil;
+    }
     final tp = time.split(':');
     final hh = int.tryParse(tp.isNotEmpty ? tp[0] : '') ?? 19;
     final mm = int.tryParse(tp.length > 1 ? tp[1] : '') ?? 30;
     final dates = <DateTime>[];
+    if (now.isAfter(until)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Fora da vigência definida para este evento fixo — nada a gerar.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
     var cursor = _nextWeekday(now, weekday);
     while (cursor.isBefore(until)) {
       dates.add(DateTime(cursor.year, cursor.month, cursor.day, hh, mm));
@@ -10548,14 +10710,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            'Descrição / divulgação',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13,
-                              color: Colors.grey.shade800,
+                          Expanded(
+                            child: Text(
+                              'Descrição / divulgação',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                                color: Colors.grey.shade800,
+                              ),
                             ),
                           ),
+                          _copyPasteFieldButtons(_bodyDescription),
                         ],
                       ),
                       const SizedBox(height: 6),
@@ -10621,25 +10786,27 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   TextField(
                     controller: _videoUrl,
                     keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Link do vídeo (YouTube / Vimeo)',
-                      prefixIcon: Icon(Icons.link_rounded),
+                      prefixIcon: const Icon(Icons.link_rounded),
                       hintText: 'https://...',
                       helperText:
                           'Opcional. Use o botão inferior para foto/vídeo em arquivo.',
+                      suffixIcon: _copyPasteFieldButtons(_videoUrl),
                     ),
                   ),
                   const SizedBox(height: 14),
                   TextField(
                     controller: _instagramUrl,
                     keyboardType: TextInputType.url,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Instagram (opcional)',
-                      prefixIcon: Icon(
+                      prefixIcon: const Icon(
                         Icons.camera_alt_rounded,
                         color: Color(0xFFE1306C),
                       ),
                       hintText: 'Cole o link do perfil, post ou reel',
+                      suffixIcon: _copyPasteFieldButtons(_instagramUrl),
                     ),
                   ),
                   const SizedBox(height: 18),

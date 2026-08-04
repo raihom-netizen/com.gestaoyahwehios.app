@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/models/financial_goal.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/constants/finance_tips.dart';
 import 'package:gestao_yahweh/constants/currency_formats.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
 import 'package:gestao_yahweh/ui/widgets/create_financial_goal_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/goal_52_weeks_objective_card.dart';
@@ -483,7 +484,7 @@ class _MetaFinanceiraScreenState extends State<MetaFinanceiraScreen> {
                                   DocumentSnapshot<Map<String, dynamic>>>(
                                 key: ValueKey<String>(
                                     'meta-planning-$_userDocId'),
-                                stream: _planningRef.snapshots(),
+                                stream: _planningRef.watchSafe(),
                                 builder: (context, snap) {
                                   final enabled =
                                       (snap.data?.data()?['dailyTipsEnabled'] ??
@@ -1014,7 +1015,7 @@ class _MetaFinanceiraScreenState extends State<MetaFinanceiraScreen> {
           .doc(id)
           .collection('goals')
           .where('status', isEqualTo: 'active')
-          .snapshots(),
+          .watchSafe(),
       builder: (context, snap) {
         if (snap.hasError) {
           return Padding(

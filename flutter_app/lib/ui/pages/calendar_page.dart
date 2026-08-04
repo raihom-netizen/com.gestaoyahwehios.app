@@ -1861,6 +1861,8 @@ class _CalendarPageState extends State<CalendarPage>
           recurrence: rec,
           rangeStart: rangeStart,
           rangeEnd: rangeEnd,
+          validFrom: (m['validFrom'] as Timestamp?)?.toDate(),
+          validUntil: (m['validUntil'] as Timestamp?)?.toDate(),
         );
         for (final dt in dates) {
           final dk = '${_normTitleDedupe(title)}|${_dayKey(dt)}';

@@ -6113,6 +6113,8 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
       timeHHmm: time,
       recurrence: recurrence,
       from: rangeStart,
+      validFrom: (data['validFrom'] as Timestamp?)?.toDate(),
+      validUntil: (data['validUntil'] as Timestamp?)?.toDate(),
     );
     if (next == null || next.isAfter(rangeEnd)) continue;
 

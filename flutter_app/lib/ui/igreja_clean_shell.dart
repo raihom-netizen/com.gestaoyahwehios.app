@@ -1310,7 +1310,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                           const ChurchPanelAppUpdateBanner(),
                           _buildPaymentConfirmedBanner(),
                           _buildGracePeriodBanner(guard),
-                          if (_selectedIndex != 0)
+                          // Chat desenha o próprio cabeçalho completo (com mudo/
+                          // transmissão/menu) — o genérico aqui duplicava o título.
+                          if (_selectedIndex != 0 &&
+                              _selectedIndex != ChurchShellIndices.chatIgreja)
                             ModuleHeaderPremium(
                               title: _items[_selectedIndex].label,
                               icon: _items[_selectedIndex].icon,

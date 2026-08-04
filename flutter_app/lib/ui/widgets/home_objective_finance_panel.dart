@@ -1,6 +1,7 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 import 'package:gestao_yahweh/models/user_profile.dart';
 import 'package:gestao_yahweh/ui/widgets/create_financial_goal_dialog.dart';
@@ -39,7 +40,7 @@ class HomeObjectiveFinancePanel extends StatelessWidget {
           .doc(_userFsId)
           .collection('goals')
           .where('status', isEqualTo: 'active')
-          .snapshots(),
+          .watchSafe(),
       builder: (context, snap) {
         final goals = (snap.data?.docs ?? [])
             .where((d) => !_excludeGoal(d))

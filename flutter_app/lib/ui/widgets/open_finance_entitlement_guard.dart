@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/finance_theme_context.dart';
 import 'package:gestao_yahweh/models/user_profile.dart';
 import 'package:gestao_yahweh/ui/pages/escolha_plano_page.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Garante que o fluxo Pluggy/Open Finance **não** abre para quem não tem
 /// [UserProfile.canUseOpenFinanceBanks], mesmo via link direto.
@@ -28,7 +29,7 @@ class OpenFinanceEntitlementGuard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+      stream: FirebaseFirestore.instance.collection('users').doc(uid).watchSafe(),
       builder: (context, snap) {
         if (snap.hasError) {
           return Scaffold(

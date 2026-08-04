@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:gestao_yahweh/ui/widgets/aviso_evento_social_link_button.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
@@ -39,6 +40,75 @@ import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/utils/youtube_url_helper.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+
+/// Chip circular moderno (colar OU copiar) para campos de link/texto.
+Widget _avisosCircleFieldButton({
+  required IconData icon,
+  required String tooltip,
+  required Color accent,
+  required VoidCallback onTap,
+}) {
+  return Padding(
+    padding: const EdgeInsets.only(right: 4),
+    child: Material(
+      color: accent.withValues(alpha: 0.12),
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(9),
+          child: Icon(icon, size: 18, color: accent),
+        ),
+      ),
+    ),
+  );
+}
+
+/// Botão "colar" moderno (chip circular com sombra) para campos de link.
+Widget _avisosPasteFieldButton(
+  TextEditingController controller,
+  Color accent, {
+  VoidCallback? onPasted,
+}) {
+  return _avisosCircleFieldButton(
+    icon: Icons.content_paste_rounded,
+    tooltip: 'Colar',
+    accent: accent,
+    onTap: () async {
+      final data = await Clipboard.getData('text/plain');
+      final text = data?.text?.trim();
+      if (text == null || text.isEmpty) return;
+      controller.text = text;
+      controller.selection = TextSelection.collapsed(offset: text.length);
+      onPasted?.call();
+    },
+  );
+}
+
+/// Copiar + colar juntos — reaproveitar link/texto já salvo, ou colar rápido.
+Widget _avisosCopyPasteFieldButtons(
+  TextEditingController controller,
+  Color accent, {
+  VoidCallback? onPasted,
+}) {
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _avisosCircleFieldButton(
+        icon: Icons.copy_rounded,
+        tooltip: 'Copiar',
+        accent: accent,
+        onTap: () {
+          final text = controller.text.trim();
+          if (text.isEmpty) return;
+          Clipboard.setData(ClipboardData(text: text));
+        },
+      ),
+      _avisosPasteFieldButton(controller, accent, onPasted: onPasted),
+    ],
+  );
+}
 
 /// Módulo Avisos — publicação para toda a igreja (índice shell 7).
 class ChurchAvisosPage extends StatefulWidget {
@@ -2255,12 +2325,16 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                       controller: _bodyCtrl,
                       minLines: 3,
                       maxLines: 6,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Mensagem (opcional)',
-                        border: OutlineInputBorder(
+                        border: const OutlineInputBorder(
                           borderRadius: BorderRadius.all(Radius.circular(14)),
                         ),
-                        prefixIcon: Icon(Icons.article_outlined),
+                        prefixIcon: const Icon(Icons.article_outlined),
+                        suffixIcon: _avisosCopyPasteFieldButtons(
+                          _bodyCtrl,
+                          ThemeCleanPremium.primary,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -2322,6 +2396,18 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                         hintText: 'Cole o link do YouTube',
                         prefixIcon: const Icon(Icons.play_circle_fill_rounded,
                             color: Color(0xFFFF0000)),
+                        suffixIcon: _avisosCopyPasteFieldButtons(
+                          _youtubeCtrl,
+                          const Color(0xFFFF0000),
+                          onPasted: () {
+                            if (_youtubeCtrl.text.trim().isNotEmpty) {
+                              setState(() {
+                                _localVideoPath = null;
+                                _clearVideo = false;
+                              });
+                            }
+                          },
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),
@@ -2346,6 +2432,10 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                         hintText: 'Cole o link do perfil, post ou reel',
                         prefixIcon: const Icon(Icons.camera_alt_rounded,
                             color: Color(0xFFDB2777)),
+                        suffixIcon: _avisosCopyPasteFieldButtons(
+                          _instagramCtrl,
+                          const Color(0xFFDB2777),
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),

@@ -16,18 +16,36 @@ DateTime nextWeekdayOnOrAfter(DateTime from, int weekday) {
 
 /// Lista de ocorrências entre [rangeStart] e [rangeEnd] (inclusive nos dias).
 /// [weekday]: 1–7 (seg–dom), como em `event_templates.weekday`.
+///
+/// [validFrom]/[validUntil] (opcionais): vigência do evento fixo — ex.: "toda
+/// sexta, só entre 07/08 e 18/09". Fora dessa janela, não gera ocorrência,
+/// mesmo que [rangeStart]/[rangeEnd] (o intervalo pedido pela tela) seja maior.
 List<DateTime> expandTemplateOccurrencesInRange({
   required int weekday,
   required String timeHHmm,
   required String recurrence,
   required DateTime rangeStart,
   required DateTime rangeEnd,
+  DateTime? validFrom,
+  DateTime? validUntil,
 }) {
   final tp = timeHHmm.split(':');
   final hh = int.tryParse(tp.isNotEmpty ? tp[0] : '') ?? 19;
   final mm = int.tryParse(tp.length > 1 ? tp[1] : '') ?? 30;
   final rec = recurrence.toLowerCase().trim();
   final w = weekday.clamp(1, 7);
+
+  var effectiveStart = rangeStart;
+  if (validFrom != null && validFrom.isAfter(effectiveStart)) {
+    effectiveStart = validFrom;
+  }
+  var effectiveEnd = rangeEnd;
+  if (validUntil != null && validUntil.isBefore(effectiveEnd)) {
+    effectiveEnd = validUntil;
+  }
+  if (effectiveStart.isAfter(effectiveEnd)) return const [];
+  rangeStart = effectiveStart;
+  rangeEnd = effectiveEnd;
 
   var cursor = nextWeekdayOnOrAfter(rangeStart, w);
   final out = <DateTime>[];
@@ -85,6 +103,8 @@ DateTime? nextTemplateOccurrenceOnOrAfter({
   required String timeHHmm,
   required String recurrence,
   required DateTime from,
+  DateTime? validFrom,
+  DateTime? validUntil,
 }) {
   final occurrences = expandTemplateOccurrencesInRange(
     weekday: weekday,
@@ -92,6 +112,8 @@ DateTime? nextTemplateOccurrenceOnOrAfter({
     recurrence: recurrence,
     rangeStart: from,
     rangeEnd: from.add(const Duration(days: 366)),
+    validFrom: validFrom,
+    validUntil: validUntil,
   );
   return occurrences.isNotEmpty ? occurrences.first : null;
 }

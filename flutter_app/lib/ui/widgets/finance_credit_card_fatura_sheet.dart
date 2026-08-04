@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/constants/finance_category_visuals.dart';
 import 'package:gestao_yahweh/models/finance_account.dart';
 import 'package:gestao_yahweh/models/user_profile.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'finance_transaction_sort_bar.dart';
 import 'package:gestao_yahweh/utils/finance_account_balance_utils.dart';
 import 'package:gestao_yahweh/utils/date_picker_a11y.dart';
@@ -1592,7 +1593,7 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
   }) {
     if (_needsPendingStream) {
       return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: _pendingOnCardQuery.snapshots(),
+        stream: _pendingOnCardQuery.watchSafe(),
         builder: (context, snap) {
           if (snap.hasError) {
             return ListView(

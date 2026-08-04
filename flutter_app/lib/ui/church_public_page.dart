@@ -4105,6 +4105,8 @@ Future<List<Map<String, dynamic>>> _fetchPublicProgramacao(
         recurrence: rec,
         rangeStart: now,
         rangeEnd: end,
+        validFrom: (m['validFrom'] as Timestamp?)?.toDate(),
+        validUntil: (m['validUntil'] as Timestamp?)?.toDate(),
       );
       for (final dt in dates) {
         final dk = '${d.id}_${DateFormat('yyyy-MM-dd').format(dt)}';

@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/ui/widgets/bank_card_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/open_finance_entitlement_guard.dart';
 import 'package:gestao_yahweh/ui/widgets/pluggy_sync_schedule_banner.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_pro_value_copy.dart';
 import 'bank_connection_page.dart';
 import 'open_finance_coverage_page.dart';
@@ -154,7 +155,7 @@ class _OpenFinanceConnectionsScreenState extends State<OpenFinanceConnectionsScr
         ],
       ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: ref.snapshots(),
+        stream: ref.watchSafe(),
         builder: (context, snap) {
           if (snap.hasError) {
             return Center(child: Text('Erro: ${snap.error}', style: TextStyle(color: AppColors.error)));
