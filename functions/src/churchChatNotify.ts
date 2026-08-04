@@ -207,6 +207,16 @@ async function incrementUnreadCounts(
   }
 }
 
+/** "Raihom Severino Barbosa" -> "Raihom Barbosa" — primeiro + último nome para o push. */
+function shortPersonName(full: string): string {
+  const parts = String(full || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length <= 1) return parts[0] || "";
+  return `${parts[0]} ${parts[parts.length - 1]}`;
+}
+
 function previewFromMessage(msg: Record<string, unknown>): string {
   const mtype = String(msg.type || "text");
   if (mtype === "text") return String(msg.text || "").trim().slice(0, 140);
@@ -242,7 +252,8 @@ export const onChurchChatMessageCreated = functions
     if (!recipients.length) return null;
 
     const titlesByUid = (thread.titlesByUid || {}) as Record<string, string>;
-    const senderName = String(titlesByUid[senderUid] || "").trim() || "Alguém";
+    const senderName =
+      shortPersonName(String(titlesByUid[senderUid] || "").trim()) || "Alguém";
 
     const mentionedSet = new Set(parseStringArray(msg.mentionedUids));
 

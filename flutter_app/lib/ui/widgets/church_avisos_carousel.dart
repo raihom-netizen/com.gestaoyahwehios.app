@@ -28,6 +28,7 @@ class ChurchAvisosCarousel extends StatefulWidget {
     this.forPublicSite = false,
     this.churchSlug = '',
     this.churchName = '',
+    this.limit,
   });
 
   final String churchIdHint;
@@ -36,6 +37,12 @@ class ChurchAvisosCarousel extends StatefulWidget {
   final bool forPublicSite;
   final String churchSlug;
   final String churchName;
+
+  /// Limite de avisos no carrossel. `null` = padrão do serviço (lista completa
+  /// recente) — passar um valor baixo quando este carrossel é só um destaque
+  /// acima de uma lista completa na mesma página (evita repetir o mesmo
+  /// conteúdo duas vezes, ex.: topo do site público).
+  final int? limit;
 
   @override
   State<ChurchAvisosCarousel> createState() => _ChurchAvisosCarouselState();
@@ -79,6 +86,7 @@ class _ChurchAvisosCarouselState extends State<ChurchAvisosCarousel> {
     return StreamBuilder<List<ChurchAvisoItem>>(
       stream: ChurchAvisosLoadService.watchActive(
         churchIdHint: widget.churchIdHint,
+        limit: widget.limit ?? ChurchAvisosLoadService.kPanelCarouselLimit,
       ),
       builder: (context, snap) {
         final items = (snap.data ?? const <ChurchAvisoItem>[])

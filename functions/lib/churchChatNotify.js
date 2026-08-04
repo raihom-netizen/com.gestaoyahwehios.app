@@ -215,6 +215,16 @@ async function incrementUnreadCounts(tenantId, threadId, uids) {
         }
     }
 }
+/** "Raihom Severino Barbosa" -> "Raihom Barbosa" — primeiro + último nome para o push. */
+function shortPersonName(full) {
+    const parts = String(full || "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+    if (parts.length <= 1)
+        return parts[0] || "";
+    return `${parts[0]} ${parts[parts.length - 1]}`;
+}
 function previewFromMessage(msg) {
     const mtype = String(msg.type || "text");
     if (mtype === "text")
@@ -256,7 +266,7 @@ exports.onChurchChatMessageCreated = functions
     if (!recipients.length)
         return null;
     const titlesByUid = (thread.titlesByUid || {});
-    const senderName = String(titlesByUid[senderUid] || "").trim() || "Alguém";
+    const senderName = shortPersonName(String(titlesByUid[senderUid] || "").trim()) || "Alguém";
     const mentionedSet = new Set(parseStringArray(msg.mentionedUids));
     const userChatState = await loadUsersChatPushState(recipients);
     const candidates = recipients.filter((u) => userChatState.get(u)?.enabled !== false);

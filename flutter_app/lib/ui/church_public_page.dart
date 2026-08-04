@@ -2649,6 +2649,9 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                                   forPublicSite: true,
                                                   churchSlug: slugClean,
                                                   churchName: nome,
+                                                  // Só destaque no topo — a lista completa já
+                                                  // aparece na seção "Avisos" mais abaixo.
+                                                  limit: 5,
                                                 ),
                                                 const SizedBox(height: 24),
                                                 FutureBuilder<

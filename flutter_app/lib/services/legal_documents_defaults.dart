@@ -179,6 +179,25 @@ abstract final class LegalDocumentsDefaults {
             'por prazo limitado.',
       ),
       LegalSectionEntry(
+        title: '5.1 Exclusão de conta e dados (Gestão YAHWEH)',
+        body:
+            'Você pode solicitar a exclusão da sua conta e dos dados pessoais associados a ela '
+            'no aplicativo/painel **Gestão YAHWEH** (desenvolvedor: $kDeveloperPublicName) a '
+            'qualquer momento, mesmo sem excluir toda a igreja.\n\n'
+            'Como solicitar: envie um pedido para $kLegalSupportEmail ou pelo WhatsApp '
+            '$kLegalSupportWhatsAppDisplay, informando o nome completo, e-mail ou CPF '
+            'cadastrado e a igreja vinculada. Se preferir, peça diretamente ao gestor/administrador '
+            'da sua igreja, que pode remover o seu cadastro pelo painel.\n\n'
+            'O que é excluído: nome, e-mail, telefone, CPF, endereço, foto de perfil e demais '
+            'dados pessoais de identificação vinculados à sua conta de membro/usuário.\n\n'
+            'O que pode ser mantido por período adicional: registros financeiros e documentos '
+            'exigidos por obrigação legal ou fiscal (ex.: lançamentos contábeis), backups de '
+            'segurança por prazo limitado, e dados agregados/anonimizados sem identificação '
+            'pessoal, conforme a seção «5. Retenção e eliminação» acima.\n\n'
+            'Prazo: processamos solicitações de exclusão em até 15 dias corridos, salvo '
+            'impedimento legal.',
+      ),
+      LegalSectionEntry(
         title: '6. Seus direitos (titular de dados)',
         body:
             'Nos termos da LGPD (art. 18), você pode solicitar: confirmação de tratamento; '

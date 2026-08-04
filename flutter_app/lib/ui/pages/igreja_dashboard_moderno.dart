@@ -7515,6 +7515,14 @@ class _PainelDestaqueMediaCarouselState
       final yt = _DestaqueCard._videoThumbnailUrl(d);
       thumb = yt != null ? sanitizeImageUrl(yt) : '';
     }
+    // Sem thumb dedicada de vídeo, a capa reaproveita a 1ª foto — mas se essa
+    // mesma foto já é um slide próprio do carrossel, isso duplicava a foto
+    // visualmente no slide do vídeo. Nesse caso mostra o fundo com play.
+    if (refs.isNotEmpty &&
+        thumb.isNotEmpty &&
+        refs.any((r) => sanitizeImageUrl(r) == thumb)) {
+      thumb = '';
+    }
 
     return Stack(
       fit: StackFit.expand,
