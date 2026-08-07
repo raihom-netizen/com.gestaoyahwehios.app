@@ -110,7 +110,7 @@ class _VideoDownloaderPageState extends State<_VideoDownloaderPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('StateError: ', '')),
+          content: Text(_friendlyDownloaderError(e)),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -137,7 +137,13 @@ class _VideoDownloaderPageState extends State<_VideoDownloaderPage> {
         url: _urlCtrl.text.trim(),
         audioOnly: audioOnly,
         onProgress: (p) {
-          if (mounted) setState(() => _progress = p.clamp(0.0, 1.0));
+          if (!mounted) return;
+          final clamped = p.clamp(0.0, 1.0);
+          // Só atualiza a UI quando a % muda de fato (>= 1 ponto) — evita
+          // dezenas de setState por segundo em downloads grandes.
+          if (clamped >= 1.0 || (clamped - _progress).abs() >= 0.01) {
+            setState(() => _progress = clamped);
+          }
         },
       );
       if (!mounted) return;
@@ -147,8 +153,13 @@ class _VideoDownloaderPageState extends State<_VideoDownloaderPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(e.toString().replaceFirst('StateError: ', '')),
+          content: Text(_friendlyDownloaderError(e)),
           behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(
+            label: 'Tentar de novo',
+            onPressed: () => _download(audioOnly: audioOnly),
+          ),
         ),
       );
     } finally {
@@ -159,6 +170,25 @@ class _VideoDownloaderPageState extends State<_VideoDownloaderPage> {
         });
       }
     }
+  }
+
+  /// Mensagem amigável em pt-BR a partir de uma exceção do downloader.
+  /// `StateError.toString()` já vem em pt-BR com o prefixo técnico
+  /// "Bad state: " (não "StateError: ", que nunca batia aqui) — só limpa o
+  /// prefixo; se não reconhecer o formato, cai numa mensagem genérica.
+  String _friendlyDownloaderError(Object e) {
+    var msg = e.toString();
+    for (final prefix in ['Bad state: ', 'StateError: ', 'Exception: ']) {
+      if (msg.startsWith(prefix)) {
+        msg = msg.substring(prefix.length);
+        break;
+      }
+    }
+    msg = msg.trim();
+    if (msg.isEmpty || msg.length > 200) {
+      return 'Não foi possível baixar agora. Verifique o link e sua conexão, e tente de novo.';
+    }
+    return msg;
   }
 
   Future<void> _showResultSheet(VideoDownloadResult result) async {

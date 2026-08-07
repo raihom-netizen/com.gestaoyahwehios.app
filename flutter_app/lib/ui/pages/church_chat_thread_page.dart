@@ -672,6 +672,27 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     }
   }
 
+  Future<void> _openDeptMembersSheet() async {
+    if (!widget.isDepartment || (widget.departmentId ?? '').isEmpty) return;
+    final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
+    if (!context.mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => ChurchDepartmentChatMembersSheet(
+        navigatorContext: context,
+        tenantId: _tid,
+        currentUid: uid,
+        departmentId: widget.departmentId!,
+        departmentName: widget.title,
+        departmentDocData: _departmentData,
+        role: widget.memberRole,
+        cpfDigits: widget.memberCpfDigits,
+      ),
+    );
+  }
+
   void _openForwardSheet(String messageId, Map<String, dynamic> m) {
     unawaited(
       ChurchChatForwardSheet.show(
@@ -4049,22 +4070,7 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
               } else if (v == 'dept_members' &&
                   widget.isDepartment &&
                   (widget.departmentId ?? '').isNotEmpty) {
-                if (!context.mounted) return;
-                await showModalBottomSheet<void>(
-                  context: context,
-                  isScrollControlled: true,
-                  backgroundColor: Colors.transparent,
-                  builder: (ctx) => ChurchDepartmentChatMembersSheet(
-                    navigatorContext: context,
-                    tenantId: _tid,
-                    currentUid: uid,
-                    departmentId: widget.departmentId!,
-                    departmentName: widget.title,
-                    departmentDocData: _departmentData,
-                    role: widget.memberRole,
-                    cpfDigits: widget.memberCpfDigits,
-                  ),
-                );
+                await _openDeptMembersSheet();
               } else if (v == 'block' &&
                   widget.peerUid != null &&
                   widget.peerUid!.isNotEmpty) {
@@ -4355,65 +4361,74 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
             ],
           ),
         ],
-        title: Row(
-          children: [
-            if (widget.isDepartment)
-              ChurchChatDepartmentAvatar(
-                deptData: _departmentData,
-                fallbackName: widget.title,
-                radius: 19,
-              )
-            else if (widget.peerUid != null && widget.peerUid!.isNotEmpty)
-              ChurchChatPeerAvatar(
-                tenantId: _tid,
-                peerAuthUid: widget.peerUid!,
-                memberRef: _senderMemberByUid[widget.peerUid!],
-                radius: 19,
-              )
-            else
-              CircleAvatar(
-                backgroundColor: Colors.white.withValues(alpha: 0.2),
-                child: Text(
-                  widget.title.isNotEmpty ? widget.title[0].toUpperCase() : '?',
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 15.5,
-                    ),
+        title: InkWell(
+          onTap: widget.isDepartment
+              ? () => unawaited(_openDeptMembersSheet())
+              : null,
+          borderRadius: BorderRadius.circular(8),
+          child: Row(
+            children: [
+              if (widget.isDepartment)
+                ChurchChatDepartmentAvatar(
+                  deptData: _departmentData,
+                  fallbackName: widget.title,
+                  radius: 19,
+                )
+              else if (widget.peerUid != null && widget.peerUid!.isNotEmpty)
+                ChurchChatPeerAvatar(
+                  tenantId: _tid,
+                  peerAuthUid: widget.peerUid!,
+                  memberRef: _senderMemberByUid[widget.peerUid!],
+                  radius: 19,
+                )
+              else
+                CircleAvatar(
+                  backgroundColor: Colors.white.withValues(alpha: 0.2),
+                  child: Text(
+                    widget.title.isNotEmpty
+                        ? widget.title[0].toUpperCase()
+                        : '?',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
-                  if (widget.isDepartment)
+                ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      'Grupo · ⋮ Membros para ver quem está online',
+                      widget.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white.withValues(alpha: 0.88),
-                      ),
-                    )
-                  else if (widget.peerUid != null && widget.peerUid!.isNotEmpty)
-                    Text(
-                      _peerOnline ? 'online' : 'offline',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white.withValues(alpha: 0.85),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15.5,
                       ),
                     ),
-                ],
+                    if (widget.isDepartment)
+                      Text(
+                        'Grupo · toque para ver membros',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.white.withValues(alpha: 0.88),
+                        ),
+                      )
+                    else if (widget.peerUid != null &&
+                        widget.peerUid!.isNotEmpty)
+                      Text(
+                        _peerOnline ? 'online' : 'offline',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.white.withValues(alpha: 0.85),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
       body: Column(

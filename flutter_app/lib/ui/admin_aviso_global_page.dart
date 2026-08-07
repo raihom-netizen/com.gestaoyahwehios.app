@@ -97,6 +97,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         _ref,
         cacheKey: 'config_global_announcement',
       );
+      if (!mounted) return;
       if (snap.exists && snap.data() != null) {
         final d = snap.data()!;
         Timestamp? v = d['validUntil'] as Timestamp?;
@@ -127,6 +128,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         setState(() { _loading = false; });
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _error = e.toString();

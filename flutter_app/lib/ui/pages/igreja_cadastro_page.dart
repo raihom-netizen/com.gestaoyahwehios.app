@@ -2072,27 +2072,27 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         data: data,
       );
       if (!mounted) return;
-      try {
-        await GestorMembroStubService.ensurePreCadastroGestor(
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Cadastro da igreja salvo. Complete sua ficha pessoal em Membros quando quiser.',
+        ),
+      );
+      // Pré-cadastro do gestor em Membros não bloqueia mais o "Salvar" — a
+      // igreja já está gravada; isto é só um stub em segundo plano.
+      unawaited(
+        GestorMembroStubService.ensurePreCadastroGestor(
           tenantId: resolvedId,
           role: widget.role,
-        );
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.successSnackBar(
-              'Cadastro da igreja salvo. Complete sua ficha pessoal em Membros quando quiser.',
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            ThemeCleanPremium.feedbackSnackBar(
-              'Igreja salva. Pré-cadastro em Membros: $e',
-            ),
-          );
-        }
-      }
+        ).catchError((e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              ThemeCleanPremium.feedbackSnackBar(
+                'Igreja salva. Pré-cadastro em Membros: $e',
+              ),
+            );
+          }
+        }),
+      );
     } catch (e) {
       if (!mounted) return;
       final msg = FirestoreWebGuard.isInternalAssertionError(e)

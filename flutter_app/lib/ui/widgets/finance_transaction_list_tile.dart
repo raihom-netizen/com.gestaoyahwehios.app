@@ -98,9 +98,13 @@ class FinanceTransactionListTile extends StatelessWidget {
     final financeAccLabel = financeAccountLabelForTx(financeAccounts, d);
 
     final receipt = Map<String, dynamic>.from(d['receipt'] ?? {});
+    // Legado (`receipt.*`) OU canônico (`comprovanteUrl`/`comprovanteLink`)
+    // — o botão de olho não pode depender só do formato legado.
     final link = (receipt['webViewLink'] ??
             receipt['webContentLink'] ??
             receipt['downloadUrl'] ??
+            d['comprovanteUrl'] ??
+            d['comprovanteLink'] ??
             '')
         .toString();
     final receiptNameRaw =

@@ -1,5 +1,13 @@
 import 'package:flutter/material.dart';
 
+import 'package:gestao_yahweh/core/finance_app_colors.dart';
+
+/// Card de resumo do período no topo do Financeiro — visual inspirado no
+/// dashboard "Controle Total" (cartão cheio, KPIs em destaque, "Saldo por
+/// contas" e exportação em PDF), mas as cores vêm sempre de [AppColors]
+/// (mesma paleta de marca usada em todo o `finance_page.dart`) em vez de
+/// tons soltos, e saldo/abertura mudam de verde para vermelho conforme o
+/// sinal — igual ao resto do painel (KPIs, listas, relatórios).
 class ControleTotalFinanceDashboardCard extends StatelessWidget {
   const ControleTotalFinanceDashboardCard({
     super.key,
@@ -28,8 +36,16 @@ class ControleTotalFinanceDashboardCard extends StatelessWidget {
   final VoidCallback onTapSaldoContas;
   final VoidCallback onExportPdf;
 
+  /// [CurrencyFormats.formatBRL] prefixa negativos com "R$ -" — evita
+  /// depender do valor numérico bruto (o card só recebe texto já formatado).
+  static bool _isNegative(String formatted) => formatted.contains('-');
+
   @override
   Widget build(BuildContext context) {
+    final saldoAberturaColor =
+        _isNegative(saldoAbertura) ? AppColors.saldoNegative : AppColors.saldoPositive;
+    final saldoColor =
+        _isNegative(saldo) ? AppColors.saldoNegative : AppColors.saldoPositive;
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       decoration: BoxDecoration(
@@ -37,11 +53,11 @@ class ControleTotalFinanceDashboardCard extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF166534), Color(0xFF15803D), Color(0xFF0F766E)],
+          colors: AppColors.logoGradient,
         ),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF14532D).withValues(alpha: 0.26),
+            color: AppColors.deepBlueDark.withValues(alpha: 0.28),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -52,36 +68,45 @@ class ControleTotalFinanceDashboardCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(
-                monthLabel,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Text(
+                  monthLabel,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                    letterSpacing: 0.2,
+                  ),
                 ),
               ),
               const Spacer(),
               Icon(
-                Icons.visibility_off_rounded,
-                color: Colors.white.withValues(alpha: 0.9),
-                size: 24,
+                Icons.account_balance_wallet_rounded,
+                color: Colors.white.withValues(alpha: 0.55),
+                size: 22,
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           InkWell(
             onTap: onTapSaldoAbertura,
             borderRadius: BorderRadius.circular(20),
             child: _kpiBox(
               title: 'Saldo de abertura',
               value: saldoAbertura,
-              titleColor: const Color(0xFF991B1B),
-              valueColor: const Color(0xFF991B1B),
+              titleColor: saldoAberturaColor,
+              valueColor: saldoAberturaColor,
               subtitle: 'Toque para gráficos',
             ),
           ),
           const SizedBox(height: 10),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Expanded(
                 child: InkWell(
@@ -90,8 +115,8 @@ class ControleTotalFinanceDashboardCard extends StatelessWidget {
                   child: _kpiBox(
                     title: 'Receitas',
                     value: receitas,
-                    titleColor: const Color(0xFF166534),
-                    valueColor: const Color(0xFF166534),
+                    titleColor: AppColors.financeReceita,
+                    valueColor: AppColors.financeReceita,
                     subtitle: 'Toque para gráficos',
                     compact: true,
                   ),
@@ -105,8 +130,8 @@ class ControleTotalFinanceDashboardCard extends StatelessWidget {
                   child: _kpiBox(
                     title: 'Despesas',
                     value: despesas,
-                    titleColor: const Color(0xFF991B1B),
-                    valueColor: const Color(0xFF991B1B),
+                    titleColor: AppColors.financeDespesa,
+                    valueColor: AppColors.financeDespesa,
                     subtitle: 'Toque para gráficos',
                     compact: true,
                   ),
@@ -120,8 +145,8 @@ class ControleTotalFinanceDashboardCard extends StatelessWidget {
                   child: _kpiBox(
                     title: 'Saldo',
                     value: saldo,
-                    titleColor: const Color(0xFF166534),
-                    valueColor: const Color(0xFF166534),
+                    titleColor: saldoColor,
+                    valueColor: saldoColor,
                     subtitle: 'Toque para gráficos',
                     compact: true,
                   ),
@@ -139,6 +164,13 @@ class ControleTotalFinanceDashboardCard extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(18),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.deepBlueDark.withValues(alpha: 0.10),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
               child: Row(
                 children: [
@@ -148,7 +180,7 @@ class ControleTotalFinanceDashboardCard extends StatelessWidget {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(14),
                       gradient: const LinearGradient(
-                        colors: [Color(0xFF3B82F6), Color(0xFF14B8A6)],
+                        colors: [AppColors.primary, AppColors.accent],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -167,27 +199,27 @@ class ControleTotalFinanceDashboardCard extends StatelessWidget {
                         Text(
                           'Saldo por contas',
                           style: TextStyle(
-                            fontSize: 17,
+                            fontSize: 16,
                             fontWeight: FontWeight.w800,
-                            color: Color(0xFF14532D),
+                            color: AppColors.textPrimary,
                           ),
                         ),
                         SizedBox(height: 2),
                         Text(
                           'Corrente, poupança e cartões — toque para ver',
                           style: TextStyle(
-                            fontSize: 13,
-                            color: Color(0xFF374151),
+                            fontSize: 12.5,
+                            color: AppColors.textSecondary,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const Icon(
+                  Icon(
                     Icons.chevron_right_rounded,
-                    size: 30,
-                    color: Color(0xFF334155),
+                    size: 28,
+                    color: AppColors.textMuted,
                   ),
                 ],
               ),
@@ -199,12 +231,13 @@ class ControleTotalFinanceDashboardCard extends StatelessWidget {
             icon: const Icon(Icons.picture_as_pdf_rounded, size: 22),
             label: const Text(
               'Exportar PDF',
-              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
             ),
             style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(58),
-              backgroundColor: const Color(0xFFF97316),
+              minimumSize: const Size.fromHeight(56),
+              backgroundColor: AppColors.logoOrange,
               foregroundColor: Colors.white,
+              elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18),
               ),
@@ -241,21 +274,26 @@ class ControleTotalFinanceDashboardCard extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: compact ? 14 : 15,
+              fontSize: compact ? 13 : 14.5,
               fontWeight: FontWeight.w800,
               color: titleColor,
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: compact ? 17 : 38,
-              fontWeight: FontWeight.w900,
-              color: valueColor,
-              height: 1,
+          // FittedBox em vez de ellipsis: valores negativos ("R$ - 12.345,67")
+          // encolhem para caber em vez de cortar o número.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: TextStyle(
+                fontSize: compact ? 18 : 32,
+                fontWeight: FontWeight.w900,
+                color: valueColor,
+                height: 1,
+              ),
             ),
           ),
           const SizedBox(height: 4),
@@ -263,10 +301,10 @@ class ControleTotalFinanceDashboardCard extends StatelessWidget {
             subtitle,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: Color(0xFF6B7280),
+              color: AppColors.textMuted,
             ),
           ),
         ],

@@ -1,4 +1,6 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
@@ -65,6 +67,31 @@ class _EscolhaPlanoPageState extends State<EscolhaPlanoPage> {
         _openMpCheckoutAfterPromoLoad = true;
       }
     }
+  }
+
+  /// Web: poll leve em vez de `.snapshots()` — esta tela já soma vários
+  /// listeners (preços MP, promoção de divulgação); evita `INTERNAL
+  /// ASSERTION FAILED` no SDK JS por excesso de alvos de watch simultâneos.
+  Stream<DocumentSnapshot<Map<String, dynamic>>> _landingContentStream() {
+    final doc = FirebaseFirestore.instance.collection('landing_content').doc('main');
+    if (!kIsWeb) return doc.snapshots();
+    late final StreamController<DocumentSnapshot<Map<String, dynamic>>> controller;
+    Timer? timer;
+    Future<void> tick() async {
+      try {
+        final snap = await doc.get();
+        if (!controller.isClosed) controller.add(snap);
+      } catch (_) {}
+    }
+
+    controller = StreamController<DocumentSnapshot<Map<String, dynamic>>>(
+      onListen: () {
+        unawaited(tick());
+        timer = Timer.periodic(const Duration(seconds: 45), (_) => tick());
+      },
+      onCancel: () => timer?.cancel(),
+    );
+    return controller.stream;
   }
 
   Future<void> _loadPromo(String id) async {
@@ -265,10 +292,7 @@ class _EscolhaPlanoPageState extends State<EscolhaPlanoPage> {
           left: true,
           right: true,
           child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance
-                .collection('landing_content')
-                .doc('main')
-                .snapshots(),
+            stream: _landingContentStream(),
             builder: (context, landSnap) {
               return StreamBuilder<MpCheckoutPricingSnapshot>(
                 stream: MpCheckoutPricingService.watch(),

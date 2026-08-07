@@ -19,7 +19,11 @@ import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
+import 'package:gestao_yahweh/pdf/visitantes_relatorio_pdf.dart';
+import 'package:gestao_yahweh/utils/pdf_actions_helper.dart' show showPdfActions;
+import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:intl/intl.dart';
 
 /// Abre WhatsApp (app ou web) com o número informado.
 Future<void> launchWhatsAppContact(
@@ -96,6 +100,82 @@ String _kpiDrillTitle(_VisitorKpiDrill d) {
       return 'Em acompanhamento';
     case _VisitorKpiDrill.convertidos:
       return 'Convertidos';
+  }
+}
+
+/// Período do relatório PDF de visitantes.
+enum _VisitantesPdfPeriod { dia, mes, ano }
+
+/// Folha simples — escolher Dia / Mês / Ano para o relatório PDF.
+class _VisitantesPdfPeriodSheet extends StatelessWidget {
+  const _VisitantesPdfPeriodSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget tile(IconData icon, String label, String sub, _VisitantesPdfPeriod p) {
+      return ListTile(
+        leading: CircleAvatar(
+          backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+          child: Icon(icon, color: ThemeCleanPremium.primary),
+        ),
+        title: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text(sub, style: const TextStyle(fontSize: 12)),
+        onTap: () => Navigator.pop(context, p),
+      );
+    }
+
+    return SafeArea(
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Relatório de visitantes (PDF)',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            tile(
+              Icons.today_rounded,
+              'Do dia',
+              'Visitantes cadastrados hoje',
+              _VisitantesPdfPeriod.dia,
+            ),
+            tile(
+              Icons.calendar_view_month_rounded,
+              'Do mês',
+              'Visitantes cadastrados neste mês',
+              _VisitantesPdfPeriod.mes,
+            ),
+            tile(
+              Icons.event_note_rounded,
+              'Do ano',
+              'Visitantes cadastrados neste ano',
+              _VisitantesPdfPeriod.ano,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -408,6 +488,86 @@ class _VisitorsPageState extends State<VisitorsPage> {
     });
   }
 
+  bool _exportingPdf = false;
+
+  /// Relatório PDF de acompanhamento — dia/mês/ano, cabeçalho/rodapé do sistema.
+  Future<void> _exportVisitantesPdf(BuildContext context) async {
+    if (_exportingPdf) return;
+    final period = await showModalBottomSheet<_VisitantesPdfPeriod>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _VisitantesPdfPeriodSheet(),
+    );
+    if (period == null || !context.mounted) return;
+
+    setState(() => _exportingPdf = true);
+    try {
+      final snap = await _visitantesFuture;
+      final now = DateTime.now();
+      DateTime start;
+      String label;
+      switch (period) {
+        case _VisitantesPdfPeriod.dia:
+          start = DateTime(now.year, now.month, now.day);
+          label = 'Hoje — ${DateFormat('dd/MM/yyyy', 'pt_BR').format(now)}';
+          break;
+        case _VisitantesPdfPeriod.mes:
+          start = DateTime(now.year, now.month);
+          label = DateFormat('MMMM/yyyy', 'pt_BR').format(now);
+          break;
+        case _VisitantesPdfPeriod.ano:
+          start = DateTime(now.year);
+          label = '${now.year}';
+          break;
+      }
+
+      final rows = <VisitantesRelatorioRow>[];
+      for (final d in snap.docs) {
+        if (d.id == ChurchVisitantesLoadService.kSchemaDocId) continue;
+        final v = _VisitorData(id: d.id, data: d.data());
+        final createdAt = v.createdAt;
+        if (createdAt == null || createdAt.isBefore(start)) continue;
+        rows.add(
+          VisitantesRelatorioRow(
+            nome: v.nome,
+            telefone: v.telefone,
+            email: v.email,
+            status: v.status,
+            comoConheceu: v.comoConheceu,
+            createdAt: createdAt,
+          ),
+        );
+      }
+      rows.sort(
+        (a, b) => (b.createdAt ?? DateTime(0)).compareTo(
+          a.createdAt ?? DateTime(0),
+        ),
+      );
+
+      final cid = ChurchRepository.churchId(_churchId);
+      final branding = await loadReportPdfBranding(cid);
+      final bytes = await buildVisitantesRelatorioPdf(
+        branding: branding,
+        visitantes: rows,
+        periodoLabel: label,
+      );
+      if (!context.mounted) return;
+      await showPdfActions(
+        context,
+        bytes: bytes,
+        filename: 'visitantes_${DateTime.now().millisecondsSinceEpoch}.pdf',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao gerar PDF: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exportingPdf = false);
+    }
+  }
+
   Future<void> _tryIndexedDbCacheFirst() async {
     if (_peekInstantVisitantesSnap() != null) return;
     try {
@@ -551,6 +711,33 @@ class _VisitorsPageState extends State<VisitorsPage> {
                     ],
                   ),
                 ],
+                if (!_selectionMode)
+                  IconButton(
+                    icon: _exportingPdf
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(
+                            Icons.picture_as_pdf_rounded,
+                            color: ThemeCleanPremium.primary,
+                          ),
+                    onPressed: _exportingPdf
+                        ? null
+                        : () => unawaited(_exportVisitantesPdf(context)),
+                    tooltip: 'Exportar PDF',
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: ThemeCleanPremium.primary,
+                      elevation: 1,
+                      shadowColor: Colors.black26,
+                      minimumSize: const Size(
+                        ThemeCleanPremium.minTouchTarget,
+                        ThemeCleanPremium.minTouchTarget,
+                      ),
+                    ),
+                  ),
                 if (!_selectionMode)
                   IconButton(
                     icon: Icon(

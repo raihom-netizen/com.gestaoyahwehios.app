@@ -158,12 +158,19 @@ Future<List<UtilitariosPickedFile>> utilitariosPickMultipleFileBytes({
     type: type,
     preferBytes: preferBytes,
   );
+  final readResults = await Future.wait<UtilitariosPickedFile?>([
+    for (var i = 0; i < files.length; i++)
+      () async {
+        final f = files[i];
+        final bytes = await utilitariosReadPlatformFileBytes(f);
+        if (bytes.isEmpty) return null;
+        final name = f.name.trim().isEmpty ? 'arquivo_${i + 1}' : f.name;
+        return UtilitariosPickedFile(name: name, bytes: bytes);
+      }(),
+  ]);
   final out = <UtilitariosPickedFile>[];
-  for (final f in files) {
-    final bytes = await utilitariosReadPlatformFileBytes(f);
-    if (bytes.isEmpty) continue;
-    final name = f.name.trim().isEmpty ? 'arquivo_${out.length + 1}' : f.name;
-    out.add(UtilitariosPickedFile(name: name, bytes: bytes));
+  for (final item in readResults) {
+    if (item != null) out.add(item);
   }
   if (out.isEmpty) {
     throw StateError('Não foi possível ler os arquivos selecionados.');
@@ -213,6 +220,11 @@ Future<bool> utilitariosSaveOrShareBytes({
   String shareText = '',
   bool preferShare = false,
   bool chooseSaveLocation = false,
+  // Caminho de um arquivo já gravado em disco com o mesmo conteúdo de
+  // [bytes] (ex.: download já feito). Quando informado e o compartilhamento
+  // for mobile nativo, reaproveita esse arquivo em vez de regravar [bytes]
+  // num novo arquivo temporário — evita uma segunda escrita em disco.
+  String? sourceFilePath,
 }) async {
   final safe = fileName.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
   final ext = safe.contains('.') ? safe.split('.').last.toLowerCase() : 'bin';
@@ -277,12 +289,30 @@ Future<bool> utilitariosSaveOrShareBytes({
     );
   }
 
-  final tmp = await getTemporaryDirectory();
-  final stamp = DateTime.now().millisecondsSinceEpoch;
-  final path = '${tmp.path}/ct_share_${stamp}_$safe';
+  // Reaproveita um arquivo já baixado em disco (quando existir) em vez de
+  // regravar os mesmos bytes num segundo arquivo temporário — evita uma
+  // gravação inteira redundante em vídeos/áudios grandes.
+  String path;
+  var reusedSourceFile = false;
+  if (sourceFilePath != null && sourceFilePath.isNotEmpty) {
+    final source = File(sourceFilePath);
+    if (await source.exists() && await source.length() > 0) {
+      path = sourceFilePath;
+      reusedSourceFile = true;
+    } else {
+      path = '';
+    }
+  } else {
+    path = '';
+  }
+  if (path.isEmpty) {
+    final tmp = await getTemporaryDirectory();
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    path = '${tmp.path}/ct_share_${stamp}_$safe';
+    // flush:false = gravação mais rápida no caminho quente do compartilhar.
+    await File(path).writeAsBytes(bytes, flush: false);
+  }
   final file = File(path);
-  // flush:false = gravação mais rápida no caminho quente do compartilhar.
-  await file.writeAsBytes(bytes, flush: false);
   if (!await file.exists() || await file.length() == 0) {
     return false;
   }
@@ -291,19 +321,29 @@ Future<bool> utilitariosSaveOrShareBytes({
   final origin = RelatorioService.shareOriginFromContext(context);
   final xfile = XFile(path, mimeType: mime, name: safe);
   try {
-    final result = await Share.shareXFiles(
-      [xfile],
-      sharePositionOrigin: origin,
-      text: shareText.isEmpty ? null : shareText,
-    );
-    return result.status != ShareResultStatus.unavailable;
-  } catch (_) {
+    bool ok;
     try {
-      await Share.shareXFiles([xfile],
-          text: shareText.isEmpty ? null : shareText);
-      return true;
+      final result = await Share.shareXFiles(
+        [xfile],
+        sharePositionOrigin: origin,
+        text: shareText.isEmpty ? null : shareText,
+      );
+      ok = result.status != ShareResultStatus.unavailable;
     } catch (_) {
-      return false;
+      try {
+        await Share.shareXFiles([xfile],
+            text: shareText.isEmpty ? null : shareText);
+        ok = true;
+      } catch (_) {
+        ok = false;
+      }
+    }
+    return ok;
+  } finally {
+    if (reusedSourceFile) {
+      try {
+        await file.delete();
+      } catch (_) {}
     }
   }
 }

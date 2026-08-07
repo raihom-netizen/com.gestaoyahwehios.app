@@ -3,6 +3,7 @@ import 'dart:async' show Timer, unawaited;
 import 'package:cloud_firestore/cloud_firestore.dart' show Timestamp;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/member_card_cnh_layout.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -158,6 +159,12 @@ class _MemberCardPageState extends State<MemberCardPage>
 
   bool get _isRestricted =>
       AppPermissions.isSelfOnlyMemberAccess(widget.role, widget.permissions);
+
+  /// Limpar assinatura: só gestor, pastor, secretário, tesoureiro ou ADM.
+  bool get _canClearSignature => AppPermissions.canClearMemberCardSignature(
+    widget.role,
+    permissions: widget.permissions,
+  );
 
   @override
   void initState() {
@@ -1182,10 +1189,17 @@ class _MemberCardPageState extends State<MemberCardPage>
       if (kIsWeb) {
         await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
       }
+      final currentUser = firebaseDefaultAuth.currentUser;
       final r = await MemberCardSignService.signBatch(
         tenantId: _churchIdResolved,
         memberIds: ids,
         signatory: signatory,
+        operatorUid: currentUser?.uid,
+        operatorNome:
+            (currentUser?.displayName?.trim().isNotEmpty ?? false)
+            ? currentUser!.displayName!.trim()
+            : currentUser?.email,
+        operatorRole: widget.role,
         onProgress: (done, total) {
           progress.value = done;
         },
@@ -1266,6 +1280,14 @@ class _MemberCardPageState extends State<MemberCardPage>
   }
 
   Future<void> _clearSignSelected(BuildContext context) async {
+    if (!_canClearSignature) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Só gestor, pastor, secretário, tesoureiro ou ADM pode limpar assinatura.',
+        ),
+      );
+      return;
+    }
     final ids = _selectedIds.isEmpty
         ? (_previewMember != null ? [_previewMember!.id] : <String>[])
         : _validSelectedIds.toList();
@@ -1996,17 +2018,34 @@ class _MemberCardPageState extends State<MemberCardPage>
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 4),
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 10),
+                child: Text(
+                  'Fica registrado quem assinou e a data/hora.',
+                  style: GoogleFonts.poppins(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.red.shade600,
-                  side: BorderSide(color: Colors.red.shade300),
+                  foregroundColor: _canClearSignature
+                      ? Colors.red.shade600
+                      : Colors.grey.shade500,
+                  side: BorderSide(
+                    color: _canClearSignature
+                        ? Colors.red.shade300
+                        : Colors.grey.shade300,
+                  ),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
                   ),
                 ),
-                onPressed: _clearingSignBusy
+                onPressed: (_clearingSignBusy || !_canClearSignature)
                     ? null
                     : () => unawaited(_clearSignSelected(context)),
                 icon: _clearingSignBusy
@@ -2018,13 +2057,31 @@ class _MemberCardPageState extends State<MemberCardPage>
                           color: Colors.red.shade600,
                         ),
                       )
-                    : const Icon(Icons.remove_circle_outline_rounded),
+                    : Icon(
+                        _canClearSignature
+                            ? Icons.remove_circle_outline_rounded
+                            : Icons.lock_outline_rounded,
+                      ),
                 label: Text(
                   n == 0
                       ? 'Limpar assinatura (preview)'
                       : 'Limpar assinatura ($n)',
                 ),
               ),
+              if (!_canClearSignature) ...[
+                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Text(
+                    'Só gestor, pastor, secretário, tesoureiro ou ADM pode limpar assinatura.',
+                    style: GoogleFonts.poppins(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+                ),
+              ],
               if (n > 0) ...[
                 const SizedBox(height: 10),
                 TextButton(
@@ -2163,7 +2220,9 @@ class _MemberCardPageState extends State<MemberCardPage>
                   icon: const Icon(Icons.draw_rounded),
                   label: const Text('Assinar'),
                 ),
-              if (_canManage && (_previewMember?.isSigned ?? false))
+              if (_canManage &&
+                  _canClearSignature &&
+                  (_previewMember?.isSigned ?? false))
                 OutlinedButton.icon(
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.red.shade600,

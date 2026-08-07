@@ -35,6 +35,8 @@ function moduleAccentHex(kind) {
             return "#37474F";
         case "membro":
             return "#2563EB";
+        case "visitante":
+            return "#F59E0B";
         case "generico":
             return "#3B82F6";
         case "chat":

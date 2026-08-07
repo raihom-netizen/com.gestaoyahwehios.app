@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/services/department_member_integration_service.dar
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
+import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
@@ -69,6 +70,22 @@ class _ChurchDepartmentAddMembersBodyState
   bool _loading = true;
   bool _saving = false;
   final Set<String> _selected = {};
+  String _ageBand = 'todas';
+  String _genderFilter = 'todos';
+
+  static const _ageBandOptions = <(String, String)>[
+    ('todas', 'Todas idades'),
+    ('criancas', 'Crianças'),
+    ('adolescentes', 'Adolescentes'),
+    ('adultos', 'Adultos'),
+    ('idosos', 'Idosos'),
+  ];
+
+  static const _genderOptions = <(String, String)>[
+    ('todos', 'Todos'),
+    ('masculino', 'Homens'),
+    ('feminino', 'Mulheres'),
+  ];
 
   @override
   void initState() {
@@ -128,6 +145,8 @@ class _ChurchDepartmentAddMembersBodyState
       if (q.isNotEmpty) {
         if (!nome.contains(q) && !cpf.contains(q)) continue;
       }
+      if (!memberMatchesAgeBand(d, _ageBand)) continue;
+      if (!memberMatchesGenderFilter(d, _genderFilter)) continue;
       out.add(doc);
     }
     out.sort((a, b) {
@@ -301,6 +320,48 @@ class _ChurchDepartmentAddMembersBodyState
                   ),
                 ),
               ),
+              SizedBox(
+                height: 34,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _ageBandOptions.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 6),
+                  itemBuilder: (_, i) {
+                    final (value, label) = _ageBandOptions[i];
+                    final sel = _ageBand == value;
+                    return ChoiceChip(
+                      label: Text(label, style: const TextStyle(fontSize: 12)),
+                      selected: sel,
+                      onSelected: (_) => setState(() => _ageBand = value),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 6),
+              SizedBox(
+                height: 34,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _genderOptions.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 6),
+                  itemBuilder: (_, i) {
+                    final (value, label) = _genderOptions[i];
+                    final sel = _genderFilter == value;
+                    return ChoiceChip(
+                      label: Text(label, style: const TextStyle(fontSize: 12)),
+                      selected: sel,
+                      onSelected: (_) => setState(() => _genderFilter = value),
+                      visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
               if (_loading)
                 const Expanded(
                   child: Center(child: CircularProgressIndicator()),

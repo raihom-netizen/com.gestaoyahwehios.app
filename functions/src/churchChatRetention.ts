@@ -5,11 +5,12 @@ import * as admin from "firebase-admin";
  * Remove mensagens de chat expiradas (campo expiresAt) e apaga Storage.
  *
  * App grava:
- * - texto ~30d (ChurchChatService.textRetention)
- * - mídia ~90d (ChurchChatService.mediaRetention) — NÃO 3 dias
+ * - texto: NUNCA grava expiresAt — permanente (não passa por esta função).
+ * - mídia (foto/vídeo/áudio/sticker): 60d (ChurchChatService.mediaRetention).
  *
- * Mensagens antigas com expiresAt de 3 dias (legado) serão limpas quando
- * expirarem; novos envios já usam 90 dias.
+ * Mensagens de texto antigas (enviadas antes desta mudança) ainda podem ter
+ * um expiresAt de ~30 dias gravado — essas continuam sendo removidas quando
+ * vencerem, mas nenhum texto novo grava esse campo.
  */
 export const pruneExpiredChurchChatMessages = functions
   .region("us-central1")

@@ -9,6 +9,8 @@ import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
+import 'package:gestao_yahweh/core/event_noticia_media.dart'
+    show eventNoticiaDisplayVideoThumbnailUrl;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
@@ -1695,6 +1697,8 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
     final hostedVideo = !YoutubeUrlHelper.isValidYoutubeUrl(item.videoUrl)
         ? item.videoUrl.trim()
         : '';
+    final avisoVideoThumbUrl =
+        sanitizeImageUrl(eventNoticiaDisplayVideoThumbnailUrl(item.rawData) ?? '');
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.sizeOf(context).height * 0.92,
@@ -1808,12 +1812,34 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
                               title: item.title,
                             ),
                           ),
-                          child: const Center(
-                            child: Icon(
-                              Icons.play_circle_rounded,
-                              size: 64,
-                              color: Colors.white,
-                            ),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (avisoVideoThumbUrl.isNotEmpty)
+                                SafeNetworkImage(
+                                  imageUrl: avisoVideoThumbUrl,
+                                  fit: BoxFit.cover,
+                                ),
+                              Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.black.withValues(alpha: 0.05),
+                                      Colors.black.withValues(alpha: 0.35),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const Center(
+                                child: Icon(
+                                  Icons.play_circle_rounded,
+                                  size: 64,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ),

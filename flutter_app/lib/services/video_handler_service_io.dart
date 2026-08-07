@@ -146,28 +146,39 @@ class VideoHandlerService implements IVideoHandlerService {
       );
 
       onUploadProgress?.call(0.0);
-      final videoUrl = await EcoFireEventVideoUpload.putVideoFile(
-        storagePath: videoPath,
-        file: compressed,
-        onProgress: onUploadProgress,
-      );
 
-      String thumbUrl = '';
       // Miniatura estilo Instagram/YouTube — Android + iOS (falha não bloqueia o vídeo).
-      try {
-        final thumbFile = await MediaService.getVideoThumbnail(compressed)
-            .timeout(const Duration(seconds: 20), onTimeout: () => null);
-        if (thumbFile != null && thumbFile.existsSync()) {
-          final thumbBytes = await thumbFile.readAsBytes();
-          if (thumbBytes.isNotEmpty) {
-            thumbUrl = await EcoFireStorageUpload.putData(
-              storagePath: thumbPath,
-              bytes: thumbBytes,
-              mimeType: 'image/jpeg',
-            );
+      // Gerada e enviada EM PARALELO ao vídeo (não mais depois dele): o
+      // vídeo é o upload pesado, a miniatura é rápida — rodar em série só
+      // somava tempo de espera sem necessidade.
+      Future<String> uploadThumb() async {
+        try {
+          final thumbFile = await MediaService.getVideoThumbnail(compressed)
+              .timeout(const Duration(seconds: 20), onTimeout: () => null);
+          if (thumbFile != null && thumbFile.existsSync()) {
+            final thumbBytes = await thumbFile.readAsBytes();
+            if (thumbBytes.isNotEmpty) {
+              return await EcoFireStorageUpload.putData(
+                storagePath: thumbPath,
+                bytes: thumbBytes,
+                mimeType: 'image/jpeg',
+              );
+            }
           }
-        }
-      } catch (_) {}
+        } catch (_) {}
+        return '';
+      }
+
+      final results = await Future.wait([
+        EcoFireEventVideoUpload.putVideoFile(
+          storagePath: videoPath,
+          file: compressed,
+          onProgress: onUploadProgress,
+        ),
+        uploadThumb(),
+      ]);
+      final videoUrl = results[0];
+      final thumbUrl = results[1];
 
       return VideoUploadResult(
         videoUrl: videoUrl,

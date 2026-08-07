@@ -26,6 +26,7 @@ import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/mp_payment_return_status.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -765,6 +766,30 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       onPaymentReturn: (u) async {
         if (!mounted) return;
         setState(() => _checkoutEmbedUrl = null);
+        final status = mpPaymentReturnStatus(u);
+        final rejected = status == 'rejected' || status == 'cancelled' || status == 'failure';
+        final approved = status == 'approved' || status == 'success';
+        final String title;
+        final String message;
+        final IconData icon;
+        if (rejected) {
+          title = 'Pagamento não confirmado';
+          message = 'O Mercado Pago não confirmou este pagamento (recusado ou cancelado). '
+              'Se algum valor foi debitado, ele é estornado automaticamente. '
+              'Você pode tentar novamente quando quiser.';
+          icon = Icons.error_outline_rounded;
+        } else if (approved) {
+          title = 'Obrigado pela contribuição!';
+          message = 'Pagamento aprovado pelo Mercado Pago. '
+              'O lançamento entra no Financeiro em instantes (webhook). '
+              'Que Deus abençoe a sua semente.';
+          icon = Icons.volunteer_activism_rounded;
+        } else {
+          title = 'Recebemos sua doação!';
+          message = 'Estamos aguardando a confirmação do Mercado Pago (pode levar alguns minutos, '
+              'principalmente no Pix). Assim que for aprovado, o lançamento entra automaticamente no Financeiro.';
+          icon = Icons.hourglass_top_rounded;
+        }
         await showDialog<void>(
           context: context,
           barrierDismissible: false,
@@ -774,13 +799,14 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
             ),
             title: Row(
               children: [
-                Icon(Icons.volunteer_activism_rounded,
-                    color: ThemeCleanPremium.primary, size: 28),
+                Icon(icon,
+                    color: rejected ? ThemeCleanPremium.error : ThemeCleanPremium.primary,
+                    size: 28),
                 const SizedBox(width: 10),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Obrigado pela contribuição!',
-                    style: TextStyle(
+                    title,
+                    style: const TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 18,
                     ),
@@ -788,16 +814,14 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
                 ),
               ],
             ),
-            content: const Text(
-              'O pagamento foi concluído no Mercado Pago. '
-              'O lançamento entra no Financeiro em instantes (webhook). '
-              'Que Deus abençoe a sua semente.',
-              style: TextStyle(height: 1.45, fontSize: 15),
+            content: Text(
+              message,
+              style: const TextStyle(height: 1.45, fontSize: 15),
             ),
             actions: [
               FilledButton(
                 onPressed: () => Navigator.pop(dctx),
-                child: const Text('Amém'),
+                child: Text(rejected ? 'Entendi' : 'Amém'),
               ),
             ],
           ),

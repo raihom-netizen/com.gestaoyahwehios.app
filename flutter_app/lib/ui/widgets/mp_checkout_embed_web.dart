@@ -47,6 +47,13 @@ class _MpCheckoutEmbedState extends State<MpCheckoutEmbed> {
     html.window.open(widget.checkoutUrl, '_blank', 'noopener,noreferrer');
   }
 
+  /// Web: o iframe é cross-origin (mercadopago.com) — não dá para ler a URL de retorno de dentro dele
+  /// (bloqueio de segurança do navegador), então não há como detectar "terminei" automaticamente como
+  /// no app nativo. Sem esse botão manual, o doador fica olhando o checkout sem nenhum retorno ao site.
+  void _confirmManually() {
+    widget.onLikelyFinished?.call(widget.returnUrlHint);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -92,6 +99,14 @@ class _MpCheckoutEmbedState extends State<MpCheckoutEmbed> {
                     'Se a área acima estiver em branco, abrir checkout em nova aba',
                   ),
                 ),
+                if (widget.onLikelyFinished != null) ...[
+                  const SizedBox(height: 4),
+                  TextButton.icon(
+                    onPressed: _confirmManually,
+                    icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
+                    label: const Text('Já concluí o pagamento'),
+                  ),
+                ],
               ],
             ),
           ),

@@ -37,6 +37,9 @@ class MemberDirectoryEntry {
     this.carteirinhaAssinadaPorNome,
     this.carteirinhaAssinadaPorCargo,
     this.carteirinhaAssinaturaUrl,
+    this.carteirinhaAssinadaPorUsuarioUid,
+    this.carteirinhaAssinadaPorUsuarioNome,
+    this.carteirinhaAssinadaPorUsuarioRole,
   });
 
   final String memberDocId;
@@ -63,6 +66,11 @@ class MemberDirectoryEntry {
   final String? carteirinhaAssinadaPorNome;
   final String? carteirinhaAssinadaPorCargo;
   final String? carteirinhaAssinaturaUrl;
+
+  /// Auditoria: usuário do painel (não o signatário) que executou a ação.
+  final String? carteirinhaAssinadaPorUsuarioUid;
+  final String? carteirinhaAssinadaPorUsuarioNome;
+  final String? carteirinhaAssinadaPorUsuarioRole;
 
   factory MemberDirectoryEntry.fromMap(Map<String, dynamic> raw) {
     int n(dynamic v) => v is num ? v.toInt() : int.tryParse('$v') ?? 0;
@@ -117,6 +125,15 @@ class MemberDirectoryEntry {
         raw['carteirinhaAssinadaPorCargo'],
       ),
       carteirinhaAssinaturaUrl: _pickOptStr(raw['carteirinhaAssinaturaUrl']),
+      carteirinhaAssinadaPorUsuarioUid: _pickOptStr(
+        raw['carteirinhaAssinadaPorUsuarioUid'],
+      ),
+      carteirinhaAssinadaPorUsuarioNome: _pickOptStr(
+        raw['carteirinhaAssinadaPorUsuarioNome'],
+      ),
+      carteirinhaAssinadaPorUsuarioRole: _pickOptStr(
+        raw['carteirinhaAssinadaPorUsuarioRole'],
+      ),
     );
   }
 
@@ -172,6 +189,15 @@ class MemberDirectoryEntry {
       if (carteirinhaAssinaturaUrl != null &&
           carteirinhaAssinaturaUrl!.trim().isNotEmpty)
         'carteirinhaAssinaturaUrl': carteirinhaAssinaturaUrl,
+      if (carteirinhaAssinadaPorUsuarioUid != null &&
+          carteirinhaAssinadaPorUsuarioUid!.trim().isNotEmpty)
+        'carteirinhaAssinadaPorUsuarioUid': carteirinhaAssinadaPorUsuarioUid,
+      if (carteirinhaAssinadaPorUsuarioNome != null &&
+          carteirinhaAssinadaPorUsuarioNome!.trim().isNotEmpty)
+        'carteirinhaAssinadaPorUsuarioNome': carteirinhaAssinadaPorUsuarioNome,
+      if (carteirinhaAssinadaPorUsuarioRole != null &&
+          carteirinhaAssinadaPorUsuarioRole!.trim().isNotEmpty)
+        'carteirinhaAssinadaPorUsuarioRole': carteirinhaAssinadaPorUsuarioRole,
     };
   }
 
@@ -233,6 +259,15 @@ class MemberDirectoryEntry {
     final assinaturaUrl = FirestoreMapFields.pickString(fields, const [
       'carteirinhaAssinaturaUrl',
     ], fallback: carteirinhaAssinaturaUrl ?? '');
+    final assinadaPorUsuarioUid = FirestoreMapFields.pickString(fields, const [
+      'carteirinhaAssinadaPorUsuarioUid',
+    ], fallback: carteirinhaAssinadaPorUsuarioUid ?? '');
+    final assinadaPorUsuarioNome = FirestoreMapFields.pickString(fields, const [
+      'carteirinhaAssinadaPorUsuarioNome',
+    ], fallback: carteirinhaAssinadaPorUsuarioNome ?? '');
+    final assinadaPorUsuarioRole = FirestoreMapFields.pickString(fields, const [
+      'carteirinhaAssinadaPorUsuarioRole',
+    ], fallback: carteirinhaAssinadaPorUsuarioRole ?? '');
 
     return MemberDirectoryEntry(
       memberDocId: memberDocId,
@@ -279,6 +314,15 @@ class MemberDirectoryEntry {
       carteirinhaAssinaturaUrl: assinaturaUrl.isEmpty
           ? carteirinhaAssinaturaUrl
           : assinaturaUrl,
+      carteirinhaAssinadaPorUsuarioUid: assinadaPorUsuarioUid.isEmpty
+          ? carteirinhaAssinadaPorUsuarioUid
+          : assinadaPorUsuarioUid,
+      carteirinhaAssinadaPorUsuarioNome: assinadaPorUsuarioNome.isEmpty
+          ? carteirinhaAssinadaPorUsuarioNome
+          : assinadaPorUsuarioNome,
+      carteirinhaAssinadaPorUsuarioRole: assinadaPorUsuarioRole.isEmpty
+          ? carteirinhaAssinadaPorUsuarioRole
+          : assinadaPorUsuarioRole,
     );
   }
 

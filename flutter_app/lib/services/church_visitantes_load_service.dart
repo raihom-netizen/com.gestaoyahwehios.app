@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
@@ -463,6 +464,10 @@ abstract final class ChurchVisitantesLoadService {
         module: OfflineModules.visitantes,
         tenantId: cid,
       );
+      // O cache do módulo (YahwehModuleCaches.visitantes) tem prioridade na
+      // tela e nunca era avisado desta escrita — a lista ficava mostrando a
+      // versão de antes de editar/gravar até o usuário puxar pra atualizar.
+      YahwehModuleCaches.visitantes.invalidate(cid);
       unawaited(refreshRamFromCache(cid));
       return id;
     }
@@ -503,6 +508,9 @@ abstract final class ChurchVisitantesLoadService {
       ];
       putRam(cid, _sortByCreatedAt(merged));
     }
+    // Mesmo motivo do ramo de edição acima — sem isto o visitante recém
+    // cadastrado não aparecia até um refresh manual da tela.
+    YahwehModuleCaches.visitantes.invalidate(cid);
 
     unawaited(ensureProvisioned(cid));
     unawaited(refreshRamFromCache(cid));
@@ -539,6 +547,7 @@ abstract final class ChurchVisitantesLoadService {
     }
 
     removeFromRam(churchId, ids);
+    YahwehModuleCaches.visitantes.invalidate(churchId);
     unawaited(invalidate(seedTenantId));
     return ids.length;
   }

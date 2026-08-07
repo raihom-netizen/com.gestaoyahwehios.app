@@ -36,8 +36,9 @@ const int kHighResCropMaxHeight = 2160;
 const int kPremiumFeedFullHdMaxWidth = 1600;
 const int kPremiumFeedFullHdMaxHeight = 1600;
 
-/// Foto de membro (1:1): não usar teto Full HD do feed.
-const int kMemberCropWebpMaxEdgePx = 768;
+/// Foto de membro (1:1) — mesmo teto Full HD do feed (era 768px, perdia
+/// nitidez visivelmente; a etapa final ainda recorta 1:1 a partir disto).
+const int kMemberCropWebpMaxEdgePx = kPremiumFeedFullHdMaxWidth;
 
 /// Qualidade na saída do recorte nativo (sem perda antes do WebP).
 const int kCropperCompressQuality = 100;

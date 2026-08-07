@@ -12,6 +12,7 @@ import 'package:image/image.dart' as img;
 import 'package:pdf/pdf.dart' hide PdfDocument, PdfRect;
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdfrx/pdfrx.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart' as sf;
 
 import 'package:gestao_yahweh/services/relatorio_service.dart';
 import 'package:gestao_yahweh/services/smart_input_image_ocr_service.dart';
@@ -730,7 +731,7 @@ abstract final class UtilitariosLocalService {
       }
       final s = buf.toString().trim();
       if (s.isEmpty) {
-        return 'Documento convertido no GestÃ£o Yahweh.\n'
+        return 'Documento convertido no Gestão Yahweh.\n'
             'Este PDF não possui texto selecionável (pode ser imagem/scan).\n'
             'Use «PDF → JPEG» ou «PDF → PNG» para obter as páginas em imagem.';
       }
@@ -1160,6 +1161,8 @@ abstract final class UtilitariosLocalService {
       );
 
   /// Une páginas na ordem escolhida (vários PDFs → 1 PDF).
+  /// Une páginas preservando o PDF original (vetor/fonte/nitidez) — cópia
+  /// nativa via template do Syncfusion, sem rasterizar para JPEG.
   static Future<Uint8List> mergeOrderedPdfPages(
     List<({Uint8List pdf, int pageIndex})> order,
   ) async {
@@ -1169,17 +1172,21 @@ abstract final class UtilitariosLocalService {
         'Máximo de $kMaxPdfPagesTools páginas por união (limite local).',
       );
     }
-    final images = <Uint8List>[];
-    for (final item in order) {
-      await _yieldUi();
-      images.add(
-        await renderPdfPageAt(item.pdf, item.pageIndex),
-      );
+    try {
+      return await compute(_mergePdfPagesNativeIsolate, order);
+    } catch (e) {
+      debugPrint('mergeOrderedPdfPages nativo falhou, usando raster: $e');
+      final images = <Uint8List>[];
+      for (final item in order) {
+        await _yieldUi();
+        images.add(await renderPdfPageAt(item.pdf, item.pageIndex));
+      }
+      return imagesToPdf(images);
     }
-    return imagesToPdf(images);
   }
 
   /// Divide PDF: páginas selecionadas → 1 PDF ou ZIP (1 PDF por página).
+  /// Cópia nativa (vetor/fonte/nitidez preservados), sem rasterizar.
   static Future<({Uint8List bytes, String fileName, String mime})>
       splitPdfPages(
     Uint8List pdfBytes,
@@ -1203,14 +1210,23 @@ abstract final class UtilitariosLocalService {
       throw StateError('Selecione ao menos uma página para dividir.');
     }
     if (onePdfPerPage && ordered.length > 1) {
-      final rendered = await renderPdfPagesAt(pdfBytes, ordered);
-      final pdfs = <Uint8List>[];
-      for (final i in ordered) {
-        final img = rendered[i];
-        if (img == null) {
-          throw StateError('Não foi possível renderizar a página ${i + 1}.');
+      List<Uint8List> pdfs;
+      try {
+        pdfs = await compute(
+          _splitPdfPagesEachNativeIsolate,
+          _ExtractPagesArgs(pdf: pdfBytes, pageIndices: ordered),
+        );
+      } catch (e) {
+        debugPrint('splitPdfPages (cada página) nativo falhou, usando raster: $e');
+        final rendered = await renderPdfPagesAt(pdfBytes, ordered);
+        pdfs = [];
+        for (final i in ordered) {
+          final img = rendered[i];
+          if (img == null) {
+            throw StateError('Não foi possível renderizar a página ${i + 1}.');
+          }
+          pdfs.add(await imagesToPdf([img]));
         }
-        pdfs.add(await imagesToPdf([img]));
       }
       final zip = await zipImages(pdfs, 'pagina', extension: 'pdf');
       return (
@@ -1219,17 +1235,27 @@ abstract final class UtilitariosLocalService {
         mime: 'application/zip',
       );
     }
-    final rendered = await renderPdfPagesAt(pdfBytes, ordered);
-    final images = <Uint8List>[];
-    for (final i in ordered) {
-      final img = rendered[i];
-      if (img == null) {
-        throw StateError('Não foi possível renderizar a página ${i + 1}.');
+    Uint8List bytes;
+    try {
+      bytes = await compute(
+        _extractPdfPagesNativeIsolate,
+        _ExtractPagesArgs(pdf: pdfBytes, pageIndices: ordered),
+      );
+    } catch (e) {
+      debugPrint('splitPdfPages nativo falhou, usando raster: $e');
+      final rendered = await renderPdfPagesAt(pdfBytes, ordered);
+      final images = <Uint8List>[];
+      for (final i in ordered) {
+        final img = rendered[i];
+        if (img == null) {
+          throw StateError('Não foi possível renderizar a página ${i + 1}.');
+        }
+        images.add(img);
       }
-      images.add(img);
+      bytes = await imagesToPdf(images);
     }
     return (
-      bytes: await imagesToPdf(images),
+      bytes: bytes,
       fileName: 'pdf_dividido_gestao_yahweh.pdf',
       mime: 'application/pdf',
     );
@@ -1727,7 +1753,7 @@ abstract final class UtilitariosLocalService {
       if (plain.isEmpty) {
         return _PdfExportDocument(
           blocks: const [],
-          plainFallback: 'Documento convertido no GestÃ£o Yahweh.\n'
+          plainFallback: 'Documento convertido no Gestão Yahweh.\n'
               'Este PDF não possui texto selecionável (pode ser imagem/scan).\n'
               'Use «PDF → JPEG» ou «PDF → PNG» para obter as páginas em imagem.',
         );
@@ -2954,7 +2980,20 @@ img.ColorRgb8 _medianPaperColorAround(
     final r = ((best.key >> 16) & 0xFF) * 24 + 12;
     final g = ((best.key >> 8) & 0xFF) * 24 + 12;
     final b = (best.key & 0xFF) * 24 + 12;
-    backgroundArgb = 0xFF000000 | (r << 16) | (g << 8) | b;
+    // A janela amostrada aqui é quase a mesma região onde a tinta do
+    // texto é lida logo abaixo (innerX/innerY), então em linhas com texto
+    // denso/escuro (ex.: números, negrito) a amostra "de fundo" acaba
+    // dominada pelos próprios traços de tinta (anti-aliasing incluso) em
+    // vez de uma célula de tabela realmente colorida. Um resultado muito
+    // escuro quase nunca é o fundo pretendido — é a tinta sendo
+    // confundida com fundo — e pintar essa cor por cima do texto ao
+    // editar o campo produzia uma barra preta cobrindo o conteúdo. Nesse
+    // caso preferimos não sobrescrever (mantém branco no chamador) a
+    // arriscar uma barra escura indevida.
+    final luminance = r * 0.299 + g * 0.587 + b * 0.114;
+    if (luminance > 60) {
+      backgroundArgb = 0xFF000000 | (r << 16) | (g << 8) | b;
+    }
   }
 
   final buckets = <int, int>{};
@@ -3243,6 +3282,90 @@ Uint8List _encodeRgbaJpegIsolate(_EncodeRgbaArgs a) {
   );
   // Qualidade 98: tipografia e linhas finas próximas ao original Adobe.
   return Uint8List.fromList(img.encodeJpg(im, quality: 98));
+}
+
+/// Copia [srcPage] para uma página nova em [destDoc], preservando o
+/// conteúdo vetorial (fonte, nitidez) via template do Syncfusion — em vez
+/// de rasterizar a página para imagem e perder qualidade/tamanho.
+void _copyPdfPageNative(sf.PdfDocument destDoc, sf.PdfPage srcPage) {
+  final template = srcPage.createTemplate();
+  destDoc.pageSettings.size =
+      ui.Size(srcPage.size.width, srcPage.size.height);
+  final newPage = destDoc.pages.add();
+  newPage.graphics.drawPdfTemplate(template, ui.Offset.zero);
+}
+
+/// Une páginas de (possivelmente) vários PDFs de origem num único PDF novo,
+/// copiando o conteúdo nativamente (sem rasterizar). Abre cada PDF de
+/// origem uma única vez, mesmo que várias páginas dele sejam usadas.
+Uint8List _mergePdfPagesNativeIsolate(
+  List<({Uint8List pdf, int pageIndex})> order,
+) {
+  final destDoc = sf.PdfDocument();
+  final openDocs = <Uint8List, sf.PdfDocument>{};
+  try {
+    for (final item in order) {
+      final srcDoc = openDocs.putIfAbsent(
+        item.pdf,
+        () => sf.PdfDocument(inputBytes: item.pdf),
+      );
+      if (item.pageIndex < 0 || item.pageIndex >= srcDoc.pages.count) {
+        continue;
+      }
+      _copyPdfPageNative(destDoc, srcDoc.pages[item.pageIndex]);
+    }
+    return Uint8List.fromList(destDoc.saveSync());
+  } finally {
+    for (final d in openDocs.values) {
+      d.dispose();
+    }
+    destDoc.dispose();
+  }
+}
+
+class _ExtractPagesArgs {
+  const _ExtractPagesArgs({required this.pdf, required this.pageIndices});
+  final Uint8List pdf;
+  final List<int> pageIndices;
+}
+
+/// Extrai as páginas pedidas de um único PDF de origem para um novo PDF
+/// (cópia nativa, sem rasterizar) — usado pelo "Dividir" (1 PDF de saída).
+Uint8List _extractPdfPagesNativeIsolate(_ExtractPagesArgs args) {
+  final srcDoc = sf.PdfDocument(inputBytes: args.pdf);
+  final destDoc = sf.PdfDocument();
+  try {
+    for (final i in args.pageIndices) {
+      if (i < 0 || i >= srcDoc.pages.count) continue;
+      _copyPdfPageNative(destDoc, srcDoc.pages[i]);
+    }
+    return Uint8List.fromList(destDoc.saveSync());
+  } finally {
+    srcDoc.dispose();
+    destDoc.dispose();
+  }
+}
+
+/// Como [_extractPdfPagesNativeIsolate], mas devolve 1 PDF por página
+/// (cópia nativa) — usado pelo "Dividir" no modo ZIP (1 PDF por página).
+List<Uint8List> _splitPdfPagesEachNativeIsolate(_ExtractPagesArgs args) {
+  final srcDoc = sf.PdfDocument(inputBytes: args.pdf);
+  try {
+    final out = <Uint8List>[];
+    for (final i in args.pageIndices) {
+      if (i < 0 || i >= srcDoc.pages.count) continue;
+      final destDoc = sf.PdfDocument();
+      try {
+        _copyPdfPageNative(destDoc, srcDoc.pages[i]);
+        out.add(Uint8List.fromList(destDoc.saveSync()));
+      } finally {
+        destDoc.dispose();
+      }
+    }
+    return out;
+  } finally {
+    srcDoc.dispose();
+  }
 }
 
 class _EncodePageArgs {
@@ -3897,7 +4020,7 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
   }
 
   if (sheetSpecs.isEmpty) {
-    addRow(['Conteúdo convertido no GestÃ£o Yahweh']);
+    addRow(['Conteúdo convertido no Gestão Yahweh']);
   }
 
   final sst = <String>[];
@@ -3977,8 +4100,8 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
  xmlns:dcterms="http://purl.org/dc/terms/"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <dc:title>PDF → Excel</dc:title>
-  <dc:creator>GestÃ£o Yahweh</dc:creator>
-  <cp:lastModifiedBy>GestÃ£o Yahweh</cp:lastModifiedBy>
+  <dc:creator>Gestão Yahweh</dc:creator>
+  <cp:lastModifiedBy>Gestão Yahweh</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">$now</dcterms:created>
   <dcterms:modified xsi:type="dcterms:W3CDTF">$now</dcterms:modified>
 </cp:coreProperties>''';
@@ -3986,8 +4109,8 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
   const app = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
  xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-  <Application>GestÃ£o Yahweh</Application>
-  <Company>GestÃ£o Yahweh</Company>
+  <Application>Gestão Yahweh</Application>
+  <Company>Gestão Yahweh</Company>
 </Properties>''';
 
   const workbook = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -4199,9 +4322,9 @@ $overrideSlides</Types>''';
  xmlns:dcterms="http://purl.org/dc/terms/"
  xmlns:dcmitype="http://purl.org/dc/dcmitype/"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dc:title>GestÃ£o Yahweh</dc:title>
-  <dc:creator>GestÃ£o Yahweh</dc:creator>
-  <cp:lastModifiedBy>GestÃ£o Yahweh</cp:lastModifiedBy>
+  <dc:title>Gestão Yahweh</dc:title>
+  <dc:creator>Gestão Yahweh</dc:creator>
+  <cp:lastModifiedBy>Gestão Yahweh</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">$now</dcterms:created>
   <dcterms:modified xsi:type="dcterms:W3CDTF">$now</dcterms:modified>
 </cp:coreProperties>''';
@@ -4209,11 +4332,11 @@ $overrideSlides</Types>''';
   final app = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
  xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-  <Application>GestÃ£o Yahweh</Application>
+  <Application>Gestão Yahweh</Application>
   <PresentationFormat>Widescreen</PresentationFormat>
   <Slides>$n</Slides>
   <ScaleCrop>false</ScaleCrop>
-  <Company>GestÃ£o Yahweh</Company>
+  <Company>Gestão Yahweh</Company>
 </Properties>''';
 
   // rId1 = slideMaster; rId2.. = slides; último = theme
@@ -4584,7 +4707,7 @@ Future<Uint8List> _rowsToPdfWithTheme(
           const pw.EdgeInsets.all(UtilitariosExportPageFormat.pdfTableMarginPt),
       build: (_) => [
         pw.Text(
-          'Planilha — GestÃ£o Yahweh',
+          'Planilha — Gestão Yahweh',
           style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 10),

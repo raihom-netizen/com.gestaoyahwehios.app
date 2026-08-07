@@ -116,9 +116,13 @@ class ImageHelper {
     return current;
   }
 
-  /// Patrimônio: JPEG leve (~500 KB / 1200px) — upload rápido.
+  /// Patrimônio: JPEG leve (~1200px) — upload rápido.
   static const int kPatrimonioJpegQuality = 70;
-  static const int kPatrimonioMaxUploadBytes = 500 * 1024;
+  // Alinhado a kAutoCompressImageThresholdBytes: o picker já entrega
+  // 1600px/78%: com o teto em 500KB, quase toda foto disparava um segundo
+  // recorte pesado (decode+resize+reencode) à toa — 1600px/78% já está bom
+  // o bastante pra upload, então passa direto sem reprocessar de novo.
+  static const int kPatrimonioMaxUploadBytes = 1536 * 1024;
   static const int kPatrimonioMaxEdge = 1200;
 
   static Future<Uint8List> compressPatrimonioPhotoForUpload(Uint8List list) async {

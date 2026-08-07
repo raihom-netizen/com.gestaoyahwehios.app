@@ -77,6 +77,14 @@ class ChurchChatForwardSheet extends StatelessWidget {
           ),
           Flexible(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              // Lista já conhecida (hub/cache) na hora — sem isso o sheet
+              // ficava preso no spinner até o próximo evento do stream
+              // compartilhado, que não repete o último valor a quem assina
+              // depois (`StreamController.broadcast`).
+              initialData: ChurchChatService.peekChatThreadsSnapshot(
+                tenantId,
+                uid,
+              ),
               stream: ChurchChatService.chatThreadsSnapshotsForUser(
                 tenantId,
                 uid,

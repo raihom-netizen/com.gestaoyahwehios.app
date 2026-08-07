@@ -1,6 +1,9 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:gestao_yahweh/constants/premium_pro_limits.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Preços reais do checkout Mercado Pago (PIX/cartão), lidos de
 /// `app_config/mp_checkout_prices` (leitura pública). O painel Admin pode
@@ -183,6 +186,22 @@ class MpCheckoutPricingService {
       FirebaseFirestore.instance.collection('app_config').doc('mp_checkout_prices');
 
   static Stream<MpCheckoutPricingSnapshot> watch() {
+    // Web: mais um listener ao vivo neste doc global somava-se aos de outras
+    // telas abertas e podia contribuir para o "INTERNAL ASSERTION FAILED"
+    // do WatchChangeAggregator — poll leve substitui sem travar o painel.
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
+      return _pollWatch();
+    }
     return _doc.snapshots().map((s) => MpCheckoutPricingSnapshot.fromFirestore(s.data()));
+  }
+
+  static Stream<MpCheckoutPricingSnapshot> _pollWatch() async* {
+    while (true) {
+      try {
+        final snap = await _doc.get();
+        yield MpCheckoutPricingSnapshot.fromFirestore(snap.data());
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(seconds: 45));
+    }
   }
 }

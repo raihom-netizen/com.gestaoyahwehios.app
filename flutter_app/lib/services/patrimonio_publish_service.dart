@@ -183,6 +183,9 @@ abstract final class PatrimonioPublishService {
             slotIndex: slot,
             rawBytes: bytes,
             alreadyCompressed: true,
+            // Já chamado uma vez no início deste publish — repetir por slot
+            // (5 fotos = 5 chamadas extra) só desperdiça tempo à toa.
+            ensureReady: false,
           );
         }
 

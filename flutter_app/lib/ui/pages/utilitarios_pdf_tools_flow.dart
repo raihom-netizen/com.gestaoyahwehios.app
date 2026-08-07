@@ -207,6 +207,12 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   void dispose() {
     _splitRangeFromCtrl.dispose();
     _splitRangeToCtrl.dispose();
+    for (final n in _liveMoveOffsets.values) {
+      n.dispose();
+    }
+    for (final n in _liveResizeOffsets.values) {
+      n.dispose();
+    }
     super.dispose();
   }
 
@@ -317,6 +323,16 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   String? _selectedFieldId;
   bool _detectingFields = false;
   final List<List<UtilPdfPageAnnotation>> _annotations = [];
+  // Deslocamento/redimensionamento em andamento por anotação (drag ao vivo).
+  // Vive fora do setState do State inteiro: só o overlay da anotação arrastada
+  // escuta essas notifiers, então mover/redimensionar não repinta a página,
+  // os outros campos/anotações e a toolbar a cada frame de arraste.
+  final Map<String, ValueNotifier<Offset>> _liveMoveOffsets = {};
+  final Map<String, ValueNotifier<Offset>> _liveResizeOffsets = {};
+  ValueNotifier<Offset> _moveNotifierFor(String id) =>
+      _liveMoveOffsets.putIfAbsent(id, () => ValueNotifier(Offset.zero));
+  ValueNotifier<Offset> _resizeNotifierFor(String id) =>
+      _liveResizeOffsets.putIfAbsent(id, () => ValueNotifier(Offset.zero));
   _PdfEditorTool _editTool = _PdfEditorTool.select;
   _EditViewMode _editViewMode = _EditViewMode.document;
   /// Chrome mínimo no documento — página quase tela cheia (toque nos campos).
@@ -635,23 +651,28 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   }
 
   Future<void> _loadMergeThumbs() async {
-    const batchSize = 5;
+    // Agrupa por PDF de origem para reaproveitar um único PdfDocument aberto
+    // por fonte (renderPdfPagesAt em lote), em vez de abrir/fechar o mesmo
+    // PDF uma vez por página — antes reabria centenas de vezes numa seleção
+    // grande do mesmo arquivo.
     final pending = _mergeOrder.where((item) => item.thumb == null).toList();
-    for (var start = 0; start < pending.length; start += batchSize) {
+    if (pending.isEmpty) return;
+    final bySource = <int, List<_MergePageItem>>{};
+    for (final item in pending) {
+      bySource.putIfAbsent(item.sourceIndex, () => []).add(item);
+    }
+    for (final entry in bySource.entries) {
       if (!mounted) return;
-      final batch = pending.sublist(
-        start,
-        math.min(start + batchSize, pending.length),
+      final src = _sources[entry.key];
+      final pageIndices = entry.value.map((item) => item.pageIndex).toSet();
+      final rendered = await UtilitariosLocalService.renderPdfPagesAt(
+        src.bytes,
+        pageIndices,
+        fullWidth: 200,
       );
-      final futures = batch.map((item) async {
-        final src = _sources[item.sourceIndex];
-        item.thumb = await UtilitariosLocalService.renderPdfPageAt(
-          src.bytes,
-          item.pageIndex,
-          fullWidth: 200,
-        );
-      });
-      await Future.wait(futures);
+      for (final item in entry.value) {
+        item.thumb = rendered[item.pageIndex];
+      }
       if (mounted) setState(() {});
     }
   }
@@ -1236,12 +1257,15 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         _editPageAspects[page] =
             size.width > 0 ? size.width / size.height : 1.0;
         final mq = MediaQuery.sizeOf(context);
+        final fastEditRenderWidth = _thumbs.length > 24
+            ? 1800.0
+            : UtilitariosLocalService.kPdfEditRenderWidth;
         final renderWidth = kIsWeb
             ? math.max(
-                UtilitariosLocalService.kPdfEditRenderWidth,
-                mq.width * 1.35,
+                fastEditRenderWidth,
+                mq.width * 1.28,
               )
-            : UtilitariosLocalService.kPdfEditRenderWidth;
+            : fastEditRenderWidth;
         _editPageImages[page] = await UtilitariosLocalService.renderPdfPageAt(
           pdf,
           page,
@@ -1785,6 +1809,15 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                   fontSize: 13,
                 ),
               ),
+              const SizedBox(height: 6),
+              Text(
+                'PDF recomendado para manter fonte, papel e formatação.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.5),
+                  fontSize: 11.5,
+                ),
+              ),
               const SizedBox(height: 20),
               GridView.count(
                 shrinkWrap: true,
@@ -1855,26 +1888,89 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
 
   Future<void> _exportEditedPdf({required String action}) async {
     final pdf = _singlePdf;
-    if (pdf == null) return;
+    if (pdf == null || _thumbs.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecione um PDF antes de exportar.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final hasAnyAnnotation = _hasAnyEditorAnnotations();
+
+    // Nunca exportar/compartilhar em silêncio sem nenhuma alteração aplicada
+    // — evita mandar o PDF original achando que está editado.
+    if (!hasAnyAnnotation) {
+      if (!mounted) return;
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          icon: Icon(Icons.warning_amber_rounded,
+              color: Colors.orange.shade700, size: 32),
+          title: const Text('Nenhuma alteração detectada'),
+          content: const Text(
+            'Este PDF será enviado exatamente como o original — sem nenhum '
+            'texto ou marcação que você tenha adicionado. Se você editou algo, '
+            'volte e confira antes de continuar.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Voltar e conferir'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(
+                  backgroundColor: Colors.orange.shade700),
+              child: const Text('Enviar original mesmo assim'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true || !mounted) return;
+    }
+
     await _withBusy('Gerando PDF editado…', () async {
       late final Uint8List out;
-      try {
-        out = await UtilitariosPdfPreserveExport.export(
-          originalPdf: pdf,
-          annotationsByPage: _annotations,
-        );
-      } catch (e, st) {
-        debugPrint('Export PDF nativo falhou: $e\n$st');
+      if (!hasAnyAnnotation) {
+        out = pdf;
+      } else {
+        try {
+          out = await UtilitariosPdfPreserveExport.export(
+            originalPdf: pdf,
+            annotationsByPage: _annotations,
+          );
+        } catch (e, st) {
+          debugPrint('Export PDF nativo falhou: $e\n$st');
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Não foi possível salvar a edição no PDF. Tente de novo.',
+              ),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+      }
+
+      if (out.isEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content:
-                Text('Não foi possível salvar a edição no PDF. Tente de novo.'),
+            content: Text('Falha ao gerar o PDF editado.'),
             behavior: SnackBarBehavior.floating,
           ),
         );
         return;
       }
+
       if (!mounted) return;
       final fileName = _editedFileName();
       final ok = await utilitariosSaveOrShareBytes(
@@ -1891,8 +1987,12 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           content: Text(
             ok
                 ? (action == 'share'
-                    ? 'PDF editado pronto para compartilhar.'
-                    : 'PDF editado salvo (formato original).')
+                    ? (hasAnyAnnotation
+                        ? 'PDF editado pronto para compartilhar.'
+                        : 'PDF sem alterações pronto para compartilhar.')
+                    : (hasAnyAnnotation
+                        ? 'PDF editado salvo (formato original).'
+                        : 'PDF salvo sem alterações.'))
                 : 'Não foi possível exportar o PDF.',
           ),
           behavior: SnackBarBehavior.floating,
@@ -1912,16 +2012,104 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     });
   }
 
+  bool _hasAnyEditorAnnotations() {
+    for (final page in _annotations) {
+      if (page.isNotEmpty) return true;
+    }
+    return false;
+  }
+
+  int _pendingAnnotationCount() {
+    var n = 0;
+    for (final page in _annotations) {
+      n += page.length;
+    }
+    return n;
+  }
+
+  /// Contador sempre visível de alterações pendentes — feedback imediato de
+  /// que o app está de fato registrando o que foi editado, antes de salvar.
+  Widget _buildPendingChangesBadge() {
+    final count = _pendingAnnotationCount();
+    final active = count > 0;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: active
+            ? const Color(0xFF22C55E).withValues(alpha: 0.18)
+            : Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: active
+              ? const Color(0xFF22C55E).withValues(alpha: 0.6)
+              : Colors.white.withValues(alpha: 0.18),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            active ? Icons.check_circle_rounded : Icons.edit_off_rounded,
+            size: 13,
+            color: active ? const Color(0xFF4ADE80) : Colors.white54,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            active ? '$count alteração${count == 1 ? '' : 'ões'}' : 'Sem alterações',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: active ? const Color(0xFF4ADE80) : Colors.white54,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _exportAsWord() async {
     final pdf = _singlePdf;
-    if (pdf == null) return;
+    if (pdf == null || _thumbs.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecione um PDF antes de exportar.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final hasAnyAnnotation = _hasAnyEditorAnnotations();
+
     await _withBusy('Gerando Word (.docx)…', () async {
       try {
-        final pdfBytes = await UtilitariosPdfPreserveExport.export(
-          originalPdf: pdf,
-          annotationsByPage: _annotations,
-        );
-        final docx = await UtilitariosLocalService.pdfToVisualDocx(pdfBytes);
+        final pdfBytes = hasAnyAnnotation
+            ? await UtilitariosPdfPreserveExport.export(
+                originalPdf: pdf,
+                annotationsByPage: _annotations,
+              )
+            : pdf;
+        if (pdfBytes.isEmpty) {
+          throw StateError('Falha ao gerar PDF intermediário para Word.');
+        }
+        // Word editável (parágrafos/tabelas de verdade) quando o PDF tem
+        // texto selecionável; só cai para o visual (1 imagem por página)
+        // se for um PDF de scan/imagem sem texto — mantém tamanho/fonte
+        // reais em vez de virar sempre uma imagem grande.
+        final extractedText =
+            await UtilitariosLocalService.pdfExtractText(pdfBytes);
+        final hasRealText = !extractedText
+            .startsWith('Documento convertido no GestÃ£o Yahweh.');
+        final docx = hasRealText
+            ? await UtilitariosLocalService.pdfToDocx(pdfBytes)
+            : await UtilitariosLocalService.pdfToVisualDocx(pdfBytes);
+        if (docx.isEmpty) {
+          throw StateError('Falha ao gerar arquivo Word.');
+        }
         final fileName = _editedFileName().replaceAll('.pdf', '.docx');
         final ok = await utilitariosSaveOrShareBytes(
           context: context,
@@ -1935,7 +2123,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(ok
-                ? 'Word (.docx) visual pronto — formato original preservado.'
+                ? (hasRealText
+                    ? 'Word (.docx) editável gerado — texto e formatação preservados.'
+                    : 'Word (.docx) visual pronto — formato original preservado.')
                 : 'Não foi possível exportar o Word.'),
             behavior: SnackBarBehavior.floating,
           ),
@@ -1948,7 +2138,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
               fileName: fileName,
               mimeType:
                   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-              message: 'Word visual (.docx) com páginas no formato original.',
+              message: hasRealText
+                  ? 'Word (.docx) editável — texto e formatação preservados.'
+                  : 'Word visual (.docx) com páginas no formato original.',
             ),
           );
         }
@@ -1967,14 +2159,30 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
 
   Future<void> _exportAsImages({required String format}) async {
     final pdf = _singlePdf;
-    if (pdf == null || _thumbs.isEmpty) return;
+    if (pdf == null || _thumbs.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Selecione um PDF antes de exportar.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final hasAnyAnnotation = _hasAnyEditorAnnotations();
     final asPng = format == 'png';
     await _withBusy(asPng ? 'Gerando PNG…' : 'Gerando JPEG…', () async {
       try {
-        final pdfBytes = await UtilitariosPdfPreserveExport.export(
-          originalPdf: pdf,
-          annotationsByPage: _annotations,
-        );
+        final pdfBytes = hasAnyAnnotation
+            ? await UtilitariosPdfPreserveExport.export(
+                originalPdf: pdf,
+                annotationsByPage: _annotations,
+              )
+            : pdf;
+        if (pdfBytes.isEmpty) {
+          throw StateError('Falha ao gerar PDF intermediário para imagem.');
+        }
         final pages = asPng
             ? await UtilitariosLocalService.pdfToPngs(pdfBytes)
             : await UtilitariosLocalService.pdfToJpegs(pdfBytes);
@@ -2011,7 +2219,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(ok
-                ? '${asPng ? 'PNG' : 'JPEG'} pronto para compartilhar.'
+                ? (hasAnyAnnotation
+                    ? '${asPng ? 'PNG' : 'JPEG'} pronto para compartilhar.'
+                    : '${asPng ? 'PNG' : 'JPEG'} gerado sem alterações no PDF.')
                 : 'Não foi possível exportar.'),
             behavior: SnackBarBehavior.floating,
           ),
@@ -2192,6 +2402,17 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
       }
       _selectAnn(null);
       return;
+    }
+
+    if (_editTool == _PdfEditorTool.text) {
+      // Tocar num trecho de texto já existente com a ferramenta "Texto"
+      // edita esse texto in-place (igual Adobe), em vez de criar uma
+      // anotação nova solta em cima do original.
+      final field = _fieldAt(nx, ny);
+      if (field != null) {
+        unawaited(_onDocFieldTap(field));
+        return;
+      }
     }
 
     final type = switch (_editTool) {
@@ -2395,6 +2616,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                           ),
                         ),
                       ),
+                      if (hasDoc) _buildPendingChangesBadge(),
                       if (hasDoc) ...[
                         IconButton(
                           tooltip: _editViewMode == _EditViewMode.grid
@@ -4362,54 +4584,82 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
       );
     }
 
-    return Positioned(
-      left: left,
-      top: top,
-      width: a.type == 'check' ? null : w,
-      height: a.type == 'check' ? null : h,
-      child: GestureDetector(
-        onPanStart: (_) {
-          if (_editTool != _PdfEditorTool.select) return;
-          _pushUndo();
-          _selectAnn(a.id);
-        },
-        onPanUpdate: (d) {
-          if (_editTool == _PdfEditorTool.select) {
-            _moveAnn(a.id, d.delta, imgRect.size);
-          }
-        },
-        onDoubleTap: a.type == 'text' ? () => _editAnnText(a) : null,
-        onTap: () {
-          if (_editTool == _PdfEditorTool.erase) {
-            _deleteAnn(a.id);
-          } else if (_editTool == _PdfEditorTool.select) {
-            _selectAnn(a.id);
-          }
-        },
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            SizedBox(width: w, height: h, child: child),
-            if (selected && a.type != 'check')
-              Positioned(
-                right: -6,
-                bottom: -6,
-                child: GestureDetector(
-                  onPanUpdate: (d) => _resizeAnn(a.id, d.delta, imgRect.size),
-                  child: Container(
-                    width: 18,
-                    height: 18,
-                    decoration: BoxDecoration(
-                      color: _gradient.first,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
+    final moveNotifier = _moveNotifierFor(a.id);
+    final resizeNotifier = _resizeNotifierFor(a.id);
+    // Arraste ao vivo isolado: enquanto o dedo se move, só esta subárvore
+    // repinta (posição/tamanho vêm das notifiers) — não passa por
+    // setState/rebuild da página inteira, dos outros campos e anotações.
+    // O valor definitivo só é gravado em _annotations (um único setState)
+    // ao soltar o dedo.
+    return ListenableBuilder(
+      listenable: Listenable.merge([moveNotifier, resizeNotifier]),
+      builder: (context, _) {
+        final liveW =
+            a.type == 'check' ? null : math.max(16.0, w + resizeNotifier.value.dx);
+        final liveH =
+            a.type == 'check' ? null : math.max(16.0, h + resizeNotifier.value.dy);
+        return Positioned(
+          left: left + moveNotifier.value.dx,
+          top: top + moveNotifier.value.dy,
+          width: liveW,
+          height: liveH,
+          child: GestureDetector(
+            onPanStart: (_) {
+              if (_editTool != _PdfEditorTool.select) return;
+              _pushUndo();
+              _selectAnn(a.id);
+            },
+            onPanUpdate: (d) {
+              if (_editTool == _PdfEditorTool.select) {
+                moveNotifier.value += d.delta;
+              }
+            },
+            onPanEnd: (_) {
+              if (moveNotifier.value == Offset.zero) return;
+              final delta = moveNotifier.value;
+              moveNotifier.value = Offset.zero;
+              _moveAnn(a.id, delta, imgRect.size);
+            },
+            onDoubleTap: a.type == 'text' ? () => _editAnnText(a) : null,
+            onTap: () {
+              if (_editTool == _PdfEditorTool.erase) {
+                _deleteAnn(a.id);
+              } else if (_editTool == _PdfEditorTool.select) {
+                _selectAnn(a.id);
+              }
+            },
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                SizedBox(width: liveW ?? w, height: liveH ?? h, child: child),
+                if (selected && a.type != 'check')
+                  Positioned(
+                    right: -6,
+                    bottom: -6,
+                    child: GestureDetector(
+                      onPanUpdate: (d) => resizeNotifier.value += d.delta,
+                      onPanEnd: (_) {
+                        if (resizeNotifier.value == Offset.zero) return;
+                        final delta = resizeNotifier.value;
+                        resizeNotifier.value = Offset.zero;
+                        _resizeAnn(a.id, delta, imgRect.size);
+                      },
+                      child: Container(
+                        width: 18,
+                        height: 18,
+                        decoration: BoxDecoration(
+                          color: _gradient.first,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
-          ],
-        ),
-      ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

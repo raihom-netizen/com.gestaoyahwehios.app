@@ -11,12 +11,15 @@ import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_event_video_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
+import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -276,7 +279,7 @@ abstract final class ChurchAvisosService {
     }
   }
 
-  static Future<String> _uploadAvisoLocalVideo({
+  static Future<({String videoPath, String thumbPath})> _uploadAvisoLocalVideo({
     required String churchId,
     required String postId,
     required String localPath,
@@ -292,14 +295,59 @@ abstract final class ChurchAvisosService {
     if (!await file.exists() || await file.length() <= 0) {
       throw StateError('Vídeo vazio — selecione outro ficheiro.');
     }
+
+    // Antes ia sempre o arquivo bruto (sem compressão nenhuma) — em conexões
+    // móveis comuns isso é o que fazia o upload do aviso "muito lento".
+    // Mesmo critério do módulo Eventos: pula recompressão só se já é um
+    // MP4/M4V pequeno; senão comprime antes de enviar.
+    final lower = localPath.toLowerCase();
+    final byteLen = await file.length();
+    final skipTranscode = byteLen <= mediaVideoSkipTranscodeMaxBytes &&
+        (lower.endsWith('.mp4') || lower.endsWith('.m4v'));
+    late final File compressed;
+    if (skipTranscode) {
+      compressed = file;
+    } else {
+      final mediaInfo = await MediaService.compressVideo(file);
+      compressed = (mediaInfo?.file != null) ? mediaInfo!.file! : file;
+    }
+
     final storagePath =
         ChurchStorageLayout.avisoHostedVideoMp4Path(churchId, postId, 0);
-    await EcoFireEventVideoUpload.putVideoFile(
-      storagePath: storagePath,
-      file: file,
-      onProgress: onProgress,
-    );
-    return storagePath;
+    final thumbPath =
+        ChurchStorageLayout.avisoHostedVideoThumbPath(churchId, postId, 0);
+
+    // Miniatura estilo Instagram/YouTube, gerada e enviada EM PARALELO ao
+    // vídeo (mesmo padrão do módulo Eventos) — sem isso o aviso com vídeo
+    // não tinha nenhuma prévia leve (só o vídeo bruto para carregar).
+    Future<String> uploadThumb() async {
+      try {
+        final thumbFile = await MediaService.getVideoThumbnail(compressed)
+            .timeout(const Duration(seconds: 20), onTimeout: () => null);
+        if (thumbFile != null && thumbFile.existsSync()) {
+          final thumbBytes = await thumbFile.readAsBytes();
+          if (thumbBytes.isNotEmpty) {
+            return await EcoFireStorageUpload.putData(
+              storagePath: thumbPath,
+              bytes: thumbBytes,
+              mimeType: 'image/jpeg',
+            );
+          }
+        }
+      } catch (_) {}
+      return '';
+    }
+
+    final results = await Future.wait([
+      EcoFireEventVideoUpload.putVideoFile(
+        storagePath: storagePath,
+        file: compressed,
+        onProgress: onProgress,
+      ),
+      uploadThumb(),
+    ]);
+    final thumbUrl = results[1];
+    return (videoPath: storagePath, thumbPath: thumbUrl.isNotEmpty ? thumbPath : '');
   }
 
   /// Publica aviso: fotos (Instagram) + YouTube/vídeo opcional → Firestore.
@@ -355,14 +403,17 @@ abstract final class ChurchAvisosService {
     final postId = docRef.id;
 
     var resolvedVideoPath = (videoStoragePath ?? '').trim();
+    var resolvedThumbPath = '';
     final localVideo = (videoLocalPath ?? '').trim();
     if (resolvedVideoPath.isEmpty && localVideo.isNotEmpty) {
-      resolvedVideoPath = await _uploadAvisoLocalVideo(
+      final uploaded = await _uploadAvisoLocalVideo(
         churchId: cid,
         postId: postId,
         localPath: localVideo,
         onProgress: onUploadProgress,
       );
+      resolvedVideoPath = uploaded.videoPath;
+      resolvedThumbPath = uploaded.thumbPath;
     }
 
     final now = FieldValue.serverTimestamp();
@@ -410,6 +461,8 @@ abstract final class ChurchAvisosService {
         'videoUrl': ytWatch,
       },
       if (igUrl != null) 'instagramUrl': igUrl,
+      if (resolvedThumbPath.isNotEmpty)
+        'thumbStoragePath': resolvedThumbPath,
     };
 
     logFirebasePublishPhase(
@@ -494,14 +547,17 @@ abstract final class ChurchAvisosService {
     }
 
     var resolvedVideoPath = (videoStoragePath ?? '').trim();
+    var resolvedThumbPath = '';
     final localVideo = (videoLocalPath ?? '').trim();
     if (resolvedVideoPath.isEmpty && localVideo.isNotEmpty) {
-      resolvedVideoPath = await _uploadAvisoLocalVideo(
+      final uploaded = await _uploadAvisoLocalVideo(
         churchId: cid,
         postId: id,
         localPath: localVideo,
         onProgress: onUploadProgress,
       );
+      resolvedVideoPath = uploaded.videoPath;
+      resolvedThumbPath = uploaded.thumbPath;
     }
 
     final titulo = title.trim();
@@ -568,11 +624,15 @@ abstract final class ChurchAvisosService {
         'youtubeUrl': FieldValue.delete(),
         'videoUrl': FieldValue.delete(),
         'videos': FieldValue.delete(),
+        'thumbUrl': FieldValue.delete(),
+        'thumbStoragePath': FieldValue.delete(),
       } else if (ytId != null) ...{
         'youtubeVideoId': ytId,
         'youtubeUrl': ytWatch,
         'videoUrl': ytWatch,
       },
+      if (resolvedThumbPath.isNotEmpty)
+        'thumbStoragePath': resolvedThumbPath,
       'instagramUrl': igUrl ?? FieldValue.delete(),
     };
 

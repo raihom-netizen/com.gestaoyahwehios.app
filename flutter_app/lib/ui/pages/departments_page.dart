@@ -1962,72 +1962,6 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   ];
 
   /// Rodapé quando o departamento é só sugestão (ainda não existe doc no Firestore).
-  Widget _presetSuggestionActionRow({
-    required BuildContext context,
-    required String deptKey,
-    required String deptName,
-  }) {
-    final minH = ThemeCleanPremium.minTouchTarget;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Material(
-          color: Colors.white.withValues(alpha: 0.22),
-          borderRadius: BorderRadius.circular(16),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () => _verMembrosDoDepartamento(
-              context: context,
-              deptId: deptKey,
-              deptName: deptName,
-            ),
-            borderRadius: BorderRadius.circular(16),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: minH),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.groups_rounded,
-                      size: 20,
-                      color: Colors.white,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Ver membros',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          _canWrite
-              ? 'Sugestão: ainda não está gravada nesta igreja. Use "Gravar padrões no sistema" no topo.'
-              : 'Sugestão de referência. Um gestor pode gravar no sistema para usar em escalas e cadastros.',
-          style: const TextStyle(
-            color: Colors.white70,
-            fontSize: 11,
-            height: 1.35,
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
-
   /// Intro + grelha/lista de presets (lista vazia no Firestore ou "só registros sem nome").
   List<Widget> _suggestedPresetsSlivers({
     required EdgeInsets padding,
@@ -2110,46 +2044,32 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
           ),
         ),
       ),
-      if (wide)
-        SliverPadding(
-          padding: listPad.copyWith(top: 0),
-          sliver: SliverGrid(
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 14,
-              mainAxisSpacing: 14,
-              childAspectRatio: 1.32,
-            ),
-            delegate: SliverChildBuilderDelegate(
-              (context, i) => _buildPresetSuggestionCard(presets[i]),
-              childCount: presets.length,
-            ),
+      // Grade compacta sempre — a lista de 1 card tall por linha ocupava a
+      // tela inteira com só 2 sugestões visíveis; ícone + nome já bastam
+      // aqui (a explicação completa já está no card acima).
+      SliverPadding(
+        padding: listPad.copyWith(top: 0),
+        sliver: SliverGrid(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: wide ? 3 : 2,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: wide ? 1.35 : 1.02,
           ),
-        )
-      else
-        SliverPadding(
-          padding: listPad.copyWith(top: 0),
-          sliver: SliverList(
-            delegate: SliverChildBuilderDelegate((context, i) {
-              return Padding(
-                padding: EdgeInsets.only(
-                  bottom: i < presets.length - 1
-                      ? ThemeCleanPremium.spaceSm
-                      : 0,
-                ),
-                child: _buildPresetSuggestionCard(presets[i]),
-              );
-            }, childCount: presets.length),
+          delegate: SliverChildBuilderDelegate(
+            (context, i) => _buildPresetSuggestionCard(presets[i]),
+            childCount: presets.length,
           ),
         ),
+      ),
     ];
   }
 
-  /// Mesmo visual do card real, para lista padrão quando `departamentos` está vazio (todas as igrejas).
+  /// Card compacto — ícone + nome, toque abre "Ver membros" direto (a
+  /// explicação completa e o botão de gravar em lote já ficam no card acima).
   Widget _buildPresetSuggestionCard(Map<String, dynamic> preset) {
     final key = (preset['key'] ?? '').toString();
     final name = (preset['label'] ?? '').toString().trim();
-    final desc = (preset['description'] ?? '').toString().trim();
     final iconKey = (preset['iconKey'] ?? preset['key'] ?? 'pastoral')
         .toString();
     final themeKey = iconKey;
@@ -2161,155 +2081,98 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       c1 = _opaqueArgb32(th['c1'] as int);
       c2 = _opaqueArgb32(th['c2'] as int);
     }
-    return Container(
-      decoration: BoxDecoration(
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Color(c1).withValues(alpha: 0.5), width: 1.1),
-        boxShadow: _deptCardShadow,
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 118),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Positioned.fill(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(c1), Color(c2)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Color(c1).withValues(alpha: 0.78),
-                            Color(c2).withValues(alpha: 0.78),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: 12,
-                    top: 12,
-                    child: Container(
+        onTap: () => _verMembrosDoDepartamento(
+          context: context,
+          deptId: key,
+          deptName: name,
+        ),
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Color(c1).withValues(alpha: 0.5),
+              width: 1.1,
+            ),
+            boxShadow: _deptCardShadow,
+            gradient: LinearGradient(
+              colors: [
+                Color(c1).withValues(alpha: 0.88),
+                Color(c2).withValues(alpha: 0.88),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    _iconChip(iconKey, radius: 16),
+                    const Spacer(),
+                    Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+                        horizontal: 6,
+                        vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.35),
-                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.black.withValues(alpha: 0.32),
+                        borderRadius: BorderRadius.circular(6),
                       ),
                       child: const Text(
                         'Sugestão',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 11,
+                          fontSize: 9.5,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 40, 16, 12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _iconChip(iconKey, radius: 24),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 18,
-                                  color: Colors.white,
-                                  letterSpacing: -0.3,
-                                ),
-                              ),
-                              if (desc.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                Text(
-                                  desc,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 11,
-                                    height: 1.25,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.28),
-                border: const Border(top: BorderSide(color: Color(0x33FFFFFF))),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.dashboard_customize_rounded,
+                  ],
+                ),
+                const Spacer(),
+                Text(
+                  name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13.5,
                     color: Colors.white,
-                    size: 20,
+                    letterSpacing: -0.2,
+                    height: 1.15,
                   ),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Equipe e escalas no painel após gravar',
+                ),
+                const SizedBox(height: 3),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.groups_rounded,
+                      size: 13,
+                      color: Colors.white70,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Ver membros',
                       style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12.5,
-                        height: 1.25,
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+              ],
             ),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.16),
-                border: const Border(top: BorderSide(color: Color(0x33FFFFFF))),
-              ),
-              child: _presetSuggestionActionRow(
-                context: context,
-                deptKey: key,
-                deptName: name,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -4040,10 +3903,17 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
         departmentId: widget.deptId,
         forceRefresh: forceRefresh,
       );
+      // `.catchError((_) => null)` num Future<T> não-anulável lançava
+      // "Null check operator used on a null value" sempre que o timeout/erro
+      // realmente acontecia (em vez de devolver null de forma segura) — daí
+      // o "Erro ao carregar" ao abrir departamentos sem doc ainda estável.
       final deptFuture = FirestoreWebGuard.runWithWebRecovery(
         () => firestoreDocumentGetReliable(widget.deptRef),
         maxAttempts: 2,
-      ).timeout(const Duration(seconds: 6)).catchError((_) => null);
+      )
+          .timeout(const Duration(seconds: 6))
+          .then<DocumentSnapshot<Map<String, dynamic>>?>((v) => v)
+          .catchError((_) => null);
 
       final loaded = await loadedFuture;
       if (!mounted) return;
@@ -4057,7 +3927,9 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
 
       final deptSnap = await deptFuture;
       if (!mounted) return;
-      setState(() => _deptData = deptSnap.data());
+      if (deptSnap != null) {
+        setState(() => _deptData = deptSnap.data());
+      }
 
       ChurchModuleQueryProbe.logSuccess(
         module: 'Departamentos-Hub',

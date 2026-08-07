@@ -7,7 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'functions_service.dart';
+import 'finance_comprovante_publish_service.dart';
+import 'transaction_save_service.dart';
 
 /// Fila local de uploads (ex.: ofício de audiência) quando não há rede.
 class PendingStorageUploadService {
@@ -214,20 +215,30 @@ class PendingStorageUploadService {
     final file = File(localPath);
     if (!await file.exists()) return true;
     final bytes = await file.readAsBytes();
-    final txPath = 'users/$userDocId/transactions/$txId';
-    await FunctionsService().uploadReceiptToStorage(
-      txPath: txPath,
-      filename: fileName,
-      bytes: bytes,
+    // Mesmo motor da tentativa imediata (`FinanceReceiptUploadService`) —
+    // era uma Cloud Function não implantada (`ctUploadReceiptToStorage`) e
+    // gravava em `users/{uid}/transactions` (coleção legada inexistente),
+    // então o comprovante enfileirado offline nunca chegava a lugar nenhum.
+    final result = await FinanceComprovantePublishService
+        .uploadComprovanteStorageOnly(
+      tenantId: userDocId,
+      lancamentoId: txId,
+      rawBytes: bytes,
       mimeType: mime,
+      fileName: fileName,
     );
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(userDocId)
-        .collection('transactions')
-        .doc(txId)
-        .update({
+    await TransactionSaveService.txRef(userDocId).doc(txId).update({
+      ...FinanceComprovantePublishService.comprovanteFieldsPatch(
+        url: result.url,
+        storagePath: result.storagePath,
+        mimeType: result.mimeType,
+        fileName: result.fileName,
+      ),
       'hasReceipt': true,
+      'receipt': {
+        'webViewLink': result.url,
+        'webContentLink': result.url,
+      },
       'receiptPendingUpload': FieldValue.delete(),
       'updatedAt': FieldValue.serverTimestamp(),
     });

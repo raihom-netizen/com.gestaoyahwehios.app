@@ -6,6 +6,7 @@ import { ensureChurchWelcomeSeed } from "./churchWelcomeSeed";
 import { trySendPublicSignupConfirmationEmail } from "./publicSignupEmail";
 import { topicPushNovo, sendGyTopicPush } from "./pushNovoConteudo";
 import { notifyGestoresNewMember } from "./memberRegistrationNotify";
+import { notifyGestoresNewVisitor } from "./visitorRegistrationNotify";
 import { buildGyTopicMessage } from "./notificationBranding";
 import { gerarReceitasRecorrentesPendentesForTenant } from "./receitasRecorrentesScheduled";
 import { fetchPaymentForWebhook, tryHandleChurchDonationPayment } from "./churchMercadoPago";
@@ -1102,7 +1103,14 @@ export const backupDailyToGcs = functions
     const firestore = google.firestore({ version: "v1", auth });
 
     const name = `projects/${projectId}/databases/(default)`;
-    const outputUriPrefix = `gs://${backupBucket}/firestore/${ymFolder(new Date())}`;
+    // O export do Firestore exige um outputUriPrefix inédito (cria um
+    // ..._overall_export_metadata no destino). Usar só a pasta do mês
+    // (YYYY-MM) fazia o 2º backup do mesmo mês falhar com "Path already
+    // exists" — por isso cada execução ganha sua própria subpasta com dia
+    // e horário.
+    const now = new Date();
+    const dayStamp = now.toISOString().replace(/[:.]/g, "-");
+    const outputUriPrefix = `gs://${backupBucket}/firestore/${ymFolder(now)}/${dayStamp}`;
 
     await firestore.projects.databases.exportDocuments({
       name,
@@ -6872,6 +6880,36 @@ export const validateCarteirinhaPublic = functions
 /**
  * Novo cadastro em igrejas/{tenantId}/membros: envia push para tópico admin.
  */
+/** Novo visitante cadastrado — avisa gestores (push + notificação no painel). */
+export const onNewVisitor = functions
+  .region("us-central1")
+  .firestore.document("igrejas/{tenantId}/visitantes/{visitanteId}")
+  .onCreate(async (snap, context) => {
+    const data = (snap.data() || {}) as Record<string, unknown>;
+    const visitanteId = String(context.params.visitanteId || "").trim();
+    if (visitanteId === "_schema") return;
+    const tenantId = String(context.params.tenantId || "").trim();
+    const nome = String(data.nome || data.NOME || "Novo visitante").trim();
+    const telefone = String(data.telefone || data.TELEFONE || "").trim();
+    const email = String(data.email || data.EMAIL || "").trim();
+
+    try {
+      await notifyGestoresNewVisitor({
+        tenantId,
+        visitanteId,
+        nome,
+        telefone,
+        email,
+      });
+    } catch (err) {
+      functions.logger.error("onNewVisitor notify error", {
+        tenantId,
+        visitorId: visitanteId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
 export const onNewMember = functions
   .region("us-central1")
   .firestore.document("igrejas/{tenantId}/membros/{membroId}")

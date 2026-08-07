@@ -1197,7 +1197,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
   }
 
   String _telefoneRaw(Map<String, dynamic> m) {
-    final t = (m['TELEFONE'] ?? m['telefone'] ?? m['CELULAR'] ?? m['celular'] ?? m['WHATSAPP'] ?? '').toString();
+    final t = (m['TELEFONES'] ?? m['TELEFONE'] ?? m['telefone'] ?? m['CELULAR'] ?? m['celular'] ?? m['WHATSAPP'] ?? '').toString();
     return t.replaceAll(RegExp(r'\D'), '');
   }
 

@@ -17,7 +17,9 @@ import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show imageUrlFromMap;
+import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -502,10 +504,25 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         },
         criticalWrite: true,
       );
+      // Awaited (não unawaited): se a Cloud Function falhar para algum membro,
+      // ele fica com STATUS=ativo mas sem login/código — precisamos saber e avisar.
+      final failedIds = <String>[];
       for (final id in ids) {
-        unawaited(_invokeSetMemberApproved(id));
+        try {
+          await _invokeSetMemberApproved(id);
+        } catch (_) {
+          failedIds.add(id);
+        }
       }
       unawaited(_afterApprovalMutation(skipReload: true));
+      if (mounted && failedIds.isNotEmpty) {
+        ThemeCleanPremium.showErrorSnackBarWithRetry(
+          context,
+          failedIds.length == 1
+              ? '1 membro foi aprovado mas o login não pôde ser criado agora — abra o cadastro dele e tente aprovar novamente.'
+              : '${failedIds.length} membros foram aprovados mas o login não pôde ser criado agora — abra cada cadastro e tente aprovar novamente.',
+        );
+      }
     } catch (e) {
       _restorePendentesLocal(previous);
       _showApprovalError(e);
@@ -893,16 +910,18 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
                                             child: SizedBox(
                                               width: 44,
                                               height: 44,
-                                              child: hasFoto
-                                                  ? SafeNetworkImage(
-                                                      imageUrl: foto,
-                                                      fit: BoxFit.cover,
-                                                      placeholder:
-                                                          _avatarPlaceholder(nome),
-                                                      errorWidget:
-                                                          _avatarPlaceholder(nome),
-                                                    )
-                                                  : _avatarPlaceholder(nome),
+                                              // FotoMembroWidget escuta MemberProfilePhotoSyncNotifier —
+                                              // sem isso a fila de aprovação não atualizava sozinha
+                                              // quando a foto do cadastro público terminava de processar.
+                                              child: FotoMembroWidget(
+                                                tenantId: _churchId,
+                                                memberId: d.id,
+                                                memberData: data,
+                                                imageUrl: hasFoto ? foto : null,
+                                                size: 44,
+                                                fallbackChild:
+                                                    _avatarPlaceholder(nome),
+                                              ),
                                             ),
                                           ),
                                           const SizedBox(width: 12),

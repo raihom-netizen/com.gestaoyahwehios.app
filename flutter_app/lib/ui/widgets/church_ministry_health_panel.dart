@@ -26,6 +26,8 @@ import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_financeiro_super_extrato.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/models/finance_account.dart';
+import 'package:gestao_yahweh/constants/finance_account_visuals.dart';
 
 /// Painel "Saúde ministerial & BI" no dashboard da igreja (pastéis, responsivo).
 class ChurchMinistryHealthPanel extends StatefulWidget {
@@ -1900,7 +1902,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
-                color: Colors.grey.shade600,
+                color: accent.withValues(alpha: 0.72),
               ),
             ),
           ],
@@ -1942,39 +1944,43 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
         final id = acc.id;
         final nome = (acc.data()['nome'] ?? 'Conta').toString();
         final saldo = saldoPorConta[id] ?? 0.0;
-        final cor = saldo >= 0 ? pos : neg;
+        // Mesma paleta de contas do Financeiro (banco/tipo) — clone visual
+        // do card de conta do painel «Seu Financeiro» de referência.
+        final visual = financeAccountVisualFor(FinanceAccount.fromDoc(acc));
         return Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             onTap: () => _openPanelFinanceAccountSheet(context, id, nome),
             child: Container(
               width: narrow ? null : 168,
               constraints: BoxConstraints(
                   minWidth: narrow ? 0 : 168,
                   maxWidth: narrow ? double.infinity : 168),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
+                borderRadius: BorderRadius.circular(16),
+                gradient: LinearGradient(
+                  colors: visual.gradient,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: cor.withValues(alpha: 0.08),
+                    color: visual.gradient.first.withValues(alpha: 0.28),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
                 ],
               ),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.account_balance_wallet_rounded,
-                          size: 18, color: cor),
+                      Icon(visual.icon, size: 18, color: Colors.white),
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
@@ -1982,27 +1988,32 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                              fontWeight: FontWeight.w800, fontSize: 13),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                       Icon(Icons.touch_app_rounded,
-                          size: 16, color: Colors.grey.shade400),
+                          size: 16, color: Colors.white.withValues(alpha: 0.7)),
                     ],
                   ),
                   const SizedBox(height: 8),
                   Text(
                     _brMoney.format(saldo),
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontWeight: FontWeight.w900,
                       fontSize: 17,
-                      color: cor,
+                      color: Colors.white,
                       letterSpacing: -0.3,
                     ),
                   ),
                   Text(
                     'Toque para lançamentos',
-                    style:
-                        TextStyle(fontSize: 10, color: Colors.grey.shade500),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.white.withValues(alpha: 0.78),
+                    ),
                   ),
                 ],
               ),
@@ -2049,15 +2060,47 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Finanças no painel · $periodLabel',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white.withValues(alpha: 0.95),
-                ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(9),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.16),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.account_balance_wallet_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Finanças no painel',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                          ),
+                        ),
+                        Text(
+                          periodLabel,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white.withValues(alpha: 0.85),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               _panelSummaryMiniCard(
                 label: 'Saldo de abertura',
                 value: totals.saldoAbertura,

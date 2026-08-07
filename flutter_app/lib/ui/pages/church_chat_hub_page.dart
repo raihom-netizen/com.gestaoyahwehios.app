@@ -167,7 +167,8 @@ bool _chatHubSeesAllDepartmentGroups(String role, List<String>? permissions) =>
       permissions: permissions,
     );
 
-/// Aviso discreto: fotos/vídeos do chat expiram (ver [ChurchChatService.mediaRetention]).
+/// Aviso: fotos/vídeos do chat expiram (ver [ChurchChatService.mediaRetention]);
+/// texto é permanente (não expira mais — ver `writeTextMessageFirestoreOnce`).
 class _ChatMediaRetentionNotice extends StatelessWidget {
   const _ChatMediaRetentionNotice();
 
@@ -177,31 +178,78 @@ class _ChatMediaRetentionNotice extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFF0EA5E9).withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF0EA5E9).withValues(alpha: 0.10),
+              const Color(0xFF6366F1).withValues(alpha: 0.08),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: const Color(0xFF0EA5E9).withValues(alpha: 0.22),
           ),
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(
-              Icons.info_outline_rounded,
-              size: 15,
-              color: Color(0xFF0369A1),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0EA5E9),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '$days',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      height: 1,
+                    ),
+                  ),
+                  const Text(
+                    'dias',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 10),
             Expanded(
-              child: Text(
-                'Fotos e vídeos do chat ficam disponíveis por $days dias e depois são removidos automaticamente (economia de espaço no servidor).',
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF0369A1),
-                  height: 1.25,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Fotos, vídeos e áudios somem sozinhos',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0369A1),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Cada mídia enviada é apagada automaticamente $days dias depois — só isso, pra não pesar o servidor. '
+                    'As mensagens de texto (individuais e de grupo) ficam guardadas para sempre.',
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF0369A1),
+                      height: 1.3,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

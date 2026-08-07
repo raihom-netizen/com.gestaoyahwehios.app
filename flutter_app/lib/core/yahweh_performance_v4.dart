@@ -16,11 +16,14 @@ abstract final class YahwehPerformanceV4 {
   static const int uploadMaxEdgePx = 1600;
 
   // ——— Fotos de perfil (membros) ———
-  /// Perfil membro — 400×400 (upload mais rápido, visual OK em smartphones).
-  static const int profileFullEdge = 400;
-  static const int profileThumbEdge = 160;
-  static const int profileFullQuality = 75;
-  static const int profileThumbQuality = 65;
+  /// Perfil membro — Full HD (era 400×400: perdia nitidez visível em telas
+  /// maiores/impressão da carteirinha). Alinhado ao teto Full HD do feed.
+  static const int profileFullEdge = uploadMaxEdgePx;
+  /// Alinhado ao thumb gerado pela CF (`processMemberProfile`, 200×200) —
+  /// evita reamostrar para cima no servidor.
+  static const int profileThumbEdge = 200;
+  static const int profileFullQuality = 85;
+  static const int profileThumbQuality = 75;
   /// Campos canónicos Firestore.
   static const String profileThumbField = 'fotoThumbUrl';
   static const String profileFullField = 'fotoUrl';

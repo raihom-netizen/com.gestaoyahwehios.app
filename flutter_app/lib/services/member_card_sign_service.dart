@@ -32,6 +32,9 @@ abstract final class MemberCardSignService {
     required String tenantId,
     required List<String> memberIds,
     required MemberCardSignatory signatory,
+    String? operatorUid,
+    String? operatorNome,
+    String? operatorRole,
     void Function(int done, int total)? onProgress,
   }) async {
     final ids = memberIds
@@ -58,6 +61,9 @@ abstract final class MemberCardSignService {
       churchId: churchId,
       memberIds: ids,
       signatory: signatory,
+      operatorUid: operatorUid,
+      operatorNome: operatorNome,
+      operatorRole: operatorRole,
       onProgress: onProgress,
     ).timeout(
       batchCapFor(ids.length),
@@ -73,6 +79,9 @@ abstract final class MemberCardSignService {
     required String churchId,
     required List<String> memberIds,
     required MemberCardSignatory signatory,
+    String? operatorUid,
+    String? operatorNome,
+    String? operatorRole,
     void Function(int done, int total)? onProgress,
   }) async {
     await AppFinalizeBootstrap.ensureSessionForPublish(
@@ -86,6 +95,9 @@ abstract final class MemberCardSignService {
     // Timestamp concreto (não serverTimestamp): grava já no doc e aparece
     // na carteirinha sem null no cache local — data/hora corretas Web/Android/iOS.
     final signedAt = Timestamp.now();
+    final opUid = (operatorUid ?? '').trim();
+    final opNome = (operatorNome ?? '').trim();
+    final opRole = (operatorRole ?? '').trim();
     final payload = <String, dynamic>{
       'carteirinhaAssinadaEm': signedAt,
       'carteirinhaAssinadaPor': signatory.memberId,
@@ -94,6 +106,11 @@ abstract final class MemberCardSignService {
       if (signatory.assinaturaUrl != null &&
           signatory.assinaturaUrl!.trim().isNotEmpty)
         'carteirinhaAssinaturaUrl': signatory.assinaturaUrl!.trim(),
+      // Auditoria: usuário do painel que executou a ação de assinar (não o
+      // signatário escolhido, cujo nome/cargo já vai nos campos acima).
+      if (opUid.isNotEmpty) 'carteirinhaAssinadaPorUsuarioUid': opUid,
+      if (opNome.isNotEmpty) 'carteirinhaAssinadaPorUsuarioNome': opNome,
+      if (opRole.isNotEmpty) 'carteirinhaAssinadaPorUsuarioRole': opRole,
       'ATUALIZADO_EM': signedAt,
     };
 
@@ -217,6 +234,9 @@ abstract final class MemberCardSignService {
           if (signatory.assinaturaUrl != null &&
               signatory.assinaturaUrl!.trim().isNotEmpty)
             'carteirinhaAssinaturaUrl': signatory.assinaturaUrl!.trim(),
+          if (opUid.isNotEmpty) 'carteirinhaAssinadaPorUsuarioUid': opUid,
+          if (opNome.isNotEmpty) 'carteirinhaAssinadaPorUsuarioNome': opNome,
+          if (opRole.isNotEmpty) 'carteirinhaAssinadaPorUsuarioRole': opRole,
         },
       );
       // Invalidar cache RAM de membros para que reload devolva dados assinados.
@@ -285,6 +305,9 @@ abstract final class MemberCardSignService {
       'carteirinhaAssinadaPorNome': FieldValue.delete(),
       'carteirinhaAssinadaPorCargo': FieldValue.delete(),
       'carteirinhaAssinaturaUrl': FieldValue.delete(),
+      'carteirinhaAssinadaPorUsuarioUid': FieldValue.delete(),
+      'carteirinhaAssinadaPorUsuarioNome': FieldValue.delete(),
+      'carteirinhaAssinadaPorUsuarioRole': FieldValue.delete(),
       'ATUALIZADO_EM': Timestamp.now(),
     };
 

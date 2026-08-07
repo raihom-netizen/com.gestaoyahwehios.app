@@ -7,7 +7,9 @@ import 'package:gestao_yahweh/constants/finance_account_card_colors.dart';
 import 'package:gestao_yahweh/constants/finance_account_visuals.dart';
 import 'package:gestao_yahweh/models/finance_account.dart';
 import 'package:gestao_yahweh/models/user_profile.dart';
+import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/finance_accounts_service.dart';
+import 'package:gestao_yahweh/ui/pages/mercado_pago_integration_page.dart';
 import 'package:gestao_yahweh/services/finance_advanced_settings_service.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
@@ -141,6 +143,7 @@ class FinanceAccountsScreen extends StatelessWidget {
                                 uid: uid,
                                 account: a,
                                 canEdit: profile.hasActiveLicense,
+                                role: profile.role,
                               );
                             },
                           )
@@ -155,6 +158,7 @@ class FinanceAccountsScreen extends StatelessWidget {
                                 uid: uid,
                                 account: a,
                                 canEdit: false,
+                                role: profile.role,
                               );
                             },
                           ),
@@ -1183,14 +1187,19 @@ class _AccountTile extends StatelessWidget {
   final bool canEdit;
   /// Índice na lista (só com licença + reorder); exibe alça de arrastar.
   final int? index;
+  final String role;
 
   const _AccountTile({
     super.key,
     required this.uid,
     required this.account,
     required this.canEdit,
+    required this.role,
     this.index,
   });
+
+  /// Conta-modelo criada automaticamente em `ensureMercadoPagoContaForNewChurch`.
+  bool get _isMercadoPagoAccount => account.id == 'mercado_pago';
 
   @override
   Widget build(BuildContext context) {
@@ -1340,6 +1349,18 @@ class _AccountTile extends StatelessWidget {
             ? Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (_isMercadoPagoAccount &&
+                      AppPermissions.canViewChurchMercadoPagoSettings(role))
+                    IconButton(
+                      tooltip: 'Integração Mercado Pago',
+                      icon: Icon(Icons.settings_input_component_rounded,
+                          color: AppColors.primary),
+                      onPressed: () => MercadoPagoIntegrationPage.open(
+                        context,
+                        tenantId: uid,
+                        role: role,
+                      ),
+                    ),
                   IconButton(
                     tooltip: 'Editar conta',
                     icon: Icon(Icons.edit_outlined, color: AppColors.primary),

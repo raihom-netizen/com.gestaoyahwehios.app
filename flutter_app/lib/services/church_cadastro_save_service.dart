@@ -41,7 +41,10 @@ abstract final class ChurchCadastroSaveService {
       throw StateError('Igreja não identificada para salvar.');
     }
 
-    await prepareForSave();
+    // [prepareForSave] já roda no início de `_save()` (via
+    // `_prepareCadastroFirestoreWrite`), antes do upload da logo — chamar de
+    // novo aqui pagava o delay de 180ms + `prepareForCriticalWrite` da web
+    // duas vezes no mesmo salvamento, à toa.
 
     final payload = FirestoreWriteGuard.stripHeavyFields(
       ChurchTenantFields.stamp(

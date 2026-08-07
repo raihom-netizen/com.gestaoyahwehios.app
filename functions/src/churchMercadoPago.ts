@@ -104,8 +104,20 @@ function isPrivilegedRole(role: string): boolean {
   return ["MASTER", "ADMIN", "ADM"].includes(role);
 }
 
+/** Quem pode configurar a integração Mercado Pago da igreja: pastor, gestor, ADM, tesoureiro. */
 function isChurchManagerRole(role: string): boolean {
-  return ["MASTER", "ADMIN", "ADM", "GESTOR"].includes(role);
+  return [
+    "MASTER",
+    "ADMIN",
+    "ADM",
+    "GESTOR",
+    "PASTOR",
+    "PASTORA",
+    "PASTOR_PRESIDENTE",
+    "PASTOR_AUXILIAR",
+    "TESOUREIRO",
+    "TESOURARIA",
+  ].includes(role);
 }
 
 async function canManageTenant(
@@ -247,9 +259,15 @@ function normalizeDonationKind(raw: unknown): "dizimo" | "oferta" {
   return "dizimo";
 }
 
-/** Categoria no módulo Financeiro — alinhado a `_categoriasReceitaPadrao` no app. */
+/**
+ * Categoria no módulo Financeiro — alinhado a `_categoriasReceitaPadrao`
+ * (app) / `CATEGORIAS_RECEITA_PADRAO` (churchWelcomeSeed.ts): "Ofertas
+ * Missionárias" (plural). Estava "Oferta Missionária" (singular), que na
+ * verdade é o nome de uma categoria de DESPESA — a doação caía numa
+ * categoria de receita "órfã", invisível no filtro do Financeiro/Relatórios.
+ */
 function categoriaForDonationKind(kind: "dizimo" | "oferta"): string {
-  return kind === "dizimo" ? "Dízimos" : "Oferta Missionária";
+  return kind === "dizimo" ? "Dízimos" : "Ofertas Missionárias";
 }
 
 function labelForDonationKind(kind: "dizimo" | "oferta"): string {
@@ -346,7 +364,7 @@ export async function ensureMercadoPagoContaForNewChurch(tenantId: string): Prom
       numeroConta: "",
       tipoConta: "corrente",
       observacao:
-        "Recebimentos via integração Mercado Pago (PIX/cartão). Configure o Access Token em Configurações → Contribuições / Mercado Pago.",
+        "Recebimentos via integração Mercado Pago (PIX/cartão). Configure o Access Token aqui mesmo, no botão Integração desta conta (Financeiro → Contas).",
       ativo: true,
       seedPreset: "tesouraria_mercado_pago",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -718,6 +736,13 @@ export const saveChurchMercadoPagoCredentials = functions
     const clientId = String(data?.clientId || "").trim();
     const clientSecret = String(data?.clientSecret || "").trim();
     const webhookSecret = String(data?.webhookSecret || "").trim();
+    // Credenciais de teste (sandbox) — mesmo par produção/teste do painel Mercado Pago.
+    const accessTokenTest = String(data?.accessTokenTest || "").trim();
+    const clientIdTest = String(data?.clientIdTest || "").trim();
+    const clientSecretTest = String(data?.clientSecretTest || "").trim();
+    const publicKeyTest = String(data?.publicKeyTest || "").trim();
+    const modeRaw = String(data?.mode || "production").trim().toLowerCase();
+    const mode = modeRaw === "test" ? "test" : "production";
     if (!tenantId) {
       throw new functions.https.HttpsError("invalid-argument", "tenantId obrigatorio");
     }
@@ -733,20 +758,35 @@ export const saveChurchMercadoPagoCredentials = functions
       throw new functions.https.HttpsError("permission-denied", "Sem permissao para configurar esta igreja");
     }
 
-    /** Só segredos (Client Secret / assinatura webhook), sem alterar Public Key / Client ID / URL. */
+    const hasAnyToken = accessToken.length > 0 || accessTokenTest.length > 0;
+
+    /** Só segredos (Client Secret / assinatura webhook, produção ou teste), sem alterar Public Key / Client ID / URL. */
     const secretsOnly =
-      !accessToken &&
-      (clientSecret.length > 0 || webhookSecret.length > 0) &&
+      !hasAnyToken &&
+      (clientSecret.length > 0 ||
+        webhookSecret.length > 0 ||
+        clientSecretTest.length > 0) &&
       !publicKey &&
       !clientId &&
-      !notificationWebhookUrl;
+      !notificationWebhookUrl &&
+      !publicKeyTest &&
+      !clientIdTest;
 
     /** Só dados públicos (ex.: Client ID) sem recolocar o Access Token no cliente. */
-    if (!accessToken) {
-      if (!publicKey && !clientId && !notificationWebhookUrl && !clientSecret && !webhookSecret) {
+    if (!hasAnyToken) {
+      if (
+        !publicKey &&
+        !clientId &&
+        !notificationWebhookUrl &&
+        !clientSecret &&
+        !webhookSecret &&
+        !publicKeyTest &&
+        !clientIdTest &&
+        !clientSecretTest
+      ) {
         throw new functions.https.HttpsError(
           "invalid-argument",
-          "Access Token obrigatorio na primeira vez, ou preencha Client ID / Public Key / Webhook / Client Secret / Assinatura webhook."
+          "Access Token obrigatorio na primeira vez, ou preencha Client ID / Public Key / Webhook / Client Secret / Assinatura webhook (produção ou teste)."
         );
       }
 
@@ -757,6 +797,7 @@ export const saveChurchMercadoPagoCredentials = functions
         };
         if (clientSecret) priv.clientSecret = clientSecret;
         if (webhookSecret) priv.webhookSecret = webhookSecret;
+        if (clientSecretTest) priv.clientSecretTest = clientSecretTest;
         await fs()
           .collection("igrejas")
           .doc(tenantId)
@@ -768,6 +809,7 @@ export const saveChurchMercadoPagoCredentials = functions
         };
         if (clientSecret) cfg.hasClientSecret = true;
         if (webhookSecret) cfg.hasWebhookSecret = true;
+        if (clientSecretTest) cfg.hasClientSecretTest = true;
         await fs()
           .collection("igrejas")
           .doc(tenantId)
@@ -787,6 +829,12 @@ export const saveChurchMercadoPagoCredentials = functions
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             ...(publicKey ? { publicKey } : { publicKey: admin.firestore.FieldValue.delete() }),
             ...(clientId ? { clientId } : { clientId: admin.firestore.FieldValue.delete() }),
+            ...(publicKeyTest
+              ? { publicKeyTest }
+              : { publicKeyTest: admin.firestore.FieldValue.delete() }),
+            ...(clientIdTest
+              ? { clientIdTest }
+              : { clientIdTest: admin.firestore.FieldValue.delete() }),
             ...(notificationWebhookUrl
               ? { notificationWebhookUrl }
               : { notificationWebhookUrl: admin.firestore.FieldValue.delete() }),
@@ -794,13 +842,14 @@ export const saveChurchMercadoPagoCredentials = functions
           { merge: true }
         );
 
-      if (clientSecret || webhookSecret) {
+      if (clientSecret || webhookSecret || clientSecretTest) {
         const priv: Record<string, unknown> = {
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           updatedByUid: uid,
         };
         if (clientSecret) priv.clientSecret = clientSecret;
         if (webhookSecret) priv.webhookSecret = webhookSecret;
+        if (clientSecretTest) priv.clientSecretTest = clientSecretTest;
         await fs()
           .collection("igrejas")
           .doc(tenantId)
@@ -816,6 +865,7 @@ export const saveChurchMercadoPagoCredentials = functions
             {
               ...(clientSecret ? { hasClientSecret: true } : {}),
               ...(webhookSecret ? { hasWebhookSecret: true } : {}),
+              ...(clientSecretTest ? { hasClientSecretTest: true } : {}),
             },
             { merge: true }
           );
@@ -824,15 +874,17 @@ export const saveChurchMercadoPagoCredentials = functions
     }
 
     const privToken: Record<string, unknown> = {
-      accessToken,
-      publicKey,
-      mode: "production",
-      accessTokenTest: admin.firestore.FieldValue.delete(),
+      mode,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedByUid: uid,
     };
+    if (accessToken) privToken.accessToken = accessToken;
+    if (accessTokenTest) privToken.accessTokenTest = accessTokenTest;
+    if (publicKey) privToken.publicKey = publicKey;
+    if (publicKeyTest) privToken.publicKeyTest = publicKeyTest;
     if (clientSecret) privToken.clientSecret = clientSecret;
     if (webhookSecret) privToken.webhookSecret = webhookSecret;
+    if (clientSecretTest) privToken.clientSecretTest = clientSecretTest;
 
     await fs()
       .collection("igrejas")
@@ -849,17 +901,23 @@ export const saveChurchMercadoPagoCredentials = functions
       .set(
         {
           enabled: true,
-          mode: "production",
-          publicKey,
+          mode,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          ...(publicKey ? { publicKey } : {}),
+          ...(publicKeyTest ? { publicKeyTest } : {}),
           ...(clientId
             ? { clientId }
             : { clientId: admin.firestore.FieldValue.delete() }),
+          ...(clientIdTest
+            ? { clientIdTest }
+            : { clientIdTest: admin.firestore.FieldValue.delete() }),
           ...(notificationWebhookUrl
             ? { notificationWebhookUrl }
             : { notificationWebhookUrl: admin.firestore.FieldValue.delete() }),
           ...(clientSecret ? { hasClientSecret: true } : {}),
           ...(webhookSecret ? { hasWebhookSecret: true } : {}),
+          ...(clientSecretTest ? { hasClientSecretTest: true } : {}),
+          ...(accessTokenTest ? { hasAccessTokenTest: true } : {}),
         },
         { merge: true }
       );

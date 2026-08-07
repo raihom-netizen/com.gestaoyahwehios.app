@@ -53,6 +53,12 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
   String? _resultMime;
   String? _resultMessage;
 
+  String _toolTilesCacheKey = '';
+  List<_ToolTile> _converterTilesCache = const [];
+  List<_ToolTile> _videoTilesCache = const [];
+  List<_ToolTile> _pdfTilesCache = const [];
+  List<_ToolTile> _extraTilesCache = const [];
+
   String get _quotaUid => widget.uid.trim();
   bool get _isAdmin => widget.isAdmin;
   bool get _lightLocked =>
@@ -67,14 +73,18 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
   }
 
   Future<void> _refreshQuota() async {
-    final heavy = await UtilitariosDailyQuotaService.heavyStatus(
-      _quotaUid,
-      isAdmin: _isAdmin,
-    );
-    final light = await UtilitariosDailyQuotaService.lightStatus(
-      _quotaUid,
-      isAdmin: _isAdmin,
-    );
+    final statuses = await Future.wait<UtilitariosQuotaStatus>([
+      UtilitariosDailyQuotaService.heavyStatus(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      ),
+      UtilitariosDailyQuotaService.lightStatus(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      ),
+    ]);
+    final heavy = statuses[0];
+    final light = statuses[1];
     if (!mounted) return;
     setState(() {
       _heavyUsed = heavy.used;
@@ -2017,6 +2027,201 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     );
   }
 
+  void _ensureToolTilesCache({required bool lightOk, required bool heavyOk}) {
+    final nextKey = 'l:$lightOk|h:$heavyOk';
+    if (_toolTilesCacheKey == nextKey) return;
+    _toolTilesCacheKey = nextKey;
+
+    _converterTilesCache = [
+      _ToolTile(
+        icon: UtilitariosModuleIcons.photoCameraPdf,
+        gradient: const [Color(0xFF14B8A6), Color(0xFF0EA5E9)],
+        title: 'Foto/Câmera para PDF',
+        subtitle:
+            'Câmera do aparelho · até ${UtilitariosLocalService.kMaxImagesPerPdf} fotos · PDF rápido',
+        onTap: lightOk ? _openPhotoCameraPdf : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.documentScanner,
+        gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
+        title: 'Scanner de Documentos',
+        subtitle: 'Original · recorte auto/manual · PDF rápido',
+        onTap: lightOk ? _openDocumentScanner : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.pdfWord,
+        gradient: const [Color(0xFF2563EB), Color(0xFF7C3AED)],
+        title: 'PDF → Word',
+        subtitle: 'DOCX com formatação e tabelas',
+        onTap: lightOk ? _pdfToWord : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.pdfJpeg,
+        gradient: const [Color(0xFFEA580C), Color(0xFFF59E0B)],
+        title: 'PDF → JPEG',
+        subtitle: 'Páginas em imagem',
+        onTap: lightOk ? _pdfToJpeg : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.pdfPng,
+        gradient: const [Color(0xFF7C3AED), Color(0xFFA855F7)],
+        title: 'PDF → PNG',
+        subtitle: 'Páginas em PNG',
+        onTap: lightOk ? _pdfToPng : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.jpegPdf,
+        gradient: const [Color(0xFFDC2626), Color(0xFFEF4444)],
+        title: 'Imagens → PDF',
+        subtitle: 'JPEG, PNG ou WebP · uma ou várias',
+        onTap: lightOk ? _imagesToPdf : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.wordPdf,
+        gradient: const [Color(0xFF0D9488), Color(0xFF14B8A6)],
+        title: 'Word → PDF',
+        subtitle: 'DOCX / TXT / RTF',
+        onTap: lightOk ? _wordToPdf : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.pdfExcel,
+        gradient: const [Color(0xFF15803D), Color(0xFF22C55E)],
+        title: 'PDF → Excel',
+        subtitle: 'Planilha com linhas e tabelas',
+        onTap: lightOk ? _pdfToExcel : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.excelPdf,
+        gradient: const [Color(0xFF166534), Color(0xFF4ADE80)],
+        title: 'Excel → PDF',
+        subtitle: 'XLSX / CSV em tabela',
+        onTap: lightOk ? _excelToPdf : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.pdfPpt,
+        gradient: const [Color(0xFFC2410C), Color(0xFFF97316)],
+        title: 'PDF → PowerPoint',
+        subtitle: '1 slide por página',
+        onTap: lightOk ? _pdfToPowerPoint : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.compress,
+        gradient: const [Color(0xFF4F46E5), Color(0xFF06B6D4)],
+        title: 'Compressor',
+        subtitle: 'Ultra Smart · Imagem · PDF · Word · MP4',
+        onTap: heavyOk ? _compress : null,
+      ),
+    ];
+
+    _videoTilesCache = [
+      _ToolTile(
+        icon: UtilitariosModuleIcons.videoDownload,
+        gradient: const [Color(0xFFE11D48), Color(0xFF7C3AED)],
+        title: 'Baixar Vídeo',
+        subtitle: 'TikTok · YouTube · IG · FB · MP4/MP3',
+        onTap: lightOk ? _openVideoDownloader : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.videoMp4,
+        gradient: const [Color(0xFF7C3AED), Color(0xFF2563EB)],
+        title: 'Vídeo → MP4',
+        subtitle: 'Full HD · 4K · comprimir opcional',
+        onTap: heavyOk ? _videoToMp4 : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.audioExtract,
+        gradient: const [Color(0xFFDB2777), Color(0xFFF472B6)],
+        title: 'Extrair áudio',
+        subtitle: 'M4A (AAC) ou MP3 do vídeo',
+        onTap: heavyOk ? _extractVideoAudio : null,
+      ),
+    ];
+
+    _pdfTilesCache = [
+      _ToolTile(
+        icon: UtilitariosModuleIcons.mergePdf,
+        gradient: const [Color(0xFF2563EB), Color(0xFF6366F1)],
+        title: 'Juntar PDF',
+        subtitle: 'Vários PDFs · reordenar páginas',
+        onTap: lightOk
+            ? () => _openPdfTool(UtilitariosPdfToolMode.merge)
+            : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.splitPdf,
+        gradient: const [Color(0xFFEA580C), Color(0xFFF97316)],
+        title: 'Dividir PDF',
+        subtitle: 'Escolher páginas ou intervalo',
+        onTap: lightOk
+            ? () => _openPdfTool(UtilitariosPdfToolMode.split)
+            : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.editPdf,
+        gradient: const [Color(0xFF059669), Color(0xFF34D399)],
+        title: 'Editor PDF',
+        subtitle: 'Texto, destaque e checks',
+        onTap: lightOk ? () => _openPdfTool(UtilitariosPdfToolMode.edit) : null,
+      ),
+    ];
+
+    _extraTilesCache = [
+      _ToolTile(
+        icon: UtilitariosModuleIcons.photoTextExtract,
+        gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
+        title: 'Controletotalapp extração de texto',
+        subtitle: 'OCR rápido · editar · Word e PDF',
+        onTap: lightOk ? _openPhotoTextExtract : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.archiveZip,
+        gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
+        title: 'Compactar arquivos',
+        subtitle: 'ZIP · ZIP máximo · RAR (local)',
+        onTap: lightOk ? _compactarArquivos : null,
+      ),
+      _ToolTile(
+        icon: UtilitariosModuleIcons.photoEdit,
+        gradient: const [Color(0xFFDB2777), Color(0xFF7C3AED)],
+        title: 'Editor de Foto',
+        subtitle: 'Melhorar · cortar · borrar · colagem',
+        onTap: heavyOk ? _openPhotoEditor : null,
+      ),
+    ];
+  }
+
+  Widget _buildAdaptiveToolGrid(
+    BuildContext context,
+    List<_ToolTile> tiles,
+  ) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        final narrow = c.maxWidth < 520;
+        if (narrow) {
+          return Column(
+            children: [
+              for (final w in tiles) ...[
+                w,
+                const SizedBox(height: 8),
+              ],
+            ],
+          );
+        }
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final w in tiles)
+              SizedBox(
+                width: (c.maxWidth - 10) / 2,
+                child: w,
+              ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scroll = widget.shellScrollController;
@@ -2026,6 +2231,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     );
     final lightOk = !_busy && !_lightLocked;
     final heavyOk = !_busy && !_heavyLocked;
+    _ensureToolTilesCache(lightOk: lightOk, heavyOk: heavyOk);
     return ModernModuleUI.bodyWithGradient(
       context: context,
       child: Stack(
@@ -2063,280 +2269,28 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                 'CONVERSORES',
                 accent: const Color(0xFF6366F1),
               ),
-              LayoutBuilder(
-                builder: (context, c) {
-                  final narrow = c.maxWidth < 520;
-                  final cards = [
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.photoCameraPdf,
-                      gradient: const [Color(0xFF14B8A6), Color(0xFF0EA5E9)],
-                      title: 'Foto/Câmera para PDF',
-                      subtitle:
-                          'Câmera do aparelho · até ${UtilitariosLocalService.kMaxImagesPerPdf} fotos · PDF rápido',
-                      onTap: lightOk ? _openPhotoCameraPdf : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.documentScanner,
-                      gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
-                      title: 'Scanner de Documentos',
-                      subtitle: 'Original · recorte auto/manual · PDF rápido',
-                      onTap: lightOk ? _openDocumentScanner : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.pdfWord,
-                      gradient: const [Color(0xFF2563EB), Color(0xFF7C3AED)],
-                      title: 'PDF → Word',
-                      subtitle: 'DOCX com formatação e tabelas',
-                      onTap: lightOk ? _pdfToWord : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.pdfJpeg,
-                      gradient: const [Color(0xFFEA580C), Color(0xFFF59E0B)],
-                      title: 'PDF → JPEG',
-                      subtitle: 'Páginas em imagem',
-                      onTap: lightOk ? _pdfToJpeg : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.pdfPng,
-                      gradient: const [Color(0xFF7C3AED), Color(0xFFA855F7)],
-                      title: 'PDF → PNG',
-                      subtitle: 'Páginas em PNG',
-                      onTap: lightOk ? _pdfToPng : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.jpegPdf,
-                      gradient: const [Color(0xFFDC2626), Color(0xFFEF4444)],
-                      title: 'Imagens → PDF',
-                      subtitle: 'JPEG, PNG ou WebP · uma ou várias',
-                      onTap: lightOk ? _imagesToPdf : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.wordPdf,
-                      gradient: const [Color(0xFF0D9488), Color(0xFF14B8A6)],
-                      title: 'Word → PDF',
-                      subtitle: 'DOCX / TXT / RTF',
-                      onTap: lightOk ? _wordToPdf : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.pdfExcel,
-                      gradient: const [Color(0xFF15803D), Color(0xFF22C55E)],
-                      title: 'PDF → Excel',
-                      subtitle: 'Planilha com linhas e tabelas',
-                      onTap: lightOk ? _pdfToExcel : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.excelPdf,
-                      gradient: const [Color(0xFF166534), Color(0xFF4ADE80)],
-                      title: 'Excel → PDF',
-                      subtitle: 'XLSX / CSV em tabela',
-                      onTap: lightOk ? _excelToPdf : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.pdfPpt,
-                      gradient: const [Color(0xFFC2410C), Color(0xFFF97316)],
-                      title: 'PDF → PowerPoint',
-                      subtitle: '1 slide por página',
-                      onTap: lightOk ? _pdfToPowerPoint : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.compress,
-                      gradient: const [Color(0xFF4F46E5), Color(0xFF06B6D4)],
-                      title: 'Compressor',
-                      subtitle: 'Ultra Smart · Imagem · PDF · Word · MP4',
-                      onTap: heavyOk ? _compress : null,
-                    ),
-                  ];
-                  if (narrow) {
-                    return Column(
-                      children: [
-                        for (final w in cards) ...[
-                          w,
-                          const SizedBox(height: 8),
-                        ],
-                      ],
-                    );
-                  }
-                  return Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final w in cards)
-                        SizedBox(
-                          width: (c.maxWidth - 10) / 2,
-                          child: w,
-                        ),
-                    ],
-                  );
-                },
-              ),
+              _buildAdaptiveToolGrid(context, _converterTilesCache),
               const SizedBox(height: 12),
               ModernModuleUI.sectionTitle(
                 context,
                 'VÍDEO',
                 accent: const Color(0xFF7C3AED),
               ),
-              LayoutBuilder(
-                builder: (context, c) {
-                  final narrow = c.maxWidth < 520;
-                  final videoTools = [
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.videoDownload,
-                      gradient: const [Color(0xFFE11D48), Color(0xFF7C3AED)],
-                      title: 'Baixar Vídeo',
-                      subtitle: 'TikTok · YouTube · IG · FB · MP4/MP3',
-                      onTap: lightOk ? _openVideoDownloader : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.videoMp4,
-                      gradient: const [Color(0xFF7C3AED), Color(0xFF2563EB)],
-                      title: 'Vídeo → MP4',
-                      subtitle: 'Full HD · 4K · comprimir opcional',
-                      onTap: heavyOk ? _videoToMp4 : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.audioExtract,
-                      gradient: const [Color(0xFFDB2777), Color(0xFFF472B6)],
-                      title: 'Extrair áudio',
-                      subtitle: 'M4A (AAC) ou MP3 do vídeo',
-                      onTap: heavyOk ? _extractVideoAudio : null,
-                    ),
-                  ];
-                  if (narrow) {
-                    return Column(
-                      children: [
-                        for (final w in videoTools) ...[
-                          w,
-                          const SizedBox(height: 8)
-                        ],
-                      ],
-                    );
-                  }
-                  return Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final w in videoTools)
-                        SizedBox(
-                          width: (c.maxWidth - 10) / 2,
-                          child: w,
-                        ),
-                    ],
-                  );
-                },
-              ),
+              _buildAdaptiveToolGrid(context, _videoTilesCache),
               const SizedBox(height: 12),
               ModernModuleUI.sectionTitle(
                 context,
                 'PDF PRO',
                 accent: const Color(0xFF0EA5E9),
               ),
-              LayoutBuilder(
-                builder: (context, c) {
-                  final narrow = c.maxWidth < 520;
-                  final pdfTools = [
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.mergePdf,
-                      gradient: const [Color(0xFF2563EB), Color(0xFF6366F1)],
-                      title: 'Juntar PDF',
-                      subtitle: 'Vários PDFs · reordenar páginas',
-                      onTap: lightOk
-                          ? () => _openPdfTool(UtilitariosPdfToolMode.merge)
-                          : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.splitPdf,
-                      gradient: const [Color(0xFFEA580C), Color(0xFFF97316)],
-                      title: 'Dividir PDF',
-                      subtitle: 'Escolher páginas ou intervalo',
-                      onTap: lightOk
-                          ? () => _openPdfTool(UtilitariosPdfToolMode.split)
-                          : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.editPdf,
-                      gradient: const [Color(0xFF059669), Color(0xFF34D399)],
-                      title: 'Editor PDF',
-                      subtitle: 'Texto, destaque e checks',
-                      onTap: lightOk
-                          ? () => _openPdfTool(UtilitariosPdfToolMode.edit)
-                          : null,
-                    ),
-                  ];
-                  if (narrow) {
-                    return Column(
-                      children: [
-                        for (final w in pdfTools) ...[
-                          w,
-                          const SizedBox(height: 8)
-                        ],
-                      ],
-                    );
-                  }
-                  return Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final w in pdfTools)
-                        SizedBox(width: (c.maxWidth - 10) / 2, child: w),
-                    ],
-                  );
-                },
-              ),
+              _buildAdaptiveToolGrid(context, _pdfTilesCache),
               const SizedBox(height: 12),
               ModernModuleUI.sectionTitle(
                 context,
                 'FOTO & ARQUIVOS',
                 accent: const Color(0xFFDB2777),
               ),
-              LayoutBuilder(
-                builder: (context, c) {
-                  final narrow = c.maxWidth < 520;
-                  final extraTools = [
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.photoTextExtract,
-                      gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
-                      title: 'Controletotalapp extração de texto',
-                      subtitle: 'OCR rápido · editar · Word e PDF',
-                      onTap: lightOk ? _openPhotoTextExtract : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.archiveZip,
-                      gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
-                      title: 'Compactar arquivos',
-                      subtitle: 'ZIP · ZIP máximo · RAR (local)',
-                      onTap: lightOk ? _compactarArquivos : null,
-                    ),
-                    _ToolTile(
-                      icon: UtilitariosModuleIcons.photoEdit,
-                      gradient: const [Color(0xFFDB2777), Color(0xFF7C3AED)],
-                      title: 'Editor de Foto',
-                      subtitle: 'Melhorar · cortar · borrar · colagem',
-                      onTap: heavyOk ? _openPhotoEditor : null,
-                    ),
-                  ];
-                  if (narrow) {
-                    return Column(
-                      children: [
-                        for (final w in extraTools) ...[
-                          w,
-                          const SizedBox(height: 8),
-                        ],
-                      ],
-                    );
-                  }
-                  return Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final w in extraTools)
-                        SizedBox(
-                          width: (c.maxWidth - 10) / 2,
-                          child: w,
-                        ),
-                    ],
-                  );
-                },
-              ),
+              _buildAdaptiveToolGrid(context, _extraTilesCache),
               const SizedBox(height: 12),
               Text(
                 _footerQuotaText(),

@@ -606,6 +606,20 @@ class _SocialGridTileState extends State<_SocialGridTile> {
     );
   }
 
+  /// Compartilhamento nativo direto do card do mural público — sem exigir login,
+  /// já leva foto/vídeo (via [shareChurchNoticiaForOgPreview]) igual à área do membro.
+  void _share(BuildContext context) {
+    final p = widget.post;
+    unawaited(shareChurchNoticiaForOgPreview(
+      tenantId: widget.igrejaId,
+      churchSlug: widget.churchSlug,
+      noticiaId: widget.postId,
+      title: (p['title'] ?? '').toString(),
+      body: (p['body'] ?? p['text'] ?? '').toString(),
+      postFirestore: p,
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = widget.post;
@@ -860,16 +874,32 @@ class _SocialGridTileState extends State<_SocialGridTile> {
             Positioned(
               right: 6,
               top: 6,
-              child: Material(
-                color: Colors.white.withValues(alpha: 0.92),
-                shape: const CircleBorder(),
-                clipBehavior: Clip.antiAlias,
-                child: IconButton(
-                  tooltip: 'Copiar link',
-                  icon: Icon(Icons.near_me_rounded,
-                      size: 20, color: widget.accent),
-                  onPressed: () => _copyLink(context),
-                ),
+              child: Column(
+                children: [
+                  Material(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    shape: const CircleBorder(),
+                    clipBehavior: Clip.antiAlias,
+                    child: IconButton(
+                      tooltip: 'Copiar link',
+                      icon: Icon(Icons.near_me_rounded,
+                          size: 20, color: widget.accent),
+                      onPressed: () => _copyLink(context),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Material(
+                    color: Colors.white.withValues(alpha: 0.92),
+                    shape: const CircleBorder(),
+                    clipBehavior: Clip.antiAlias,
+                    child: IconButton(
+                      tooltip: 'Compartilhar',
+                      icon: Icon(Icons.share_rounded,
+                          size: 20, color: widget.accent),
+                      onPressed: () => _share(context),
+                    ),
+                  ),
+                ],
               ),
             ),
             Positioned(
@@ -1132,18 +1162,36 @@ class _SocialGridTileState extends State<_SocialGridTile> {
                         Positioned(
                           right: 8,
                           top: 8,
-                          child: Material(
-                            color: Colors.white.withValues(alpha: 0.95),
-                            elevation: 3,
-                            shadowColor: Colors.black26,
-                            shape: const CircleBorder(),
-                            clipBehavior: Clip.antiAlias,
-                            child: IconButton(
-                              tooltip: 'Copiar link',
-                              icon: Icon(Icons.near_me_rounded,
-                                  size: 20, color: widget.accent),
-                              onPressed: () => _copyLink(context),
-                            ),
+                          child: Column(
+                            children: [
+                              Material(
+                                color: Colors.white.withValues(alpha: 0.95),
+                                elevation: 3,
+                                shadowColor: Colors.black26,
+                                shape: const CircleBorder(),
+                                clipBehavior: Clip.antiAlias,
+                                child: IconButton(
+                                  tooltip: 'Copiar link',
+                                  icon: Icon(Icons.near_me_rounded,
+                                      size: 20, color: widget.accent),
+                                  onPressed: () => _copyLink(context),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Material(
+                                color: Colors.white.withValues(alpha: 0.95),
+                                elevation: 3,
+                                shadowColor: Colors.black26,
+                                shape: const CircleBorder(),
+                                clipBehavior: Clip.antiAlias,
+                                child: IconButton(
+                                  tooltip: 'Compartilhar',
+                                  icon: Icon(Icons.share_rounded,
+                                      size: 20, color: widget.accent),
+                                  onPressed: () => _share(context),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],

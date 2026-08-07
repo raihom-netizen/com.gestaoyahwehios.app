@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/mp_checkout_fullscreen_page.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_toggle_pair.dart';
 import 'package:gestao_yahweh/ui/widgets/donation_kind_selector_grid.dart';
+import 'package:gestao_yahweh/utils/mp_payment_return_status.dart';
 
 /// URL de retorno após pagamento no Checkout Pro (Mercado Pago).
 String churchPublicDonationReturnUrl(String slugClean) {
@@ -215,8 +216,37 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _thankYouAndCloseSite() async {
+  /// [returnUrl] é o link de volta do Checkout Pro — pode trazer `status`/`collection_status`
+  /// (aprovado/pendente/recusado). Sem esse dado (ex.: retorno manual na web, iframe cross-origin
+  /// impede ler a URL do MP), tratamos como "aguardando confirmação" em vez de afirmar sucesso.
+  Future<void> _thankYouAndCloseSite([String? returnUrl]) async {
     if (!mounted) return;
+    final status = returnUrl != null ? mpPaymentReturnStatus(returnUrl) : null;
+    final rejected = status == 'rejected' || status == 'cancelled' || status == 'failure';
+    final approved = status == 'approved' || status == 'success';
+
+    final String title;
+    final String message;
+    final IconData icon;
+    if (rejected) {
+      title = 'Pagamento não confirmado';
+      message = 'O Mercado Pago não confirmou este pagamento (recusado ou cancelado). '
+          'Se algum valor foi debitado, ele é estornado automaticamente. '
+          'Você pode tentar novamente quando quiser.';
+      icon = Icons.error_outline_rounded;
+    } else if (approved) {
+      title = 'Obrigado pela sua contribuição!';
+      message = 'Pagamento aprovado pelo Mercado Pago. '
+          'A igreja recebe a confirmação no financeiro em instantes. '
+          'Que Deus abençoe a sua semente nesta obra.';
+      icon = Icons.volunteer_activism_rounded;
+    } else {
+      title = 'Recebemos sua doação!';
+      message = 'Estamos aguardando a confirmação do Mercado Pago (pode levar alguns minutos, '
+          'principalmente no Pix). Assim que for aprovado, a igreja recebe automaticamente no financeiro.';
+      icon = Icons.hourglass_top_rounded;
+    }
+
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -227,27 +257,26 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
         title: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.volunteer_activism_rounded,
-                color: widget.accentColor, size: 30),
+            Icon(icon,
+                color: rejected ? ThemeCleanPremium.error : widget.accentColor,
+                size: 30),
             const SizedBox(width: 10),
-            const Expanded(
+            Expanded(
               child: Text(
-                'Obrigado pela sua contribuição!',
-                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+                title,
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
               ),
             ),
           ],
         ),
-        content: const Text(
-          'O pagamento foi concluído com o Mercado Pago. '
-          'A igreja recebe a confirmação no financeiro em instantes. '
-          'Que Deus abençoe a sua semente nesta obra.',
-          style: TextStyle(height: 1.45, fontSize: 15),
+        content: Text(
+          message,
+          style: const TextStyle(height: 1.45, fontSize: 15),
         ),
         actions: [
           FilledButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Amém'),
+            child: Text(rejected ? 'Entendi' : 'Amém'),
           ),
         ],
       ),
@@ -427,9 +456,9 @@ class _ChurchPublicDonationSheetState extends State<_ChurchPublicDonationSheet> 
       primaryColor: widget.accentColor,
       footerHint:
           'PIX ou cartão acima. Ao aprovar, a igreja recebe a confirmação no financeiro (webhook).',
-      onPaymentReturn: (_) async {
+      onPaymentReturn: (url) async {
         if (!mounted) return;
-        await _thankYouAndCloseSite();
+        await _thankYouAndCloseSite(url);
       },
     );
   }

@@ -1,7 +1,7 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
 
-/// Ãcones do mÃ³dulo UtilitÃ¡rios â€” espelho Controle Total + nav GestÃ£o Yahweh.
+/// Ícones do módulo Utilitários — espelho Controle Total + nav Gestão Yahweh.
 abstract final class UtilitariosModuleIcons {
   UtilitariosModuleIcons._();
 

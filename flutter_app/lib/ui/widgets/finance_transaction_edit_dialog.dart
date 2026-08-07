@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/services/finance_accounts_service.dart';
 import 'package:gestao_yahweh/services/goal_deposit_service.dart';
 import 'package:gestao_yahweh/services/finance_receipt_upload_service.dart';
 import 'package:gestao_yahweh/services/logs_service.dart';
+import 'package:gestao_yahweh/services/transaction_save_service.dart';
 import 'package:gestao_yahweh/services/user_categories_service.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
@@ -867,10 +868,9 @@ Future<bool> showFinanceTransactionEditDialog({
                             metaInfo: metaInfo,
                           );
                           if (ok != true || !ctx.mounted) return;
-                          final txCol = FirebaseFirestore.instance
-                              .collection('users')
-                              .doc(fsUid)
-                              .collection('transactions');
+                          // Coleção real do lançamento — era `users/{uid}/transactions`
+                          // (caminho legado inexistente), então excluir não apagava nada.
+                          final txCol = TransactionSaveService.txRef(fsUid);
                           await deleteFinanceTransactionRecord(
                             uid: uid,
                             docId: docId,
@@ -1070,12 +1070,11 @@ Future<bool> showFinanceTransactionEditDialog({
   }
 
   try {
-    await FirebaseFirestore.instance
-        .collection('users')
-        .doc(fsUid)
-        .collection('transactions')
-        .doc(docId)
-        .update(updateData);
+    // Coleção real do lançamento (`igrejas/{churchId}/finance`) — era
+    // `users/{uid}/transactions` (caminho legado inexistente), então a
+    // edição (incluindo anexar comprovante) sempre lançava "not-found" aqui,
+    // mesmo já tendo subido o arquivo para o Storage/doc real antes.
+    await TransactionSaveService.txRef(fsUid).doc(docId).update(updateData);
     final goalId = (current['goalId'] ?? '').toString().trim();
     if (goalId.isNotEmpty && type == 'income') {
       unawaited(

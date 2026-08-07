@@ -27,7 +27,10 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/roles_permissions.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
+import 'package:gestao_yahweh/ui/widgets/church_department_member_picker_page.dart'
+    show churchDepartmentPickerFilterChip;
 import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
+import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 
@@ -2772,11 +2775,14 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     return result.members.map(_rowToMember).toList();
   }
 
-  Future<void> _linkMemberToCargo(_MemberWithRef m) async {
+  Future<void> _linkMemberToCargo(
+    _MemberWithRef m, {
+    bool silent = false,
+  }) async {
     if (!_canWrite) return;
     final churchId = ChurchPanelTenant.forFirestore(widget.tenantId);
     if (churchId.isEmpty) {
-      if (mounted) {
+      if (mounted && !silent) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Igreja não identificada.')),
         );
@@ -2798,7 +2804,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       cargoKey: cargoKey,
       cargoName: widget.cargoName,
     )) {
-      if (mounted) {
+      if (mounted && !silent) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Este membro já possui este cargo.')),
         );
@@ -2827,7 +2833,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         updates: updates,
       );
     } catch (e) {
-      if (mounted) {
+      if (mounted && !silent) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Erro ao vincular membro: $e')));
@@ -2872,15 +2878,17 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
     }
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Membro vinculado ao cargo.',
-            style: TextStyle(color: Colors.white),
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Membro vinculado ao cargo.',
+              style: TextStyle(color: Colors.white),
+            ),
+            backgroundColor: Colors.green,
           ),
-          backgroundColor: Colors.green,
-        ),
-      );
+        );
+      }
       widget.onChanged();
       unawaited(_loadMembers(forceRefresh: true));
     }
@@ -2902,7 +2910,7 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
         );
         return;
       }
-      final chosen = await showModalBottomSheet<_MemberWithRef>(
+      final chosenIds = await showModalBottomSheet<Set<String>>(
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
@@ -2914,8 +2922,26 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
           candidates: candidates,
         ),
       );
-      if (chosen == null || !mounted) return;
-      await _linkMemberToCargo(chosen);
+      if (chosenIds == null || chosenIds.isEmpty || !mounted) return;
+      final byId = {for (final m in candidates) m.id: m};
+      var ok = 0;
+      for (final id in chosenIds) {
+        final m = byId[id];
+        if (m == null) continue;
+        await _linkMemberToCargo(m, silent: chosenIds.length > 1);
+        ok++;
+      }
+      if (mounted && chosenIds.length > 1) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '$ok membro(s) vinculado(s) ao cargo.',
+              style: const TextStyle(color: Colors.white),
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -3646,6 +3672,25 @@ class _PickMemberForCargoBottomSheet extends StatefulWidget {
 class _PickMemberForCargoBottomSheetState
     extends State<_PickMemberForCargoBottomSheet> {
   final TextEditingController _q = TextEditingController();
+  final Set<String> _selectedIds = {};
+  String _ageBand = 'todas';
+  String _genderFilter = 'todos';
+  String _deptFilter = 'todos';
+  bool _showScrollTop = false;
+
+  static const _ageBandOptions = <(String, String)>[
+    ('todas', 'Todas idades'),
+    ('criancas', 'Crianças'),
+    ('adolescentes', 'Adolescentes'),
+    ('adultos', 'Adultos'),
+    ('idosos', 'Idosos'),
+  ];
+
+  static const _genderOptions = <(String, String)>[
+    ('todos', 'Todos'),
+    ('masculino', 'Homens'),
+    ('feminino', 'Mulheres'),
+  ];
 
   void _onQueryChanged() {
     if (mounted) setState(() {});
@@ -3663,6 +3708,27 @@ class _PickMemberForCargoBottomSheetState
     _q.removeListener(_onQueryChanged);
     _q.dispose();
     super.dispose();
+  }
+
+  /// Departamentos conhecidos a partir dos próprios candidatos (sem consulta extra).
+  List<String> _departmentOptionsFromCandidates() {
+    final out = <String>{};
+    for (final m in widget.candidates) {
+      final depts = m.data['DEPARTAMENTOS'] ?? m.data['departamentos'];
+      if (depts is List) {
+        for (final d in depts) {
+          final s = d.toString().trim();
+          if (s.isNotEmpty) out.add(s);
+        }
+      }
+      final single =
+          (m.data['departamento'] ?? m.data['DEPARTAMENTO'] ?? '')
+              .toString()
+              .trim();
+      if (single.isNotEmpty) out.add(single);
+    }
+    final list = out.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return list;
   }
 
   static String _nome(Map<String, dynamic> d) =>
@@ -3725,9 +3791,20 @@ class _PickMemberForCargoBottomSheetState
     final inset = MediaQuery.viewInsetsOf(context);
     final primary = ThemeCleanPremium.primary;
     final qq = _q.text.trim().toLowerCase();
-    final filtered = qq.isEmpty
-        ? widget.candidates
-        : widget.candidates.where((m) => _matchesQuery(qq, m)).toList();
+    final deptOptions = _departmentOptionsFromCandidates();
+    final filtered = widget.candidates.where((m) {
+      if (!_matchesQuery(qq, m)) return false;
+      if (!memberMatchesGenderFilter(m.data, _genderFilter)) return false;
+      if (!memberMatchesAgeBand(m.data, _ageBand)) return false;
+      if (_deptFilter != 'todos' &&
+          !memberMatchesDepartmentFilter(m.data, _deptFilter)) {
+        return false;
+      }
+      return true;
+    }).toList();
+    final filteredIds = filtered.map((m) => m.id).toSet();
+    final allFilteredSelected =
+        filteredIds.isNotEmpty && filteredIds.every(_selectedIds.contains);
 
     return Padding(
       padding: EdgeInsets.only(bottom: inset.bottom),
@@ -3862,7 +3939,128 @@ class _PickMemberForCargoBottomSheetState
                     ],
                   ),
                 ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 34,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    itemCount: _genderOptions.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 6),
+                    itemBuilder: (_, i) {
+                      final (value, label) = _genderOptions[i];
+                      return churchDepartmentPickerFilterChip(
+                        label: label,
+                        selected: _genderFilter == value,
+                        accent: primary,
+                        onSelected: (v) {
+                          if (v) setState(() => _genderFilter = value);
+                        },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 6),
+                SizedBox(
+                  height: 34,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    itemCount: _ageBandOptions.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 6),
+                    itemBuilder: (_, i) {
+                      final (value, label) = _ageBandOptions[i];
+                      return churchDepartmentPickerFilterChip(
+                        label: label,
+                        selected: _ageBand == value,
+                        accent: primary,
+                        onSelected: (v) {
+                          if (v) setState(() => _ageBand = value);
+                        },
+                      );
+                    },
+                  ),
+                ),
+                if (deptOptions.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  SizedBox(
+                    height: 34,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      itemCount: deptOptions.length + 1,
+                      separatorBuilder: (_, _) => const SizedBox(width: 6),
+                      itemBuilder: (_, i) {
+                        if (i == 0) {
+                          return churchDepartmentPickerFilterChip(
+                            label: 'Todos os departamentos',
+                            selected: _deptFilter == 'todos',
+                            accent: primary,
+                            onSelected: (v) {
+                              if (v) setState(() => _deptFilter = 'todos');
+                            },
+                          );
+                        }
+                        final dept = deptOptions[i - 1];
+                        return churchDepartmentPickerFilterChip(
+                          label: dept,
+                          selected: _deptFilter == dept,
+                          accent: primary,
+                          onSelected: (v) {
+                            if (v) setState(() => _deptFilter = dept);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          filtered.isEmpty
+                              ? 'Nenhum membro no filtro'
+                              : '${filtered.length} membro(s) no filtro · ${_selectedIds.length} selecionado(s)',
+                          style: GoogleFonts.inter(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                      if (filtered.isNotEmpty)
+                        TextButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              if (allFilteredSelected) {
+                                _selectedIds.removeAll(filteredIds);
+                              } else {
+                                _selectedIds.addAll(filteredIds);
+                              }
+                            });
+                          },
+                          icon: Icon(
+                            allFilteredSelected
+                                ? Icons.check_box_rounded
+                                : Icons.check_box_outline_blank_rounded,
+                            size: 18,
+                          ),
+                          label: Text(
+                            allFilteredSelected
+                                ? 'Desmarcar todos'
+                                : 'Selecionar todos',
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
                 Expanded(
                   child: filtered.isEmpty
                       ? Center(
@@ -3888,7 +4086,7 @@ class _PickMemberForCargoBottomSheetState
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  'Ajuste o termo ou limpe a busca.',
+                                  'Ajuste os filtros ou a busca.',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     fontSize: 14,
@@ -3899,102 +4097,238 @@ class _PickMemberForCargoBottomSheetState
                             ),
                           ),
                         )
-                      : ListView.separated(
-                          controller: scrollCtrl,
-                          physics: const BouncingScrollPhysics(),
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
-                          itemCount: filtered.length,
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: 10),
-                          itemBuilder: (_, i) {
-                            final m = filtered[i];
-                            final tid = _tenantIdFromMembroDocRef(m.ref) ?? '';
-                            final cpfRaw =
-                                (m.data['CPF'] ?? m.data['cpf'] ?? '')
-                                    .toString();
-                            final cpfD = cpfRaw.replaceAll(RegExp(r'\D'), '');
-                            final au = (m.data['authUid'] ?? '')
-                                .toString()
-                                .trim();
-                            return Material(
-                              color: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                                side: const BorderSide(
-                                  color: Color(0xFFCBD5E1),
-                                  width: 1.5,
+                      : Stack(
+                          children: [
+                            NotificationListener<ScrollUpdateNotification>(
+                              onNotification: (n) {
+                                final show = n.metrics.pixels > 240;
+                                if (show != _showScrollTop) {
+                                  setState(() => _showScrollTop = show);
+                                }
+                                return false;
+                              },
+                              child: ListView.separated(
+                                controller: scrollCtrl,
+                                physics: const BouncingScrollPhysics(),
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  0,
+                                  16,
+                                  28,
                                 ),
-                              ),
-                              shadowColor: Colors.black.withValues(alpha: 0.08),
-                              child: InkWell(
-                                onTap: () => Navigator.pop(context, m),
-                                borderRadius: BorderRadius.circular(14),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 10,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      FotoMembroWidget(
-                                        imageUrl: null,
-                                        size: 48,
-                                        tenantId: tid.isNotEmpty ? tid : null,
-                                        memberId: m.id,
-                                        cpfDigits: cpfD.length == 11
-                                            ? cpfD
-                                            : null,
-                                        authUid: au.isNotEmpty ? au : null,
-                                        memberData: m.data,
-                                        backgroundColor: primary.withValues(
-                                          alpha: 0.12,
-                                        ),
+                                itemCount: filtered.length,
+                                separatorBuilder: (_, _) =>
+                                    const SizedBox(height: 10),
+                                itemBuilder: (_, i) {
+                                  final m = filtered[i];
+                                  final tid =
+                                      _tenantIdFromMembroDocRef(m.ref) ?? '';
+                                  final cpfRaw =
+                                      (m.data['CPF'] ?? m.data['cpf'] ?? '')
+                                          .toString();
+                                  final cpfD = cpfRaw.replaceAll(
+                                    RegExp(r'\D'),
+                                    '',
+                                  );
+                                  final au = (m.data['authUid'] ?? '')
+                                      .toString()
+                                      .trim();
+                                  final sel = _selectedIds.contains(m.id);
+                                  return Material(
+                                    color: sel
+                                        ? primary.withValues(alpha: 0.06)
+                                        : Colors.white,
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                      side: BorderSide(
+                                        color: sel
+                                            ? primary
+                                            : const Color(0xFFCBD5E1),
+                                        width: sel ? 1.8 : 1.5,
                                       ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                    ),
+                                    shadowColor: Colors.black.withValues(
+                                      alpha: 0.08,
+                                    ),
+                                    child: InkWell(
+                                      onTap: () {
+                                        setState(() {
+                                          if (sel) {
+                                            _selectedIds.remove(m.id);
+                                          } else {
+                                            _selectedIds.add(m.id);
+                                          }
+                                        });
+                                      },
+                                      borderRadius: BorderRadius.circular(14),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 10,
+                                        ),
+                                        child: Row(
                                           children: [
-                                            Text(
-                                              _nome(m.data),
-                                              style: GoogleFonts.poppins(
-                                                fontSize: 15,
-                                                fontWeight: FontWeight.w800,
-                                                color: const Color(0xFF0F172A),
-                                              ),
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
+                                            FotoMembroWidget(
+                                              imageUrl: null,
+                                              size: 48,
+                                              tenantId: tid.isNotEmpty
+                                                  ? tid
+                                                  : null,
+                                              memberId: m.id,
+                                              cpfDigits: cpfD.length == 11
+                                                  ? cpfD
+                                                  : null,
+                                              authUid: au.isNotEmpty
+                                                  ? au
+                                                  : null,
+                                              memberData: m.data,
+                                              backgroundColor: primary
+                                                  .withValues(alpha: 0.12),
                                             ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              _email(m.data) ??
-                                                  (cpfRaw.isNotEmpty
-                                                      ? cpfRaw
-                                                      : m.id),
-                                              style: GoogleFonts.inter(
-                                                fontSize: 13,
-                                                color: const Color(0xFF64748B),
-                                                fontWeight: FontWeight.w500,
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    _nome(m.data),
+                                                    style: GoogleFonts.poppins(
+                                                      fontSize: 15,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      color: const Color(
+                                                        0xFF0F172A,
+                                                      ),
+                                                    ),
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    _email(m.data) ??
+                                                        (cpfRaw.isNotEmpty
+                                                            ? cpfRaw
+                                                            : m.id),
+                                                    style: GoogleFonts.inter(
+                                                      fontSize: 13,
+                                                      color: const Color(
+                                                        0xFF64748B,
+                                                      ),
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ],
                                               ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            Checkbox(
+                                              value: sel,
+                                              activeColor: primary,
+                                              onChanged: (v) {
+                                                setState(() {
+                                                  if (v == true) {
+                                                    _selectedIds.add(m.id);
+                                                  } else {
+                                                    _selectedIds.remove(m.id);
+                                                  }
+                                                });
+                                              },
                                             ),
                                           ],
                                         ),
                                       ),
-                                      Icon(
-                                        Icons.chevron_right_rounded,
-                                        color: Colors.grey.shade400,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            if (_showScrollTop)
+                              Positioned(
+                                right: 16,
+                                bottom: 16,
+                                child: FloatingActionButton.small(
+                                  heroTag: 'cargoPickerScrollTop',
+                                  backgroundColor: primary,
+                                  onPressed: () {
+                                    scrollCtrl.animateTo(
+                                      0,
+                                      duration: const Duration(
+                                        milliseconds: 320,
                                       ),
-                                    ],
+                                      curve: Curves.easeOutCubic,
+                                    );
+                                  },
+                                  child: const Icon(
+                                    Icons.arrow_upward_rounded,
+                                    color: Colors.white,
                                   ),
                                 ),
                               ),
-                            );
-                          },
+                          ],
                         ),
+                ),
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: const Text(
+                              'Cancelar',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: FilledButton(
+                            onPressed: _selectedIds.isEmpty
+                                ? null
+                                : () => Navigator.pop(
+                                    context,
+                                    Set<String>.of(_selectedIds),
+                                  ),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: primary,
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: Text(
+                              _selectedIds.isEmpty
+                                  ? 'Salvar'
+                                  : 'Salvar (${_selectedIds.length})',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),

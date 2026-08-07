@@ -72,7 +72,12 @@ async function saveWebp(destPath, buffer) {
         metadata: {
             contentType: "image/webp",
             cacheControl: "public,max-age=31536000",
-            metadata: { firebaseStorageDownloadTokens: token },
+            // generatedBy marca o arquivo como saída desta função — sem isso o
+            // onFinalize do próprio optimizeImage disparava de novo sobre o
+            // arquivo que ele acabou de gravar (mesmo caminho casa com o regex
+            // de entrada), causando reprocessamento em loop e 429 de rate limit
+            // no Storage.
+            metadata: { firebaseStorageDownloadTokens: token, generatedBy: "optimizeImage" },
         },
         resumable: false,
     });
@@ -85,9 +90,21 @@ async function processMemberProfile(tenantId, memberId, srcPath) {
         return;
     const fullPath = `igrejas/${tenantId}/membros/fotos/${memberId}.webp`;
     const thumbPath = `igrejas/${tenantId}/membros/thumbs/${memberId}.webp`;
+    // Full HD (era 1024 sem withoutEnlargement — ampliava artificialmente a
+    // foto de 400x400 do cliente, virando um "upscale" borrado em vez de
+    // nitidez real). Cliente agora já envia até 1600x1600; withoutEnlargement
+    // impede o servidor de esticar uma origem menor.
     const [fullBuf, thumbBuf] = await Promise.all([
-        (0, sharp_1.default)(buf).rotate().resize(1024, 1024, { fit: "cover" }).webp({ quality: 80 }).toBuffer(),
-        (0, sharp_1.default)(buf).rotate().resize(200, 200, { fit: "cover" }).webp({ quality: 70 }).toBuffer(),
+        (0, sharp_1.default)(buf)
+            .rotate()
+            .resize(1600, 1600, { fit: "cover", withoutEnlargement: true })
+            .webp({ quality: 85 })
+            .toBuffer(),
+        (0, sharp_1.default)(buf)
+            .rotate()
+            .resize(200, 200, { fit: "cover", withoutEnlargement: true })
+            .webp({ quality: 75 })
+            .toBuffer(),
     ]);
     const [fotoUrl, fotoThumbUrl] = await Promise.all([
         saveWebp(fullPath, fullBuf),
@@ -199,6 +216,8 @@ exports.optimizeImage = functions
     if (!name || object.size === "0")
         return null;
     if (isVariantPath(name))
+        return null;
+    if (object.metadata?.generatedBy === "optimizeImage")
         return null;
     const ct = object.contentType || "";
     if (!isImageContentType(ct) && !/\.(jpe?g|png)$/i.test(name)) {

@@ -30,6 +30,7 @@ class DelegateAccessService {
   static String? _cachedPrincipalName;
 
   static StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _indexListener;
+  static Timer? _indexPollTimer;
   static DateTime? _lastPinnedServerCheck;
 
   /// UI: aviso quando titular revogou o sub-login (registar no [main.dart]).
@@ -273,9 +274,15 @@ class DelegateAccessService {
   static void _stopDelegateIndexListener() {
     unawaited(_indexListener?.cancel());
     _indexListener = null;
+    _indexPollTimer?.cancel();
+    _indexPollTimer = null;
   }
 
   /// Escuta revogação/alteração no Firestore (automático, sem bloquear login).
+  ///
+  /// Web: poll leve em vez de `.snapshots()` — mais um alvo de watch ao vivo
+  /// somado aos das outras telas do painel provoca `INTERNAL ASSERTION
+  /// FAILED` no SDK JS (WatchChangeAggregator).
   static void ensureDelegateIndexListener() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -292,16 +299,27 @@ class DelegateAccessService {
       if (email.isEmpty) return;
 
       _stopDelegateIndexListener();
-      _indexListener = FirebaseFirestore.instance
+      final ref = FirebaseFirestore.instance
           .collection('delegate_email_index')
-          .doc(emailDocKey(email))
-          .snapshots()
-          .listen(
-        (snap) {
+          .doc(emailDocKey(email));
+      if (!kIsWeb) {
+        _indexListener = ref.snapshots().listen(
+          (snap) {
+            unawaited(_onDelegateIndexSnapshot(snap, user));
+          },
+          onError: (_) {},
+        );
+        return;
+      }
+      Future<void> tick() async {
+        try {
+          final snap = await ref.get();
           unawaited(_onDelegateIndexSnapshot(snap, user));
-        },
-        onError: (_) {},
-      );
+        } catch (_) {}
+      }
+
+      unawaited(tick());
+      _indexPollTimer = Timer.periodic(const Duration(seconds: 45), (_) => tick());
     }());
   }
 

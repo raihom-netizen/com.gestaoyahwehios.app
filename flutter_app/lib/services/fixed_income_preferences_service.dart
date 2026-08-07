@@ -1,6 +1,9 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/constants/app_business_rules.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Preferências de exibição das receitas fixas: contas pendentes e quantos meses à frente.
 class FixedIncomePreferencesService {
@@ -44,15 +47,29 @@ class FixedIncomePreferencesService {
     await _settingsRef(uid).set(data, SetOptions(merge: true));
   }
 
-  Stream<Map<String, dynamic>> watch(String uid) {
-    return _settingsRef(uid).snapshots().map((s) {
-      final d = s.data();
-      return {
+  Map<String, dynamic> _mapFrom(Map<String, dynamic>? d) => {
         _showInPendingKey: d?[_showInPendingKey] as bool? ?? true,
         _pendingMonthsAheadKey:
             (d?[_pendingMonthsAheadKey] as num?)?.toInt().clamp(0, 12) ??
                 _defaultPendingMonthsAhead,
       };
-    });
+
+  Stream<Map<String, dynamic>> watch(String uid) {
+    // Web: mesmo motivo do FixedExpensePreferencesService — evita mais um
+    // alvo de watch ao vivo concorrente no painel Financeiro.
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
+      return _pollWatch(uid);
+    }
+    return _settingsRef(uid).snapshots().map((s) => _mapFrom(s.data()));
+  }
+
+  Stream<Map<String, dynamic>> _pollWatch(String uid) async* {
+    while (true) {
+      try {
+        final snap = await _settingsRef(uid).get();
+        yield _mapFrom(snap.data());
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(seconds: 45));
+    }
   }
 }

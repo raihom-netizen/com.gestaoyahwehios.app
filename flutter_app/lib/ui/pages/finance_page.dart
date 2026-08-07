@@ -96,6 +96,7 @@ import 'package:gestao_yahweh/ui/widgets/finance_fatura_em_aberto_hub.dart';
 import 'package:gestao_yahweh/utils/finance_account_balance_utils.dart';
 import 'package:gestao_yahweh/utils/pdf_financeiro_super_extrato.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_finance_clone_widgets.dart';
+import 'package:gestao_yahweh/ui/widgets/report_finance_charts_panel.dart';
 
 class FinanceScreen extends StatefulWidget {
   final String uid;
@@ -6024,6 +6025,71 @@ class _FinanceScreenState extends State<FinanceScreen> {
     );
   }
 
+  /// Gráficos do período (evolução receitas x despesas + totais/categoria) — reaproveita os
+  /// widgets premium de [report_finance_charts_panel.dart] (mesmo estilo visual "Clean Premium"
+  /// usado no Relatório Financeiro), agregando localmente a partir de [docs] já carregados
+  /// (sem novas consultas ao Firestore). Segue a mesma política de "pago + data efetiva" usada
+  /// nos cartões de resumo, para os números baterem com [totalIncome]/[totalExpense].
+  Widget _buildFinanceChartsSection({
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    required double totalIncome,
+    required double totalExpense,
+  }) {
+    final rs = DateTime(_from.year, _from.month, _from.day);
+    final re = DateTime(_to.year, _to.month, _to.day, 23, 59, 59);
+    final incomeList = <Map<String, dynamic>>[];
+    final expenseList = <Map<String, dynamic>>[];
+    final seen = <String>{};
+    for (final doc in docs) {
+      if (!seen.add(doc.id)) continue;
+      final d = _txDataForMainPeriodDoc(doc);
+      if ((d['status'] ?? 'paid').toString() != 'paid') continue;
+      final effective = FinanceLineOpening.effectiveDateTimeFromMap(d);
+      if (effective == null ||
+          effective.isBefore(rs) ||
+          effective.isAfter(re)) {
+        continue;
+      }
+      final amount = _financeAmountToDouble(d['amount']).abs();
+      final cat = (d['category'] ?? '').toString().trim();
+      final row = <String, dynamic>{
+        'date': Timestamp.fromDate(effective),
+        'amount': amount,
+        'category': cat.isEmpty ? 'Sem categoria' : cat,
+      };
+      if ((d['type'] ?? 'expense').toString() == 'income') {
+        incomeList.add(row);
+      } else {
+        expenseList.add(row);
+      }
+    }
+    if (incomeList.isEmpty && expenseList.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final evolucao = computeReportFinanceEvolucao(
+      incomeList: incomeList,
+      expenseList: expenseList,
+      rangeStart: _from,
+      rangeEnd: _to,
+    );
+    final gastosPorCategoria = computeReportGastosPorCategoria(expenseList);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ReportFinanceEvolucaoLineChart(data: evolucao),
+          const SizedBox(height: 16),
+          ReportFinanceBiCharts(
+            totalReceitas: totalIncome,
+            totalDespesas: totalExpense,
+            gastosPorCategoria: gastosPorCategoria,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildGridListTypeBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
@@ -7417,6 +7483,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
                                         totalIncome: totalIncome,
                                         totalExpense: totalExpense,
                                         saldoAcumulado: saldoAcumulado,
+                                      ),
+                                      _buildFinanceChartsSection(
+                                        docs: docs,
+                                        totalIncome: totalIncome,
+                                        totalExpense: totalExpense,
                                       ),
                                       FinanceSmartTipsCompactBar(
                                         onVejaMais: () => unawaited(

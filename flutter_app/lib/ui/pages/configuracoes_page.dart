@@ -429,12 +429,6 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
 
   bool get _restrictedMemberSettings => AppPermissions.isRestrictedMember(widget.role);
 
-  bool get _showMercadoPagoChurchSettings =>
-      AppPermissions.canViewChurchMercadoPagoSettings(
-        widget.role,
-        permissions: widget.permissions,
-      );
-
   bool get _showPaymentReceivingSettings =>
       AppPermissions.canManageChurchPaymentReceiving(
         widget.role,
@@ -806,9 +800,11 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                     const SizedBox(height: 24),
                   ],
                   if (_showPaymentReceivingSettings) ...[
+                    // Credenciais Mercado Pago saíram daqui — agora ficam em
+                    // Financeiro → Contas → conta "Mercado Pago" → Integração.
                     ChurchPaymentReceivingSettingsSection(
                       tenantId: widget.tenantId,
-                      showMercadoPagoCredentials: _showMercadoPagoChurchSettings,
+                      showMercadoPagoCredentials: false,
                     ),
                   ],
                   _SectionTitle(icon: Icons.fingerprint_rounded, title: 'Acesso ao app'),

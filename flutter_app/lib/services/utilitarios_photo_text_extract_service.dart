@@ -60,6 +60,7 @@ abstract final class UtilitariosPhotoTextExtractService {
   /// ML Kit reutilizado (estilo Lens — não reabrir a cada foto).
   static TextRecognizer? _latinRec;
   static Future<TextRecognizer>? _latinWarmup;
+  static Future<void>? _warmUpTask;
 
   static bool get supported {
     if (kIsWeb) return true;
@@ -80,7 +81,8 @@ abstract final class UtilitariosPhotoTextExtractService {
     if (kIsWeb || !SmartInputImageOcrService.mlKitTextRecognitionSupported) {
       return Future<void>.value();
     }
-    return _ensureLatinRecognizer().then((rec) async {
+    return _warmUpTask ??= () async {
+      final rec = await _ensureLatinRecognizer();
       try {
         final dir = await getTemporaryDirectory();
         final f = File('${dir.path}/ct_ocr_warmup.jpg');
@@ -250,7 +252,7 @@ abstract final class UtilitariosPhotoTextExtractService {
         }
         await rec.processImage(InputImage.fromFilePath(f.path));
       } catch (_) {}
-    });
+    }();
   }
 
   static Future<TextRecognizer> _ensureLatinRecognizer() {

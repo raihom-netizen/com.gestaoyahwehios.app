@@ -74,10 +74,12 @@ class ChurchChatTypingActivity {
   }
 }
 
-/// Chat entre membros / grupos por departamento — retenção: texto 30 dias, mídia 3 dias.
+/// Chat entre membros / grupos por departamento — retenção: texto permanente, mídia 60 dias.
 class ChurchChatService {
   ChurchChatService._();
 
+  /// Não mais usado para expirar mensagens de texto (ver [writeTextMessageFirestoreOnce]
+  /// — texto não grava `expiresAt`, fica permanente). Mantido só como referência histórica.
   static const Duration textRetention = Duration(days: 30);
 
   /// Alinhado a [ChurchChatStorageRetentionService] e CF `pruneExpiredChurchChatMessages`.
@@ -807,16 +809,34 @@ class ChurchChatService {
   static final Map<String, Stream<QuerySnapshot<Map<String, dynamic>>>>
   _chatThreadsStreamByKey = {};
 
+  /// Último snapshot emitido por chave — permite a novos ouvintes (ex.: folha
+  /// de reencaminhar) mostrar a lista na hora, em vez de esperar o próximo
+  /// evento (o `StreamController.broadcast` não repete eventos passados a
+  /// quem assina depois, então sem isto o forward sheet ficava sempre em
+  /// "carregando" até a próxima mudança real nas conversas).
+  static final Map<String, QuerySnapshot<Map<String, dynamic>>>
+  _lastChatThreadsSnapshotByKey = {};
+
+  /// Snapshot mais recente já conhecido de `chatThreadsSnapshotsForUser`
+  /// (sem esperar o stream) — usar como `initialData` de `StreamBuilder`.
+  static QuerySnapshot<Map<String, dynamic>>? peekChatThreadsSnapshot(
+    String tenantId,
+    String uid,
+  ) => _lastChatThreadsSnapshotByKey['${tenantId.trim()}|${uid.trim()}'];
+
   /// Invalida stream em cache (troca de igreja / logout).
   static void invalidateChatThreadsStreamCache({
     String? tenantId,
     String? uid,
   }) {
     if (tenantId != null && uid != null) {
-      _chatThreadsStreamByKey.remove('${tenantId.trim()}|${uid.trim()}');
+      final key = '${tenantId.trim()}|${uid.trim()}';
+      _chatThreadsStreamByKey.remove(key);
+      _lastChatThreadsSnapshotByKey.remove(key);
       return;
     }
     _chatThreadsStreamByKey.clear();
+    _lastChatThreadsSnapshotByKey.clear();
   }
 
   /// Stream de conversas: uma instância por igreja+utilizador (estável como WhatsApp).
@@ -833,9 +853,15 @@ class ChurchChatService {
   /// Web: lista de conversas só via cache + `.get()` — evita 2× `snapshots()` paralelos.
   static Stream<QuerySnapshot<Map<String, dynamic>>>
   _chatThreadsWebCacheFirstStream(String tenantId, String uid) {
+    final key = '${tenantId.trim()}|${uid.trim()}';
     return Stream<QuerySnapshot<Map<String, dynamic>>>.multi((ctrl) {
+      // Já sabemos a última lista (outra tela/folha já carregou) — mostra na
+      // hora em vez de esperar o ciclo cache-disco→rede de novo (era a causa
+      // do forward sheet "ficar pesquisando" toda vez que abria).
+      final known = _lastChatThreadsSnapshotByKey[key];
+      if (known != null) ctrl.add(known);
       unawaited(() async {
-        QuerySnapshot<Map<String, dynamic>>? lastNonEmpty;
+        QuerySnapshot<Map<String, dynamic>>? lastNonEmpty = known;
         try {
           final cached = await ChurchChatThreadsListCache.loadSnapshot(
             tenantId,
@@ -843,6 +869,7 @@ class ChurchChatService {
           );
           if (!ctrl.isClosed && cached != null && cached.docs.isNotEmpty) {
             lastNonEmpty = cached;
+            _lastChatThreadsSnapshotByKey[key] = cached;
             ctrl.add(cached);
           }
         } catch (_) {}
@@ -858,6 +885,7 @@ class ChurchChatService {
           if (ctrl.isClosed) return;
           if (fb.docs.isNotEmpty) {
             lastNonEmpty = fb;
+            _lastChatThreadsSnapshotByKey[key] = fb;
             ctrl.add(fb);
             unawaited(
               ChurchChatThreadsListCache.saveFromSnapshot(tenantId, fb),
@@ -879,6 +907,7 @@ class ChurchChatService {
     if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
       return _chatThreadsWebCacheFirstStream(tenantId, uid);
     }
+    final key = '${tenantId.trim()}|${uid.trim()}';
     late StreamController<QuerySnapshot<Map<String, dynamic>>> controller;
     StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subIndexed;
     StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subParticipant;
@@ -915,6 +944,7 @@ class ChurchChatService {
           lastParticipant,
         );
         if (combined.docs.length >= current.docs.length) {
+          _lastChatThreadsSnapshotByKey[key] = combined;
           controller.add(combined);
         }
       } catch (e) {
@@ -936,6 +966,7 @@ class ChurchChatService {
       );
       if (merged.docs.isNotEmpty) {
         lastNonEmptyEmitted = merged;
+        _lastChatThreadsSnapshotByKey[key] = merged;
         controller.add(merged);
         unawaited(
           ChurchChatThreadsListCache.saveFromSnapshot(tenantId, merged),
@@ -1055,6 +1086,7 @@ class ChurchChatService {
                     cached != null &&
                     cached.docs.isNotEmpty) {
                   lastNonEmptyEmitted = cached;
+                  _lastChatThreadsSnapshotByKey[key] = cached;
                   controller.add(cached);
                 }
               } catch (_) {}
@@ -1296,6 +1328,11 @@ class ChurchChatService {
     }
     final sp = _storagePathForForward(messageData);
     if (sp.isEmpty) return false;
+    // Propaga a miniatura já gerada (imagem/vídeo) — sem isso, a bolha
+    // reencaminhada não tinha `thumbStoragePath` e caía no fallback de
+    // baixar o arquivo original inteiro (até 4MB) só para desenhar a
+    // miniatura, deixando o reencaminhamento visivelmente lento.
+    final tsp = ChurchChatMessageFields.thumbStoragePath(messageData);
     return sendMediaMessage(
       tenantId: tenantId,
       threadId: targetThreadId,
@@ -1304,6 +1341,7 @@ class ChurchChatService {
       fileName: (messageData['fileName'] ?? '').toString().isEmpty
           ? null
           : (messageData['fileName'] ?? '').toString(),
+      thumbStoragePath: tsp.isEmpty ? null : tsp,
       forwardedFrom: fwd,
       senderDisplayName: senderDisplayNameForNewMessage(),
     );
@@ -1842,7 +1880,6 @@ class ChurchChatService {
       ).catchError((_) {}),
     );
     final uid = firebaseDefaultAuth.currentUser!.uid;
-    final expiresAt = Timestamp.fromDate(DateTime.now().add(textRetention));
     final msgRef = messagesCol(tid, threadId).doc();
     final nr = normalizeReplyTo(replyTo);
     final nf = normalizeForwardedFrom(forwardedFrom);
@@ -1876,7 +1913,9 @@ class ChurchChatService {
             'deliveryStatus': deliveryStatus,
             'status': deliveryStatus,
             'createdAt': messageCreatedAtNow(),
-            'expiresAt': expiresAt,
+            // Texto NUNCA expira (só mídia — ver mediaRetention) — conversa
+            // fica permanente, só as fotos/vídeos são limpos do Storage
+            // depois de 60 dias para não ocupar espaço.
             'replyTo': ?nr,
             'forwardedFrom': ?nf,
             if (label.isNotEmpty) ...{
@@ -2057,6 +2096,7 @@ class ChurchChatService {
     required String storagePath,
     required String kind,
     String? fileName,
+    String? thumbStoragePath,
     Map<String, dynamic>? replyTo,
     Map<String, dynamic>? forwardedFrom,
     String? senderDisplayName,
@@ -2083,10 +2123,12 @@ class ChurchChatService {
       preview = '↪ ${nf['preview']}';
     }
     final label = (senderDisplayName ?? '').trim();
+    final tsp = (thumbStoragePath ?? '').trim();
     await msgRef.set({
       'senderUid': uid,
       'type': kind,
       'storagePath': storagePath.trim(),
+      if (tsp.isNotEmpty) 'thumbStoragePath': tsp,
       'deliveryStatus': deliverySent,
       'status': deliverySent,
       if (fileName != null && fileName.trim().isNotEmpty)

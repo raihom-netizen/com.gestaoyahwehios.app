@@ -46,6 +46,11 @@ abstract final class UtilitariosDailyQuotaService {
   static const _kLightUsed = 'util_quota_light_v2_used_';
   static const _kLightUnlock = 'util_quota_light_v2_unlock_';
 
+  static Future<SharedPreferences>? _prefsFuture;
+
+  static Future<SharedPreferences> _prefs() =>
+      _prefsFuture ??= SharedPreferences.getInstance();
+
   static String _uidKey(String uid) {
     final clean = uid.trim();
     return clean.isEmpty ? 'anon' : clean;
@@ -104,7 +109,7 @@ abstract final class UtilitariosDailyQuotaService {
         isAdmin: true,
       );
     }
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefs();
     final uk = '$usedKey${_uidKey(uid)}';
     final lk = '$unlockKey${_uidKey(uid)}';
     final unlockMs = prefs.getInt(lk);
@@ -192,7 +197,7 @@ abstract final class UtilitariosDailyQuotaService {
     required String unlockKey,
     required int limit,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
+    final prefs = await _prefs();
     final uk = '$usedKey${_uidKey(uid)}';
     final lk = '$unlockKey${_uidKey(uid)}';
     final next = (prefs.getInt(uk) ?? 0) + 1;

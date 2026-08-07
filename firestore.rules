@@ -875,17 +875,18 @@ service cloud.firestore {
           && resource.data.tenantId == id
           && canWriteCertificadosPainel(id);
       }
-      // Frota Jim Sabores â€” dados por igreja; escrita autenticada (alinhado a fleet_* legado).
+      // Frota Jim Sabores â€” dados por igreja; isolado por tenant (era `if request.auth != null`
+      // sem checar `id`, permitindo qualquer usuÃ¡rio autenticado ler/gravar frota de OUTRA igreja).
       match /abastecimentos/{docId} {
-        allow read, create, update: if request.auth != null;
+        allow read, create, update: if isMaster() || canAccessTenant(id);
         allow delete: if isMaster() || canAccessTenant(id);
       }
       match /combustiveis/{docId} {
-        allow read, create, update: if request.auth != null;
+        allow read, create, update: if isMaster() || canAccessTenant(id);
         allow delete: if isMaster() || canAccessTenant(id);
       }
       match /veiculos/{docId} {
-        allow read, create, update: if request.auth != null;
+        allow read, create, update: if isMaster() || canAccessTenant(id);
         allow delete: if isMaster() || canAccessTenant(id);
       }
       match /patrimonio/{docId} {
@@ -1017,15 +1018,15 @@ service cloud.firestore {
         allow write: if isAdminPanel() || canWriteTenant(id);
       }
       match /fleet_vehicles/{docId} {
-        allow read, create, update: if request.auth != null;
+        allow read, create, update: if isMaster() || canAccessTenant(id);
         allow delete: if false;
       }
       match /fleet_fuelings/{docId} {
-        allow read, create, update: if request.auth != null;
+        allow read, create, update: if isMaster() || canAccessTenant(id);
         allow delete: if false;
       }
       match /fleet_documents/{docId} {
-        allow read, create, update: if request.auth != null;
+        allow read, create, update: if isMaster() || canAccessTenant(id);
         allow delete: if false;
       }
       match /departamentos/{docId} {
@@ -1957,6 +1958,25 @@ service cloud.firestore {
     match /publicCpfIndex/{cpfKey} {
       allow read: if true;
       allow write: if false;
+    }
+
+    // Promoções públicas (site de divulgação + tela "Escolha seu plano") — leitura pública,
+    // saldo/estoque só é debitado por Cloud Function (Admin SDK) após pagamento confirmado.
+    match /promotions/{promoId} {
+      allow read: if true;
+      allow write: if isMaster();
+    }
+
+    // Conteúdo textual da landing/paywall (`landing_content/main`) — leitura pública.
+    match /landing_content/{docId} {
+      allow read: if true;
+      allow write: if isMaster();
+    }
+
+    // Config pública de preços/checkout e Open Finance lida sem login (paywall, conexão bancária).
+    match /app_config/{docId} {
+      allow read: if true;
+      allow write: if isMaster();
     }
 
     match /config/appVersion {

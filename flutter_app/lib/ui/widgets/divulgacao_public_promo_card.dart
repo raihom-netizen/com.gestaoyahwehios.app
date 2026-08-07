@@ -1,4 +1,6 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -125,32 +127,56 @@ class PublicDivulgacaoPromo {
     );
   }
 
-  /// Uma promoção pública: a mais recente por [createdAt] entre as elegíveis.
-  static Stream<PublicDivulgacaoPromo?> watchFeatured() {
-    return FirebaseFirestore.instance
-        .collection('promotions')
-        .snapshots()
-        .map((snap) {
-      PublicDivulgacaoPromo? best;
-      Timestamp? bestTs;
-      for (final d in snap.docs) {
-        final p = _fromDoc(d);
-        if (p == null) continue;
-        final ca = d.data()['createdAt'] as Timestamp?;
-        if (best == null) {
-          best = p;
-          bestTs = ca;
-          continue;
-        }
-        final cur = ca ?? Timestamp.fromMillisecondsSinceEpoch(0);
-        final prev = bestTs ?? Timestamp.fromMillisecondsSinceEpoch(0);
-        if (cur.compareTo(prev) > 0) {
-          best = p;
-          bestTs = ca;
-        }
+  static PublicDivulgacaoPromo? _bestFromSnapshot(
+      QuerySnapshot<Map<String, dynamic>> snap) {
+    PublicDivulgacaoPromo? best;
+    Timestamp? bestTs;
+    for (final d in snap.docs) {
+      final p = _fromDoc(d);
+      if (p == null) continue;
+      final ca = d.data()['createdAt'] as Timestamp?;
+      if (best == null) {
+        best = p;
+        bestTs = ca;
+        continue;
       }
-      return best;
-    });
+      final cur = ca ?? Timestamp.fromMillisecondsSinceEpoch(0);
+      final prev = bestTs ?? Timestamp.fromMillisecondsSinceEpoch(0);
+      if (cur.compareTo(prev) > 0) {
+        best = p;
+        bestTs = ca;
+      }
+    }
+    return best;
+  }
+
+  /// Uma promoção pública: a mais recente por [createdAt] entre as elegíveis.
+  ///
+  /// Web: poll leve em vez de `.snapshots()` — evita somar mais um alvo de
+  /// watch simultâneo (landing/divulgação já tem outros listeners na mesma
+  /// tela) e provocar `INTERNAL ASSERTION FAILED` no SDK JS.
+  static Stream<PublicDivulgacaoPromo?> watchFeatured() {
+    final col = FirebaseFirestore.instance.collection('promotions').limit(50);
+    if (!kIsWeb) {
+      return col.snapshots().map(_bestFromSnapshot);
+    }
+    late final StreamController<PublicDivulgacaoPromo?> controller;
+    Timer? timer;
+    Future<void> tick() async {
+      try {
+        final snap = await col.get();
+        if (!controller.isClosed) controller.add(_bestFromSnapshot(snap));
+      } catch (_) {}
+    }
+
+    controller = StreamController<PublicDivulgacaoPromo?>(
+      onListen: () {
+        unawaited(tick());
+        timer = Timer.periodic(const Duration(seconds: 45), (_) => tick());
+      },
+      onCancel: () => timer?.cancel(),
+    );
+    return controller.stream;
   }
 }
 

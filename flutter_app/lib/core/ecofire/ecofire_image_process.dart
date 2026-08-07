@@ -33,7 +33,11 @@ abstract final class EcoFireImageProcess {
   ) async {
     final out = await YahwehHeavyWork.run(
       _memberProfileIsolate,
-      _MemberEncodeArgs(inputBytes, memberSize, 80),
+      _MemberEncodeArgs(
+        inputBytes,
+        memberSize,
+        YahwehPerformanceV4.profileFullQuality,
+      ),
     );
     return (bytes: out, mime: 'image/jpeg');
   }
@@ -43,7 +47,11 @@ abstract final class EcoFireImageProcess {
   ) async {
     final out = await YahwehHeavyWork.run(
       _memberProfileIsolate,
-      _MemberEncodeArgs(inputBytes, thumbSize, 70),
+      _MemberEncodeArgs(
+        inputBytes,
+        thumbSize,
+        YahwehPerformanceV4.profileThumbQuality,
+      ),
     );
     return (bytes: out, mime: 'image/jpeg');
   }

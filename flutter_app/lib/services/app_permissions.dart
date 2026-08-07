@@ -349,6 +349,14 @@ class AppPermissions {
   static bool canAccessChurchRelatoriosHub(String role) =>
       ChurchRolePermissions.isFinancePanelTeam(role);
 
+  /// Limpar assinatura da carteirinha — só gestor, pastor, secretário,
+  /// tesoureiro ou ADM (ação destrutiva/auditável, mais restrita que o
+  /// `_canManage` genérico da tela Cartão membro).
+  static bool canClearMemberCardSignature(String role, {List<String>? permissions}) {
+    if (hasModulePermission(permissions, 'limpar_assinatura_carteirinha')) return true;
+    return ChurchRolePermissions.isCorporateModuleTeam(role);
+  }
+
   /// Módulo Certificados (emissão / histórico) — não para papel [membro] básico.
   /// Acesso: ADM, gestor, secretário, pastor, etc. (editAnyMember), tesoureiro(a), ou permissão `certificados`.
   static bool canAccessCertificados(String role, {List<String>? permissions}) {
@@ -424,10 +432,9 @@ class AppPermissions {
     return true;
   }
 
-  /// Integração Mercado Pago da igreja (PIX/cartão na tesouraria) — **muito restrita**:
-  /// só [gestor], [master] da igreja ou administrador (`admin`/`adm`/`administrador*`),
-  /// ou permissão granular `configuracoes_banco` concedida pelo gestor.
-  /// Tesoureiro, pastor e outros papéis **não** vêem esta secção por defeito (alinhado a `saveChurchMercadoPagoCredentials`).
+  /// Integração Mercado Pago da igreja (PIX/cartão na tesouraria) — restrita a
+  /// pastor, gestor, ADM ou tesoureiro (alinhado a `saveChurchMercadoPagoCredentials`
+  /// / `isChurchManagerRole` no backend), ou permissão granular `configuracoes_banco`.
   static bool canViewChurchMercadoPagoSettings(String role, {List<String>? permissions}) {
     if (hasModulePermission(permissions, 'configuracoes_banco')) return true;
     if (isRestrictedMember(role)) return false;
@@ -437,7 +444,11 @@ class AppPermissions {
         r == 'administrador' ||
         r == 'administradora';
     final gestorLike = r == AppRoles.gestor || r == AppRoles.master;
-    return adminLike || gestorLike;
+    final pastorLike = r == ChurchRoleKeys.pastor ||
+        r == ChurchRoleKeys.pastorPresidente ||
+        r == ChurchRoleKeys.pastorAuxiliar;
+    final tesoureiroLike = r == AppRoles.tesoureiro || r == AppRoles.tesouraria;
+    return adminLike || gestorLike || pastorLike || tesoureiroLike;
   }
 
   /// Pagamento / renovação da **licença SaaS** (Mercado Pago) — só liderança financeira.

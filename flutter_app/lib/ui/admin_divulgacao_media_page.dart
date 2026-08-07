@@ -729,10 +729,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
             .toList();
         final removedCount = items.length - remaining.length;
         if (removedCount > 0) {
-          await _docRef.set({
-            'items': _cloneGalleryItemMaps(remaining),
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+          await _persistGalleryItems(_cloneGalleryItemMaps(remaining));
           firestoreUpdated = true;
         } else if (removeNorm.isNotEmpty) {
           fsNoMatch = true;

@@ -110,6 +110,24 @@ function directoryEntry(
     updatedAt: d.updatedAt ?? null,
     dataNascimento:
       d.DATA_NASCIMENTO ?? d.dataNascimento ?? d.birthDate ?? null,
+    // Assinatura da carteirinha — faltava aqui, por isso o painel mostrava
+    // "Pendente assinatura" para sempre: este cache (lido por
+    // getChurchMembersDirectory) nunca carregava esses campos do doc real,
+    // mesmo depois do membro assinar.
+    carteirinhaAssinadaEm: d.carteirinhaAssinadaEm ?? null,
+    carteirinhaAssinadaPor: pickString(d, ["carteirinhaAssinadaPor"]) || null,
+    carteirinhaAssinadaPorNome:
+      pickString(d, ["carteirinhaAssinadaPorNome"]) || null,
+    carteirinhaAssinadaPorCargo:
+      pickString(d, ["carteirinhaAssinadaPorCargo"]) || null,
+    carteirinhaAssinaturaUrl:
+      pickString(d, ["carteirinhaAssinaturaUrl"]) || null,
+    carteirinhaAssinadaPorUsuarioUid:
+      pickString(d, ["carteirinhaAssinadaPorUsuarioUid"]) || null,
+    carteirinhaAssinadaPorUsuarioNome:
+      pickString(d, ["carteirinhaAssinadaPorUsuarioNome"]) || null,
+    carteirinhaAssinadaPorUsuarioRole:
+      pickString(d, ["carteirinhaAssinadaPorUsuarioRole"]) || null,
   };
 }
 

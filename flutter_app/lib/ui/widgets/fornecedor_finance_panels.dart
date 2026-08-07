@@ -1361,7 +1361,6 @@ class _FornecedorFinanceGridCard extends StatelessWidget {
                       label: 'Despesas',
                       value: despesas,
                       color: const Color(0xFFB91C1C),
-                      background: const Color(0xFFFEE2E2),
                     ),
                   ),
                   const SizedBox(width: 7),
@@ -1370,7 +1369,6 @@ class _FornecedorFinanceGridCard extends StatelessWidget {
                       label: 'Receitas',
                       value: receitas,
                       color: const Color(0xFF15803D),
-                      background: const Color(0xFFDCFCE7),
                     ),
                   ),
                   const SizedBox(width: 7),
@@ -1379,9 +1377,6 @@ class _FornecedorFinanceGridCard extends StatelessWidget {
                       label: 'Saldo',
                       value: saldo,
                       color: saldoColor,
-                      background: saldoNegativo
-                          ? const Color(0xFFFEE2E2)
-                          : const Color(0xFFCCFBF1),
                     ),
                   ),
                 ],
@@ -1399,22 +1394,28 @@ class _FornecedorFinanceMetric extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
-    required this.background,
   });
 
   final String label;
   final String value;
   final Color color;
-  final Color background;
 
   @override
   Widget build(BuildContext context) {
+    // Mesmo padrão do card «Finanças no painel» / ControleTotalSupplierFinanceCard:
+    // mini-card branco com texto colorido, em vez de pílula com fundo tingido.
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
-        color: background,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.12)),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.10),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1425,8 +1426,8 @@ class _FornecedorFinanceMetric extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 9,
-              fontWeight: FontWeight.w700,
-              color: color.withValues(alpha: 0.82),
+              fontWeight: FontWeight.w800,
+              color: color,
             ),
           ),
           const SizedBox(height: 2),
