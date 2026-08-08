@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
+import 'package:gestao_yahweh/utils/web_page_reload.dart';
 
 /// Blindagem Web (padrão Controle Total): **nunca** `terminate()` em retry automático
 /// (mata o singleton → `failed-precondition: client has already been terminated` em Doação,
@@ -179,11 +180,20 @@ class FirestoreWebGuard {
   /// **sem** recarregar a página (utilizador continua a trabalhar).
   static bool handleFatalWebErrorIfNeeded(Object e) {
     if (!kIsWeb) return false;
-    if (isClientTerminated(e) || isInternalAssertionError(e)) {
-      debugPrint(
-        'FirestoreWebGuard.handleFatalWebErrorIfNeeded: soft recover '
-        '(${isClientTerminated(e) ? 'terminated' : 'assertion'})',
-      );
+    if (isInternalAssertionError(e)) {
+      // AUTO-RECUPERAÇÃO: o INTERNAL ASSERTION / WatchChangeAggregator é bug
+      // do SDK JS (persiste em 12.14/12.17, WebChannel e long-polling, com ou
+      // sem persistência). Reconectar a rede NÃO cura (o target churn continua).
+      // Recarregar a aba dá um cliente Firestore fresco (targetId zerado) e o
+      // painel volta a carregar. reloadWebPageHard tem cooldown de 3min → nunca
+      // vira loop; se estourar o cooldown, cai no soft-recover como fallback.
+      debugPrint('FirestoreWebGuard: INTERNAL ASSERTION — auto-reload da aba.');
+      reloadWebPageHard();
+      unawaited(recoverFirestoreWebSession(allowHardReconnect: true));
+      return true;
+    }
+    if (isClientTerminated(e)) {
+      debugPrint('FirestoreWebGuard.handleFatalWebErrorIfNeeded: soft recover (terminated)');
       unawaited(recoverFirestoreWebSession(allowHardReconnect: true));
       return true;
     }

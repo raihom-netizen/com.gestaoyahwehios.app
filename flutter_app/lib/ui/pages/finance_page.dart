@@ -1746,21 +1746,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
             kIsWeb &&
             (FirestoreWebGuard.isTerminatedClientError(e) ||
                 FirestoreWebGuard.isInternalAssertionError(e));
-        if (isWebAssertionClass && !isRetryAfterWebRecovery) {
-          // Reconecta de verdade (enableNetwork + refresh do token) e
-          // repete o load automaticamente — antes disso o utilizador
-          // ficava preso na caixa vermelha até tocar "Tentar de novo"
-          // manualmente, e um retry sem reconectar tende a repetir o
-          // mesmo erro.
-          await FirestoreWebGuard.softRecoverWebSession();
-          if (!mounted || myGen != _mainPeriodLoadGeneration) return;
-          return _executeMainPeriodLoad(
-            myGen,
-            sessionUid,
-            preserveExistingDocs: preserveExistingDocs,
-            accountFilterOnly: accountFilterOnly,
-            isRetryAfterWebRecovery: true,
-          );
+        if (isWebAssertionClass) {
+          // Bug do SDK (INTERNAL ASSERTION): não cura por reconexão. Tenta
+          // auto-reload (cliente fresco, targetId zerado). Se estiver no
+          // cooldown de 3min, cai no erro abaixo com "Limpar cache e tentar".
+          FirestoreWebGuard.handleFatalWebErrorIfNeeded(e);
         }
         setState(() {
           _mainPeriodLoading = false;
