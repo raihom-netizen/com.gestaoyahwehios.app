@@ -15401,6 +15401,9 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: DropdownButtonFormField<int>(
               initialValue: _selectedIndex.clamp(0, widget.stats.length - 1),
+              // isExpanded: título longo do evento corta com "..." DENTRO da
+              // caixa (antes vazava para fora à direita no celular).
+              isExpanded: true,
               decoration: InputDecoration(
                 labelText: 'Evento',
                 border: OutlineInputBorder(
