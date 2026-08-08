@@ -780,6 +780,15 @@ Future<void> _bindNativeCrashlyticsHandlers() async {
     }
   };
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    // AUTO-RECUPERAÇÃO GLOBAL (web): o INTERNAL ASSERTION do SDK Firestore mata
+    // a fila assíncrona e chega aqui como erro não-tratado. A única cura é
+    // recarregar a aba (cliente novo, targetId zerado). handleFatalWebErrorIfNeeded
+    // recarrega com cooldown de 3min (anti-loop). Vale para TODOS os módulos
+    // (Financeiro, Dízimos, Visitantes, Patrimônio, Fornecedores, Escalas…),
+    // não só o Financeiro.
+    if (FirestoreWebGuard.handleFatalWebErrorIfNeeded(error)) {
+      return true;
+    }
     final benign = CrashlyticsBenignErrors.isBenign(error);
     try {
       FirebaseCrashlytics.instance.recordError(error, stack, fatal: !benign);
