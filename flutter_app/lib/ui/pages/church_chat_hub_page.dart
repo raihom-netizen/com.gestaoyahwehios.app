@@ -2830,7 +2830,8 @@ class _ChurchChatHubPageState extends State<ChurchChatHubPage>
     );
 
     if (webPanelEmbedded || webPhoneFrame) {
-      hubCore = Material(color: const Color(0xFFF0F2F5), child: hubCore);
+      // Fundo BRANCO (pedido do usuário) — antes era cinza estilo WhatsApp.
+      hubCore = Material(color: Colors.white, child: hubCore);
     }
 
     if (webPanelEmbedded) {
