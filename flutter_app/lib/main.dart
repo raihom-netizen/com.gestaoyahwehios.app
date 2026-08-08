@@ -92,6 +92,7 @@ import 'package:gestao_yahweh/core/app_deep_link.dart';
 import 'package:gestao_yahweh/core/app_navigator.dart';
 import 'package:gestao_yahweh/core/public_web_route_parser.dart';
 import 'package:gestao_yahweh/services/notification_deep_link_router.dart';
+import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
     if (dart.library.html) 'package:gestao_yahweh/web_resume_repaint_web.dart';
@@ -1065,6 +1066,25 @@ class _AppWithThemeState extends State<_AppWithTheme>
   StreamSubscription<String>? _deepLinkSub;
   void _onThemeChanged() => setState(() {});
 
+  /// Web: quando o push de chat é tocado, o service worker abre
+  /// `/painel?gyChat={threadId}&gyTenant={tenantId}`. Aqui lemos esse query
+  /// param e pedimos ao painel para abrir a conversa/grupo (a ponte enfileira
+  /// até o painel estar pronto). Alinha o comportamento com iOS/Android.
+  void _consumeInitialWebChatDeepLink() {
+    try {
+      final q = Uri.base.queryParameters;
+      final threadId = (q['gyChat'] ?? '').trim();
+      if (threadId.isEmpty) return;
+      final tenantId = (q['gyTenant'] ?? '').trim();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
+          threadId: threadId,
+          tenantId: tenantId.isEmpty ? null : tenantId,
+        );
+      });
+    } catch (_) {}
+  }
+
   /// Roteia deep links de notificações (Android App Links / iOS Universal Links
   /// / custom scheme). Notificações têm prioridade sobre rotas públicas genéricas.
   void _handleDeepLinkPath(String path) {
@@ -1099,6 +1119,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
     AppSessionStability.bindSessionKeepalive();
     if (kIsWeb) {
       registerWebResumeRepaint(_repaintAfterWebResume);
+      _consumeInitialWebChatDeepLink();
     }
     _themeProvider = ThemeModeProvider();
     _themeProvider.addListener(_onThemeChanged);

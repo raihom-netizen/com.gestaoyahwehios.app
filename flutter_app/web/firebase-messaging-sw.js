@@ -37,8 +37,17 @@ function colorForModule(mod) {
 
 /** Routing de notificação para URL do app — alinhado a fcm_service.routeNotificationTap. */
 function buildClickUrl(data) {
-  var type = (data && data.type) || '';
+  data = data || {};
   var base = (self.location.origin || 'https://gestaoyahweh.com.br');
+  var type = (data.type || '').toString().trim();
+  var threadId = (data.threadId || '').toString().trim();
+  var tenantId = (data.tenantId || '').toString().trim();
+  // Chat: abrir o painel JÁ na conversa/grupo (query param lido no main.dart web).
+  if ((type === 'novo_chat' || type === 'chat_message' || type === 'church_chat') && threadId) {
+    var u = base + '/painel?gyChat=' + encodeURIComponent(threadId);
+    if (tenantId) u += '&gyTenant=' + encodeURIComponent(tenantId);
+    return u;
+  }
   // Default: abrir painel
   return base + '/';
 }
