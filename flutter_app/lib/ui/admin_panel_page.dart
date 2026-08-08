@@ -697,12 +697,22 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       return;
     }
     if (item == AdminMenuItem.sistemaHome) {
-      // Padrão Controle Total: pop rápido para o painel da igreja (sem recriar a app).
-      if (Navigator.of(context).canPop()) {
+      // BUG corrigido: se o menu (drawer) está aberto, o 1º pop fecha só o
+      // drawer (usuário ficava preso no master). Fecha o drawer primeiro e,
+      // no próximo frame, volta ao painel da igreja (web + iOS + Android).
+      final drawerOpen = _scaffoldKey.currentState?.isDrawerOpen ?? false;
+      if (drawerOpen) {
         Navigator.of(context).pop();
-      } else {
-        Navigator.of(context).pushNamedAndRemoveUntil('/painel', (_) => false);
       }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final nav = Navigator.of(context);
+        if (nav.canPop()) {
+          nav.pop();
+        } else {
+          nav.pushNamedAndRemoveUntil('/painel', (_) => false);
+        }
+      });
       return;
     }
     final isNarrow = MediaQuery.sizeOf(context).width <
