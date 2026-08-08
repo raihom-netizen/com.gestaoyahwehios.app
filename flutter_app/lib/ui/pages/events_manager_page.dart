@@ -14794,7 +14794,7 @@ class _DashboardTotalsRow extends StatelessWidget {
     final narrow = MediaQuery.sizeOf(context).width < 520;
     Widget chip(IconData icon, String label, String value, Color color) {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(14),
@@ -14802,21 +14802,30 @@ class _DashboardTotalsRow extends StatelessWidget {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, size: 20, color: color),
             const SizedBox(height: 6),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-                color: color,
-                height: 1,
+            // FittedBox: número nunca estoura a caixa mesmo estreito no celular.
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  color: color,
+                  height: 1,
+                ),
               ),
             ),
             const SizedBox(height: 2),
             Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
@@ -14838,37 +14847,11 @@ class _DashboardTotalsRow extends StatelessWidget {
       return Expanded(child: chip(icon, label, value, color));
     }
 
-    if (narrow) {
-      return Column(
-        children: [
-          chip(
-            Icons.check_circle_rounded,
-            'RSVP total',
-            '$rsvp',
-            ThemeCleanPremium.success,
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              chipExpanded(
-                Icons.favorite_rounded,
-                'Curtidas',
-                '$likes',
-                Colors.red.shade400,
-              ),
-              const SizedBox(width: 10),
-              chipExpanded(
-                Icons.comment_rounded,
-                'Comentários',
-                '$comments',
-                const Color(0xFF0EA5E9),
-              ),
-            ],
-          ),
-        ],
-      );
-    }
+    // Os 3 cards SEMPRE lado a lado numa linha reta (celular e web) — pedido
+    // do usuário. Espaçamento menor no celular para caber sem estourar.
+    final gap = narrow ? 8.0 : 10.0;
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         chipExpanded(
           Icons.check_circle_rounded,
@@ -14876,14 +14859,14 @@ class _DashboardTotalsRow extends StatelessWidget {
           '$rsvp',
           ThemeCleanPremium.success,
         ),
-        const SizedBox(width: 10),
+        SizedBox(width: gap),
         chipExpanded(
           Icons.favorite_rounded,
           'Curtidas',
           '$likes',
           Colors.red.shade400,
         ),
-        const SizedBox(width: 10),
+        SizedBox(width: gap),
         chipExpanded(
           Icons.comment_rounded,
           'Comentários',
