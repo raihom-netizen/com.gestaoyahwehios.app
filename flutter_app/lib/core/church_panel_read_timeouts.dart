@@ -33,6 +33,14 @@ abstract final class ChurchPanelReadTimeouts {
       kIsWeb ? const Duration(seconds: 10) : const Duration(seconds: 25);
 
   /// Web: polling periódico em vez de `snapshots()` — paridade com mobile.
+  ///
+  /// ⚠️ CHURN DE TARGETS: no SDK JS cada `.get()` na Web abre+fecha um alvo do
+  /// Watch stream. Com ~10-15 streams de módulos ativos, um intervalo curto (6s)
+  /// gerava ~150 alvos/min → o contador de targetId disparava (1300+) e batia no
+  /// `INTERNAL ASSERTION FAILED / WatchChangeAggregator` do SDK, derrubando o
+  /// Financeiro e outros módulos. 45s corta o churn ~8x sem prejuízo real
+  /// (gestão de igreja não precisa de tempo-real de segundos; mutações do próprio
+  /// usuário já reemitem na hora via reload debounced pós-mutação).
   static Duration get webPollInterval =>
-      kIsWeb ? const Duration(seconds: 6) : const Duration(seconds: 8);
+      kIsWeb ? const Duration(seconds: 45) : const Duration(seconds: 8);
 }

@@ -103,6 +103,113 @@ Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadScheduleMemberDoc
   }
 }
 
+/// Monta a lista de membros de um departamento de forma robusta, unindo:
+/// - membros cujo doc referencia o departamento em `DEPARTAMENTOS` **ou**
+///   `departamentosIds` (corrige vínculo gravado só num dos campos);
+/// - a subcoleção autoritativa `departamentos/{id}/membros_vinculados`
+///   (cobre membros sem os arrays e/ou sem `updatedAt`, que o `membrosRecent`
+///   — ordenado por updatedAt — silenciosamente descarta).
+Future<List<_MemberSelect>> _buildDeptMemberSelects({
+  required String tenantId,
+  required String departmentId,
+  required List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
+  required Map<String, int> freq,
+}) async {
+  final tid = tenantId.trim();
+  final did = departmentId.trim();
+  final result = <_MemberSelect>[];
+  final seen = <String>{};
+  if (did.isEmpty) return result;
+
+  String normCpf(dynamic v) =>
+      (v ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+
+  final byDocId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+  final byCpf = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
+  for (final m in allDocs) {
+    byDocId[m.id] = m;
+    final c = normCpf(m.data()['CPF'] ?? m.data()['cpf']);
+    if (c.isNotEmpty) byCpf[c] = m;
+  }
+
+  void addFromDoc(QueryDocumentSnapshot<Map<String, dynamic>> m) {
+    final data = m.data();
+    final cpf = normCpf(data['CPF'] ?? data['cpf']);
+    final name =
+        (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '').toString();
+    if (cpf.isEmpty && name.isEmpty) return;
+    final key = cpf.isNotEmpty ? cpf : 'doc_${m.id}';
+    if (!seen.add(key)) return;
+    final photoUrl = imageUrlFromMap(data);
+    result.add(_MemberSelect(
+      cpf: cpf,
+      name: name,
+      photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '',
+      frequency: freq[cpf] ?? 0,
+      memberDocId: m.id,
+      unavailableYmds: MemberScheduleAvailability.parseYmdList(
+        data[MemberScheduleAvailability.fieldYmds],
+      ),
+      tenantId: tid,
+      memberData: data,
+    ));
+  }
+
+  // 1) Vínculo por arrays (DEPARTAMENTOS ou departamentosIds).
+  for (final m in allDocs) {
+    final data = m.data();
+    var inArray = false;
+    for (final f in const ['DEPARTAMENTOS', 'departamentosIds']) {
+      final list = (data[f] as List?)?.map((e) => e.toString()) ?? const [];
+      if (list.contains(did)) {
+        inArray = true;
+        break;
+      }
+    }
+    if (inArray) addFromDoc(m);
+  }
+
+  // 2) Subcoleção autoritativa membros_vinculados (enriquece com o doc completo
+  //    quando existir; senão usa o snapshot da subcoleção).
+  try {
+    final op = ChurchRepository.churchId(tid);
+    final linked = await ChurchUiCollections.departamentos(op)
+        .doc(did)
+        .collection('membros_vinculados')
+        .limit(_kScheduleMembersFetchLimit)
+        .get()
+        .timeout(const Duration(seconds: 12));
+    for (final l in linked.docs) {
+      final ld = l.data();
+      final linkedDocId = (ld['memberDocId'] ?? l.id).toString();
+      final cpf = normCpf(ld['cpfDigits'] ?? ld['CPF'] ?? ld['cpf']);
+      final full = byDocId[linkedDocId] ?? (cpf.isNotEmpty ? byCpf[cpf] : null);
+      if (full != null) {
+        addFromDoc(full);
+        continue;
+      }
+      final key = cpf.isNotEmpty ? cpf : 'linked_${l.id}';
+      if (!seen.add(key)) continue;
+      final name = (ld['nome'] ?? ld['NOME_COMPLETO'] ?? '').toString();
+      if (cpf.isEmpty && name.isEmpty) continue;
+      final photoUrl = (ld['fotoUrl'] ?? '').toString();
+      result.add(_MemberSelect(
+        cpf: cpf,
+        name: name,
+        photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '',
+        frequency: freq[cpf] ?? 0,
+        memberDocId: linkedDocId.isNotEmpty ? linkedDocId : l.id,
+        unavailableYmds: const <String>[],
+        tenantId: tid,
+        memberData: ld,
+      ));
+    }
+  } catch (_) {}
+
+  result.sort((a, b) => b.frequency.compareTo(a.frequency));
+  return result;
+}
+
 /// Filtro da lista de membros no detalhe da escala (chips de resumo).
 enum _InstanceDetailMemberFilter {
   todos,
@@ -6963,30 +7070,12 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
         }
       } catch (_) {}
 
-      final deptMembers = <_MemberSelect>[];
-      for (final m in allDocs) {
-        final data = m.data();
-        final depts = (data['DEPARTAMENTOS'] as List?)?.map((e) => e.toString()).toList() ?? [];
-        if (!depts.contains(_departmentId)) continue;
-        final cpf = (data['CPF'] ?? data['cpf'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
-        final name = (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '').toString();
-        final photoUrl = imageUrlFromMap(data);
-        if (cpf.isEmpty && name.isEmpty) continue;
-        final ymds = MemberScheduleAvailability.parseYmdList(
-          data[MemberScheduleAvailability.fieldYmds],
-        );
-        deptMembers.add(_MemberSelect(
-          cpf: cpf,
-          name: name,
-          photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '',
-          frequency: freq[cpf] ?? 0,
-          memberDocId: m.id,
-          unavailableYmds: ymds,
-          tenantId: widget.tenantId,
-          memberData: data,
-        ));
-      }
-      deptMembers.sort((a, b) => b.frequency.compareTo(a.frequency));
+      final deptMembers = await _buildDeptMemberSelects(
+        tenantId: widget.tenantId,
+        departmentId: _departmentId,
+        allDocs: allDocs,
+        freq: freq,
+      );
 
       if (mounted) {
         setState(() {
@@ -7742,30 +7831,12 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
         }
       } catch (_) {}
 
-      final deptMembers = <_MemberSelect>[];
-      for (final m in allDocs) {
-        final data = m.data();
-        final depts = (data['DEPARTAMENTOS'] as List?)?.map((e) => e.toString()).toList() ?? [];
-        if (!depts.contains(_departmentId)) continue;
-        final cpf = (data['CPF'] ?? data['cpf'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
-        final name = (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '').toString();
-        final photoUrl = imageUrlFromMap(data);
-        if (cpf.isEmpty && name.isEmpty) continue;
-        final ymds = MemberScheduleAvailability.parseYmdList(
-          data[MemberScheduleAvailability.fieldYmds],
-        );
-        deptMembers.add(_MemberSelect(
-          cpf: cpf,
-          name: name,
-          photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '',
-          frequency: freq[cpf] ?? 0,
-          memberDocId: m.id,
-          unavailableYmds: ymds,
-          tenantId: tid,
-          memberData: data,
-        ));
-      }
-      deptMembers.sort((a, b) => b.frequency.compareTo(a.frequency));
+      final deptMembers = await _buildDeptMemberSelects(
+        tenantId: tid,
+        departmentId: _departmentId,
+        allDocs: allDocs,
+        freq: freq,
+      );
 
       if (mounted) {
         setState(() {

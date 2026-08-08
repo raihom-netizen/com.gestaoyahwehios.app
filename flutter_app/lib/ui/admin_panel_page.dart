@@ -44,6 +44,7 @@ import 'master_command_center_page.dart';
 import 'master_feature_flags_page.dart';
 import 'admin_telegram_tdlib_page.dart';
 import 'package:gestao_yahweh/ui/pages/system_firebase_health_page.dart';
+import 'package:gestao_yahweh/ui/pages/financial_tips_admin_page.dart';
 import 'master_saas_command_center_page.dart';
 import 'master_usuarios_controle_360_page.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_detail_sheet.dart';
@@ -887,6 +888,21 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                           Icons.telegram,
                           'Telegram / TDLib',
                           AdminMenuItem.sistemaTelegramTdlib),
+                    if (_canAccessMasterItem(
+                        AdminMenuItem.sistemaFeatureFlags))
+                      ListTile(
+                        leading: const Icon(Icons.lightbulb_rounded,
+                            color: Colors.amber),
+                        title: const Text('Dicas inteligentes',
+                            style: TextStyle(fontWeight: FontWeight.w700)),
+                        subtitle: const Text(
+                            'Cadastrar dicas do Financeiro (evangélicas etc.)',
+                            style: TextStyle(fontSize: 11.5)),
+                        onTap: () {
+                          Navigator.of(context).maybePop();
+                          FinancialTipsAdminPage.open(context);
+                        },
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaHome))
                       _drawerTile(context, Icons.home_rounded,
                           'Voltar ao aplicativo', AdminMenuItem.sistemaHome),

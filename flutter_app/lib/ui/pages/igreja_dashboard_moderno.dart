@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
+import 'package:gestao_yahweh/ui/widgets/home_daily_financial_tip_card.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
@@ -1204,6 +1205,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                         role: widget.role,
                         churchSlug: _churchSlug,
                       ),
+                      const SizedBox(height: ThemeCleanPremium.spaceMd),
+                      const HomeDailyFinancialTipCard(),
                       const SizedBox(height: ThemeCleanPremium.spaceMd),
                       ChurchAvisosCarousel(
                         churchIdHint: _effectiveTenantId.isNotEmpty
