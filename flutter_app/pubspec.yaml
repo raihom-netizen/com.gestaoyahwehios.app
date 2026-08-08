@@ -16,14 +16,14 @@ dependencies:
   fl_chart: ^1.2.0
   table_calendar: ^3.1.2
 
-  firebase_core: ^4.10.0
-  firebase_auth: ^6.5.2
+  firebase_core: ^4.13.0
+  firebase_auth: ^6.5.7
   google_sign_in: ^7.2.0
   sign_in_with_apple: ^8.1.0
   crypto: ^3.0.6
-  cloud_firestore: ^6.5.0
+  cloud_firestore: ^6.8.0
   cloud_functions: ^6.3.2
-  firebase_storage: ^13.4.2
+  firebase_storage: ^13.4.6
   # --- Mídia, biometria e PDF (manual arquitetural §7) ---
   image_picker: ^1.2.2
   image_cropper: ^12.2.1
@@ -36,7 +36,7 @@ dependencies:
   # Edição nativa PDF (UtilitariosPdfPreserveExport) — paridade Controle Total.
   syncfusion_flutter_pdf: ^33.2.13
   qr_flutter: ^4.1.0
-  firebase_messaging: ^16.3.0
+  firebase_messaging: ^16.5.0
   firebase_analytics: ^12.4.2
   # Feature flagging para conformidade da App Store: chave `exibir_pagamento_ios`
   # controla se o app mostra UI/links de pagamento direto (Mercado Pago) em iOS.
