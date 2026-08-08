@@ -3246,15 +3246,32 @@ class _FinanceScreenState extends State<FinanceScreen> {
       mostrarAvisoSeLicencaInativa(context, widget.profile);
       return false;
     }
-    final snap = await _txRef().doc(docId).get(
-          const GetOptions(source: Source.serverAndCache),
-        );
-    final data = snap.data() ?? {};
-    final metaInfo = await GoalDepositService.linkedInfoForTransaction(
-      uid: widget.uid,
-      txId: docId,
-      txData: data,
-    );
+    // Usa o doc JÁ carregado (evita `.get()` que trava/falha no web quando o
+    // SDK está ruim — era isso que impedia a exclusão de "sumir").
+    Map<String, dynamic> data = const {};
+    for (final d in _mainPeriodDocs) {
+      if (d.id == docId) {
+        data = d.data();
+        break;
+      }
+    }
+    if (data.isEmpty) {
+      try {
+        final snap = await _txRef()
+            .doc(docId)
+            .get(const GetOptions(source: Source.cache))
+            .timeout(const Duration(seconds: 4));
+        data = snap.data() ?? {};
+      } catch (_) {}
+    }
+    GoalLinkedTransactionInfo? metaInfo;
+    try {
+      metaInfo = await GoalDepositService.linkedInfoForTransaction(
+        uid: widget.uid,
+        txId: docId,
+        txData: data,
+      );
+    } catch (_) {}
     if (!context.mounted) return false;
     final confirm = await confirmFinanceTransactionDelete(
       context: context,
@@ -3264,15 +3281,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
     final type = (data['type'] ?? 'expense').toString();
     final amount = (data['amount'] ?? 0).toDouble();
     final category = (data['category'] ?? '').toString();
-    await deleteFinanceTransactionRecord(
-      uid: widget.uid,
-      docId: docId,
-      txData: data,
-      txCol: _txRef(),
-    );
+    final effectiveDate = FinanceLineOpening.effectiveDateTimeFromMap(data) ??
+        (data['date'] as Timestamp?)?.toDate();
+    // OTIMISTA: some da grid/preview IMEDIATAMENTE (antes do write) — pedido
+    // do usuário. Assim não depende do write terminar (que pode travar no web).
     if (mounted) {
-      final effectiveDate = FinanceLineOpening.effectiveDateTimeFromMap(data) ??
-          (data['date'] as Timestamp?)?.toDate();
       setState(() {
         _mainPeriodDocs.removeWhere((d) => d.id == docId);
       });
@@ -3280,6 +3293,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
         removedDocIds: [docId],
         transactionEffectiveDate: effectiveDate,
       ));
+    }
+    // Delete no servidor (o item já sumiu da UI). Se o write falhar por causa
+    // do SDK, a auto-recuperação recarrega e o item reaparece só se não gravou.
+    try {
+      await deleteFinanceTransactionRecord(
+        uid: widget.uid,
+        docId: docId,
+        txData: data,
+        txCol: _txRef(),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        FirestoreWebGuard.handleFatalWebErrorIfNeeded(e);
+      }
     }
     HapticFeedback.lightImpact();
     await LogsService().saveLog(
@@ -3323,24 +3350,29 @@ class _FinanceScreenState extends State<FinanceScreen> {
       batchMetaInfos: metaInfos.isEmpty ? null : metaInfos,
     );
     if (confirm != true || !context.mounted) return;
-    var deleted = 0;
-    for (final id in docIds) {
-      try {
-        final snap = await _txRef().doc(id).get();
-        await deleteFinanceTransactionRecord(
-          uid: widget.uid,
-          docId: id,
-          txData: snap.data() ?? {},
-          txCol: _txRef(),
-        );
-        deleted++;
-      } catch (_) {}
+    // Guarda os dados em memória (evita `.get()` por item, que trava no web).
+    final dataById = <String, Map<String, dynamic>>{};
+    for (final d in _mainPeriodDocs) {
+      if (docIds.contains(d.id)) dataById[d.id] = d.data();
     }
+    // OTIMISTA: some da grid IMEDIATAMENTE (antes dos writes).
     if (mounted) {
       setState(() {
         _mainPeriodDocs.removeWhere((d) => docIds.contains(d.id));
       });
       unawaited(_applyFinanceMutationSync(removedDocIds: docIds));
+    }
+    var deleted = 0;
+    for (final id in docIds) {
+      try {
+        await deleteFinanceTransactionRecord(
+          uid: widget.uid,
+          docId: id,
+          txData: dataById[id] ?? const {},
+          txCol: _txRef(),
+        );
+        deleted++;
+      } catch (_) {}
     }
     if (context.mounted) {
       HapticFeedback.lightImpact();
