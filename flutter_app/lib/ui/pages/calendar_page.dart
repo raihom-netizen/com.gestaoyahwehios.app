@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/church_cadastro_address_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -558,30 +559,6 @@ class _CalendarPageState extends State<CalendarPage>
   static String _colorToHex(Color c) => AgendaVisualPalette.colorToHex(c);
 
   static Color? _hexToColor(String? hex) => AgendaVisualPalette.hexToColor(hex);
-
-  /// Mesma regra que o formulário de eventos do feed (endereço em uma linha).
-  static String _churchAddressLineFromTenant(Map<String, dynamic> data) {
-    final endereco = (data['endereco'] ?? '').toString().trim();
-    if (endereco.isNotEmpty) return endereco;
-    final rua = (data['rua'] ?? data['address'] ?? '').toString().trim();
-    final bairro = (data['bairro'] ?? '').toString().trim();
-    final cidade =
-        (data['cidade'] ?? data['localidade'] ?? '').toString().trim();
-    final estado = (data['estado'] ?? data['uf'] ?? '').toString().trim();
-    final cep = (data['cep'] ?? '').toString().trim();
-    final parts = <String>[];
-    if (rua.isNotEmpty) parts.add(rua);
-    if (bairro.isNotEmpty) parts.add(bairro);
-    if (cidade.isNotEmpty && estado.isNotEmpty) {
-      parts.add('$cidade - $estado');
-    } else if (cidade.isNotEmpty) {
-      parts.add(cidade);
-    } else if (estado.isNotEmpty) {
-      parts.add(estado);
-    }
-    if (cep.isNotEmpty) parts.add('CEP $cep');
-    return parts.join(', ');
-  }
 
   static String _onlyDigitsAgenda(String s) =>
       s.replaceAll(RegExp(r'\D'), '');
@@ -5835,6 +5812,12 @@ class _CalendarPageState extends State<CalendarPage>
             ? (tpl['title'] ?? '').toString()
             : (ev?.title ?? ''));
     final descCtrl = TextEditingController(text: ev?.description ?? '');
+    final formScrollCtrl = ScrollController();
+    final showScrollTop = ValueNotifier<bool>(false);
+    formScrollCtrl.addListener(() {
+      final show = formScrollCtrl.hasClients && formScrollCtrl.offset > 240;
+      if (show != showScrollTop.value) showScrollTop.value = show;
+    });
     final locCtrl = TextEditingController(
         text: (tpl != null && existing == null)
             ? (tpl['location'] ?? '').toString()
@@ -5960,54 +5943,164 @@ class _CalendarPageState extends State<CalendarPage>
                   onPressed: () async {
                           Color pickColor = _agendaPaletteColors[0];
                           final nome = TextEditingController();
+                          final allColors = [
+                            ..._agendaPaletteColors,
+                            ..._agendaPaletteExtraColors,
+                          ];
+                          final colorScrollCtrl = ScrollController();
+                          final showColorScrollTop = ValueNotifier<bool>(false);
+                          colorScrollCtrl.addListener(() {
+                            final show = colorScrollCtrl.hasClients &&
+                                colorScrollCtrl.offset > 60;
+                            if (show != showColorScrollTop.value) {
+                              showColorScrollTop.value = show;
+                            }
+                          });
                           final ok = await showDialog<bool>(
                             context: ctx,
                             builder: (dctx) => StatefulBuilder(
                               builder: (context, setD) => AlertDialog(
                                 shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16)),
-                                title: const Text('Nova categoria'),
-                                content: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
+                                    borderRadius: BorderRadius.circular(20)),
+                                title: Row(
                                   children: [
-                                    TextField(
-                                      controller: nome,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Nome da categoria',
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: pickColor.withValues(alpha: 0.14),
+                                        borderRadius: BorderRadius.circular(10),
                                       ),
+                                      child: Icon(Icons.palette_rounded,
+                                          color: pickColor, size: 20),
                                     ),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      'Cor',
-                                      style: GoogleFonts.poppins(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Wrap(
-                                      spacing: 8,
-                                      runSpacing: 8,
-                                      children: [
-                                        for (final c in _agendaPaletteColors
-                                            .take(10))
-                                          InkWell(
-                                            onTap: () =>
-                                                setD(() => pickColor = c),
-                                            child: CircleAvatar(
-                                              backgroundColor: c,
-                                              radius: 18,
-                                              child: pickColor == c
-                                                  ? const Icon(Icons.check,
-                                                      color: Colors.white,
-                                                      size: 18)
-                                                  : null,
-                                            ),
-                                          ),
-                                      ],
-                                    ),
+                                    const SizedBox(width: 10),
+                                    const Text('Nova categoria'),
                                   ],
+                                ),
+                                content: SizedBox(
+                                  width: 340,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      TextField(
+                                        controller: nome,
+                                        decoration: InputDecoration(
+                                          labelText: 'Nome da categoria',
+                                          filled: true,
+                                          fillColor: const Color(0xFFF8FAFC),
+                                          border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            borderSide: BorderSide.none,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 14),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            'Cor (${allColors.length} opções)',
+                                            style: GoogleFonts.poppins(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                                color: Colors.grey.shade700),
+                                          ),
+                                          const Spacer(),
+                                          ValueListenableBuilder<bool>(
+                                            valueListenable: showColorScrollTop,
+                                            builder: (_, show, _) => show
+                                                ? TextButton.icon(
+                                                    onPressed: () =>
+                                                        colorScrollCtrl.animateTo(
+                                                      0,
+                                                      duration: const Duration(
+                                                          milliseconds: 280),
+                                                      curve: Curves.easeOutCubic,
+                                                    ),
+                                                    icon: const Icon(
+                                                        Icons.arrow_upward_rounded,
+                                                        size: 14),
+                                                    label: const Text(
+                                                      'Topo',
+                                                      style:
+                                                          TextStyle(fontSize: 11),
+                                                    ),
+                                                    style: TextButton.styleFrom(
+                                                      padding: EdgeInsets.zero,
+                                                      minimumSize: Size.zero,
+                                                      tapTargetSize:
+                                                          MaterialTapTargetSize
+                                                              .shrinkWrap,
+                                                    ),
+                                                  )
+                                                : const SizedBox.shrink(),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      SizedBox(
+                                        height: 168,
+                                        child: SingleChildScrollView(
+                                          controller: colorScrollCtrl,
+                                          child: Wrap(
+                                            spacing: 10,
+                                            runSpacing: 10,
+                                            children: [
+                                              for (final c in allColors)
+                                                InkWell(
+                                                  borderRadius:
+                                                      BorderRadius.circular(20),
+                                                  onTap: () =>
+                                                      setD(() => pickColor = c),
+                                                  child: AnimatedContainer(
+                                                    duration: const Duration(
+                                                        milliseconds: 150),
+                                                    width:
+                                                        pickColor == c ? 40 : 34,
+                                                    height:
+                                                        pickColor == c ? 40 : 34,
+                                                    decoration: BoxDecoration(
+                                                      color: c,
+                                                      shape: BoxShape.circle,
+                                                      border: pickColor == c
+                                                          ? Border.all(
+                                                              color: Colors.black
+                                                                  .withValues(
+                                                                      alpha: 0.18),
+                                                              width: 2,
+                                                            )
+                                                          : null,
+                                                      boxShadow: pickColor == c
+                                                          ? [
+                                                              BoxShadow(
+                                                                color: c
+                                                                    .withValues(
+                                                                        alpha:
+                                                                            0.5),
+                                                                blurRadius: 8,
+                                                                offset:
+                                                                    const Offset(
+                                                                        0, 3),
+                                                              ),
+                                                            ]
+                                                          : null,
+                                                    ),
+                                                    alignment: Alignment.center,
+                                                    child: pickColor == c
+                                                        ? const Icon(Icons.check,
+                                                            color: Colors.white,
+                                                            size: 18)
+                                                        : null,
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                                 actions: [
                                   TextButton(
@@ -6017,6 +6110,9 @@ class _CalendarPageState extends State<CalendarPage>
                                   FilledButton(
                                       onPressed: () =>
                                           Navigator.pop(dctx, true),
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: pickColor,
+                                      ),
                                       child: const Text('Salvar')),
                                 ],
                               ),
@@ -6222,11 +6318,14 @@ class _CalendarPageState extends State<CalendarPage>
                           OutlinedButton.icon(
                             onPressed: () async {
                               try {
-                                final op = ChurchRepository.churchId(widget.tenantId.trim());
-                                final snap = await                                     ChurchUiCollections.churchDoc(op)
-                                    .get();
-                                final line = _churchAddressLineFromTenant(
-                                    snap.data() ?? {});
+                                // Mesmo serviço resiliente (cache-first + retry web)
+                                // já usado em Avisos/Eventos — o `.get()` cru antigo
+                                // podia voltar snapshot vazio no Web sem avisar.
+                                final result =
+                                    await ChurchCadastroAddressService.load(
+                                  seedTenantId: widget.tenantId,
+                                );
+                                final line = result.formattedLine;
                                 if (line.isEmpty) {
                                   if (ctx.mounted) {
                                     ScaffoldMessenger.of(ctx).showSnackBar(
@@ -6614,9 +6713,29 @@ class _CalendarPageState extends State<CalendarPage>
                 ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceLg),
-              ValueListenableBuilder<bool>(
-                valueListenable: saving,
-                builder: (_, isSaving, _) => FilledButton.icon(
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.pop(ctx),
+                      icon: const Icon(Icons.close_rounded),
+                      label: const Text('Cancelar'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 2,
+                    child: ValueListenableBuilder<bool>(
+                      valueListenable: saving,
+                      builder: (_, isSaving, _) => FilledButton.icon(
                   onPressed: isSaving
                       ? null
                       : () async {
@@ -6931,13 +7050,38 @@ class _CalendarPageState extends State<CalendarPage>
                   ),
                 ),
               ),
-                    ],
                   ),
-                ),
+                ],
               ),
             ],
           ),
         ),
+      );
+    }
+
+    Widget addEventFormWithScrollTop(BuildContext ctx) {
+      return Stack(
+        children: [
+          addEventForm(ctx),
+          ValueListenableBuilder<bool>(
+            valueListenable: showScrollTop,
+            builder: (_, show, _) => show
+                ? Positioned(
+                    right: 8,
+                    bottom: 92,
+                    child: FloatingActionButton.small(
+                      heroTag: 'agendaFormScrollTop',
+                      onPressed: () => formScrollCtrl.animateTo(
+                        0,
+                        duration: const Duration(milliseconds: 320),
+                        curve: Curves.easeOutCubic,
+                      ),
+                      child: const Icon(Icons.arrow_upward_rounded),
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
       );
     }
 
@@ -6952,7 +7096,7 @@ class _CalendarPageState extends State<CalendarPage>
             borderRadius: BorderRadius.circular(24),
           ),
           clipBehavior: Clip.antiAlias,
-          child: addEventForm(ctx),
+          child: addEventFormWithScrollTop(ctx),
         ),
       );
     } else {
@@ -6965,7 +7109,7 @@ class _CalendarPageState extends State<CalendarPage>
           borderRadius: BorderRadius.vertical(
               top: Radius.circular(ThemeCleanPremium.radiusXl)),
         ),
-        builder: addEventForm,
+        builder: addEventFormWithScrollTop,
       );
     }
     if (!mounted) return;

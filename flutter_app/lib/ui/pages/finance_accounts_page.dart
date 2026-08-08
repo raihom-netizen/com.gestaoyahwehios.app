@@ -169,7 +169,7 @@ class FinanceAccountsScreen extends StatelessWidget {
       ),
       floatingActionButton: profile.hasActiveLicense
           ? FloatingActionButton.extended(
-              onPressed: () => _AccountEditorSheet.open(context, uid: uid, account: null),
+              onPressed: () => _AccountEditorSheet.open(context, uid: uid, account: null, role: profile.role),
               icon: Icon(Icons.add_rounded),
               label: Text('Adicionar'),
               backgroundColor: AppColors.primary,
@@ -190,20 +190,22 @@ class FinanceAccountsScreen extends StatelessWidget {
 /// inferior. Mantido o nome da classe (`_AccountEditorSheet`) para não tocar
 /// nos call-sites; o que mudou foi apenas o transport (sheet → page).
 class _AccountEditorSheet extends StatefulWidget {
-  const _AccountEditorSheet({required this.uid, this.account});
+  const _AccountEditorSheet({required this.uid, this.account, this.role = ''});
 
   final String uid;
   final FinanceAccount? account;
+  final String role;
 
   static Future<void> open(
     BuildContext context, {
     required String uid,
     FinanceAccount? account,
+    String role = '',
   }) {
     return Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
-        builder: (_) => _AccountEditorSheet(uid: uid, account: account),
+        builder: (_) => _AccountEditorSheet(uid: uid, account: account, role: role),
       ),
     );
   }
@@ -456,6 +458,11 @@ class _AccountEditorSheetState extends State<_AccountEditorSheet> {
             _sectionTitle('Instituição'),
             SizedBox(height: 6),
             _buildBankSelectorButton(ctx),
+            if (_selected?.id == 'mercadopago' &&
+                AppPermissions.canViewChurchMercadoPagoSettings(widget.role)) ...[
+              SizedBox(height: 10),
+              _buildMercadoPagoIntegrationCta(ctx),
+            ],
             SizedBox(height: 16),
             _buildCardColorSection(),
             SizedBox(height: 16),
@@ -756,6 +763,61 @@ class _AccountEditorSheetState extends State<_AccountEditorSheet> {
 
   /// Botão grande que mostra o banco atual e abre a tela full-screen
   /// de seleção (com pesquisa). Funciona igual em iOS, Android e Web.
+  /// Chamada de atenção para configurar client_id/client_secret/access_token do
+  /// Mercado Pago da igreja — antes só existia na listagem de contas, escondida
+  /// pra quem entra direto em "Editar conta" (relatado pelo usuário).
+  Widget _buildMercadoPagoIntegrationCta(BuildContext ctx) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => MercadoPagoIntegrationPage.open(
+          ctx,
+          tenantId: widget.uid,
+          role: widget.role,
+        ),
+        child: Ink(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFF009EE3).withValues(alpha: 0.12),
+                const Color(0xFF0568D4).withValues(alpha: 0.08),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF009EE3).withValues(alpha: 0.3)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Icon(Icons.settings_input_component_rounded, color: const Color(0xFF0568D4)),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Configurar integração Mercado Pago',
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Client ID, Client Secret e Access Token da conta Mercado Pago da igreja.',
+                        style: TextStyle(fontSize: 12.5, height: 1.3, color: context.appTextSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: const Color(0xFF0568D4)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildBankSelectorButton(BuildContext ctx) {
     final p = _selected;
     final hasSelection = p != null;

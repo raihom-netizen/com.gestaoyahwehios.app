@@ -166,6 +166,10 @@ class ThemeCleanPremium {
             fontSize: 15,
             letterSpacing: 0.2,
           ),
+          // Padrão Material3 (12%/38% opacidade) fica ilegível em cima de fundos
+          // com gradiente — botão "desativado" (ex.: aguardando seleção) some de vista.
+          disabledBackgroundColor: primary.withValues(alpha: 0.22),
+          disabledForegroundColor: const Color(0xFF334155),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
@@ -180,6 +184,8 @@ class ThemeCleanPremium {
             fontSize: 15,
             letterSpacing: 0.2,
           ),
+          disabledBackgroundColor: primary.withValues(alpha: 0.22),
+          disabledForegroundColor: const Color(0xFF334155),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(

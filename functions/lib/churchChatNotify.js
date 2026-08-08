@@ -225,6 +225,42 @@ function shortPersonName(full) {
         return parts[0] || "";
     return `${parts[0]} ${parts[parts.length - 1]}`;
 }
+/**
+ * Nome do remetente para o push — `thread.titlesByUid` é preenchido só na criação
+ * do DM (nunca em grupos/departamento, e pode ficar desatualizado se o usuário
+ * mudar de nome depois). Por isso resolve direto de fontes sempre atuais, na
+ * ordem: perfil denormalizado do chat (`chat_peer_profiles`, atualizado a cada
+ * escrita em `membros`) → `users/{uid}` (cobre gestor/staff sem doc de membro) →
+ * `titlesByUid` (legado) → "Alguém" (nunca deixa o push sem remetente).
+ */
+async function resolveSenderDisplayName(tenantId, senderUid, titlesByUid) {
+    try {
+        const peerSnap = await db
+            .collection("igrejas")
+            .doc(tenantId)
+            .collection("chat_peer_profiles")
+            .doc(senderUid)
+            .get();
+        const peerName = String((peerSnap.data() || {}).displayName || "").trim();
+        if (peerName)
+            return shortPersonName(peerName);
+    }
+    catch (_) {
+        // continuar para o próximo fallback
+    }
+    try {
+        const userSnap = await db.collection("users").doc(senderUid).get();
+        const ud = userSnap.data() || {};
+        const userName = String(ud.displayName || ud.nome || "").trim();
+        if (userName)
+            return shortPersonName(userName);
+    }
+    catch (_) {
+        // continuar para o próximo fallback
+    }
+    const legacy = shortPersonName(String(titlesByUid[senderUid] || "").trim());
+    return legacy || "Alguém";
+}
 function previewFromMessage(msg) {
     const mtype = String(msg.type || "text");
     if (mtype === "text")
@@ -266,7 +302,7 @@ exports.onChurchChatMessageCreated = functions
     if (!recipients.length)
         return null;
     const titlesByUid = (thread.titlesByUid || {});
-    const senderName = shortPersonName(String(titlesByUid[senderUid] || "").trim()) || "Alguém";
+    const senderName = await resolveSenderDisplayName(tenantId, senderUid, titlesByUid);
     const mentionedSet = new Set(parseStringArray(msg.mentionedUids));
     const userChatState = await loadUsersChatPushState(recipients);
     const candidates = recipients.filter((u) => userChatState.get(u)?.enabled !== false);

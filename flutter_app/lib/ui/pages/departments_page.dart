@@ -101,6 +101,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   int _deptListTab = 0;
   bool _deptListTabAutoSet = false;
 
+  /// Keys de preset em criação (spinner por linha na lista de sugestões).
+  final Set<String> _creatingPresetKeys = {};
+
   /// Membros por id do documento do departamento (pré-visualização na lista).
   Map<String, List<ChurchDepartmentMemberRow>> _membersByDeptId = const {};
 
@@ -831,6 +834,42 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         ),
       );
     }
+    await _startDeptLoad(forceServer: true);
+  }
+
+  /// Cria só este preset (botão "Criar" de uma linha da lista de sugestões).
+  Future<void> _createSinglePreset(String key, String label) async {
+    if (!_canWrite || _creatingPresetKeys.contains(key)) return;
+    setState(() => _creatingPresetKeys.add(key));
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken();
+    } catch (_) {}
+    Object? error;
+    var created = false;
+    try {
+      created = await ChurchDepartmentsBootstrap.ensurePresetDocumentByKey(
+        _col,
+        key,
+        onError: (e) => error = e,
+      );
+    } catch (e) {
+      error = e;
+    }
+    if (!mounted) return;
+    setState(() => _creatingPresetKeys.remove(key));
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.errorSnackBarWithRetry(
+          'Não foi possível criar "$label": $error',
+        ),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.successSnackBar(
+        created ? '"$label" criado.' : '"$label" já existia.',
+      ),
+    );
     await _startDeptLoad(forceServer: true);
   }
 
@@ -1967,6 +2006,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     required EdgeInsets padding,
     required EdgeInsets listPad,
     required bool wide,
+    Set<String> existingDeptIds = const {},
   }) {
     final presets = ChurchDepartmentsBootstrap.presetsSorted;
     if (presets.isEmpty) return const <Widget>[];
@@ -2044,30 +2084,32 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
           ),
         ),
       ),
-      // Grade compacta sempre — a lista de 1 card tall por linha ocupava a
-      // tela inteira com só 2 sugestões visíveis; ícone + nome já bastam
-      // aqui (a explicação completa já está no card acima).
+      // Lista de linhas modernas (não mais quadros/grid) — cada linha com
+      // ícone, nome e um botão de ação individual ("Criar" ou "Ver membros").
       SliverPadding(
         padding: listPad.copyWith(top: 0),
-        sliver: SliverGrid(
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: wide ? 3 : 2,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: wide ? 1.35 : 1.02,
-          ),
-          delegate: SliverChildBuilderDelegate(
-            (context, i) => _buildPresetSuggestionCard(presets[i]),
-            childCount: presets.length,
-          ),
+        sliver: SliverList.separated(
+          itemCount: presets.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
+          itemBuilder: (context, i) {
+            final preset = presets[i];
+            final key = (preset['key'] ?? '').toString();
+            return _buildPresetSuggestionRow(
+              preset,
+              alreadyCreated: existingDeptIds.contains(key),
+            );
+          },
         ),
       ),
     ];
   }
 
-  /// Card compacto — ícone + nome, toque abre "Ver membros" direto (a
-  /// explicação completa e o botão de gravar em lote já ficam no card acima).
-  Widget _buildPresetSuggestionCard(Map<String, dynamic> preset) {
+  /// Linha moderna — ícone + nome + badge, com botão de ação individual
+  /// ("Criar" se ainda não existe no Firestore, "Ver membros" se já existe).
+  Widget _buildPresetSuggestionRow(
+    Map<String, dynamic> preset, {
+    required bool alreadyCreated,
+  }) {
     final key = (preset['key'] ?? '').toString();
     final name = (preset['label'] ?? '').toString().trim();
     final iconKey = (preset['iconKey'] ?? preset['key'] ?? 'pastoral')
@@ -2081,97 +2123,109 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       c1 = _opaqueArgb32(th['c1'] as int);
       c2 = _opaqueArgb32(th['c2'] as int);
     }
+    final creating = _creatingPresetKeys.contains(key);
     return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(16),
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         onTap: () => _verMembrosDoDepartamento(
           context: context,
           deptId: key,
           deptName: name,
         ),
-        child: Ink(
+        child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: Color(c1).withValues(alpha: 0.5),
-              width: 1.1,
-            ),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
             boxShadow: _deptCardShadow,
-            gradient: LinearGradient(
-              colors: [
-                Color(c1).withValues(alpha: 0.88),
-                Color(c2).withValues(alpha: 0.88),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
           ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+          child: Row(
+            children: [
+              _iconChip(iconKey, radius: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    _iconChip(iconKey, radius: 16),
-                    const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14.5,
+                        color: Color(0xFF0F172A),
+                        letterSpacing: -0.2,
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.32),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Text(
-                        'Sugestão',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w700,
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Icon(
+                          alreadyCreated
+                              ? Icons.check_circle_rounded
+                              : Icons.auto_awesome_rounded,
+                          size: 12,
+                          color: alreadyCreated
+                              ? const Color(0xFF16A34A)
+                              : const Color(0xFF94A3B8),
                         ),
-                      ),
+                        const SizedBox(width: 4),
+                        Text(
+                          alreadyCreated ? 'Já cadastrado' : 'Sugestão',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: alreadyCreated
+                                ? const Color(0xFF16A34A)
+                                : const Color(0xFF94A3B8),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-                const Spacer(),
-                Text(
-                  name,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13.5,
-                    color: Colors.white,
-                    letterSpacing: -0.2,
-                    height: 1.15,
+              ),
+              const SizedBox(width: 8),
+              if (alreadyCreated)
+                OutlinedButton.icon(
+                  onPressed: () => _verMembrosDoDepartamento(
+                    context: context,
+                    deptId: key,
+                    deptName: name,
+                  ),
+                  icon: const Icon(Icons.groups_rounded, size: 16),
+                  label: const Text('Ver'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                )
+              else if (_canWrite)
+                FilledButton.icon(
+                  onPressed: creating ? null : () => _createSinglePreset(key, name),
+                  icon: creating
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.add_rounded, size: 16),
+                  label: Text(creating ? 'Criando...' : 'Criar'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Color(c1),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    visualDensity: VisualDensity.compact,
                   ),
                 ),
-                const SizedBox(height: 3),
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.groups_rounded,
-                      size: 13,
-                      color: Colors.white70,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Ver membros',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.85),
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            ],
           ),
         ),
       ),
@@ -3423,6 +3477,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
           padding: padding,
           listPad: listPad,
           wide: wide,
+          existingDeptIds: (_hydratedDeptDocs ?? const [])
+              .map((d) => d.id)
+              .toSet(),
         ),
       ],
     );

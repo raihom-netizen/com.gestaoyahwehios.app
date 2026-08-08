@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
+import 'package:gestao_yahweh/core/noticia_share_utils.dart'
+    show warmNoticiaShareMediaBundle;
 import 'package:gestao_yahweh/core/event_gallery_archive.dart'
     show eventArchiveBaseDate;
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -595,6 +597,19 @@ class _SocialGridTile extends StatefulWidget {
 class _SocialGridTileState extends State<_SocialGridTile> {
   bool _hover = false;
   int _galleryPage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pré-aquece foto/vídeo assim que o card aparece no mural público — o
+    // toque em "Compartilhar" lê do cache em vez de baixar mídia na hora.
+    warmNoticiaShareMediaBundle(
+      widget.post,
+      tenantId: widget.igrejaId,
+      postId: widget.postId,
+      collection: (widget.post['type'] ?? 'eventos').toString(),
+    );
+  }
 
   Future<void> _copyLink(BuildContext context) async {
     final url = AppConstants.shareNoticiaSocialPreviewUrl(

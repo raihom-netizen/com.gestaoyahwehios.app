@@ -1061,6 +1061,54 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
     );
   }
 
+  /// Emoji tocado no seletor "Expressar" — envia na hora como mensagem própria,
+  /// sem tocar no que já estiver digitado (ou em rascunho de resposta) na caixa.
+  Future<void> _sendEmojiImmediately(String emoji) async {
+    final t = emoji.trim();
+    if (t.isEmpty) return;
+    final localId = 't_${DateTime.now().millisecondsSinceEpoch}';
+    final pending = ChurchChatOutboundPending(
+      localId: localId,
+      kind: 'text',
+      fileName: '',
+      mime: 'text/plain',
+      textBody: t,
+    );
+    _enqueuePending(pending);
+    _setPendingProgress(localId, 0.12);
+    unawaited(
+      ChurchChatFastSendService.sendText(
+        tenantId: _tid,
+        threadId: widget.threadId,
+        text: t,
+        senderDisplayName:
+            ChatThreadOperations.senderDisplayNameForNewMessage(),
+        onComplete: (ok, {messageId}) {
+          _finalizePendingTextSend(
+            localId: localId,
+            ok: ok,
+            messageId: messageId,
+          );
+        },
+        onError: (msg) {
+          if (!mounted) return;
+          final i = _pendingOutbound.indexWhere((p) => p.localId == localId);
+          if (i >= 0) {
+            _pendingOutbound[i].failed = true;
+            _pendingOutbound[i].errorMessage = msg;
+            setState(() {});
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(msg),
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _retryPendingText(ChurchChatOutboundPending p) {
     final t = (p.textBody ?? '').trim();
     if (t.isEmpty) return;
@@ -1103,6 +1151,9 @@ class _ChurchChatThreadPageState extends State<ChurchChatThreadPage>
       initialTabIndex: 0,
       onStickerChosen: (pick) async {
         await _sendStickerPick(pick);
+      },
+      onEmojiChosen: (emoji) async {
+        await _sendEmojiImmediately(emoji);
       },
     );
   }

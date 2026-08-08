@@ -133,15 +133,13 @@ abstract final class TenantOfflineWrite {
     }
 
     await runFirestorePublishWithRecovery<void>(() async {
-      if (effectiveMerge) {
-        await _setWithLocalTimeout(
-          ref,
-          payload,
-          merge: true,
-        );
-      } else {
-        await _setWithLocalTimeout(ref, payload, merge: false);
-      }
+      await _setWithLocalTimeout(
+        ref,
+        payload,
+        merge: effectiveMerge,
+        module: mod,
+        tenantId: tid,
+      );
     });
     SyncService.notifyUserActionSaved();
     unawaited(
@@ -157,10 +155,33 @@ abstract final class TenantOfflineWrite {
   /// Padrão CT: timeout curto → fila local do Firestore (UI não espera rede).
   static const Duration _kLocalWait = Duration(milliseconds: 2200);
 
+  /// Se a tentativa em background também falhar, enfileira no Hive (mesma fila do modo
+  /// offline) em vez de descartar o dado — sem isso, uma falha depois do timeout de
+  /// [_kLocalWait] (rede instável, sessão web) era invisível: a UI já tinha dado como
+  /// salvo e o documento nunca chegava ao Firestore (ex.: visitante "sumindo" após reload).
+  static Future<void> _queueAfterBackgroundFailure({
+    required String module,
+    required String tenantId,
+    required String path,
+    required String operation,
+    required Map<String, dynamic> payload,
+  }) async {
+    try {
+      await _enqueue(
+        module: module,
+        tenantId: tenantId,
+        operation: operation,
+        payload: payload,
+      );
+    } catch (_) {}
+  }
+
   static Future<void> _setWithLocalTimeout(
     DocumentReference<Map<String, dynamic>> ref,
     Map<String, dynamic> data, {
     required bool merge,
+    required String module,
+    required String tenantId,
   }) async {
     Future<void> write() async {
       if (merge) {
@@ -170,37 +191,90 @@ abstract final class TenantOfflineWrite {
       }
     }
 
+    Future<void> retryThenQueue() async {
+      try {
+        await write();
+      } catch (_) {
+        await _queueAfterBackgroundFailure(
+          module: module,
+          tenantId: tenantId,
+          path: ref.path,
+          operation: OfflineWriteOperations.set,
+          payload: {
+            'path': ref.path,
+            'data': OfflinePayloadCodec.encodeMap(data),
+            'merge': merge,
+          },
+        );
+      }
+    }
+
     try {
       await write().timeout(_kLocalWait);
     } on TimeoutException {
-      unawaited(write());
+      unawaited(retryThenQueue());
     } catch (_) {
-      unawaited(write());
+      unawaited(retryThenQueue());
     }
   }
 
   static Future<void> _updateWithLocalTimeout(
     DocumentReference<Map<String, dynamic>> ref,
-    Map<String, dynamic> data,
-  ) async {
+    Map<String, dynamic> data, {
+    required String module,
+    required String tenantId,
+  }) async {
+    Future<void> retryThenQueue() async {
+      try {
+        await ref.update(data);
+      } catch (_) {
+        await _queueAfterBackgroundFailure(
+          module: module,
+          tenantId: tenantId,
+          path: ref.path,
+          operation: OfflineWriteOperations.update,
+          payload: {
+            'path': ref.path,
+            'data': OfflinePayloadCodec.encodeMap(data),
+          },
+        );
+      }
+    }
+
     try {
       await ref.update(data).timeout(_kLocalWait);
     } on TimeoutException {
-      unawaited(ref.update(data));
+      unawaited(retryThenQueue());
     } catch (_) {
-      unawaited(ref.update(data));
+      unawaited(retryThenQueue());
     }
   }
 
   static Future<void> _deleteWithLocalTimeout(
-    DocumentReference<Map<String, dynamic>> ref,
-  ) async {
+    DocumentReference<Map<String, dynamic>> ref, {
+    required String module,
+    required String tenantId,
+  }) async {
+    Future<void> retryThenQueue() async {
+      try {
+        await ref.delete();
+      } catch (_) {
+        await _queueAfterBackgroundFailure(
+          module: module,
+          tenantId: tenantId,
+          path: ref.path,
+          operation: OfflineWriteOperations.delete,
+          payload: {'path': ref.path},
+        );
+      }
+    }
+
     try {
       await ref.delete().timeout(_kLocalWait);
     } on TimeoutException {
-      unawaited(ref.delete());
+      unawaited(retryThenQueue());
     } catch (_) {
-      unawaited(ref.delete());
+      unawaited(retryThenQueue());
     }
   }
 
@@ -252,7 +326,7 @@ abstract final class TenantOfflineWrite {
     }
 
     await runFirestorePublishWithRecovery<void>(
-      () => _updateWithLocalTimeout(ref, payload),
+      () => _updateWithLocalTimeout(ref, payload, module: mod, tenantId: tid),
     );
     SyncService.notifyUserActionSaved();
     unawaited(
@@ -304,7 +378,7 @@ abstract final class TenantOfflineWrite {
     }
 
     await runFirestorePublishWithRecovery<void>(
-      () => _deleteWithLocalTimeout(ref),
+      () => _deleteWithLocalTimeout(ref, module: mod, tenantId: tid),
     );
     unawaited(
       TenantAuditService.logDelete(

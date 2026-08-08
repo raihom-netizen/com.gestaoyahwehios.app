@@ -103,6 +103,87 @@ String _kpiDrillTitle(_VisitorKpiDrill d) {
   }
 }
 
+// ─── Gráfico "Relatório & evolução" — granularidade + drill-down ──────────
+
+/// Granularidade do gráfico de evolução no fim da tela de Visitantes.
+enum _VisitorsChartPeriodMode { semana, mes, ano, periodo }
+
+/// As 3 séries clicáveis do gráfico.
+enum _VisitorChartSeries { visitantes, convertidos, acompanhados }
+
+extension on _VisitorChartSeries {
+  String get label => switch (this) {
+        _VisitorChartSeries.visitantes => 'Visitantes',
+        _VisitorChartSeries.convertidos => 'Convertidos',
+        _VisitorChartSeries.acompanhados => 'Acompanhados',
+      };
+
+  Color get color => switch (this) {
+        _VisitorChartSeries.visitantes => const Color(0xFF3B82F6),
+        _VisitorChartSeries.convertidos => const Color(0xFF16A34A),
+        _VisitorChartSeries.acompanhados => const Color(0xFFF59E0B),
+      };
+}
+
+/// Um intervalo de tempo (bucket) do gráfico — ex.: um mês, uma semana, um ano.
+class _ChartBucket {
+  final String label;
+  final DateTime start;
+
+  /// Fim exclusivo — filtragem usa `[start, endExclusive)`.
+  final DateTime endExclusive;
+
+  const _ChartBucket({
+    required this.label,
+    required this.start,
+    required this.endExclusive,
+  });
+}
+
+/// Filtro ativo ao tocar numa barra do gráfico (série + intervalo exato daquela barra).
+class _ChartDrillFilter {
+  final _VisitorChartSeries series;
+  final DateTime start;
+  final DateTime endExclusive;
+  final String label;
+
+  const _ChartDrillFilter({
+    required this.series,
+    required this.start,
+    required this.endExclusive,
+    required this.label,
+  });
+}
+
+bool _visitorMatchesChartDrill(_VisitorData v, _ChartDrillFilter f) {
+  bool inRange(DateTime? d) =>
+      d != null && !d.isBefore(f.start) && d.isBefore(f.endExclusive);
+  switch (f.series) {
+    case _VisitorChartSeries.visitantes:
+      return inRange(v.createdAt);
+    case _VisitorChartSeries.convertidos:
+      return v.status == 'Convertido' && inRange(v.convertedAt);
+    case _VisitorChartSeries.acompanhados:
+      return v.status == 'Em acompanhamento' && inRange(v.createdAt);
+  }
+}
+
+bool _visitorMatchesSeriesInBucket(
+  _VisitorData v,
+  _VisitorChartSeries series,
+  _ChartBucket b,
+) {
+  return _visitorMatchesChartDrill(
+    v,
+    _ChartDrillFilter(
+      series: series,
+      start: b.start,
+      endExclusive: b.endExclusive,
+      label: '',
+    ),
+  );
+}
+
 /// Período do relatório PDF de visitantes.
 enum _VisitantesPdfPeriod { dia, mes, ano }
 
@@ -333,10 +414,26 @@ class _VisitorsPageState extends State<VisitorsPage> {
   /// Painel: lista filtrada ao tocar em Este mês / Novos / Acompanhamento / Convertidos.
   _VisitorKpiDrill _kpiDrill = _VisitorKpiDrill.none;
 
-  /// Relatório: ano civil + mês opcional para totais e gráfico.
+  /// Lista filtrada ao tocar numa barra do gráfico "Relatório & evolução".
+  _ChartDrillFilter? _chartDrill;
+
+  /// Relatório: ano civil (modo Mês) + granularidade + intervalo custom (modo Período).
   int _reportYear = DateTime.now().year;
-  int? _reportMonth;
   bool _reportExpanded = false;
+  _VisitorsChartPeriodMode _reportPeriodMode = _VisitorsChartPeriodMode.mes;
+  DateTimeRange? _reportCustomRange;
+
+  /// Alguma seção de drill-down (card ou gráfico) ocupando a tela em vez do painel normal.
+  bool get _showingDrillDown => _kpiDrill != _VisitorKpiDrill.none || _chartDrill != null;
+
+  void _closeDrillDown() {
+    setState(() {
+      _kpiDrill = _VisitorKpiDrill.none;
+      _chartDrill = null;
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
 
   /// Seleção múltipla — excluir individual, selecionados ou todos.
   bool _selectionMode = false;
@@ -824,7 +921,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
                           ),
                           const SizedBox(height: ThemeCleanPremium.spaceMd),
                         ],
-                        if (_kpiDrill == _VisitorKpiDrill.none) ...[
+                        if (!_showingDrillDown) ...[
                           _VisitorsHeroHeader(
                             totalCount: allVisitors.length,
                             novosHoje: allVisitors.where((v) {
@@ -885,13 +982,11 @@ class _VisitorsPageState extends State<VisitorsPage> {
                           const SizedBox(height: ThemeCleanPremium.spaceSm),
                         ] else ...[
                           _KpiDrillHeader(
-                            drill: _kpiDrill,
+                            title: _chartDrill != null
+                                ? _chartDrill!.label
+                                : _kpiDrillTitle(_kpiDrill),
                             count: filtered.length,
-                            onClose: () => setState(() {
-                              _kpiDrill = _VisitorKpiDrill.none;
-                              _selectionMode = false;
-                              _selectedIds.clear();
-                            }),
+                            onClose: _closeDrillDown,
                             onSelectAll: _canManage
                                 ? () {
                                     setState(() => _selectionMode = true);
@@ -972,7 +1067,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
                         }, childCount: filtered.length),
                       ),
                     ),
-                  if (_kpiDrill == _VisitorKpiDrill.none)
+                  if (!_showingDrillDown)
                     SliverPadding(
                       padding: ThemeCleanPremium.pagePadding(context),
                       sliver: SliverList(
@@ -981,7 +1076,8 @@ class _VisitorsPageState extends State<VisitorsPage> {
                           _VisitorsReportPanel(
                             visitors: allVisitors,
                             year: _reportYear,
-                            month: _reportMonth,
+                            periodMode: _reportPeriodMode,
+                            customRange: _reportCustomRange,
                             expanded: _reportExpanded,
                             onToggleExpanded: () => setState(
                               () => _reportExpanded = !_reportExpanded,
@@ -989,8 +1085,16 @@ class _VisitorsPageState extends State<VisitorsPage> {
                             onYearChanged: (y) => setState(() {
                               _reportYear = y;
                             }),
-                            onMonthChanged: (m) =>
-                                setState(() => _reportMonth = m),
+                            onPeriodModeChanged: (m) =>
+                                setState(() => _reportPeriodMode = m),
+                            onCustomRangeChanged: (r) =>
+                                setState(() => _reportCustomRange = r),
+                            onDrillRequested: (f) => setState(() {
+                              _chartDrill = f;
+                              _kpiDrill = _VisitorKpiDrill.none;
+                              _selectionMode = false;
+                              _selectedIds.clear();
+                            }),
                           ),
                           const SizedBox(height: 80),
                         ]),
@@ -1587,10 +1691,16 @@ class _VisitorsPageState extends State<VisitorsPage> {
 
   /// Lista principal: com filtro KPI (cartões) ignora aba Dia/Histórico — alinhado aos totais.
   List<_VisitorData> _filteredVisitors(List<_VisitorData> all) {
-    if (_kpiDrill != _VisitorKpiDrill.none) {
-      var result = all
-          .where((v) => _visitorMatchesKpiDrill(v, _kpiDrill))
-          .toList();
+    List<_VisitorData>? drillResult;
+    if (_chartDrill != null) {
+      drillResult =
+          all.where((v) => _visitorMatchesChartDrill(v, _chartDrill!)).toList();
+    } else if (_kpiDrill != _VisitorKpiDrill.none) {
+      drillResult =
+          all.where((v) => _visitorMatchesKpiDrill(v, _kpiDrill)).toList();
+    }
+    if (drillResult != null) {
+      var result = drillResult;
       if (_searchNome.isNotEmpty) {
         result = result.where((v) {
           final name = (v.data['nome'] ?? '').toString().toLowerCase();
@@ -1752,6 +1862,11 @@ class _VisitorData {
   DateTime? get createdAt =>
       ChurchVisitantesLoadService.parseVisitorInstant(data['createdAt']) ??
       ChurchVisitantesLoadService.parseVisitorInstant(data['updatedAt']);
+
+  /// Data da conversão — docs antigos sem `convertedAt` caem no `createdAt`.
+  DateTime? get convertedAt =>
+      ChurchVisitantesLoadService.parseVisitorInstant(data['convertedAt']) ??
+      createdAt;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -2429,14 +2544,14 @@ class _SummaryCardData {
 
 /// Cabeçalho do filtro ao tocar num cartão KPI — Retornar + seleção em massa.
 class _KpiDrillHeader extends StatelessWidget {
-  final _VisitorKpiDrill drill;
+  final String title;
   final int count;
   final VoidCallback onClose;
   final VoidCallback? onSelectAll;
   final VoidCallback? onEnterSelection;
 
   const _KpiDrillHeader({
-    required this.drill,
+    required this.title,
     required this.count,
     required this.onClose,
     this.onSelectAll,
@@ -2490,7 +2605,7 @@ class _KpiDrillHeader extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _kpiDrillTitle(drill),
+                      title,
                       style: const TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w900,
@@ -2574,43 +2689,157 @@ class _KpiDrillHeader extends StatelessWidget {
 class _VisitorsReportPanel extends StatelessWidget {
   final List<_VisitorData> visitors;
   final int year;
-  final int? month;
+  final _VisitorsChartPeriodMode periodMode;
+  final DateTimeRange? customRange;
   final bool expanded;
   final VoidCallback onToggleExpanded;
   final ValueChanged<int> onYearChanged;
-  final ValueChanged<int?> onMonthChanged;
+  final ValueChanged<_VisitorsChartPeriodMode> onPeriodModeChanged;
+  final ValueChanged<DateTimeRange?> onCustomRangeChanged;
+  final ValueChanged<_ChartDrillFilter> onDrillRequested;
 
   const _VisitorsReportPanel({
     required this.visitors,
     required this.year,
-    required this.month,
+    required this.periodMode,
+    required this.customRange,
     required this.expanded,
     required this.onToggleExpanded,
     required this.onYearChanged,
-    required this.onMonthChanged,
+    required this.onPeriodModeChanged,
+    required this.onCustomRangeChanged,
+    required this.onDrillRequested,
   });
+
+  static const _meses = [
+    'J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D', //
+  ];
+
+  List<_ChartBucket> _buildBuckets() {
+    final now = DateTime.now();
+    switch (periodMode) {
+      case _VisitorsChartPeriodMode.mes:
+        return List.generate(12, (i) {
+          return _ChartBucket(
+            label: _meses[i],
+            start: DateTime(year, i + 1, 1),
+            endExclusive: DateTime(year, i + 2, 1),
+          );
+        });
+      case _VisitorsChartPeriodMode.semana:
+        final todayMidnight = DateTime(now.year, now.month, now.day);
+        final startOfThisWeek =
+            todayMidnight.subtract(Duration(days: now.weekday % 7));
+        return List.generate(8, (i) {
+          final start =
+              startOfThisWeek.subtract(Duration(days: (7 - i) * 7));
+          return _ChartBucket(
+            label: 'S${i + 1}',
+            start: start,
+            endExclusive: start.add(const Duration(days: 7)),
+          );
+        });
+      case _VisitorsChartPeriodMode.ano:
+        final years = List<int>.generate(now.year - 2019, (i) => 2020 + i);
+        return years
+            .map(
+              (y) => _ChartBucket(
+                label: '$y',
+                start: DateTime(y, 1, 1),
+                endExclusive: DateTime(y + 1, 1, 1),
+              ),
+            )
+            .toList();
+      case _VisitorsChartPeriodMode.periodo:
+        final range = customRange;
+        if (range == null) return const [];
+        final start = DateTime(range.start.year, range.start.month, range.start.day);
+        final endInclusive =
+            DateTime(range.end.year, range.end.month, range.end.day);
+        final totalDays = endInclusive.difference(start).inDays + 1;
+        if (totalDays <= 14) {
+          return List.generate(totalDays, (i) {
+            final d = start.add(Duration(days: i));
+            return _ChartBucket(
+              label: '${d.day}/${d.month}',
+              start: d,
+              endExclusive: d.add(const Duration(days: 1)),
+            );
+          });
+        }
+        if (totalDays <= 120) {
+          final weeks = (totalDays / 7).ceil();
+          return List.generate(weeks, (i) {
+            final bStart = start.add(Duration(days: i * 7));
+            var bEnd = bStart.add(const Duration(days: 7));
+            if (bEnd.isAfter(endInclusive.add(const Duration(days: 1)))) {
+              bEnd = endInclusive.add(const Duration(days: 1));
+            }
+            return _ChartBucket(
+              label: 'S${i + 1}',
+              start: bStart,
+              endExclusive: bEnd,
+            );
+          });
+        }
+        final buckets = <_ChartBucket>[];
+        var cursor = DateTime(start.year, start.month, 1);
+        final endExclusiveTotal = endInclusive.add(const Duration(days: 1));
+        while (cursor.isBefore(endExclusiveTotal)) {
+          final next = DateTime(cursor.year, cursor.month + 1, 1);
+          buckets.add(
+            _ChartBucket(
+              label: '${_mesAbrPt(cursor.month)}/${cursor.year % 100}',
+              start: cursor,
+              endExclusive: next,
+            ),
+          );
+          cursor = next;
+        }
+        return buckets;
+    }
+  }
+
+  Future<void> _pickCustomRange(BuildContext context) async {
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020, 1, 1),
+      lastDate: DateTime(now.year + 1, 12, 31),
+      initialDateRange: customRange ??
+          DateTimeRange(
+            start: now.subtract(const Duration(days: 30)),
+            end: now,
+          ),
+      helpText: 'Selecionar período',
+      saveText: 'Aplicar',
+    );
+    if (picked != null) onCustomRangeChanged(picked);
+  }
 
   @override
   Widget build(BuildContext context) {
     final tt = Theme.of(context).textTheme;
-    final now = DateTime.now();
-    final years = List<int>.generate(now.year - 2019, (i) => 2020 + i);
-    final monthCounts = List<int>.filled(12, 0);
-    for (final v in visitors) {
-      final d = v.createdAt;
-      if (d == null) continue;
-      if (d.year != year) continue;
-      monthCounts[d.month - 1]++;
-    }
-    final totalYear = monthCounts.fold<int>(0, (a, b) => a + b);
-    final int totalPeriod = (month != null && month! >= 1 && month! <= 12)
-        ? monthCounts[month! - 1]
-        : totalYear;
+    final buckets = _buildBuckets();
+    final series = _VisitorChartSeries.values;
 
-    final maxY = monthCounts.fold<int>(1, (a, b) => a > b ? a : b);
-    final maxChart = (maxY * 1.2).ceil().clamp(1, 99999).toDouble();
+    final counts = <List<int>>[
+      for (final b in buckets)
+        [
+          for (final s in series)
+            visitors.where((v) => _visitorMatchesSeriesInBucket(v, s, b)).length,
+        ],
+    ];
+    final totalPeriod = counts.fold<int>(
+      0,
+      (a, row) => a + row[0], // total = série "visitantes" (todas as entradas)
+    );
 
-    const meses = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
+    final maxY = counts.fold<int>(1, (a, row) {
+      final rowMax = row.fold<int>(0, (x, y) => x > y ? x : y);
+      return rowMax > a ? rowMax : a;
+    });
+    final maxChart = (maxY * 1.25).ceil().clamp(1, 99999).toDouble();
 
     return Material(
       color: ThemeCleanPremium.cardBackground,
@@ -2644,14 +2873,14 @@ class _VisitorsReportPanel extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Relatório & evolução',
+                          'Visitantes, convertidos e acompanhados',
                           style: tt.titleSmall?.copyWith(
                             fontWeight: FontWeight.w800,
                             color: ThemeCleanPremium.onSurface,
                           ),
                         ),
                         Text(
-                          'Por ano e mês · gráfico de cadastros',
+                          'Toque numa barra para ver os nomes',
                           style: tt.bodySmall?.copyWith(
                             color: ThemeCleanPremium.onSurfaceVariant,
                             fontSize: 13,
@@ -2678,67 +2907,67 @@ class _VisitorsReportPanel extends StatelessWidget {
                 runSpacing: 8,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  SizedBox(
-                    width: 120,
-                    child: DropdownButtonFormField<int>(
-                      initialValue: year,
-                      decoration: InputDecoration(
-                        labelText: 'Ano',
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusSm,
-                          ),
-                        ),
-                      ),
-                      items: years
-                          .map(
-                            (y) =>
-                                DropdownMenuItem(value: y, child: Text('$y')),
-                          )
-                          .toList(),
-                      onChanged: (y) {
-                        if (y != null) onYearChanged(y);
+                  for (final m in _VisitorsChartPeriodMode.values)
+                    ChoiceChip(
+                      label: Text(switch (m) {
+                        _VisitorsChartPeriodMode.semana => 'Semana',
+                        _VisitorsChartPeriodMode.mes => 'Mês',
+                        _VisitorsChartPeriodMode.ano => 'Ano',
+                        _VisitorsChartPeriodMode.periodo => 'Período',
+                      }),
+                      selected: periodMode == m,
+                      onSelected: (_) {
+                        onPeriodModeChanged(m);
+                        if (m == _VisitorsChartPeriodMode.periodo &&
+                            customRange == null) {
+                          unawaited(_pickCustomRange(context));
+                        }
                       },
                     ),
-                  ),
-                  SizedBox(
-                    width: 120,
-                    child: DropdownButtonFormField<int?>(
-                      initialValue: month,
-                      decoration: InputDecoration(
-                        labelText: 'Mês',
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusSm,
+                  if (periodMode == _VisitorsChartPeriodMode.mes)
+                    SizedBox(
+                      width: 110,
+                      child: DropdownButtonFormField<int>(
+                        initialValue: year,
+                        decoration: InputDecoration(
+                          labelText: 'Ano',
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusSm,
+                            ),
                           ),
                         ),
+                        items: List<int>.generate(
+                          DateTime.now().year - 2019,
+                          (i) => 2020 + i,
+                        )
+                            .map(
+                              (y) => DropdownMenuItem(
+                                value: y,
+                                child: Text('$y'),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (y) {
+                          if (y != null) onYearChanged(y);
+                        },
                       ),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('Todos'),
-                        ),
-                        ...List.generate(
-                          12,
-                          (i) => DropdownMenuItem<int?>(
-                            value: i + 1,
-                            child: Text(_mesAbrPt(i + 1)),
-                          ),
-                        ),
-                      ],
-                      onChanged: onMonthChanged,
                     ),
-                  ),
+                  if (periodMode == _VisitorsChartPeriodMode.periodo)
+                    OutlinedButton.icon(
+                      onPressed: () => unawaited(_pickCustomRange(context)),
+                      icon: const Icon(Icons.date_range_rounded, size: 18),
+                      label: Text(
+                        customRange == null
+                            ? 'Escolher datas'
+                            : '${_dd(customRange!.start)} – ${_dd(customRange!.end)}',
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -2747,7 +2976,7 @@ class _VisitorsReportPanel extends StatelessWidget {
               child: Row(
                 children: [
                   Text(
-                    'Total no período: ',
+                    'Total de visitantes no período: ',
                     style: tt.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: ThemeCleanPremium.onSurfaceVariant,
@@ -2760,128 +2989,186 @@ class _VisitorsReportPanel extends StatelessWidget {
                       color: ThemeCleanPremium.primary,
                     ),
                   ),
-                  Text(
-                    month != null
-                        ? ' (${_mesAbrPt(month!)}/$year)'
-                        : ' ($year)',
-                    style: tt.bodySmall?.copyWith(color: Colors.grey.shade600),
-                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Wrap(
+                spacing: 14,
+                runSpacing: 6,
+                children: [
+                  for (final s in series)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: s.color,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          s.label,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),
             const SizedBox(height: 10),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
-              child: Container(
-                height: 200,
-                padding: const EdgeInsets.only(
-                  right: 8,
-                  top: 8,
-                  left: 4,
-                  bottom: 4,
+            if (buckets.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+                child: Text(
+                  'Escolha um intervalo de datas para ver o gráfico.',
+                  style: tt.bodySmall?.copyWith(color: Colors.grey.shade600),
                 ),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                  boxShadow: ThemeCleanPremium.softUiCardShadow,
-                ),
-                child: BarChart(
-                  BarChartData(
-                    alignment: BarChartAlignment.spaceAround,
-                    maxY: maxChart,
-                    barTouchData: BarTouchData(enabled: true),
-                    gridData: FlGridData(
-                      show: true,
-                      drawVerticalLine: false,
-                      horizontalInterval: maxChart > 5 ? maxChart / 5 : 1,
-                      getDrawingHorizontalLine: (_) => const FlLine(
-                        color: Color(0xFFE2E8F0),
-                        strokeWidth: 1,
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+                child: Container(
+                  height: 220,
+                  padding: const EdgeInsets.only(
+                    right: 8,
+                    top: 8,
+                    left: 4,
+                    bottom: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    boxShadow: ThemeCleanPremium.softUiCardShadow,
+                  ),
+                  child: BarChart(
+                    BarChartData(
+                      alignment: BarChartAlignment.spaceAround,
+                      maxY: maxChart,
+                      barTouchData: BarTouchData(
+                        enabled: true,
+                        handleBuiltInTouches: true,
+                        touchCallback: (FlTouchEvent event, barTouchResponse) {
+                          if (!event.isInterestedForInteractions) return;
+                          if (event is! FlTapUpEvent) return;
+                          final spot = barTouchResponse?.spot;
+                          if (spot == null) return;
+                          final bIdx = spot.touchedBarGroupIndex;
+                          final sIdx = spot.touchedRodDataIndex;
+                          if (bIdx < 0 ||
+                              bIdx >= buckets.length ||
+                              sIdx < 0 ||
+                              sIdx >= series.length) {
+                            return;
+                          }
+                          final bucket = buckets[bIdx];
+                          final s = series[sIdx];
+                          if (counts[bIdx][sIdx] == 0) return;
+                          onDrillRequested(
+                            _ChartDrillFilter(
+                              series: s,
+                              start: bucket.start,
+                              endExclusive: bucket.endExclusive,
+                              label: '${s.label} · ${bucket.label}',
+                            ),
+                          );
+                        },
                       ),
-                    ),
-                    titlesData: FlTitlesData(
-                      bottomTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 22,
-                          getTitlesWidget: (v, meta) {
-                            final i = v.toInt();
-                            if (i < 0 || i >= 12) {
-                              return const SizedBox.shrink();
-                            }
-                            final highlight = month != null && month == i + 1;
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text(
-                                meses[i],
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: highlight
-                                      ? FontWeight.w900
-                                      : FontWeight.w700,
-                                  color: highlight
-                                      ? ThemeCleanPremium.primary
-                                      : Colors.grey.shade600,
-                                ),
-                              ),
-                            );
-                          },
+                      gridData: FlGridData(
+                        show: true,
+                        drawVerticalLine: false,
+                        horizontalInterval: maxChart > 5 ? maxChart / 5 : 1,
+                        getDrawingHorizontalLine: (_) => const FlLine(
+                          color: Color(0xFFE2E8F0),
+                          strokeWidth: 1,
                         ),
                       ),
-                      leftTitles: AxisTitles(
-                        sideTitles: SideTitles(
-                          showTitles: true,
-                          reservedSize: 28,
-                          getTitlesWidget: (v, meta) => Text(
-                            v.toInt().toString(),
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey.shade600,
+                      titlesData: FlTitlesData(
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 26,
+                            getTitlesWidget: (v, meta) {
+                              final i = v.toInt();
+                              if (i < 0 || i >= buckets.length) {
+                                return const SizedBox.shrink();
+                              }
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  buckets[i].label,
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 28,
+                            getTitlesWidget: (v, meta) => Text(
+                              v.toInt().toString(),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey.shade600,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      topTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
-                      ),
-                      rightTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false),
-                      ),
-                    ),
-                    borderData: FlBorderData(show: false),
-                    barGroups: [
-                      for (var i = 0; i < 12; i++)
-                        BarChartGroupData(
-                          x: i,
-                          barRods: [
-                            BarChartRodData(
-                              toY: monthCounts[i].toDouble(),
-                              color: month != null && month == i + 1
-                                  ? ThemeCleanPremium.primary
-                                  : Color.lerp(
-                                      ThemeCleanPremium.primary,
-                                      const Color(0xFF94A3B8),
-                                      0.45,
-                                    )!,
-                              width: 10,
-                              borderRadius: const BorderRadius.vertical(
-                                top: Radius.circular(6),
-                              ),
-                            ),
-                          ],
+                        topTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
                         ),
-                    ],
+                        rightTitles: const AxisTitles(
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
+                      ),
+                      borderData: FlBorderData(show: false),
+                      barGroups: [
+                        for (var i = 0; i < buckets.length; i++)
+                          BarChartGroupData(
+                            x: i,
+                            barsSpace: 3,
+                            barRods: [
+                              for (var s = 0; s < series.length; s++)
+                                BarChartRodData(
+                                  toY: counts[i][s].toDouble(),
+                                  color: series[s].color,
+                                  width: buckets.length > 10 ? 5 : 7,
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(3),
+                                  ),
+                                ),
+                            ],
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
           ],
         ],
       ),
     );
   }
 }
+
+String _dd(DateTime d) =>
+    '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Visitor Card

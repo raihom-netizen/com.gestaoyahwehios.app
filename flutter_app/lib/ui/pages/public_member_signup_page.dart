@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Timer, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -123,6 +123,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   bool _loadingCitySuggestions = false;
   List<CitySuggestion> _citySuggestions = const [];
   int _citySearchToken = 0;
+  Timer? _citySearchDebounce;
 
   /// Wizard: 0 dados pessoais, 1 endereço, 2 família/foto/envio.
   int _signupStep = 0;
@@ -256,6 +257,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     _conjugeCtrl.dispose();
     _filiacaoPaiCtrl.dispose();
     _filiacaoMaeCtrl.dispose();
+    _citySearchDebounce?.cancel();
     super.dispose();
   }
 
@@ -461,10 +463,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     }
   }
 
-  Future<void> _searchCitySuggestions(String raw) async {
+  void _searchCitySuggestions(String raw) {
+    _citySearchDebounce?.cancel();
     final query = raw.trim();
-    final token = ++_citySearchToken;
     if (query.length < 2) {
+      ++_citySearchToken;
       if (!mounted) return;
       setState(() {
         _loadingCitySuggestions = false;
@@ -472,6 +475,14 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       });
       return;
     }
+    _citySearchDebounce = Timer(const Duration(milliseconds: 350), () {
+      unawaited(_runCitySearch(query));
+    });
+  }
+
+  Future<void> _runCitySearch(String query) async {
+    final token = ++_citySearchToken;
+    if (!mounted) return;
     setState(() => _loadingCitySuggestions = true);
     final list = await searchBrazilCities(query, limit: 8);
     if (!mounted || token != _citySearchToken) return;

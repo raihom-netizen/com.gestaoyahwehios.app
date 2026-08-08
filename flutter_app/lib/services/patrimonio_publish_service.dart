@@ -312,8 +312,12 @@ abstract final class PatrimonioPublishService {
         );
       }
     }
+    // Não aguardar: são só chamadas de exclusão de artefatos legados de slots
+    // vazios (dezenas de `delete()` sem timeout individual por slot) — travava
+    // o "Salvar" em segundo plano em vez de gravar o Firestore logo (o usuário
+    // via a barra presa em "Enviando fotos... 84%" até estourar o timeout).
     if (emptySlotFutures.isNotEmpty) {
-      await Future.wait(emptySlotFutures, eagerError: false);
+      unawaited(Future.wait(emptySlotFutures, eagerError: false));
     }
 
     unawaited(

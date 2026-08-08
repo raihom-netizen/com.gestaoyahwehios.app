@@ -1194,7 +1194,8 @@ class _FornecedoresPageState extends State<FornecedoresPage>
       final created = <String>[];
       // Cap: evita N+1 longo na Web quando há muitos IDs órfãos.
       final entries = orphans.entries.take(40).toList();
-      for (final e in entries) {
+
+      Future<String?> healOne(MapEntry<String, String> e) async {
         final ref = col.doc(e.key);
         DocumentSnapshot<Map<String, dynamic>> exists;
         try {
@@ -1210,10 +1211,10 @@ class _FornecedoresPageState extends State<FornecedoresPage>
                 .get(const GetOptions(source: Source.server))
                 .timeout(const Duration(seconds: 4));
           } catch (_) {
-            continue;
+            return null;
           }
         }
-        if (exists.exists) continue;
+        if (exists.exists) return null;
         await ref.set({
           'nome': e.value,
           'tipoPessoa': 'pf',
@@ -1225,7 +1226,16 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
-        created.add(e.key);
+        return e.key;
+      }
+
+      // Paralelo em lotes de 8 — antes eram até 40 leituras sequenciais (podendo
+      // somar minutos em rede fraca); lotes evitam sobrecarregar o Firestore.
+      const batchSize = 8;
+      for (var i = 0; i < entries.length; i += batchSize) {
+        final batch = entries.skip(i).take(batchSize);
+        final results = await Future.wait(batch.map(healOne));
+        created.addAll(results.whereType<String>());
       }
       return created;
     } catch (_) {
@@ -1370,12 +1380,24 @@ class _FornecedoresPageState extends State<FornecedoresPage>
       TenantModuleKeys.fornecedores,
       [docId],
     );
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => _col.doc(docId).delete(),
-      maxAttempts: 4,
-    );
+    try {
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => _col.doc(docId).delete(),
+        maxAttempts: 4,
+      );
+    } catch (e) {
+      // Exclusão real falhou — remove a lápide, senão o fornecedor fica
+      // "escondido" da lista por até 12h mesmo continuando no Firestore.
+      TenantDeletedDocTombstones.unmark(
+        _effectiveTenantId,
+        TenantModuleKeys.fornecedores,
+        docId,
+      );
+      rethrow;
+    }
     unawaited(ChurchFornecedoresLoadService.invalidate(_effectiveTenantId));
     _CompromissosRamCache.invalidate(_effectiveTenantId);
+    _FornecedoresRamCache.invalidate(_effectiveTenantId);
   }
 
   Future<void> _excluirFornecedor(
@@ -2561,7 +2583,16 @@ class _FornecedoresCompromissosListaTabState
     );
     _CompromissosRamCache.invalidate(_tenantId);
     unawaited(ChurchFornecedoresLoadService.invalidate(_tenantId));
-    await doc.reference.delete();
+    try {
+      await doc.reference.delete();
+    } catch (e) {
+      TenantDeletedDocTombstones.unmark(
+        _tenantId,
+        TenantModuleKeys.fornecedorCompromissos,
+        doc.id,
+      );
+      rethrow;
+    }
     if (mounted) setState(_reloadAgenda);
   }
 
@@ -3731,7 +3762,16 @@ class _FornecedoresAgendaGeralTabState
     );
     _CompromissosRamCache.invalidate(_tenantId);
     unawaited(ChurchFornecedoresLoadService.invalidate(_tenantId));
-    await doc.reference.delete();
+    try {
+      await doc.reference.delete();
+    } catch (e) {
+      TenantDeletedDocTombstones.unmark(
+        _tenantId,
+        TenantModuleKeys.fornecedorCompromissos,
+        doc.id,
+      );
+      rethrow;
+    }
     if (mounted) setState(_reloadAgenda);
   }
 
@@ -6027,7 +6067,16 @@ class _AgendaTabState extends State<_AgendaTab> {
     );
     _CompromissosRamCache.invalidate(widget.tenantId);
     unawaited(ChurchFornecedoresLoadService.invalidate(widget.tenantId));
-    await doc.reference.delete();
+    try {
+      await doc.reference.delete();
+    } catch (e) {
+      TenantDeletedDocTombstones.unmark(
+        widget.tenantId,
+        TenantModuleKeys.fornecedorCompromissos,
+        doc.id,
+      );
+      rethrow;
+    }
   }
 
   void _showDayAgendaSheet(

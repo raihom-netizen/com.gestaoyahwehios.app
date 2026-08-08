@@ -112,7 +112,10 @@ class _ChurchDepartmentAddMembersBodyState
         _docs = q.docs;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
+      // Log real da causa (permission-denied vs. timeout vs. outro) — a UI só
+      // mostrava "não foi possível carregar" sem nenhum rastro do motivo real.
+      debugPrint('ChurchDepartmentAddMembersSheet._load erro: $e');
       if (!mounted) return;
       setState(() {
         _docs = [];
@@ -225,9 +228,9 @@ class _ChurchDepartmentAddMembersBodyState
     final visible = _visibleDocs();
     return DraggableScrollableSheet(
       expand: false,
-      initialChildSize: 0.85,
-      minChildSize: 0.5,
-      maxChildSize: 0.96,
+      initialChildSize: 1.0,
+      minChildSize: 1.0,
+      maxChildSize: 1.0,
       builder: (ctx, scrollCtrl) {
         return Container(
           decoration: BoxDecoration(
@@ -299,7 +302,7 @@ class _ChurchDepartmentAddMembersBodyState
                     ),
                     TextButton(
                       onPressed: _saving ? null : () => Navigator.pop(context),
-                      child: const Text('Fechar'),
+                      child: const Text('Cancelar'),
                     ),
                   ],
                 ),

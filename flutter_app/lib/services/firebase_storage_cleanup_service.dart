@@ -1081,9 +1081,15 @@ class FirebaseStorageCleanupService {
         '$folder/thumb_foto_item_full.jpg',
       ],
     ];
+    // Timeout curto por arquivo — igual a `deletePatrimonioCanonicalSlotFast`;
+    // sem isso, dezenas de deletes de artefatos legados (a maioria 404, nem
+    // existe) podiam ficar pendurados em rede instável.
     await Future.wait(paths.map((p) async {
       try {
-        await firebaseDefaultStorage.ref(p).delete();
+        await firebaseDefaultStorage
+            .ref(p)
+            .delete()
+            .timeout(const Duration(seconds: 5));
       } catch (_) {}
     }));
   }

@@ -3810,9 +3810,11 @@ class _PickMemberForCargoBottomSheetState
       padding: EdgeInsets.only(bottom: inset.bottom),
       child: DraggableScrollableSheet(
         expand: false,
-        initialChildSize: 0.68,
-        minChildSize: 0.38,
-        maxChildSize: 0.94,
+        // Full screen: filtros (gênero/idade/departamento) + lista de membros
+        // não cabiam numa folha parcial — o usuário via só 1 membro por vez.
+        initialChildSize: 1.0,
+        minChildSize: 1.0,
+        maxChildSize: 1.0,
         builder: (ctx, scrollCtrl) {
           return DecoratedBox(
             decoration: const BoxDecoration(

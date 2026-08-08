@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show Timer, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart'
@@ -82,6 +82,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   bool _loadingCitySuggestions = false;
   List<CitySuggestion> _citySuggestions = const [];
   int _citySearchToken = 0;
+  Timer? _citySearchDebounce;
 
   static const List<String> _ufs = [
     'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS',
@@ -113,6 +114,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     _filiacaoPaiCtrl.dispose();
     _filiacaoMaeCtrl.dispose();
     _passwordCtrl.dispose();
+    _citySearchDebounce?.cancel();
     super.dispose();
   }
 
@@ -182,10 +184,11 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     }
   }
 
-  Future<void> _searchCitySuggestions(String raw) async {
+  void _searchCitySuggestions(String raw) {
+    _citySearchDebounce?.cancel();
     final query = raw.trim();
-    final token = ++_citySearchToken;
     if (query.length < 2) {
+      ++_citySearchToken;
       if (!mounted) return;
       setState(() {
         _loadingCitySuggestions = false;
@@ -193,6 +196,14 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       });
       return;
     }
+    _citySearchDebounce = Timer(const Duration(milliseconds: 350), () {
+      unawaited(_runCitySearch(query));
+    });
+  }
+
+  Future<void> _runCitySearch(String query) async {
+    final token = ++_citySearchToken;
+    if (!mounted) return;
     setState(() => _loadingCitySuggestions = true);
     final list = await searchBrazilCities(query, limit: 8);
     if (!mounted || token != _citySearchToken) return;

@@ -272,4 +272,13 @@ class FirestoreReadResilience {
   static void forgetKey(String cacheKey) {
     _lastGoodByKey.remove(cacheKey.trim());
   }
+
+  /// Limpa todas as chaves que começam com [prefix] — usado após excluir um
+  /// documento cujo cache tem sufixos variáveis (ex.: `_$limit`) e por isso
+  /// não dá para prever a chave exata gravada por cada tela chamadora.
+  static void forgetKeysWithPrefix(String prefix) {
+    final p = prefix.trim();
+    if (p.isEmpty) return;
+    _lastGoodByKey.removeWhere((key, _) => key.startsWith(p));
+  }
 }

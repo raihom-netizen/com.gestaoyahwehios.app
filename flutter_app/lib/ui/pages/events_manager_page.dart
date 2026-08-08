@@ -57,6 +57,7 @@ import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/services/panel_programacao_loader.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/ios_publish_image_pipeline.dart';
 import 'package:gestao_yahweh/ui/widgets/feed_editor_local_photo_thumb.dart';
@@ -153,7 +154,10 @@ import 'package:gestao_yahweh/ui/widgets/church_noticia_share_sheet.dart'
 import 'package:gestao_yahweh/ui/widgets/yahweh_social_post_bar.dart';
 import 'package:gestao_yahweh/core/noticia_share_links.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
-    show buildNoticiaInviteShareMessage, noticiaGalleryRefsForShare;
+    show
+        buildNoticiaInviteShareMessage,
+        noticiaGalleryRefsForShare,
+        warmNoticiaShareMediaBundle;
 import 'package:image/image.dart' as img;
 import 'package:gestao_yahweh/utils/br_input_formatters.dart'
     show
@@ -850,6 +854,10 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     _fixosTabKey.currentState?._removeTemplateLocally(docId);
     try {
       await doc.reference.delete();
+      // Painel/site público servem cache próprio (RAM/disco) — sem isso o
+      // evento fixo excluído continuava aparecendo até o TTL vencer.
+      unawaited(PanelProgramacaoLoader.clear(tid));
+      FirestoreReadResilience.forgetKeysWithPrefix('${tid}_event_templates');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Evento fixo excluído.'),
@@ -5800,6 +5808,19 @@ class _EventoPostState extends State<_EventoPost>
     with SingleTickerProviderStateMixin {
   bool _showHeart = false;
   int _carouselIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pré-aquece foto/vídeo assim que o card aparece — ao tocar em
+    // "Compartilhar" minutos depois, já está em cache (instantâneo).
+    warmNoticiaShareMediaBundle(
+      widget.doc.data(),
+      tenantId: widget.tenantId,
+      postId: widget.doc.id,
+      collection: 'eventos',
+    );
+  }
 
   String? get _myUid => firebaseDefaultAuth.currentUser?.uid;
 

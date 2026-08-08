@@ -51,6 +51,7 @@ Future<void> showChurchChatExpressionSheet({
   required TextEditingController textEditingController,
   int initialTabIndex = 0,
   required Future<void> Function(ChurchStickerPick pick) onStickerChosen,
+  Future<void> Function(String emoji)? onEmojiChosen,
   bool disposeOrphanController = false,
 }) async {
   final mq = MediaQuery.sizeOf(context);
@@ -68,6 +69,7 @@ Future<void> showChurchChatExpressionSheet({
       textEditingController: textEditingController,
       initialTabIndex: initialTabIndex,
       onStickerChosen: onStickerChosen,
+      onEmojiChosen: onEmojiChosen,
       disposeOrphanController: disposeOrphanController,
     ),
   );
@@ -78,6 +80,7 @@ class _ExpressionSheetBody extends StatefulWidget {
   final TextEditingController textEditingController;
   final int initialTabIndex;
   final Future<void> Function(ChurchStickerPick pick) onStickerChosen;
+  final Future<void> Function(String emoji)? onEmojiChosen;
   final bool disposeOrphanController;
 
   const _ExpressionSheetBody({
@@ -85,6 +88,7 @@ class _ExpressionSheetBody extends StatefulWidget {
     required this.textEditingController,
     required this.initialTabIndex,
     required this.onStickerChosen,
+    required this.onEmojiChosen,
     required this.disposeOrphanController,
   });
 
@@ -223,6 +227,7 @@ class _ExpressionSheetBodyState extends State<_ExpressionSheetBody>
                       tenantId: widget.tenantId,
                       controller: widget.textEditingController,
                       bottomInset: bottom,
+                      onEmojiChosen: widget.onEmojiChosen,
                     ),
                     _StickerLibraryTab(
                       tenantId: widget.tenantId,
@@ -244,11 +249,13 @@ class _EmojiTab extends StatefulWidget {
   final String tenantId;
   final TextEditingController controller;
   final double bottomInset;
+  final Future<void> Function(String emoji)? onEmojiChosen;
 
   const _EmojiTab({
     required this.tenantId,
     required this.controller,
     required this.bottomInset,
+    required this.onEmojiChosen,
   });
 
   @override
@@ -260,14 +267,22 @@ class _EmojiTabState extends State<_EmojiTab> {
 
   void _refreshRecent() => setState(() => _recentEpoch++);
 
-  void _insertEmoji(String e) {
+  /// Envia na hora (fecha o painel) — não insere mais no campo de texto,
+  /// como pedido: tocar no emoji já manda a mensagem.
+  Future<void> _pickEmoji(String e) async {
+    unawaited(ChurchChatExpressionPrefs.rememberEmoji(widget.tenantId, e));
+    final send = widget.onEmojiChosen;
+    if (send != null) {
+      Navigator.of(context).pop();
+      unawaited(send(e));
+      return;
+    }
+    // Sem callback de envio imediato (uso legado) — mantém o comportamento
+    // antigo de inserir no campo de texto.
     final t = widget.controller.text;
     widget.controller.text = t + e;
     widget.controller.selection =
         TextSelection.collapsed(offset: widget.controller.text.length);
-    unawaited(
-      ChurchChatExpressionPrefs.rememberEmoji(widget.tenantId, e),
-    );
     _refreshRecent();
   }
 
@@ -309,7 +324,7 @@ class _EmojiTabState extends State<_EmojiTab> {
                           borderRadius: BorderRadius.circular(12),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
-                            onTap: () => _insertEmoji(recent[i]),
+                            onTap: () => unawaited(_pickEmoji(recent[i])),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 10, vertical: 6),
@@ -333,20 +348,23 @@ class _EmojiTabState extends State<_EmojiTab> {
         Expanded(
           child: Padding(
             padding: EdgeInsets.only(bottom: widget.bottomInset),
-            child: LayoutBuilder(
-              builder: (ctx, c) {
-                final h = (c.maxHeight - 8).clamp(220.0, 520.0);
+            child: Builder(
+              builder: (ctx) {
+                // Altura ESTÁVEL (via MediaQuery, não via LayoutBuilder preso
+                // à animação de abertura do DraggableScrollableSheet) — usar a
+                // altura animando recriava o `Config` do EmojiPicker a cada
+                // frame e piscava a grelha enquanto o painel ainda abria.
+                final screenH = MediaQuery.sizeOf(ctx).height;
+                final h = (screenH * 0.5).clamp(280.0, 560.0);
                 final appLocale = Localizations.maybeLocaleOf(ctx);
                 return EmojiPicker(
-                  textEditingController: widget.controller,
+                  // Com envio imediato, NÃO passar o controller — o pacote
+                  // insere sozinho no campo de texto ao tocar, o que duplicava
+                  // o emoji ali mesmo já enviando como mensagem própria.
+                  textEditingController:
+                      widget.onEmojiChosen == null ? widget.controller : null,
                   onEmojiSelected: (category, emoji) {
-                    unawaited(
-                      ChurchChatExpressionPrefs.rememberEmoji(
-                        widget.tenantId,
-                        emoji.emoji,
-                      ),
-                    );
-                    _refreshRecent();
+                    unawaited(_pickEmoji(emoji.emoji));
                   },
                   config: Config(
                     height: h,

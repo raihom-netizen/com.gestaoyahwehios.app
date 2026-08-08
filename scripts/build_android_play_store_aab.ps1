@@ -17,7 +17,10 @@
 param(
     [string] $CopyTo = "D:\Temporarios",
     [switch] $NoAutoSigning,
-    [switch] $SkipPubGet
+    [switch] $SkipPubGet,
+    # Deploy completo já bumpou a versão uma vez antes de Web+AAB+iOS (evita
+    # web ficar 1 build atrás do Android/iOS). Só o script standalone bumpa aqui.
+    [switch] $SkipVersionBump
 )
 
     $ErrorActionPreference = "Continue"
@@ -416,10 +419,14 @@ if (-not $SkipPubGet) {
     if (Test-Path $oldBundle) { Remove-Item $oldBundle -Force -ErrorAction SilentlyContinue }
 }
 
-Write-Host "`n=== auto-bump versionCode/build (+1) ===" -ForegroundColor Cyan
-$global:LASTEXITCODE = 0
-& $BumpBuildScript -Increment 1
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if ($SkipVersionBump) {
+    Write-Host "`n=== auto-bump versionCode/build -- SKIP (-SkipVersionBump, ja feito antes de Web) ===" -ForegroundColor Yellow
+} else {
+    Write-Host "`n=== auto-bump versionCode/build (+1) ===" -ForegroundColor Cyan
+    $global:LASTEXITCODE = 0
+    & $BumpBuildScript -Increment 1
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
 
 $DataSafetyScript = Join-Path $RepoRoot "scripts\play_store_data_safety_preflight.ps1"
 if (Test-Path $DataSafetyScript) {

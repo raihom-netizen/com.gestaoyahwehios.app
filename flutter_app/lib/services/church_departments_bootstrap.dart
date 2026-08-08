@@ -152,6 +152,61 @@ class ChurchDepartmentsBootstrap {
     return false;
   }
 
+  /// Cria um único preset (linha "Criar" na lista de sugestões). Sem efeito se já existir.
+  static Future<bool> ensurePresetDocumentByKey(
+    CollectionReference<Map<String, dynamic>> col,
+    String key, {
+    bool refreshToken = false,
+    void Function(Object error)? onError,
+  }) async {
+    try {
+      if (refreshToken) {
+        await firebaseDefaultAuth.currentUser?.getIdToken(true);
+      }
+      final preset = _presetsSorted.firstWhere(
+        (e) => e['key'] == key,
+        orElse: () => const <String, dynamic>{},
+      );
+      if (preset.isEmpty) return false;
+      final existing = await col.doc(key).get(const GetOptions(source: Source.server));
+      if (existing.exists) return false;
+      final now = Timestamp.now();
+      final label = preset['label'] as String;
+      final c1 = preset['c1'] as int;
+      final c2 = preset['c2'] as int;
+      final visualKey = (preset['iconKey'] ?? preset['key'] ?? 'pastoral').toString();
+      final desc = (preset['description'] ?? '').toString();
+      await col.doc(key).set(<String, dynamic>{
+        'name': label,
+        'description': desc,
+        'iconKey': visualKey,
+        'themeKey': visualKey,
+        ChurchDepartmentFirestoreFields.iconName: visualKey,
+        ChurchDepartmentFirestoreFields.colorHex:
+            ChurchDepartmentVisualMapper.hexStringFromArgb(c1),
+        ChurchDepartmentFirestoreFields.colorHexSecondary:
+            ChurchDepartmentVisualMapper.hexStringFromArgb(c2),
+        'bgColor1': c1,
+        'bgColor2': c2,
+        'bgImageUrl': '',
+        'leaderCpfs': <String>[],
+        'leaderCpf': '',
+        'viceLeaderCpf': '',
+        'leaderUid': '',
+        'permissions': <String>[],
+        'createdAt': now,
+        'updatedAt': now,
+        'active': true,
+        'isDefaultPreset': true,
+      });
+      return true;
+    } catch (e) {
+      debugPrint('ChurchDepartmentsBootstrap.ensurePresetDocumentByKey: $e');
+      onError?.call(e);
+    }
+    return false;
+  }
+
   /// Docs criados só com id (ex.: [ens_professores]) sem [name]/[iconKey]: completa a partir do preset.
   /// Merge — não apaga campos já preenchidos pelo gestor.
   static Future<int> backfillPresetMetadataWhereMissing(

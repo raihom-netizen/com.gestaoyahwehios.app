@@ -23,8 +23,19 @@ const Map<String, String> kFinanceBankFaviconHosts = {
   'will': 'willbank.com.br',
 };
 
-/// Miniatura embutida no app (`assets/images/bank_brands/<id>.png`, tipicamente 256 px via script de fetch).
+/// `id` do preset → nome do arquivo em `assets/images/banks/` quando difere do id
+/// (a maioria bate direto, ex.: `nubank` → `nubank.png`).
+const Map<String, String> _kFinanceBankAssetFileOverrides = {
+  'bb': 'banco_do_brasil',
+  'original': 'banco_original',
+  'c6': 'c6_bank',
+  'mercadopago': 'mercado_pago',
+};
+
+/// Miniatura embutida no app — pasta real do projeto é `assets/images/banks/`
+/// (não `bank_brands/`, que nunca existiu aqui nem está declarada no pubspec).
 String? financeBankBrandAssetPath(String presetId) {
   if (!kFinanceBankFaviconHosts.containsKey(presetId)) return null;
-  return 'assets/images/bank_brands/$presetId.png';
+  final file = _kFinanceBankAssetFileOverrides[presetId] ?? presetId;
+  return 'assets/images/banks/$file.png';
 }

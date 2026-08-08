@@ -551,7 +551,16 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   child: ListView.builder(
                     controller: _footerScrollController,
                     scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.fromLTRB(2, 2, 2, 0),
+                    // As setas de rolar (Positioned nas bordas) ficam por CIMA
+                    // dos ícones nas pontas — sem essa reserva, o toque no
+                    // último ícone visível caía na área da seta em vez do
+                    // ícone (era o "clique ruim" reportado, sobretudo à direita).
+                    padding: EdgeInsets.fromLTRB(
+                      _footerCanScrollLeft ? 30 : 2,
+                      2,
+                      _footerCanScrollRight ? 30 : 2,
+                      0,
+                    ),
                     physics: footerFitsWithoutScroll
                         ? const NeverScrollableScrollPhysics()
                         : const BouncingScrollPhysics(

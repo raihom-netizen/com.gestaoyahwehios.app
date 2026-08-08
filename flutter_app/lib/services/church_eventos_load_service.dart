@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/services/panel_programacao_loader.dart';
 import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
@@ -1093,6 +1094,10 @@ abstract final class ChurchEventosLoadService {
 
     removeFromRam(cid, ids);
     invalidate(cid);
+    // Painel/site público servem cache próprio (RAM/disco) — sem isso o
+    // item excluído continuava aparecendo até o TTL vencer (até 7 dias).
+    unawaited(PanelProgramacaoLoader.clear(cid));
+    FirestoreReadResilience.forgetKeysWithPrefix('${cid}_noticias_start');
     return ids.length;
   }
 }

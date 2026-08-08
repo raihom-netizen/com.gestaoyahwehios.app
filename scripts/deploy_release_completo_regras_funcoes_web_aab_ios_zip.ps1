@@ -43,6 +43,7 @@ param(
     [switch] $SkipRules,
     [switch] $SkipFunctionsDeploy,
     [switch] $SkipWeb,
+    [switch] $SkipVersionBump,
     [string] $LogTo = ''
 )
 
@@ -139,6 +140,20 @@ if ($SkipPreflight) {
 }
 elseif (Test-Path $preflight) {
     & $preflight
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+# ========================================================================
+# [0.5/6] Bump de versao UNICO — antes de Web/AAB/iOS para os 3 saírem com o
+# MESMO build number. Antes disso, o AAB bumpava sozinho DEPOIS do Web já ter
+# sido buildado/publicado, deixando o site sempre 1 build atrás do app.
+# ========================================================================
+if ($SkipVersionBump) {
+    Write-Host "`n=== [0.5/6] Bump de versao -- SKIP (-SkipVersionBump) ===" -ForegroundColor Yellow
+} else {
+    Write-Host "`n=== [0.5/6] Bump de versao (unico, antes de Web/AAB/iOS) ===" -ForegroundColor Cyan
+    $bumpScript = Join-Path $RepoRoot "scripts\bump_build.ps1"
+    & $bumpScript -Increment 1
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
@@ -275,7 +290,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 # [4/6] AAB Play Store (sub-script com -SkipPubGet)
 # ========================================================================
 Write-Host "`n=== [4/6] AAB Play + copia $CopyTo ===" -ForegroundColor Cyan
-& (Join-Path $RepoRoot "scripts\build_android_play_store_aab.ps1") -CopyTo $CopyTo -SkipPubGet
+& (Join-Path $RepoRoot "scripts\build_android_play_store_aab.ps1") -CopyTo $CopyTo -SkipPubGet -SkipVersionBump
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # ========================================================================

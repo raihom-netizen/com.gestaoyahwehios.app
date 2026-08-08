@@ -1,4 +1,4 @@
-import 'dart:async' show TimeoutException;
+import 'dart:async' show TimeoutException, unawaited;
 
 import 'dart:typed_data';
 
@@ -309,6 +309,69 @@ class NoticiaShareMediaFile {
   final String mimeType;
 }
 
+/// Cache de BYTES já baixados (não confundir com [NoticiaSharePrefetchService], que só
+/// guarda URLs) — toque em "Compartilhar" lê daqui quando o card já foi pré-aquecido em
+/// [warmNoticiaShareMediaBundle], tornando o compartilhar instantâneo em vez de baixar
+/// foto/vídeo de novo a cada toque.
+abstract final class NoticiaShareMediaBytesCache {
+  NoticiaShareMediaBytesCache._();
+
+  static final Map<String, _BytesHit> _ram = {};
+  static const Duration _ttl = Duration(minutes: 20);
+  static final Set<String> _inFlight = {};
+
+  static String key(String tenantId, String collection, String postId) =>
+      '${tenantId.trim()}|${collection.trim()}|${postId.trim()}';
+
+  static List<NoticiaShareMediaFile>? peek(String cacheKey) {
+    final hit = _ram[cacheKey];
+    if (hit == null) return null;
+    if (DateTime.now().difference(hit.at) > _ttl) {
+      _ram.remove(cacheKey);
+      return null;
+    }
+    return hit.files;
+  }
+
+  static void put(String cacheKey, List<NoticiaShareMediaFile> files) {
+    if (files.isEmpty) return;
+    _ram[cacheKey] = _BytesHit(files, DateTime.now());
+  }
+}
+
+class _BytesHit {
+  _BytesHit(this.files, this.at);
+  final List<NoticiaShareMediaFile> files;
+  final DateTime at;
+}
+
+/// Pré-aquece o cache de bytes assim que o card aparece no feed (fire-and-forget) —
+/// chame no `initState`/primeiro build do card, MUITO antes do usuário tocar em
+/// "Compartilhar", para o toque real ler do cache em vez de baixar na hora.
+void warmNoticiaShareMediaBundle(
+  Map<String, dynamic> data, {
+  String? tenantId,
+  String? postId,
+  String? collection,
+}) {
+  final tid = (tenantId ?? data['tenantId'] ?? data['churchId'] ?? '').toString().trim();
+  final pid = (postId ?? data['id'] ?? data['postId'] ?? data['docId'] ?? '').toString().trim();
+  if (tid.isEmpty || pid.isEmpty) return;
+  final colRaw = (collection ?? data['collection'] ?? data['type'] ?? 'eventos').toString().trim().toLowerCase();
+  final col = (colRaw == 'avisos' || colRaw == 'aviso') ? 'avisos' : 'eventos';
+  final k = NoticiaShareMediaBytesCache.key(tid, col, pid);
+  if (NoticiaShareMediaBytesCache.peek(k) != null) return;
+  if (!NoticiaShareMediaBytesCache._inFlight.add(k)) return;
+  unawaited(
+    fetchNoticiaShareMediaBundle(
+      data,
+      tenantId: tid,
+      postId: pid,
+      collection: col,
+    ).whenComplete(() => NoticiaShareMediaBytesCache._inFlight.remove(k)),
+  );
+}
+
 /// Galeria estilo Instagram: até [maxPhotos] fotos + 1 vídeo hospedado (em paralelo).
 Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
   Map<String, dynamic> data, {
@@ -323,6 +386,13 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
   final pid = (postId ?? data['id'] ?? data['postId'] ?? data['docId'] ?? '').toString().trim();
   final colRaw = (collection ?? data['collection'] ?? data['type'] ?? 'eventos').toString().trim().toLowerCase();
   final col = (colRaw == 'avisos' || colRaw == 'aviso') ? 'avisos' : 'eventos';
+
+  String? cacheKey;
+  if (tid.isNotEmpty && pid.isNotEmpty) {
+    cacheKey = NoticiaShareMediaBytesCache.key(tid, col, pid);
+    final cached = NoticiaShareMediaBytesCache.peek(cacheKey);
+    if (cached != null) return cached;
+  }
 
   final httpUrls = <String>[
     ...NoticiaSharePrefetchService.httpPhotoUrlsFromPost(data),

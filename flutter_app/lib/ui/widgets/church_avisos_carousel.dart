@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show postFeedCarouselAspectRatioForIndex;
+import 'package:gestao_yahweh/core/noticia_share_utils.dart'
+    show warmNoticiaShareMediaBundle;
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -93,6 +95,18 @@ class _ChurchAvisosCarouselState extends State<ChurchAvisosCarousel> {
             .where((a) => a.hasImages || a.mediaRefs().isNotEmpty)
             .toList();
         if (items.isEmpty) return const SizedBox.shrink();
+
+        // Pré-aquece os primeiros do carrossel (os que o usuário já vê) para o
+        // toque em "Compartilhar" ler do cache em vez de baixar mídia na hora
+        // (chamada idempotente — a função já ignora se cache/inFlight existir).
+        for (final a in items.take(3)) {
+          warmNoticiaShareMediaBundle(
+            a.rawData,
+            tenantId: widget.churchIdHint,
+            postId: a.id,
+            collection: 'avisos',
+          );
+        }
 
         return Container(
           decoration: YahwehWisdomVisualKit.wisdomSectionCard(

@@ -1524,6 +1524,9 @@ service cloud.firestore {
         let participants = t.participantUids is list && request.auth.uid in t.participantUids;
         let isDm = t.type == 'dm' || threadId.matches('^dm_.+');
         let isDept = t.type == 'department' || threadId.matches('^dept_.+');
+        let deptId = t.keys().hasAll(['departmentId']) && t.departmentId is string
+          ? t.departmentId
+          : '';
         return isSignedIn() && exists(path)
           && resource.data.keys().hasAll(['senderUid'])
           && resource.data.senderUid is string
@@ -1537,19 +1540,26 @@ service cloud.firestore {
             || (
               isDept
               && participants
-              && resource.data.senderUid == request.auth.uid
+              && (
+                resource.data.senderUid == request.auth.uid
+                || (deptId.size() > 0 && departmentDocListsRequesterAsLeader(tenantId, deptId))
+              )
             )
           );
       }
 
-      /// Apagar o documento do thread (ex.: grupo de departamento): sÃ³ gestÃ£o/pastoral (nÃ£o lÃ­der de dept).
+      /// Apagar o documento do thread (ex.: grupo de departamento): gestÃ£o/pastoral OU lÃ­der deste departamento.
       function chatThreadDeleteAllowed(tenantId, threadId) {
-        let path = /databases/$(database)/documents/igrejas/$(tenantId)/chats/$(threadId);
+        let isDept = resource.data.type == 'department' || threadId.matches('^dept_.+');
+        let deptId = resource.data.keys().hasAll(['departmentId']) && resource.data.departmentId is string
+          ? resource.data.departmentId
+          : '';
         return isAdminPanel()
           || canWriteTenant(tenantId)
           || chatPastoralModeratorRole()
           || isTreasurer()
-          || isPastoralOrSecretariatRole();
+          || isPastoralOrSecretariatRole()
+          || (isDept && deptId.size() > 0 && departmentDocListsRequesterAsLeader(tenantId, deptId));
       }
 
       /// Â«Apagar para mimÂ»: sÃ³ acrescenta o prÃ³prio uid em `hiddenForUids` (merge seguro).
@@ -1765,7 +1775,10 @@ service cloud.firestore {
           allow create: if (chatTenantMemberFast(id) || memberLinkedToTenant(id))
             && chatSenderMayPostToThread(id, threadId)
             && request.resource.data.senderUid == request.auth.uid
-            && request.resource.data.keys().hasAll(['senderUid', 'type', 'createdAt', 'expiresAt'])
+            // `expiresAt` é opcional — só mídia expira (60 dias); texto é permanente
+            // e não grava esse campo (era obrigatório aqui e derrubava toda mensagem
+            // de texto com permission-denied depois do fix de retenção de texto).
+            && request.resource.data.keys().hasAll(['senderUid', 'type', 'createdAt'])
             && (!('senderDisplayName' in request.resource.data) || (
               request.resource.data.senderDisplayName is string
               && request.resource.data.senderDisplayName.size() > 0

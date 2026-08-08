@@ -125,9 +125,13 @@ Future<bool> showFinanceTransactionEditDialog({
       FinanceTransactionDatetime.isOpenFinanceBacked(current);
 
   final receipt = Map<String, dynamic>.from(current['receipt'] ?? {});
+  // Legado (`receipt.*`) OU canônico (`comprovanteUrl`/`comprovanteLink`)
+  // — o diálogo de edição não pode depender só do formato legado.
   final receiptLink = (receipt['webViewLink'] ??
           receipt['webContentLink'] ??
           receipt['downloadUrl'] ??
+          current['comprovanteUrl'] ??
+          current['comprovanteLink'] ??
           '')
       .toString();
   var removeReceipt = false;

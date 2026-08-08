@@ -156,9 +156,9 @@ class _ChurchDepartmentChatMembersSheetState
     );
     return DraggableScrollableSheet(
       expand: false,
-      initialChildSize: 0.74,
-      minChildSize: 0.45,
-      maxChildSize: 0.94,
+      initialChildSize: 1.0,
+      minChildSize: 1.0,
+      maxChildSize: 1.0,
       builder: (ctx, scrollCtrl) {
         return Container(
           decoration: BoxDecoration(
@@ -258,6 +258,10 @@ class _ChurchDepartmentChatMembersSheetState
                           ],
                         ],
                       ),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Cancelar'),
                     ),
                   ],
                 ),

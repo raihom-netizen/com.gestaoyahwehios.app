@@ -195,7 +195,14 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         d['hideFromCalendar'] != true;
 
     final receipt = Map<String, dynamic>.from(d['receipt'] ?? {});
-    final receiptName = (receipt['name'] ?? '').toString();
+    // Legado (`receipt.name`) OU canônico (`comprovanteUrl`/`comprovanteLink`)
+    // — senão o formulário some com o comprovante ao reabrir para editar.
+    final canonicalReceiptLink =
+        (d['comprovanteUrl'] ?? d['comprovanteLink'] ?? '').toString();
+    final receiptName = (receipt['name'] ??
+            (canonicalReceiptLink.isNotEmpty ? 'Comprovante' : '') ??
+            '')
+        .toString();
     _hasExistingReceipt = receiptName.isNotEmpty;
     _hasReceipt = _hasExistingReceipt;
     _receiptName = receiptName;
