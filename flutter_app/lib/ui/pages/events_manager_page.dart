@@ -142,6 +142,8 @@ import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
         showChurchHostedVideoTheater,
         showChurchHostedVideoDialog,
         openChurchHostedVideoImmersive;
+import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_video_platform.dart'
+    show buildPremiumHtmlVideo;
 import 'package:gestao_yahweh/ui/widgets/church_youtube/church_youtube_player_shell.dart';
 import 'package:gestao_yahweh/utils/youtube_url_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
@@ -6871,7 +6873,18 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
               fit: StackFit.expand,
               clipBehavior: Clip.hardEdge,
               children: [
-                if (useThumb)
+                // Web: player inline (estilo IG/YouTube) — o vídeo TOCA no feed,
+                // não é só um poster estático. Mudo por padrão (o usuário dá play
+                // com som pelos controles nativos) + botão Tela cheia no canto.
+                if (kIsWeb)
+                  buildPremiumHtmlVideo(
+                    widget.videoUrl,
+                    controls: true,
+                    muted: true,
+                    autoplay: false,
+                    posterUrl: useThumb ? safeThumb : null,
+                  )
+                else if (useThumb)
                   LayoutBuilder(
                     builder: (context, c) {
                       final w = c.maxWidth;
@@ -7039,7 +7052,8 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
                     ),
                   ),
                 ),
-                if (!_failed && !_posterLoading)
+                // Play central só no mobile — no web o player nativo já tem controles.
+                if (!kIsWeb && !_failed && !_posterLoading)
                   Material(
                     color: Colors.transparent,
                     child: InkWell(
