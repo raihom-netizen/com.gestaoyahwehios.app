@@ -42,12 +42,14 @@ void configureFirestoreForOfflineAndSpeed() {
 
   if (kIsWeb) {
     try {
-      // Web: cache EM MEMÓRIA (sem IndexedDB) + long polling. Estabilidade acima
-      // de tudo — elimina o INTERNAL ASSERTION de persistência do SDK JS.
+      // Web: cache EM MEMÓRIA (sem IndexedDB) + WebChannel (SEM long polling).
+      // O force-long-polling era o gatilho do INTERNAL ASSERTION /
+      // WatchChangeAggregator do SDK JS. Desligado -> transporte WebChannel.
       db.settings = const Settings(
         persistenceEnabled: false,
         ignoreUndefinedProperties: true,
-        webExperimentalForceLongPolling: true,
+        webExperimentalForceLongPolling: false,
+        webExperimentalAutoDetectLongPolling: false,
       );
       FirestoreOfflineConfig.persistenceEnabled = false;
       FirestoreOfflineConfig.webIndexedDbFallback = false;
