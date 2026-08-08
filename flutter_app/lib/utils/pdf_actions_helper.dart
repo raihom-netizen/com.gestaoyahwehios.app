@@ -16,186 +16,166 @@ Future<void> showPdfActions(
   if (!context.mounted) return;
   await Navigator.of(context).push<void>(
     MaterialPageRoute<void>(
+      fullscreenDialog: true,
       builder: (ctx) => Scaffold(
         backgroundColor: ThemeCleanPremium.surfaceVariant,
         body: SafeArea(
-          child: CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(
-                child: Container(
-                  color: ThemeCleanPremium.primary,
-                  padding: const EdgeInsets.fromLTRB(4, 4, 8, 10),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        tooltip: 'Voltar',
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        icon: const Icon(Icons.arrow_back_rounded),
-                        color: Colors.white,
-                        style: IconButton.styleFrom(
-                          minimumSize: const Size(
-                            ThemeCleanPremium.minTouchTarget,
-                            ThemeCleanPremium.minTouchTarget,
-                          ),
-                        ),
-                      ),
-                      const Expanded(
-                        child: Text(
-                          'Visualizar PDF',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 17,
-                          ),
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                            size: 18, color: Colors.white),
-                        label: const Text(
-                          'Voltar',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        icon: Icon(Icons.close_rounded,
-                            size: 20, color: Colors.white.withValues(alpha: 0.95)),
-                        label: Text(
-                          'Cancelar',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.92),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                  child: Text(
-                    'Pinça ou Ctrl+scroll para reduzir ou ampliar. Arraste para mover. Imprimir e partilhar na barra inferior.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade700,
-                      height: 1.35,
+          child: Column(
+            children: [
+              // Cabeçalho compacto: Voltar + título + Cancelar (sem duplicar Voltar).
+              Container(
+                color: ThemeCleanPremium.primary,
+                padding: const EdgeInsets.fromLTRB(4, 2, 6, 2),
+                child: Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Voltar',
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      color: Colors.white,
                     ),
-                    textAlign: TextAlign.center,
-                  ),
+                    const Expanded(
+                      child: Text(
+                        'Visualizar PDF',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon: const Icon(Icons.close_rounded,
+                          size: 20, color: Colors.white),
+                      label: const Text(
+                        'Cancelar',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              SliverToBoxAdapter(
+              // Dica fina de uma linha (não rouba espaço do PDF).
+              Container(
+                width: double.infinity,
+                color: Colors.black.withValues(alpha: 0.03),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                child: Text(
+                  'Pinça/scroll para ampliar · arraste para mover',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              // PDF ocupa TODO o espaço restante (tela cheia de verdade).
+              Expanded(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final maxW = constraints.maxWidth.isFinite
                         ? constraints.maxWidth
                         : 800.0;
-                    final minH = math.max(
-                      360.0,
-                      MediaQuery.sizeOf(context).height * 0.55,
-                    );
-                    return SizedBox(
-                      height: minH,
-                      child: PdfPreview.builder(
-                        build: (PdfPageFormat format) async => bytes,
-                        allowPrinting: false,
-                        allowSharing: false,
-                        canChangePageFormat: false,
-                        canChangeOrientation: false,
-                        pdfFileName: filename,
-                        useActions: false,
-                        pagesBuilder: (context, pages) {
-                          return LayoutBuilder(
-                            builder: (context, inner) {
-                              final innerW = inner.maxWidth.isFinite
-                                  ? inner.maxWidth
-                                  : maxW;
-                              return InteractiveViewer(
-                                minScale: 0.35,
-                                maxScale: 5.0,
-                                constrained: false,
-                                boundaryMargin: const EdgeInsets.all(120),
-                                child: SingleChildScrollView(
-                                  child: Center(
-                                    child: ConstrainedBox(
-                                      constraints:
-                                          BoxConstraints(maxWidth: innerW),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          for (var i = 0; i < pages.length; i++) ...[
-                                            if (i > 0) const SizedBox(height: 12),
-                                            Material(
-                                              color: Colors.white,
-                                              elevation: 2,
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              clipBehavior: Clip.antiAlias,
-                                              child: Image(
-                                                image: pages[i].image,
-                                                width: math.min(
-                                                  math.max(32, innerW - 24),
-                                                  pages[i].width.toDouble(),
-                                                ),
-                                                fit: BoxFit.contain,
+                    return PdfPreview.builder(
+                      build: (PdfPageFormat format) async => bytes,
+                      allowPrinting: false,
+                      allowSharing: false,
+                      canChangePageFormat: false,
+                      canChangeOrientation: false,
+                      pdfFileName: filename,
+                      useActions: false,
+                      pagesBuilder: (context, pages) {
+                        return LayoutBuilder(
+                          builder: (context, inner) {
+                            final innerW = inner.maxWidth.isFinite
+                                ? inner.maxWidth
+                                : maxW;
+                            return InteractiveViewer(
+                              minScale: 0.35,
+                              maxScale: 5.0,
+                              constrained: false,
+                              boundaryMargin: const EdgeInsets.all(120),
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                child: Center(
+                                  child: ConstrainedBox(
+                                    constraints:
+                                        BoxConstraints(maxWidth: innerW),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        for (var i = 0; i < pages.length; i++) ...[
+                                          if (i > 0) const SizedBox(height: 12),
+                                          Material(
+                                            color: Colors.white,
+                                            elevation: 2,
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            clipBehavior: Clip.antiAlias,
+                                            child: Image(
+                                              image: pages[i].image,
+                                              width: math.min(
+                                                math.max(32, innerW - 24),
+                                                pages[i].width.toDouble(),
                                               ),
+                                              fit: BoxFit.contain,
                                             ),
-                                          ],
+                                          ),
                                         ],
-                                      ),
+                                      ],
                                     ),
                                   ),
                                 ),
-                              );
-                            },
-                          );
-                        },
-                      ),
+                              ),
+                            );
+                          },
+                        );
+                      },
                     );
                   },
                 ),
               ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    alignment: WrapAlignment.center,
-                    children: [
-                      FilledButton.icon(
-                        onPressed: () async {
-                          await Printing.layoutPdf(
-                            onLayout: (_) async => bytes,
-                            name: filename,
-                          );
-                        },
-                        icon: const Icon(Icons.print_rounded),
-                        label: const Text('Imprimir'),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          await Printing.sharePdf(
-                            bytes: bytes,
-                            filename: filename,
-                          );
-                        },
-                        icon: Icon(
-                          kIsWeb
-                              ? Icons.download_rounded
-                              : Icons.share_rounded,
-                        ),
-                        label: Text(kIsWeb ? 'Baixar PDF' : 'Partilhar'),
-                      ),
-                    ],
+              // Barra inferior compacta: Imprimir + Baixar/Partilhar.
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border(
+                    top: BorderSide(color: Colors.grey.shade300),
                   ),
+                ),
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: () async {
+                        await Printing.layoutPdf(
+                          onLayout: (_) async => bytes,
+                          name: filename,
+                        );
+                      },
+                      icon: const Icon(Icons.print_rounded),
+                      label: const Text('Imprimir'),
+                    ),
+                    const SizedBox(width: 10),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        await Printing.sharePdf(
+                          bytes: bytes,
+                          filename: filename,
+                        );
+                      },
+                      icon: Icon(
+                        kIsWeb
+                            ? Icons.download_rounded
+                            : Icons.share_rounded,
+                      ),
+                      label: Text(kIsWeb ? 'Baixar PDF' : 'Partilhar'),
+                    ),
+                  ],
                 ),
               ),
             ],
