@@ -15373,9 +15373,11 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
     final canDelete = widget.type == 'comments' && widget.canDeleteComments;
     return DraggableScrollableSheet(
       expand: false,
-      initialChildSize: 0.6,
-      maxChildSize: 0.95,
-      minChildSize: 0.4,
+      // TELA CHEIA ao tocar no card (RSVP/Curtidas/Comentários) — pedido do
+      // usuário. Ainda arrastável para baixo.
+      initialChildSize: 0.96,
+      maxChildSize: 0.98,
+      minChildSize: 0.5,
       builder: (ctx, scrollCtrl) => Column(
         children: [
           const SizedBox(height: 8),
@@ -15389,11 +15391,27 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
               ),
             ),
           ),
+          // Botão Voltar + título (padrão de tela cheia do sistema).
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text(
-              _titleLabel,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+            padding: const EdgeInsets.fromLTRB(4, 6, 12, 4),
+            child: Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () => Navigator.of(ctx).maybePop(),
+                  icon: const Icon(Icons.arrow_back_rounded, size: 22),
+                  label: const Text('Voltar',
+                      style: TextStyle(fontWeight: FontWeight.w800)),
+                ),
+                Expanded(
+                  child: Text(
+                    _titleLabel,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w800),
+                  ),
+                ),
+                const SizedBox(width: 64),
+              ],
             ),
           ),
           Padding(
