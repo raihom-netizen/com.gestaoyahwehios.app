@@ -197,8 +197,12 @@ class FirestoreWebGuard {
       return true;
     }
     if (isClientTerminated(e)) {
-      debugPrint('FirestoreWebGuard.handleFatalWebErrorIfNeeded: soft recover (terminated)');
-      unawaited(recoverFirestoreWebSession(allowHardReconnect: true));
+      // Cliente TERMINADO (failed-precondition: client already terminated) é
+      // IRRECUPERÁVEL sem reload — soft-recover NÃO des-termina. Força reload
+      // (bypass do cooldown): a página nova reinicia o cliente. Corrige o erro
+      // ao criar banco / carregar lançamentos depois de "Limpar cache".
+      debugPrint('FirestoreWebGuard: cliente TERMINADO — force reload da aba.');
+      reloadWebPageHard(force: true);
       return true;
     }
     return false;

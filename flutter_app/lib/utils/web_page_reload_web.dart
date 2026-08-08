@@ -8,13 +8,22 @@ const String _kHardReloadCountKey = 'gyh_hard_reload_count';
 const int _kHardReloadCooldownMs = 180000;
 
 /// Recarrega a aba (recuperação Firestore JS). URL **estável** (sem spam de `_r=`).
-void reloadWebPageHard() {
+///
+/// [force]: ignora o cooldown de 3min. Usado quando o cliente Firestore foi
+/// TERMINADO (`failed-precondition: client already terminated`) — nesse estado
+/// só um reload recupera, e a página nova re-inicializa o cliente (não há risco
+/// de loop pelo mesmo motivo). NÃO use force no assertion comum (aí o cooldown
+/// evita reload em cadeia).
+void reloadWebPageHard({bool force = false}) {
   try {
     final ss = html.window.sessionStorage;
     final now = DateTime.now().millisecondsSinceEpoch;
     final last = int.tryParse(ss[_kHardReloadAtKey] ?? '') ?? 0;
-    if (last > 0 && (now - last) < _kHardReloadCooldownMs) {
-      // Já tentámos — não voltar a navegar (quebra o loop do painel).
+    // force (cliente terminado): não bypassa 100% — usa um gap mínimo de 15s
+    // para recuperar rápido SEM virar loop apertado se o terminate reincidir.
+    final cooldown = force ? 15000 : _kHardReloadCooldownMs;
+    if (last > 0 && (now - last) < cooldown) {
+      // Já tentámos há pouco — não voltar a navegar (quebra o loop do painel).
       return;
     }
     final count = (int.tryParse(ss[_kHardReloadCountKey] ?? '') ?? 0) + 1;

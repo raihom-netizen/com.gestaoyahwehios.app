@@ -1681,14 +1681,18 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => DraggableScrollableSheet(
         expand: false,
-        initialChildSize: 0.88,
-        minChildSize: 0.38,
-        maxChildSize: 0.96,
+        // Tela cheia (padrão do módulo Financeiro).
+        initialChildSize: 0.95,
+        minChildSize: 0.40,
+        maxChildSize: 0.98,
         builder: (_, scrollCtrl) => _PanelFinanceContaMovimentos(
           tenantId: widget.tenantId,
           role: widget.role,
           contaId: contaId,
           contaNome: contaNome,
+          // Reusa os docs já carregados do painel (mesma fonte do saldo) —
+          // evita a query própria que falha no web (SDK) e devolvia 0.
+          allFinanceDocs: _financeAllDocs,
           scrollController: scrollCtrl,
           onReloadParent: () async {
             await _load();
@@ -2371,6 +2375,7 @@ class _PanelFinanceContaMovimentos extends StatefulWidget {
   final String role;
   final String contaId;
   final String contaNome;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> allFinanceDocs;
   final ScrollController scrollController;
   final Future<void> Function() onReloadParent;
 
@@ -2379,6 +2384,7 @@ class _PanelFinanceContaMovimentos extends StatefulWidget {
     required this.role,
     required this.contaId,
     required this.contaNome,
+    required this.allFinanceDocs,
     required this.scrollController,
     required this.onReloadParent,
   });
@@ -2392,17 +2398,34 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
   bool _loading = true;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = const [];
 
+  /// Lançamentos desta conta a partir dos docs JÁ carregados do painel
+  /// (mesma fonte do saldo -> nunca fica "0" enquanto o saldo mostra valor).
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _fromPanelDocs() {
+    final list = widget.allFinanceDocs
+        .where((d) => _churchPanelFinanceDocTouchesAccount(d, widget.contaId))
+        .toList();
+    list.sort((a, b) => _churchPanelParseDate(
+            b.data()['createdAt'] ?? b.data()['date'])
+        .compareTo(
+            _churchPanelParseDate(a.data()['createdAt'] ?? a.data()['date'])));
+    return list;
+  }
+
   @override
   void initState() {
     super.initState();
+    // Mostra IMEDIATAMENTE os lançamentos da conta (docs do painel), depois
+    // tenta atualizar do servidor (best-effort — se falhar no web, mantém).
+    _docs = _fromPanelDocs();
+    _loading = false;
     _sync();
   }
 
   Future<void> _sync() async {
-    setState(() => _loading = true);
+    if (mounted && _docs.isEmpty) setState(() => _loading = true);
     try {
       final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
-      final snap = await           ChurchUiCollections.financeiro(op)
+      final snap = await ChurchUiCollections.financeiro(op)
           .orderBy('createdAt', descending: true)
           .limit(1000)
           .get();
@@ -2410,14 +2433,23 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
       final list = snap.docs
           .where((d) => _churchPanelFinanceDocTouchesAccount(d, widget.contaId))
           .toList();
-      list.sort((a, b) => _churchPanelParseDate(b.data()['createdAt'] ?? b.data()['date'])
-          .compareTo(_churchPanelParseDate(a.data()['createdAt'] ?? a.data()['date'])));
+      list.sort((a, b) => _churchPanelParseDate(
+              b.data()['createdAt'] ?? b.data()['date'])
+          .compareTo(_churchPanelParseDate(
+              a.data()['createdAt'] ?? a.data()['date'])));
       setState(() {
-        _docs = list;
+        // Query trouxe algo -> usa (mais fresco). Veio vazia (falhou/limitou)
+        // -> mantém os do painel para não zerar a lista.
+        _docs = list.isNotEmpty ? list : _fromPanelDocs();
         _loading = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          if (_docs.isEmpty) _docs = _fromPanelDocs();
+          _loading = false;
+        });
+      }
     }
   }
 

@@ -1,2 +1,2 @@
 /// Stub mobile/desktop — reload da página só existe na Web.
-void reloadWebPageHard() {}
+void reloadWebPageHard({bool force = false}) {}
