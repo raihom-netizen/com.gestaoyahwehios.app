@@ -1681,10 +1681,10 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => DraggableScrollableSheet(
         expand: false,
-        // Tela cheia (padrão do módulo Financeiro).
-        initialChildSize: 0.95,
-        minChildSize: 0.40,
-        maxChildSize: 0.98,
+        // TELA CHEIA TOTAL (padrão Controle Total).
+        initialChildSize: 1.0,
+        minChildSize: 0.50,
+        maxChildSize: 1.0,
         builder: (_, scrollCtrl) => _PanelFinanceContaMovimentos(
           tenantId: widget.tenantId,
           role: widget.role,
