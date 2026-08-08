@@ -1323,6 +1323,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
           initialCategory: _categoryFilter,
           initialSearch: _searchCtrl.text,
           initialFinanceAccountId: _financeAccountFilterId,
+          initialSort: _gridSortMode,
           handlers: _fullscreenTxHandlers,
         ),
       ),

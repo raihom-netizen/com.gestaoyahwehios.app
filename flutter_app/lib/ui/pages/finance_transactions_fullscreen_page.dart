@@ -221,6 +221,7 @@ class FinanceTransactionsFullscreenPage extends StatefulWidget {
   final String? initialCategory;
   final String initialSearch;
   final String? initialFinanceAccountId;
+  final FinanceFaturaTxSortMode initialSort;
   final FinanceFullscreenHandlers handlers;
 
   const FinanceTransactionsFullscreenPage({
@@ -234,6 +235,7 @@ class FinanceTransactionsFullscreenPage extends StatefulWidget {
     this.initialCategory,
     required this.initialSearch,
     this.initialFinanceAccountId,
+    this.initialSort = FinanceFaturaTxSortMode.dateDesc,
     required this.handlers,
   });
 
@@ -270,7 +272,7 @@ class _FinanceTransactionsFullscreenPageState
   bool _gridSelectionMode = false;
   final Set<String> _gridSelectedIds = {};
   int _txDisplayLimit = _txPageSize;
-  FinanceFaturaTxSortMode _sortMode = FinanceFaturaTxSortMode.dateDesc;
+  late FinanceFaturaTxSortMode _sortMode;
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>>? _mergedDocs;
   bool _mergedLoading = true;
@@ -285,6 +287,7 @@ class _FinanceTransactionsFullscreenPageState
     super.initState();
     _accountsStream = FinanceAccountsService()
         .streamAccounts(widget.uid.trim());
+    _sortMode = widget.initialSort;
     _from = widget.initialFrom;
     _to = widget.initialTo;
     _statusFilter = widget.initialStatusFilter;
