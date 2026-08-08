@@ -145,6 +145,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   /// Filtro rápido da grid principal: Todos / Despesas / Receitas (só visualização).
   String _gridListTypeFilter = 'all';
+
+  /// Alvo de scroll da grade de lançamentos: tocar nos cards do topo
+  /// (Receitas/Despesas/Saldo) filtra a grade e rola até ela.
+  final GlobalKey _lancamentosGridKey = GlobalKey();
   FinanceFaturaTxSortMode _gridSortMode = FinanceFaturaTxSortMode.dateDesc;
   String? _categoryFilter;
   late Future<List<String>> _categoryFilterOptionsFuture;
@@ -6002,32 +6006,37 @@ class _FinanceScreenState extends State<FinanceScreen> {
         receitas: CurrencyFormats.formatBRL(totalIncome),
         despesas: CurrencyFormats.formatBRL(totalExpense),
         saldo: CurrencyFormats.formatBRL(saldoAcumulado),
-        onTapSaldoAbertura: () => _openFinanceInsightSheet(
-          scope: FinanceInsightScope.balance,
-          initialFrom: _from,
-          initialTo: _to,
-        ),
-        onTapReceitas: () => _openFinanceInsightSheet(
-          scope: FinanceInsightScope.income,
-          initialFrom: _from,
-          initialTo: _to,
-        ),
-        onTapDespesas: () => _openFinanceInsightSheet(
-          scope: FinanceInsightScope.expense,
-          initialFrom: _from,
-          initialTo: _to,
-        ),
-        onTapSaldo: () => _openFinanceInsightSheet(
-          scope: FinanceInsightScope.balance,
-          initialFrom: _from,
-          initialTo: _to,
-        ),
+        onTapSaldoAbertura: () => _showLancamentosFromCard('all'),
+        onTapReceitas: () => _showLancamentosFromCard('income'),
+        onTapDespesas: () => _showLancamentosFromCard('expense'),
+        onTapSaldo: () => _showLancamentosFromCard('all'),
         onTapSaldoContas: () => _openAllAccountsCategoryBreakdown(context),
         onExportPdf: widget.profile.hasActiveLicense
             ? () => unawaited(_openFinancialReportsPremiumSheet())
             : () => mostrarAvisoSeLicencaInativa(context, widget.profile),
       ),
     );
+  }
+
+  /// Tocar num card do topo (Receitas/Despesas/Saldo) filtra a **grade de
+  /// lançamentos** por tipo e rola a tela até ela — respeitando os filtros de
+  /// período/conta já ativos. Os gráficos continuam inline logo abaixo dos cards.
+  void _showLancamentosFromCard(String gridType) {
+    if (_gridListTypeFilter != gridType) {
+      setState(() => _gridListTypeFilter = gridType);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _lancamentosGridKey.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 420),
+          curve: Curves.easeOutCubic,
+          alignment: 0.02,
+        );
+      }
+    });
   }
 
   /// Gráficos do período (evolução receitas x despesas + totais/categoria) — reaproveita os
@@ -7504,7 +7513,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
                                         )),
                                       ),
                                       if (docs.isNotEmpty)
-                                        _buildGridListTypeBar(),
+                                        KeyedSubtree(
+                                          key: _lancamentosGridKey,
+                                          child: _buildGridListTypeBar(),
+                                        ),
                                       if (docs.isNotEmpty)
                                         Padding(
                                           padding: const EdgeInsets.fromLTRB(

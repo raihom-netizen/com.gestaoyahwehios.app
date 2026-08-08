@@ -183,9 +183,11 @@ class _FinanceAccountCategorySheetState
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     return DraggableScrollableSheet(
       expand: false,
-      initialChildSize: 0.78,
-      minChildSize: 0.38,
-      maxChildSize: 0.96,
+      // Abre praticamente em TELA CHEIA ao tocar no card do banco (pedido do
+      // usuário) — ainda arrastável para baixo até 40% se quiser encolher.
+      initialChildSize: 0.95,
+      minChildSize: 0.40,
+      maxChildSize: 0.98,
       builder: (context, scrollController) {
         return DecoratedBox(
           decoration: context.appSheetDecoration(radius: 22),
