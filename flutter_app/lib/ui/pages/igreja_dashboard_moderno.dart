@@ -1421,22 +1421,8 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                       );
                     },
                   ),
-                if (_dashCanFinance) ...[
-                  SizedBox(
-                    width: isNarrow ? double.infinity : 380,
-                    child: _PainelDespesasDashboard(
-                      tenantId: _effectiveTenantId,
-                      range: _resolvedDashFinanceRange,
-                      preset: _dashFinancePreset,
-                      role: widget.role,
-                      cpf: widget.cpf,
-                      podeVerFinanceiro: widget.podeVerFinanceiro,
-                      permissions: widget.permissions,
-                      isNarrow: isNarrow,
-                      financeRefreshTick: _financeDashTick,
-                    ),
-                  ),
-                ],
+                // Card "Despesas (painel)" removido a pedido do usuário —
+                // o painel inicial mostra apenas o "Saldo por conta" (acima).
               ],
               const SizedBox(height: 32),
             ],
