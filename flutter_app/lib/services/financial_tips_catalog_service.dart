@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:intl/intl.dart';
 
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/data/biblical_finance_tips.dart';
 import 'package:gestao_yahweh/data/finance_tip_bank_static.dart';
 import 'package:gestao_yahweh/models/finance_tip_bank_entry.dart';
@@ -331,7 +332,7 @@ class FinancialTipsCatalogService {
     try {
       yield* FirebaseFirestore.instance
           .doc(FinancialTipsHomeSyncService.docPath)
-          .snapshots()
+          .watchSafe()
           .asyncMap((homeSnap) async {
         final config = FinancialTipsHomeSyncService.parse(homeSnap.data());
         return _buildFromHomeConfig(config);

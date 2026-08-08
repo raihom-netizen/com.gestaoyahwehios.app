@@ -2,6 +2,7 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// Horários fixos da sincronização local do widget (app_config/widget_local_refresh).
 class WidgetRefreshIntervalConfigService {
@@ -91,7 +92,9 @@ class WidgetRefreshIntervalConfigService {
 
   static void startListening() {
     if (_sub != null) return;
-    _sub = FirebaseFirestore.instance.doc(docPath).snapshots().listen(
+    // Web: .watchSafe() faz polling (evita listener ao vivo persistente que
+    // dispara INTERNAL ASSERTION no WatchChangeAggregator do SDK JS).
+    _sub = FirebaseFirestore.instance.doc(docPath).watchSafe().listen(
       (snap) {
         final prev = scheduleKey;
         _applyFromMap(snap.data());

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 
 /// `app_config/pro_open_finance` — teto global de conexões bancárias (PRO + extras), editável no Admin.
 class ProOpenFinanceConfig {
@@ -31,7 +32,9 @@ class ProOpenFinanceConfigService {
       FirebaseFirestore.instance.collection('app_config').doc('pro_open_finance');
 
   static Stream<ProOpenFinanceConfig> watch() {
-    return _doc.snapshots().map((s) => ProOpenFinanceConfig.fromFirestore(s.data()));
+    // Web: .watchSafe() faz polling (evita mais um alvo de watch ao vivo que
+    // dispara INTERNAL ASSERTION no WatchChangeAggregator do SDK JS).
+    return _doc.watchSafe().map((s) => ProOpenFinanceConfig.fromFirestore(s.data()));
   }
 
   static Future<ProOpenFinanceConfig> getOnce() async {
