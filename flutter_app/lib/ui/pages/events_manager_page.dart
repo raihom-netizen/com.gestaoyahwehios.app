@@ -15218,9 +15218,75 @@ class _EventNamesSheet extends StatefulWidget {
 class _EventNamesSheetState extends State<_EventNamesSheet> {
   int _selectedIndex = 0;
   List<String> _names = [];
+  // uids alinhados a _names (mesmo índice) — necessário para remover
+  // (arrayRemove) curtidas/RSVP de forma precisa. Só usado em likes/rsvp.
+  List<String> _uids = [];
+  bool _selectionMode = false;
+  final Set<String> _selectedUids = {};
+  bool _clearing = false;
   bool _loading = false;
   String? _error;
   int _commentsStreamKey = 0;
+
+  /// Campo-array no doc do evento para o tipo atual (rsvp/likes).
+  String get _arrayField => widget.type == 'likes' ? 'likes' : 'rsvp';
+
+  /// Remove uids da curtida/RSVP (arrayRemove — preciso, não apaga o resto).
+  /// [all] esvazia a lista inteira. Recarrega ao terminar.
+  Future<void> _clearEngagement(List<String> uidsToRemove,
+      {bool all = false}) async {
+    if (widget.type == 'comments') return; // comentários têm fluxo próprio
+    if (!all && uidsToRemove.isEmpty) return;
+    setState(() => _clearing = true);
+    try {
+      final ref = _selected.eventRef;
+      if (all) {
+        await ref.update({_arrayField: <String>[]});
+      } else {
+        await ref.update({
+          _arrayField: FieldValue.arrayRemove(uidsToRemove),
+        });
+      }
+      if (!mounted) return;
+      setState(() {
+        _selectedUids.clear();
+        _selectionMode = false;
+        _clearing = false;
+      });
+      await _loadNames();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _clearing = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Não foi possível limpar: $e')),
+        );
+      }
+    }
+  }
+
+  Future<bool> _confirmClear(String msg) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Confirmar'),
+        content: Text(msg),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dctx).pop(true),
+            style: FilledButton.styleFrom(
+                backgroundColor: ThemeCleanPremium.error),
+            child: const Text('Limpar'),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
 
   _EventStats get _selected =>
       widget.stats[_selectedIndex.clamp(0, widget.stats.length - 1)];
@@ -15231,6 +15297,9 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
       _loading = true;
       _error = null;
       _names = [];
+      _uids = [];
+      _selectedUids.clear();
+      _selectionMode = false;
     });
     try {
       final ref = _selected.eventRef;
@@ -15265,6 +15334,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
         if (mounted) {
           setState(() {
             _names = list;
+            _uids = uids;
             _loading = false;
           });
         }
@@ -15297,6 +15367,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
         if (mounted) {
           setState(() {
             _names = list;
+            _uids = uids;
             _loading = false;
           });
         }
@@ -15614,6 +15685,83 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                         error: _names.isEmpty ? _error : null,
                         onRetry: _loadNames,
                       ),
+                      // Barra de ações: selecionar (um/vários/todos) + limpar.
+                      if (_names.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
+                          child: Row(
+                            children: [
+                              TextButton.icon(
+                                onPressed: _clearing
+                                    ? null
+                                    : () => setState(() {
+                                          _selectionMode = !_selectionMode;
+                                          if (!_selectionMode) {
+                                            _selectedUids.clear();
+                                          }
+                                        }),
+                                icon: Icon(
+                                    _selectionMode
+                                        ? Icons.close_rounded
+                                        : Icons.checklist_rounded,
+                                    size: 20),
+                                label: Text(
+                                    _selectionMode ? 'Cancelar' : 'Selecionar'),
+                              ),
+                              if (_selectionMode)
+                                TextButton(
+                                  onPressed: () => setState(() {
+                                    if (_selectedUids.length == _uids.length) {
+                                      _selectedUids.clear();
+                                    } else {
+                                      _selectedUids
+                                        ..clear()
+                                        ..addAll(_uids);
+                                    }
+                                  }),
+                                  child: Text(
+                                      _selectedUids.length == _uids.length
+                                          ? 'Nenhum'
+                                          : 'Todos'),
+                                ),
+                              const Spacer(),
+                              if (_selectionMode)
+                                FilledButton.icon(
+                                  onPressed:
+                                      (_clearing || _selectedUids.isEmpty)
+                                          ? null
+                                          : () async {
+                                              if (await _confirmClear(
+                                                  'Remover ${_selectedUids.length} selecionado(s) deste evento?')) {
+                                                await _clearEngagement(
+                                                    _selectedUids.toList());
+                                              }
+                                            },
+                                  icon: const Icon(Icons.delete_sweep_rounded,
+                                      size: 20),
+                                  label: Text('Limpar (${_selectedUids.length})'),
+                                  style: FilledButton.styleFrom(
+                                      backgroundColor: ThemeCleanPremium.error),
+                                )
+                              else
+                                TextButton.icon(
+                                  onPressed: _clearing
+                                      ? null
+                                      : () async {
+                                          if (await _confirmClear(
+                                              'Limpar TODA a lista deste evento? Esta ação remove todos os registros.')) {
+                                            await _clearEngagement(const [],
+                                                all: true);
+                                          }
+                                        },
+                                  icon: const Icon(Icons.delete_outline_rounded,
+                                      size: 20, color: Colors.red),
+                                  label: const Text('Limpar tudo',
+                                      style: TextStyle(color: Colors.red)),
+                                ),
+                            ],
+                          ),
+                        ),
                       Expanded(
                         child: _loading
                             ? const ChurchPanelLoadingBody()
@@ -15624,28 +15772,112 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                   style: TextStyle(color: Colors.grey.shade600),
                                 ),
                               )
-                            : ListView.builder(
-                                controller: scrollCtrl,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 8,
-                                ),
-                                itemCount: _names.length,
-                                itemBuilder: (_, i) => ListTile(
-                                  leading: CircleAvatar(
-                                    backgroundColor: ThemeCleanPremium.primary
-                                        .withValues(alpha: 0.12),
-                                    child: Text(
-                                      _names[i].isNotEmpty
-                                          ? _names[i][0].toUpperCase()
-                                          : '?',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
+                            : Stack(
+                                children: [
+                                  ListView.builder(
+                                    controller: scrollCtrl,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 8,
+                                    ),
+                                    itemCount: _names.length,
+                                    itemBuilder: (_, i) {
+                                      final uid =
+                                          i < _uids.length ? _uids[i] : '';
+                                      final selected =
+                                          _selectedUids.contains(uid);
+                                      return Card(
+                                        elevation: 0,
+                                        margin: const EdgeInsets.symmetric(
+                                            vertical: 3),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(14),
+                                          side: BorderSide(
+                                              color: selected
+                                                  ? ThemeCleanPremium.primary
+                                                  : Colors.grey.shade200),
+                                        ),
+                                        child: ListTile(
+                                          shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(14)),
+                                          onTap: (_selectionMode &&
+                                                  uid.isNotEmpty)
+                                              ? () => setState(() {
+                                                    if (selected) {
+                                                      _selectedUids.remove(uid);
+                                                    } else {
+                                                      _selectedUids.add(uid);
+                                                    }
+                                                  })
+                                              : null,
+                                          leading: _selectionMode
+                                              ? Checkbox(
+                                                  value: selected,
+                                                  onChanged: uid.isEmpty
+                                                      ? null
+                                                      : (v) => setState(() {
+                                                            if (v == true) {
+                                                              _selectedUids
+                                                                  .add(uid);
+                                                            } else {
+                                                              _selectedUids
+                                                                  .remove(uid);
+                                                            }
+                                                          }),
+                                                )
+                                              : CircleAvatar(
+                                                  backgroundColor:
+                                                      ThemeCleanPremium.primary
+                                                          .withValues(
+                                                              alpha: 0.12),
+                                                  child: Text(
+                                                    _names[i].isNotEmpty
+                                                        ? _names[i][0]
+                                                            .toUpperCase()
+                                                        : '?',
+                                                    style: const TextStyle(
+                                                        fontWeight:
+                                                            FontWeight.w700),
+                                                  ),
+                                                ),
+                                          title: Text(_names[i],
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis),
+                                          trailing: (!_selectionMode &&
+                                                  uid.isNotEmpty)
+                                              ? IconButton(
+                                                  icon: const Icon(
+                                                      Icons.close_rounded,
+                                                      size: 20,
+                                                      color: Colors.red),
+                                                  tooltip: 'Remover',
+                                                  onPressed: _clearing
+                                                      ? null
+                                                      : () async {
+                                                          if (await _confirmClear(
+                                                              'Remover "${_names[i]}" desta lista?')) {
+                                                            await _clearEngagement(
+                                                                [uid]);
+                                                          }
+                                                        },
+                                                )
+                                              : null,
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                  if (_clearing)
+                                    const Positioned.fill(
+                                      child: ColoredBox(
+                                        color: Color(0x66FFFFFF),
+                                        child: Center(
+                                            child:
+                                                CircularProgressIndicator()),
                                       ),
                                     ),
-                                  ),
-                                  title: Text(_names[i]),
-                                ),
+                                ],
                               ),
                       ),
                     ],
