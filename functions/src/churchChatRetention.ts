@@ -21,6 +21,7 @@ export const pruneExpiredChurchChatMessages = functions
     const bucket = admin.storage().bucket();
     const now = admin.firestore.Timestamp.now();
     let deleted = 0;
+    let preserved = 0;
     const maxRounds = 20;
     for (let round = 0; round < maxRounds; round++) {
       let snap;
@@ -36,8 +37,33 @@ export const pruneExpiredChurchChatMessages = functions
       }
       if (snap.empty) break;
       for (const doc of snap.docs) {
-        const d = doc.data() as { storagePath?: string };
+        const d = doc.data() as { storagePath?: string; type?: string };
         const path = String(d.storagePath || "").trim();
+        const type = String(d.type || "").trim().toLowerCase();
+        // TEXTO NUNCA é apagado por retenção — nem com expiresAt legado.
+        // Só mídia (foto/vídeo/áudio/sticker/arquivo) expira em 60 dias.
+        // Reconhece mídia por storagePath OU por type não-textual; na dúvida
+        // (type vazio e sem path) trata como texto e PRESERVA.
+        const isMedia =
+          path !== "" ||
+          (type !== "" &&
+            type !== "text" &&
+            type !== "texto" &&
+            type !== "message" &&
+            type !== "chat");
+        if (!isMedia) {
+          // Remove o expiresAt legado -> texto vira permanente e a query não
+          // devolve o mesmo doc para sempre (senão reprocessaria em loop).
+          try {
+            await doc.ref.update({
+              expiresAt: admin.firestore.FieldValue.delete(),
+            });
+            preserved++;
+          } catch (e) {
+            functions.logger.warn("churchChatRetention: preservar texto", { id: doc.id, e });
+          }
+          continue;
+        }
         if (path) {
           try {
             await bucket.file(path).delete({ ignoreNotFound: true });
@@ -54,10 +80,8 @@ export const pruneExpiredChurchChatMessages = functions
       }
       if (snap.size < 500) break;
     }
-    if (deleted === 0) {
-      functions.logger.info("churchChatRetention: nada a expirar");
-    } else {
-      functions.logger.info(`churchChatRetention: removidas ${deleted} mensagens`);
-    }
+    functions.logger.info(
+      `churchChatRetention: midia removida=${deleted}, texto preservado=${preserved}`
+    );
     return null;
   });
