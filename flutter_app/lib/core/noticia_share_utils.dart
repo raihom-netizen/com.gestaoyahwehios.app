@@ -442,14 +442,16 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
       if (!isValidImageUrl(u) || looksLikeHostedVideoFileUrl(u)) return null;
       Uint8List? bytes;
       if (isFirebaseStorageHttpUrl(u)) {
+        // 12s (era 3s): no web/rede móvel um flyer grande não baixava em 3s →
+        // a foto era descartada e o compartilhamento ia só com texto/link.
         bytes = await firebaseStorageBytesFromDownloadUrl(
           u,
           maxBytes: kNoticiaSharePhotoMaxBytes,
-        ).timeout(const Duration(seconds: 3), onTimeout: () => null);
+        ).timeout(const Duration(seconds: 12), onTimeout: () => null);
       }
       bytes ??= await http
           .get(Uri.parse(u), headers: const {'Accept': 'image/*'})
-          .timeout(const Duration(seconds: 2))
+          .timeout(const Duration(seconds: 8)) // era 2s
           .then((r) => r.statusCode == 200 && r.bodyBytes.isNotEmpty
               ? r.bodyBytes
               : null);

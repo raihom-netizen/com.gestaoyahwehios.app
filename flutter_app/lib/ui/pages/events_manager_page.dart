@@ -787,6 +787,11 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           docId: doc.id,
           data: doc.data(),
         );
+        // Painel «Próximos dias» e site público servem cache próprio (RAM/disco).
+        // Sem limpar, o evento excluído continuava no card/site até o TTL vencer
+        // (o mesmo já era feito para eventos fixos em _deleteTemplate).
+        unawaited(PanelProgramacaoLoader.clear(_tid));
+        FirestoreReadResilience.forgetKeysWithPrefix('panel_$_tid');
         if (mounted) {
           ScaffoldMessenger.of(
             context,
@@ -947,7 +952,22 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final titleCtrl = TextEditingController(
       text: (data['title'] ?? '').toString(),
     );
-    final dow = ValueNotifier<int>((data['weekday'] ?? 7) as int);
+    // Multi-dias da semana: lê `weekdays` (array) ou cai no `weekday` único
+    // legado. Guarda um Set<int> (1=Seg … 7=Dom).
+    final initWeekdays = <int>{};
+    final wdListInit = data['weekdays'];
+    if (wdListInit is List) {
+      for (final e in wdListInit) {
+        final n = e is num ? e.toInt() : int.tryParse('${e ?? ''}');
+        if (n != null && n >= 1 && n <= 7) initWeekdays.add(n);
+      }
+    }
+    if (initWeekdays.isEmpty) {
+      final w = data['weekday'];
+      final n = w is num ? w.toInt() : int.tryParse('${w ?? ''}');
+      initWeekdays.add((n != null && n >= 1 && n <= 7) ? n : 7);
+    }
+    final dow = ValueNotifier<Set<int>>(initWeekdays);
     final timeCtrl = TextEditingController(
       text: (data['time'] ?? '19:30').toString(),
     );
@@ -1233,19 +1253,30 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        ValueListenableBuilder<int>(
+                        ValueListenableBuilder<Set<int>>(
                           valueListenable: dow,
                           builder: (_, selectedDow, _) => Wrap(
                             spacing: 8,
                             runSpacing: 8,
-                            children: List.generate(7, (i) {
+                            children: [
+                              ...List.generate(7, (i) {
                               final day = i + 1;
                               final color = _eventoFixoWeekdayColors[i];
-                              final selected = selectedDow == day;
+                              final selected = selectedDow.contains(day);
                               return Material(
                                 color: Colors.transparent,
                                 child: InkWell(
-                                  onTap: () => dow.value = day,
+                                  onTap: () {
+                                    // Multi-seleção: liga/desliga o dia,
+                                    // mantendo pelo menos 1 selecionado.
+                                    final next = Set<int>.from(selectedDow);
+                                    if (next.contains(day)) {
+                                      if (next.length > 1) next.remove(day);
+                                    } else {
+                                      next.add(day);
+                                    }
+                                    dow.value = next;
+                                  },
                                   borderRadius: BorderRadius.circular(14),
                                   child: AnimatedContainer(
                                     duration: const Duration(milliseconds: 180),
@@ -1284,6 +1315,45 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                 ),
                               );
                             }),
+                              // Chip "Todos os dias" — liga/desliga todos.
+                              Builder(builder: (_) {
+                                final all = selectedDow.length == 7;
+                                return Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: () => dow.value = all
+                                        ? <int>{DateTime.monday}
+                                        : {1, 2, 3, 4, 5, 6, 7},
+                                    borderRadius: BorderRadius.circular(14),
+                                    child: AnimatedContainer(
+                                      duration:
+                                          const Duration(milliseconds: 180),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 14, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: all
+                                            ? ThemeCleanPremium.primary
+                                            : ThemeCleanPremium.primary
+                                                .withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(14),
+                                        border: Border.all(
+                                          color: ThemeCleanPremium.primary
+                                              .withValues(
+                                                  alpha: all ? 1 : 0.28),
+                                        ),
+                                      ),
+                                      child: Text('Todos',
+                                          style: TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 13,
+                                              color: all
+                                                  ? Colors.white
+                                                  : ThemeCleanPremium.primary)),
+                                    ),
+                                  ),
+                                );
+                              }),
+                            ],
                           ),
                         ),
                         const SizedBox(height: 14),
@@ -1932,7 +2002,12 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     }
     final payload = <String, dynamic>{
       'title': titleCtrl.text.trim(),
-      'weekday': dow.value,
+      // `weekday` (primeiro dia) mantém retrocompatibilidade com a expansão
+      // legada; `weekdays` é a lista completa (multi-dias).
+      'weekday': (dow.value.toList()..sort()).isEmpty
+          ? 7
+          : (dow.value.toList()..sort()).first,
+      'weekdays': (dow.value.toList()..sort()),
       'time': timeCtrl.text.trim(),
       'location': locCtrl.text.trim(),
       'recurrence': recurrence.value,

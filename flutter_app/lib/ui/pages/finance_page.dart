@@ -7545,11 +7545,14 @@ class _FinanceScreenState extends State<FinanceScreen> {
                                           balancePeriod: balance,
                                         )),
                                       ),
-                                      if (docs.isNotEmpty)
-                                        KeyedSubtree(
-                                          key: _lancamentosGridKey,
-                                          child: _buildGridListTypeBar(),
-                                        ),
+                                      // Filtros (Todos/Receitas/Despesas)
+                                      // SEMPRE visíveis. Antes ficavam sob
+                                      // `docs.isNotEmpty` → período sem
+                                      // lançamentos deixava a tela BRANCA.
+                                      KeyedSubtree(
+                                        key: _lancamentosGridKey,
+                                        child: _buildGridListTypeBar(),
+                                      ),
                                       if (docs.isNotEmpty)
                                         Padding(
                                           padding: const EdgeInsets.fromLTRB(
@@ -7558,6 +7561,40 @@ class _FinanceScreenState extends State<FinanceScreen> {
                                             value: _gridSortMode,
                                             onChanged: (mode) => setState(
                                                 () => _gridSortMode = mode),
+                                          ),
+                                        ),
+                                      // Período sem nenhum lançamento: empty-state
+                                      // claro em vez de tela branca.
+                                      if (docs.isEmpty && !_mainPeriodLoading)
+                                        Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                              24, 20, 24, 28),
+                                          child: Column(
+                                            children: [
+                                              Icon(Icons.receipt_long_rounded,
+                                                  size: 46,
+                                                  color: context.appTextMuted),
+                                              const SizedBox(height: 10),
+                                              Text(
+                                                'Nenhum lançamento neste período.',
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                    fontSize: 15,
+                                                    fontWeight: FontWeight.w800,
+                                                    color:
+                                                        context.appTextPrimary),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                'Troque o período no topo, ou toque em + Receita / + Despesa para adicionar.',
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                    fontSize: 13,
+                                                    height: 1.35,
+                                                    color: context
+                                                        .appTextSecondary),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       if (docs.isNotEmpty && gridDocs.isEmpty)

@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/core/finance_church_ops.dart'
 import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
+import 'package:gestao_yahweh/ui/widgets/multi_date_month_picker_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/holiday_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_date_range_picker_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
@@ -1828,40 +1829,64 @@ class _CalendarPageState extends State<CalendarPage>
         if (!eventTemplateIncludeInAgenda(m)) continue;
         final title = (m['title'] ?? 'Culto').toString().trim();
         if (title.isEmpty) continue;
-        final wd = (m['weekday'] is int) ? (m['weekday'] as int).clamp(1, 7) : 7;
+        // `weekday` pode chegar como int, num (double 1.0 — a desserialização
+        // de cache JSON transforma inteiros em double) ou String ("1") em
+        // templates legados. O antigo `is int ? ... : 7` caía no default
+        // DOMINGO (7) nesses casos → jogava o culto de Segunda para o Domingo.
+        final wdRaw = m['weekday'];
+        final int wd = wdRaw is int
+            ? wdRaw
+            : (wdRaw is num
+                ? wdRaw.toInt()
+                : int.tryParse('${wdRaw ?? ''}'.trim()) ?? 0);
+        if (wd < 1 || wd > 7) continue; // weekday inválido: não inventa Domingo
         final time = (m['time'] ?? '19:30').toString();
         final rec = (m['recurrence'] ?? 'weekly').toString();
         final loc = (m['location'] ?? '').toString();
-        final dates = expandTemplateOccurrencesInRange(
-          weekday: wd,
-          timeHHmm: time,
-          recurrence: rec,
-          rangeStart: rangeStart,
-          rangeEnd: rangeEnd,
-          validFrom: (m['validFrom'] as Timestamp?)?.toDate(),
-          validUntil: (m['validUntil'] as Timestamp?)?.toDate(),
-        );
-        for (final dt in dates) {
-          final dk = '${_normTitleDedupe(title)}|${_dayKey(dt)}';
-          if (dedupe.contains(dk)) continue;
-          dedupe.add(dk);
-          final dayKey = _dayKey(dt);
-          final cat = _categoryKeyFromLegacyType(title);
-          map.putIfAbsent(dayKey, () => []).add(_CalendarEvent(
-                id: 'virt_tpl_${doc.id}_$dayKey',
-                title: title,
-                type: _normalizeType(title),
-                dateTime: dt,
-                description: loc.isNotEmpty ? 'Local: $loc' : '',
-                source: 'noticias',
-                eventColorHex: _colorToHex(
-                    _categoryColors[cat] ?? ThemeCleanPremium.primary),
-                categoryKey: cat,
-                publicSite: true,
-                location: loc,
-                templateId: doc.id,
-                generatedFromTemplate: true,
-              ));
+        // Multi-dias: expande cada dia de `weekdays` (array) ou o `wd` único.
+        final weekdaysList = <int>[];
+        final wl = m['weekdays'];
+        if (wl is List) {
+          for (final e in wl) {
+            final n = e is num ? e.toInt() : int.tryParse('${e ?? ''}');
+            if (n != null && n >= 1 && n <= 7 && !weekdaysList.contains(n)) {
+              weekdaysList.add(n);
+            }
+          }
+        }
+        if (weekdaysList.isEmpty) weekdaysList.add(wd);
+        for (final w in weekdaysList) {
+          final dates = expandTemplateOccurrencesInRange(
+            weekday: w,
+            timeHHmm: time,
+            recurrence: rec,
+            rangeStart: rangeStart,
+            rangeEnd: rangeEnd,
+            validFrom: (m['validFrom'] as Timestamp?)?.toDate(),
+            validUntil: (m['validUntil'] as Timestamp?)?.toDate(),
+          );
+          for (final dt in dates) {
+            final dk = '${_normTitleDedupe(title)}|${_dayKey(dt)}';
+            if (dedupe.contains(dk)) continue;
+            dedupe.add(dk);
+            final dayKey = _dayKey(dt);
+            final cat = _categoryKeyFromLegacyType(title);
+            map.putIfAbsent(dayKey, () => []).add(_CalendarEvent(
+                  id: 'virt_tpl_${doc.id}_${w}_$dayKey',
+                  title: title,
+                  type: _normalizeType(title),
+                  dateTime: dt,
+                  description: loc.isNotEmpty ? 'Local: $loc' : '',
+                  source: 'noticias',
+                  eventColorHex: _colorToHex(
+                      _categoryColors[cat] ?? ThemeCleanPremium.primary),
+                  categoryKey: cat,
+                  publicSite: true,
+                  location: loc,
+                  templateId: doc.id,
+                  generatedFromTemplate: true,
+                ));
+          }
         }
       }
     } catch (e) {
@@ -5318,6 +5343,42 @@ class _CalendarPageState extends State<CalendarPage>
                       const Size(0, ThemeCleanPremium.minTouchTarget),
                 ),
               ),
+              const SizedBox(height: 10),
+              // Selecionar VÁRIAS datas (dias não contíguos) — abre o picker
+              // "Selecione a(s) data(s)" e cria o evento em cada data.
+              OutlinedButton.icon(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  final picked = await showMultiDateMonthPickerDialog(
+                    context: context,
+                    month: day,
+                    initialSelected: [day],
+                  );
+                  if (!mounted ||
+                      picked == null ||
+                      picked.isEmpty) {
+                    return;
+                  }
+                  await _showAddEvent(
+                    presetDate: picked.first,
+                    multiDates: picked,
+                  );
+                },
+                icon: const Icon(Icons.date_range_rounded, size: 22),
+                label: Text(
+                  'Selecionar vários dias',
+                  style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w700, fontSize: 15),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: actionBlue,
+                  side: BorderSide(color: actionBlue.withValues(alpha: 0.5)),
+                  padding: EdgeInsets.symmetric(
+                      vertical: isMobile ? 16 : 14),
+                  minimumSize:
+                      const Size(0, ThemeCleanPremium.minTouchTarget),
+                ),
+              ),
               if (agendaDeletable.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
@@ -5738,6 +5799,9 @@ class _CalendarPageState extends State<CalendarPage>
     DateTime? presetDate,
     _CalendarEvent? existing,
     DocumentSnapshot<Map<String, dynamic>>? templateDoc,
+    // Datas avulsas escolhidas no picker "Selecione a(s) data(s)" — cria um
+    // evento na agenda em CADA data (dias não contíguos).
+    List<DateTime>? multiDates,
   }) async {
     await _loadEventCategories();
     Map<String, dynamic>? existingDoc;
@@ -5889,7 +5953,24 @@ class _CalendarPageState extends State<CalendarPage>
                   borderRadius: BorderRadius.circular(2),
                 ),
               )),
-              const SizedBox(height: ThemeCleanPremium.spaceMd),
+              const SizedBox(height: 6),
+              // Botão "Voltar" no topo — padrão de todas as telas de inclusão/edição.
+              Builder(
+                builder: (bctx) => Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => Navigator.of(bctx).maybePop(),
+                    icon: const Icon(Icons.arrow_back_rounded, size: 20),
+                    label: const Text('Voltar'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: ThemeCleanPremium.primary,
+                      textStyle: GoogleFonts.poppins(
+                          fontSize: 14, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
               Text(
                   existing == null
                       ? 'Novo culto / compromisso'
@@ -6890,7 +6971,9 @@ class _CalendarPageState extends State<CalendarPage>
                                 });
                                 muralNoticiaId = notRef.id;
                               }
-                              if (isSameDay(dayStart, dayEnd)) {
+                              if (isSameDay(dayStart, dayEnd) &&
+                                  !(multiDates != null &&
+                                      multiDates.length > 1)) {
                                 final starts =
                                     _expandAgendaRecurrence(startBase, rec);
                                 final batch = ChurchRepository.batch();
@@ -6945,10 +7028,25 @@ class _CalendarPageState extends State<CalendarPage>
                                 // Vários dias: um documento na agenda por dia, mesmos horários em cada dia.
                                 final batch = ChurchRepository.batch();
                                 final seriesId = _agenda.doc().id;
-                                final daysCount =
-                                    dayEnd.difference(dayStart).inDays + 1;
-                                for (var t = 0; t < daysCount; t++) {
-                                  final d = dayStart.add(Duration(days: t));
+                                // Datas avulsas (picker multi-datas) ou o range
+                                // contíguo (data inicial → data final).
+                                final days = (multiDates != null &&
+                                        multiDates.length > 1)
+                                    ? (multiDates
+                                        .map((x) =>
+                                            DateTime(x.year, x.month, x.day))
+                                        .toList()
+                                      ..sort())
+                                    : [
+                                        for (var t = 0;
+                                            t <=
+                                                dayEnd
+                                                    .difference(dayStart)
+                                                    .inDays;
+                                            t++)
+                                          dayStart.add(Duration(days: t))
+                                      ];
+                                for (final d in days) {
                                   final (st, en) = _agendaTimeWindowForOneDay(
                                     d, sh, sm, eh, em);
                                   final ref = _agenda.doc();
@@ -6999,12 +7097,16 @@ class _CalendarPageState extends State<CalendarPage>
                               unawaited(
                                   ChurchAgendaLoadService.invalidate(_churchId));
                               if (ctx.mounted) {
-                                if (!isSameDay(dayStart, dayEnd)) {
-                                  final n =
-                                      dayEnd.difference(dayStart).inDays + 1;
+                                final multiN = (multiDates != null &&
+                                        multiDates.length > 1)
+                                    ? multiDates.length
+                                    : (!isSameDay(dayStart, dayEnd)
+                                        ? dayEnd.difference(dayStart).inDays + 1
+                                        : 0);
+                                if (multiN > 0) {
                                   ScaffoldMessenger.of(ctx).showSnackBar(
                                     ThemeCleanPremium.successSnackBar(
-                                      'Evento replicado em $n dia(s) na agenda.',
+                                      'Evento criado em $multiN dia(s) na agenda.',
                                     ),
                                   );
                                 } else {

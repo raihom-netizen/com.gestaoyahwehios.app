@@ -217,6 +217,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   void _refreshMasterPanelShieldVisibility() {
     final user = firebaseDefaultAuth.currentUser;
     final byAccount = AppConstants.isProductMasterAccount(
+      uid: user?.uid,
       email: user?.email,
       cpfDigitsOrRaw: widget.cpf,
     );

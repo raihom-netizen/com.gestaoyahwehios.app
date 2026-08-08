@@ -35,8 +35,14 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.scheduledEventoReminders = void 0;
 /**
- * Lembretes push — eventos da igreja ~24h e ~60min antes de `startAt`.
+ * Lembretes push — eventos/cultos da igreja ~24h e ~60min antes do horário.
  * Respeita tópico `gypush_{churchId}_evento` (preferência pushEventos no app).
+ *
+ * Cobre DUAS fontes:
+ *  - coleção `eventos` (mural / feed) — campo `startAt`;
+ *  - coleção `agenda` (cultos/eventos lançados direto na Agenda) — campo
+ *    `startTime`, filtrado a categorias culto/evento (não dispara para
+ *    compromisso interno de liderança etc.).
  */
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -56,6 +62,83 @@ function eventTitle(d) {
     const t = String(d.title || d.titulo || "Evento").trim();
     return t || "Evento";
 }
+/** Envia (se estiver na janela) os lembretes 24h/60m de UM documento. */
+async function sendRemindersForDoc(tenantId, doc, eventMs, now, deepLinkPath) {
+    const d = doc.data();
+    const diffMs = eventMs - now;
+    let s24 = 0;
+    let s60 = 0;
+    if (diffMs <= 0)
+        return { s24, s60 };
+    const title = clip(eventTitle(d), 80);
+    const when = new Date(eventMs).toLocaleString("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+    });
+    const in24hWindow = diffMs >= MS_24H - WINDOW_MS && diffMs <= MS_24H + WINDOW_MS;
+    if (in24hWindow && !d.eventReminder24hSentAt) {
+        try {
+            await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
+                topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, "evento"),
+                title: "📅 Evento amanhã",
+                body: clip(`${title} • ${when}`, 160),
+                data: {
+                    type: "evento_reminder",
+                    reminder: "24h",
+                    tenantId,
+                    eventoId: doc.id,
+                    click_action: "FLUTTER_NOTIFICATION_CLICK",
+                    deepLink: (0, pushNovoConteudo_1.buildGyNotificationDeepLink)(tenantId, deepLinkPath),
+                },
+                module: "evento",
+            }));
+            await doc.ref.update({
+                eventReminder24hSentAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            s24++;
+        }
+        catch (e) {
+            functions.logger.error("FCM 24h evento", { tenantId, id: doc.id, e });
+        }
+    }
+    const in60Window = diffMs >= MS_60M - WINDOW_MS && diffMs <= MS_60M + WINDOW_MS;
+    if (in60Window && !d.eventReminder60mSentAt) {
+        try {
+            await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
+                topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, "evento"),
+                title: "📅 Evento em 1 hora",
+                body: clip(`${title} • ${when}`, 160),
+                data: {
+                    type: "evento_reminder",
+                    reminder: "60m",
+                    tenantId,
+                    eventoId: doc.id,
+                    click_action: "FLUTTER_NOTIFICATION_CLICK",
+                    deepLink: (0, pushNovoConteudo_1.buildGyNotificationDeepLink)(tenantId, deepLinkPath),
+                },
+                module: "evento",
+            }));
+            await doc.ref.update({
+                eventReminder60mSentAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            s60++;
+        }
+        catch (e) {
+            functions.logger.error("FCM 60m evento", { tenantId, id: doc.id, e });
+        }
+    }
+    return { s24, s60 };
+}
+/** Só lembra a igreja de itens da Agenda que são culto/evento (não interno). */
+function agendaDocIsChurchEvent(d) {
+    const cat = String(d.category || d.categoria || d.eventCategoryName || "")
+        .toLowerCase();
+    if (cat.includes("culto") || cat.includes("evento"))
+        return true;
+    // Sem categoria clara: publica no site/mural => é evento da igreja.
+    if (d.publicSite === true)
+        return true;
+    return false;
+}
 exports.scheduledEventoReminders = functions
     .region("us-central1")
     .runWith({ timeoutSeconds: 300, memory: "512MB" })
@@ -64,88 +147,54 @@ exports.scheduledEventoReminders = functions
     .onRun(async () => {
     const now = Date.now();
     const horizon = now + 50 * 60 * 60 * 1000;
+    const startTs = admin.firestore.Timestamp.fromMillis(now);
+    const endTs = admin.firestore.Timestamp.fromMillis(horizon);
     const igrejasSnap = await db.collection("igrejas").get();
     let sent24 = 0;
     let sent60 = 0;
     for (const church of igrejasSnap.docs) {
         const tenantId = church.id;
-        const col = db.collection("igrejas").doc(tenantId).collection("eventos");
-        let q;
+        const base = db.collection("igrejas").doc(tenantId);
+        // 1) Coleção `eventos` (mural/feed) — campo startAt.
         try {
-            q = await col
-                .where("startAt", ">=", admin.firestore.Timestamp.fromMillis(now))
-                .where("startAt", "<=", admin.firestore.Timestamp.fromMillis(horizon))
+            const q = await base
+                .collection("eventos")
+                .where("startAt", ">=", startTs)
+                .where("startAt", "<=", endTs)
                 .get();
+            for (const doc of q.docs) {
+                const ts = doc.data().startAt;
+                if (!ts || typeof ts.toMillis !== "function")
+                    continue;
+                const r = await sendRemindersForDoc(tenantId, doc, ts.toMillis(), now, `evento/${doc.id}`);
+                sent24 += r.s24;
+                sent60 += r.s60;
+            }
         }
         catch (e) {
-            functions.logger.warn("eventoReminders query", { tenantId, e });
-            continue;
+            functions.logger.warn("eventoReminders eventos query", { tenantId, e });
         }
-        for (const doc of q.docs) {
-            const d = doc.data();
-            const ts = d.startAt;
-            if (!ts || typeof ts.toMillis !== "function")
-                continue;
-            const eventMs = ts.toMillis();
-            const diffMs = eventMs - now;
-            if (diffMs <= 0)
-                continue;
-            const title = clip(eventTitle(d), 80);
-            const when = ts.toDate().toLocaleString("pt-BR", {
-                timeZone: "America/Sao_Paulo",
-            });
-            const in24hWindow = diffMs >= MS_24H - WINDOW_MS && diffMs <= MS_24H + WINDOW_MS;
-            if (in24hWindow && !d.eventReminder24hSentAt) {
-                try {
-                    await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
-                        topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, "evento"),
-                        title: "📅 Evento amanhã",
-                        body: clip(`${title} • ${when}`, 160),
-                        data: {
-                            type: "evento_reminder",
-                            reminder: "24h",
-                            tenantId,
-                            eventoId: doc.id,
-                            click_action: "FLUTTER_NOTIFICATION_CLICK",
-                            deepLink: (0, pushNovoConteudo_1.buildGyNotificationDeepLink)(tenantId, `evento/${doc.id}`),
-                        },
-                        module: "evento",
-                    }));
-                    await doc.ref.update({
-                        eventReminder24hSentAt: admin.firestore.FieldValue.serverTimestamp(),
-                    });
-                    sent24++;
-                }
-                catch (e) {
-                    functions.logger.error("FCM 24h evento", { tenantId, id: doc.id, e });
-                }
+        // 2) Coleção `agenda` (cultos/eventos lançados direto) — campo startTime.
+        try {
+            const qa = await base
+                .collection("agenda")
+                .where("startTime", ">=", startTs)
+                .where("startTime", "<=", endTs)
+                .get();
+            for (const doc of qa.docs) {
+                const data = doc.data();
+                if (!agendaDocIsChurchEvent(data))
+                    continue;
+                const ts = data.startTime;
+                if (!ts || typeof ts.toMillis !== "function")
+                    continue;
+                const r = await sendRemindersForDoc(tenantId, doc, ts.toMillis(), now, "agenda");
+                sent24 += r.s24;
+                sent60 += r.s60;
             }
-            const in60Window = diffMs >= MS_60M - WINDOW_MS && diffMs <= MS_60M + WINDOW_MS;
-            if (in60Window && !d.eventReminder60mSentAt) {
-                try {
-                    await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
-                        topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, "evento"),
-                        title: "📅 Evento em 1 hora",
-                        body: clip(`${title} • ${when}`, 160),
-                        data: {
-                            type: "evento_reminder",
-                            reminder: "60m",
-                            tenantId,
-                            eventoId: doc.id,
-                            click_action: "FLUTTER_NOTIFICATION_CLICK",
-                            deepLink: (0, pushNovoConteudo_1.buildGyNotificationDeepLink)(tenantId, `evento/${doc.id}`),
-                        },
-                        module: "evento",
-                    }));
-                    await doc.ref.update({
-                        eventReminder60mSentAt: admin.firestore.FieldValue.serverTimestamp(),
-                    });
-                    sent60++;
-                }
-                catch (e) {
-                    functions.logger.error("FCM 60m evento", { tenantId, id: doc.id, e });
-                }
-            }
+        }
+        catch (e) {
+            functions.logger.warn("eventoReminders agenda query", { tenantId, e });
         }
     }
     functions.logger.info("scheduledEventoReminders done", { sent24, sent60 });

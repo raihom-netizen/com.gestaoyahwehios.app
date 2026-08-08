@@ -239,6 +239,10 @@ service cloud.firestore {
     match /promotions/{promoId} { allow read: if true; allow write: if isMaster(); }
     match /landing_content/{docId} { allow read: if true; allow write: if isMaster(); }
     match /app_config/{docId} { allow read: if true; allow write: if isMaster(); }
+    // Dicas financeiras (conteúdo público não-sensível): todos leem; só o master
+    // (Painel Master) cadastra/edita. Sem esta regra caía no deny-by-default →
+    // master não conseguia cadastrar e o app dependia só do fallback local.
+    match /financial_tips/{tipId} { allow read: if true; allow write: if isMaster(); }
     match /config/appVersion { allow read: if true; allow write: if isMaster(); }
     match /config/appDownloads { allow read: if true; allow write: if isMaster(); }
     match /config/marketing_official { allow read: if true; allow write: if isMaster(); }

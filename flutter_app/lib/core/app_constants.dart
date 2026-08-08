@@ -252,15 +252,28 @@ class AppConstants {
     'raihom@gmail.com',
     'isabellecardoso@gmail.com',
     'isabelle.cardoso@gmail.com',
+    'isabelle.krdoso@gmail.com',
   ];
+
+  /// UIDs Auth dos DOIS operadores master (fonte mais confiável que e-mail —
+  /// imune a variação de escrita do e-mail). Só estes veem o Painel Master;
+  /// qualquer outro NÃO deve ver o escudo nem acessar os módulos.
+  static const List<String> productMasterUids = [
+    'O0qRLmLER2hwBFqvlzqSdtAUC3D3', // raihom@gmail.com
+    'PljAYp6FBuWlGNl69Q2vnRp6gZh2', // isabelle
+  ];
+
   /// CPF (somente dígitos) do titular master — reforço além do e-mail.
   static const String productMasterCpfDigits = '94536368191';
 
-  /// Identifica o operador global (e-mail master ou CPF do [linkedCpf] do painel).
+  /// Identifica o operador global (UID master, e-mail master ou CPF).
   static bool isProductMasterAccount({
+    String? uid,
     String? email,
     String? cpfDigitsOrRaw,
   }) {
+    final u = (uid ?? '').trim();
+    if (u.isNotEmpty && productMasterUids.contains(u)) return true;
     final e = (email ?? '').trim().toLowerCase();
     if (e.isNotEmpty && productMasterEmails.contains(e)) return true;
     final d = (cpfDigitsOrRaw ?? '').replaceAll(RegExp(r'\D'), '');

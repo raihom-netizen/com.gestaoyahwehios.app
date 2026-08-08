@@ -6094,18 +6094,24 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
     final title = (data['title'] ?? '').toString();
     if (title.isEmpty) continue;
 
-    final weekday = (data['weekday'] ?? 7) as int;
+    // Multi-dias: usa `weekdays` (array) ou o `weekday` único (parse robusto).
+    final weekdaysList = <int>[];
+    final wl = data['weekdays'];
+    if (wl is List) {
+      for (final e in wl) {
+        final n = e is num ? e.toInt() : int.tryParse('${e ?? ''}');
+        if (n != null && n >= 1 && n <= 7 && !weekdaysList.contains(n)) {
+          weekdaysList.add(n);
+        }
+      }
+    }
+    if (weekdaysList.isEmpty) {
+      final wRaw = data['weekday'];
+      final n = wRaw is num ? wRaw.toInt() : int.tryParse('${wRaw ?? ''}');
+      weekdaysList.add((n != null && n >= 1 && n <= 7) ? n : 7);
+    }
     final time = (data['time'] ?? '19:30').toString();
     final recurrence = (data['recurrence'] ?? 'weekly').toString();
-    final next = nextTemplateOccurrenceOnOrAfter(
-      weekday: weekday,
-      timeHHmm: time,
-      recurrence: recurrence,
-      from: rangeStart,
-      validFrom: (data['validFrom'] as Timestamp?)?.toDate(),
-      validUntil: (data['validUntil'] as Timestamp?)?.toDate(),
-    );
-    if (next == null || next.isAfter(rangeEnd)) continue;
 
     final photoUrls = eventNoticiaPhotoUrls(data);
     final imageUrl = photoUrls.isNotEmpty ? photoUrls.first : '';
@@ -6116,20 +6122,31 @@ Future<List<Map<String, dynamic>>> _loadEventosComFixos(
     final storagePathTpl =
         eventNoticiaPhotoStoragePathAt(data, 0)?.trim() ?? '';
 
-    templateMaps.add({
-      'title': title,
-      'startAt': Timestamp.fromDate(next),
-      'isTemplate': true,
-      'templateId': t.id,
-      'weekday': weekday,
-      'time': time,
-      'recurrence': recurrence,
-      'imageUrl': imageUrl,
-      'text': (data['text'] ?? '').toString(),
-      'location': (data['location'] ?? '').toString().trim(),
-      'videoUrl': videoUrlTpl,
-      'photoStoragePath': storagePathTpl,
-    });
+    for (final weekday in weekdaysList) {
+      final next = nextTemplateOccurrenceOnOrAfter(
+        weekday: weekday,
+        timeHHmm: time,
+        recurrence: recurrence,
+        from: rangeStart,
+        validFrom: (data['validFrom'] as Timestamp?)?.toDate(),
+        validUntil: (data['validUntil'] as Timestamp?)?.toDate(),
+      );
+      if (next == null || next.isAfter(rangeEnd)) continue;
+      templateMaps.add({
+        'title': title,
+        'startAt': Timestamp.fromDate(next),
+        'isTemplate': true,
+        'templateId': t.id,
+        'weekday': weekday,
+        'time': time,
+        'recurrence': recurrence,
+        'imageUrl': imageUrl,
+        'text': (data['text'] ?? '').toString(),
+        'location': (data['location'] ?? '').toString().trim(),
+        'videoUrl': videoUrlTpl,
+        'photoStoragePath': storagePathTpl,
+      });
+    }
   }
 
   final merged = <Map<String, dynamic>>[...especialMaps, ...templateMaps];

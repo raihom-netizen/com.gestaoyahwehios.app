@@ -181,7 +181,7 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
         collection: (noticiaDataForLazyMedia['collection'] ??
                 noticiaDataForLazyMedia['type'])
             ?.toString(),
-      ).timeout(const Duration(seconds: 28));
+      ).timeout(const Duration(seconds: 40)); // era 28s — margem p/ vídeo + fotos
       // Fecha o loading ANTES de abrir a folha nativa (sem spinner preso).
       popLoading();
       if (media.isNotEmpty) {

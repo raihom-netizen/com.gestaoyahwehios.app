@@ -9,16 +9,32 @@ import 'package:gestao_yahweh/ui/widgets/finance_tip_modern_card.dart';
 ///
 /// Lê `app_config/financial_tips_home` (publicado pelo Painel Master) e cai no
 /// catálogo bíblico local quando não há seleção. A dica muda a cada dia.
-class HomeDailyFinancialTipCard extends StatelessWidget {
+class HomeDailyFinancialTipCard extends StatefulWidget {
   const HomeDailyFinancialTipCard({super.key});
+
+  @override
+  State<HomeDailyFinancialTipCard> createState() =>
+      _HomeDailyFinancialTipCardState();
+}
+
+class _HomeDailyFinancialTipCardState extends State<HomeDailyFinancialTipCard> {
+  // Stream criado UMA vez (não a cada build) — antes recriar a cada rebuild da
+  // dashboard fazia o StreamBuilder resetar e o card PISCAR/SUMIR.
+  late final Stream<HomeTipsCatalogSnapshot> _stream =
+      FinancialTipsCatalogService.watchHomeTips().asBroadcastStream();
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<HomeTipsCatalogSnapshot>(
-      stream: FinancialTipsCatalogService.watchHomeTips(),
+      stream: _stream,
       builder: (context, snap) {
         final data = snap.data;
-        final tips = data?.tips ?? const <FinancialTipDisplayItem>[];
+        // Fallback local (catálogo bíblico, sempre disponível) — o card NUNCA
+        // some por erro de rede/permissão ou emissão vazia transitória.
+        var tips = data?.tips ?? const <FinancialTipDisplayItem>[];
+        if (tips.isEmpty) {
+          tips = FinancialTipsCatalogService.biblicalCatalog();
+        }
         if (tips.isEmpty) return const SizedBox.shrink();
         final preview = FinancialTipsCatalogService.partitionForHome(
           tips,

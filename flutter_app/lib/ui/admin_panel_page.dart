@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gestao_yahweh/services/version_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/core/forbidden_test_church_ids.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
@@ -280,9 +281,21 @@ class _AdminPanelPageState extends State<AdminPanelPage>
             usuariosData['permissions'] ??
             usuariosData['permissoes'],
       );
+      // Operador master do produto (UID/e-mail/CPF) SEMPRE tem acesso total —
+      // imune a role/permissions ausentes no doc do usuário.
+      final isProductMaster = AppConstants.isProductMasterAccount(
+        uid: u.uid,
+        email: u.email,
+        cpfDigitsOrRaw: (usersData['cpf'] ??
+                usersData['CPF'] ??
+                usuariosData['cpf'] ??
+                usuariosData['CPF'] ??
+                '')
+            .toString(),
+      );
       if (!mounted) return;
       setState(() {
-        _masterRole = role;
+        _masterRole = isProductMaster ? 'master' : role;
         _masterPermissions = permissions;
       });
     } catch (e, st) {

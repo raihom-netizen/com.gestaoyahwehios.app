@@ -393,7 +393,8 @@ class _ContaDesativadaPageState extends State<_ContaDesativadaPage> {
   @override
   Widget build(BuildContext context) {
     final user = widget.user;
-    final isGestorEmail = AppConstants.isProductMasterAccount(email: user.email);
+    final isGestorEmail =
+        AppConstants.isProductMasterAccount(uid: user.uid, email: user.email);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F8FA),
