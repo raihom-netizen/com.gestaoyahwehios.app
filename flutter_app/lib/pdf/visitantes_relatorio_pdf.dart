@@ -38,27 +38,83 @@ Future<Uint8List> buildVisitantesRelatorioPdf({
   final dtFmt = DateFormat('dd/MM/yyyy HH:mm', 'pt_BR');
   final when = generatedAt ?? DateTime.now();
 
-  final rows = visitantes
-      .map(
-        (v) => [
-          v.createdAt != null ? dayFmt.format(v.createdAt!) : '—',
-          pdfSafeText(v.nome.isEmpty ? '—' : v.nome),
-          pdfSafeText(v.telefone.isEmpty ? '—' : v.telefone),
-          pdfSafeText(v.email.isEmpty ? '—' : v.email),
-          pdfSafeText(v.status.isEmpty ? 'Novo' : v.status),
-          pdfSafeText(v.comoConheceu.isEmpty ? '—' : v.comoConheceu),
-        ],
-      )
-      .toList();
+  final accent = branding.accent;
 
-  final porStatus = <String, int>{};
-  for (final v in visitantes) {
-    final s = v.status.isEmpty ? 'Novo' : v.status;
-    porStatus[s] = (porStatus[s] ?? 0) + 1;
+  final rows = <List<String>>[];
+  for (var i = 0; i < visitantes.length; i++) {
+    final v = visitantes[i];
+    rows.add([
+      '${i + 1}',
+      v.createdAt != null ? dayFmt.format(v.createdAt!) : '—',
+      pdfSafeText(v.nome.isEmpty ? '—' : v.nome),
+      pdfSafeText(v.telefone.isEmpty ? '—' : v.telefone),
+      pdfSafeText(v.email.isEmpty ? '—' : v.email),
+      pdfSafeText(v.status.isEmpty ? 'Novo' : v.status),
+      pdfSafeText(v.comoConheceu.isEmpty ? '—' : v.comoConheceu),
+    ]);
   }
-  final statusSummary = porStatus.entries
-      .map((e) => '${e.key}: ${e.value}')
-      .join(' · ');
+
+  // KPIs por status — grid de cards no topo (Total / Novos / Acompanhamento / Convertidos).
+  var novos = 0, acompanhamento = 0, convertidos = 0;
+  for (final v in visitantes) {
+    final s = (v.status.isEmpty ? 'novo' : v.status).toLowerCase();
+    if (s.contains('convert')) {
+      convertidos++;
+    } else if (s.contains('acompanh') || s.contains('follow')) {
+      acompanhamento++;
+    } else {
+      novos++;
+    }
+  }
+
+  // Card de KPI (grid moderno) — barra de acento + número grande + rótulo.
+  pw.Widget statCard(String label, String value, PdfColor color) {
+    return pw.Expanded(
+      child: pw.Container(
+        margin: const pw.EdgeInsets.symmetric(horizontal: 4),
+        padding: const pw.EdgeInsets.fromLTRB(12, 11, 12, 12),
+        decoration: pw.BoxDecoration(
+          color: PdfColors.white,
+          borderRadius: pw.BorderRadius.circular(10),
+          border: pw.Border.all(
+            color: const PdfColor.fromInt(0xFFE2E8F0),
+            width: 1,
+          ),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          mainAxisSize: pw.MainAxisSize.min,
+          children: [
+            pw.Container(
+              width: 26,
+              height: 3.4,
+              decoration: pw.BoxDecoration(
+                color: color,
+                borderRadius: pw.BorderRadius.circular(2),
+              ),
+            ),
+            pw.SizedBox(height: 8),
+            pw.Text(
+              value,
+              style: pw.TextStyle(
+                fontSize: 20,
+                fontWeight: pw.FontWeight.bold,
+                color: const PdfColor.fromInt(0xFF0F172A),
+              ),
+            ),
+            pw.SizedBox(height: 2),
+            pw.Text(
+              pdfSafeText(label),
+              style: pw.TextStyle(
+                fontSize: 8.4,
+                color: const PdfColor.fromInt(0xFF64748B),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   final pdf = await PdfSuperPremiumTheme.newPdfDocument();
   pdf.addPage(
@@ -72,8 +128,6 @@ Future<Uint8List> buildVisitantesRelatorioPdf({
           branding: branding,
           extraLines: [
             'Período: $periodoLabel',
-            'Total de visitantes: ${visitantes.length}',
-            if (statusSummary.isNotEmpty) statusSummary,
           ],
         ),
       ),
@@ -82,19 +136,48 @@ Future<Uint8List> buildVisitantesRelatorioPdf({
         churchName: 'Gerado em ${dtFmt.format(when)}',
       ),
       build: (ctx) => [
+        // Grid de indicadores (cards) — visão rápida do período.
+        pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            statCard('Total de visitantes', '${visitantes.length}', accent),
+            statCard('Novos', '$novos', const PdfColor.fromInt(0xFF2563EB)),
+            statCard('Em acompanhamento', '$acompanhamento',
+                const PdfColor.fromInt(0xFFF59E0B)),
+            statCard('Convertidos', '$convertidos',
+                const PdfColor.fromInt(0xFF16A34A)),
+          ],
+        ),
+        pw.SizedBox(height: 18),
         pw.Text(
           'Visitantes no período',
-          style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+          style: pw.TextStyle(
+            fontSize: 13,
+            fontWeight: pw.FontWeight.bold,
+            color: const PdfColor.fromInt(0xFF0F172A),
+          ),
         ),
         pw.SizedBox(height: 8),
         if (rows.isEmpty)
-          pw.Text(
-            'Nenhum visitante cadastrado neste período.',
-            style: const pw.TextStyle(fontSize: 10),
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(vertical: 18, horizontal: 14),
+            decoration: pw.BoxDecoration(
+              color: const PdfColor.fromInt(0xFFF8FAFC),
+              borderRadius: pw.BorderRadius.circular(10),
+              border: pw.Border.all(
+                  color: const PdfColor.fromInt(0xFFE2E8F0), width: 1),
+            ),
+            child: pw.Text(
+              'Nenhum visitante cadastrado neste período.',
+              style: const pw.TextStyle(
+                  fontSize: 10, color: PdfColor.fromInt(0xFF64748B)),
+            ),
           )
         else
-          pw.Table.fromTextArray(
+          PdfSuperPremiumTheme.fromTextArray(
             headers: const [
+              '#',
               'Data',
               'Nome',
               'Telefone',
@@ -103,22 +186,15 @@ Future<Uint8List> buildVisitantesRelatorioPdf({
               'Como conheceu',
             ],
             data: rows,
-            headerStyle: pw.TextStyle(
-              fontWeight: pw.FontWeight.bold,
-              fontSize: 9,
-            ),
-            cellStyle: const pw.TextStyle(fontSize: 9),
-            headerDecoration: const pw.BoxDecoration(
-              color: PdfColor.fromInt(0xFFE2E8F0),
-            ),
-            cellAlignment: pw.Alignment.centerLeft,
+            accent: accent,
             columnWidths: {
-              0: const pw.FixedColumnWidth(52),
-              1: const pw.FlexColumnWidth(2.2),
-              2: const pw.FixedColumnWidth(70),
-              3: const pw.FlexColumnWidth(2),
-              4: const pw.FixedColumnWidth(64),
-              5: const pw.FixedColumnWidth(70),
+              0: const pw.FixedColumnWidth(26),
+              1: const pw.FixedColumnWidth(52),
+              2: const pw.FlexColumnWidth(2.4),
+              3: const pw.FixedColumnWidth(64),
+              4: const pw.FlexColumnWidth(2.2),
+              5: const pw.FixedColumnWidth(58),
+              6: const pw.FixedColumnWidth(66),
             },
           ),
       ],
