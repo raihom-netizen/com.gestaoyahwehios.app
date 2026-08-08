@@ -144,6 +144,7 @@ class FinanceAccountsScreen extends StatelessWidget {
                                 account: a,
                                 canEdit: profile.hasActiveLicense,
                                 role: profile.role,
+                                allAccounts: list,
                               );
                             },
                           )
@@ -159,6 +160,7 @@ class FinanceAccountsScreen extends StatelessWidget {
                                 account: a,
                                 canEdit: false,
                                 role: profile.role,
+                                allAccounts: list,
                               );
                             },
                           ),
@@ -1250,6 +1252,8 @@ class _AccountTile extends StatelessWidget {
   /// Índice na lista (só com licença + reorder); exibe alça de arrastar.
   final int? index;
   final String role;
+  /// Todas as contas — usadas como destino ao "transferir lançamentos".
+  final List<FinanceAccount> allAccounts;
 
   const _AccountTile({
     super.key,
@@ -1257,6 +1261,7 @@ class _AccountTile extends StatelessWidget {
     required this.account,
     required this.canEdit,
     required this.role,
+    required this.allAccounts,
     this.index,
   });
 
@@ -1446,24 +1451,48 @@ class _AccountTile extends StatelessWidget {
                   final service = FinanceAccountsService();
                   final linked = await service.countLinkedTransactions(uid, account.id);
                   if (!context.mounted) return;
-                  final ok = await showConfirmDeleteFinanceAccountDialog(
+                  final others = allAccounts
+                      .where((a) => a.id != account.id)
+                      .toList();
+                  final choice = await showConfirmDeleteFinanceAccountDialog(
                     context,
                     account: account,
                     linkedTransactionsCount: linked,
+                    canTransfer: others.isNotEmpty,
                   );
-                  if (ok != true) return;
+                  if (choice == FinanceDeleteAccountChoice.cancel) return;
                   try {
-                    final removed = await service.deleteAccount(uid, account.id);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            removed > 0
-                                ? 'Banco excluído e $removed lançamento(s) removido(s).'
-                                : 'Banco excluído.',
+                    if (choice == FinanceDeleteAccountChoice.transfer) {
+                      if (!context.mounted) return;
+                      final dest =
+                          await _pickTransferDestinationDialog(context, others);
+                      if (dest == null) return;
+                      final moved = await service.transferAccountTransactions(
+                          uid, account.id, dest.id);
+                      await service.deleteAccount(uid, account.id);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                '$moved lançamento(s) transferido(s) para «${dest.displayName}» e banco removido.'),
+                            backgroundColor: Colors.green,
                           ),
-                        ),
-                      );
+                        );
+                      }
+                    } else {
+                      final removed =
+                          await service.deleteAccount(uid, account.id);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              removed > 0
+                                  ? 'Banco excluído e $removed lançamento(s) removido(s).'
+                                  : 'Banco excluído.',
+                            ),
+                          ),
+                        );
+                      }
                     }
                   } catch (e) {
                     if (context.mounted) {
@@ -1482,6 +1511,81 @@ class _AccountTile extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Escolhe o banco de DESTINO ao transferir os lançamentos de um banco que
+/// está sendo removido. Lista moderna em tela quase cheia.
+Future<FinanceAccount?> _pickTransferDestinationDialog(
+    BuildContext context, List<FinanceAccount> options) {
+  return showModalBottomSheet<FinanceAccount>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (ctx) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.85,
+      maxChildSize: 0.95,
+      minChildSize: 0.45,
+      builder: (_, scrollCtrl) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                IconButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  icon: const Icon(Icons.arrow_back_rounded),
+                ),
+                const Expanded(
+                  child: Text(
+                    'Transferir lançamentos para…',
+                    style:
+                        TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+                  ),
+                ),
+                const SizedBox(width: 40),
+              ],
+            ),
+            const Padding(
+              padding: EdgeInsets.only(left: 12, bottom: 6),
+              child: Text(
+                'Escolha o banco que vai receber os lançamentos.',
+                style: TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
+              ),
+            ),
+            const Divider(height: 12),
+            Expanded(
+              child: ListView.builder(
+                controller: scrollCtrl,
+                itemCount: options.length,
+                itemBuilder: (_, i) {
+                  final a = options[i];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor:
+                            AppColors.primary.withValues(alpha: 0.12),
+                        child: Icon(Icons.account_balance_rounded,
+                            color: AppColors.primary),
+                      ),
+                      title: Text(a.displayName,
+                          style:
+                              const TextStyle(fontWeight: FontWeight.w800)),
+                      trailing: const Icon(Icons.chevron_right_rounded),
+                      onTap: () => Navigator.pop(ctx, a),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 /// Tela full-screen de seleção de banco com campo de pesquisa.

@@ -252,6 +252,52 @@ class FinanceAccountsService {
     return linkedIds.length;
   }
 
+  /// Campos que apontam um lançamento para uma conta.
+  static const List<String> _accountLinkFields = [
+    'financeAccountId',
+    'paidFromFinanceAccountId',
+    'contaOrigemId',
+    'contaDestinoId',
+    'contaId',
+  ];
+
+  /// Transfere TODOS os lançamentos de [fromId] para [toId] (reatribui os
+  /// campos de conta que apontavam para o banco antigo). Retorna quantos moveu.
+  /// Depois disso o banco antigo pode ser excluído já sem lançamentos.
+  Future<int> transferAccountTransactions(
+      String uid, String fromId, String toId) async {
+    if (fromId.trim().isEmpty || toId.trim().isEmpty || fromId == toId) return 0;
+    final ids = (await _collectLinkedTransactionIds(uid, fromId)).toList();
+    if (ids.isEmpty) return 0;
+    final col = _txCol(uid);
+    var moved = 0;
+    for (var i = 0; i < ids.length; i += 300) {
+      final chunk =
+          ids.sublist(i, i + 300 > ids.length ? ids.length : i + 300);
+      final snaps = await Future.wait(chunk.map((id) => col.doc(id).get()));
+      final batch = _db.batch();
+      var inBatch = 0;
+      for (final snap in snaps) {
+        final data = snap.data();
+        if (data == null) continue;
+        final patch = <String, dynamic>{};
+        for (final f in _accountLinkFields) {
+          if ((data[f] ?? '').toString().trim() == fromId) patch[f] = toId;
+        }
+        if (patch.isNotEmpty) {
+          batch.update(snap.reference, patch);
+          inBatch++;
+        }
+      }
+      if (inBatch > 0) {
+        await batch.commit();
+        moved += inBatch;
+      }
+    }
+    FinanceTransactionsHub.notifyMutated(uid: uid.trim());
+    return moved;
+  }
+
   CollectionReference<Map<String, dynamic>> _txCol(String uid) =>
       ChurchUiCollections.financeiro(uid.trim());
 
@@ -278,8 +324,15 @@ class FinanceAccountsService {
 
   Future<Set<String>> _collectLinkedTransactionIds(String uid, String accountId) async {
     final ids = <String>{};
+    // TODOS os campos que vinculam um lançamento a uma conta. O write service
+    // grava contaOrigemId/contaDestinoId; havia lançamentos ficando órfãos
+    // porque só se coletava financeAccountId/paidFromFinanceAccountId ("não
+    // limpa" ao remover o banco). contaId = legado (doações MP antigas).
     await _forEachTxByField(uid, 'financeAccountId', accountId, ids.add);
     await _forEachTxByField(uid, 'paidFromFinanceAccountId', accountId, ids.add);
+    await _forEachTxByField(uid, 'contaOrigemId', accountId, ids.add);
+    await _forEachTxByField(uid, 'contaDestinoId', accountId, ids.add);
+    await _forEachTxByField(uid, 'contaId', accountId, ids.add);
 
     final pairIds = <String>{};
     final idList = ids.toList();
