@@ -516,6 +516,12 @@ class _MembersPageState extends State<MembersPage> {
   int? _filtroAniversarioMes; // null = todos, 1-12 = mês
   /// Seleção em massa no filtro "Pendentes" (aprovar vários).
   Set<String> _selectedPendingIds = {};
+
+  /// Modo de visualização: false = lista, true = grade colorida com fotos.
+  bool _membersGridView = false;
+
+  /// Seleção múltipla no modo grade (um / vários / todos).
+  final Set<String> _selectedMemberIds = <String>{};
   List<_DeptItem> _departamentos = [];
   final MembersLimitService _limitService = MembersLimitService();
 
@@ -6368,7 +6374,285 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   // ─── Lista de Membros (sliver; scroll/paginação no [CustomScrollView] pai) ─
+  // Wrapper: barra de alternância (lista/grade) + o corpo escolhido.
   Widget _buildMembersListSliver(List<_MemberDoc> docs) {
+    return SliverMainAxisGroup(
+      slivers: [
+        _buildMembersViewToolbarSliver(docs),
+        _membersGridView
+            ? _buildMembersPhotoGridSliver(docs)
+            : _buildMembersFlatListSliver(docs),
+      ],
+    );
+  }
+
+  void _toggleMemberSelected(String id) {
+    if (_selectedMemberIds.contains(id)) {
+      _selectedMemberIds.remove(id);
+    } else {
+      _selectedMemberIds.add(id);
+    }
+  }
+
+  // Barra fina: alterna Lista/Grade + (no grade) contador e Todos/Limpar.
+  Widget _buildMembersViewToolbarSliver(List<_MemberDoc> docs) {
+    final allIds = docs.map((d) => d.id).toSet();
+    final allSelected = _membersGridView &&
+        allIds.isNotEmpty &&
+        allIds.every(_selectedMemberIds.contains);
+    Widget toggle(IconData icon, bool active, VoidCallback onTap, String tip) {
+      return Tooltip(
+        message: tip,
+        child: Material(
+          color: active
+              ? ThemeCleanPremium.primary.withValues(alpha: 0.12)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Icon(
+                icon,
+                size: 20,
+                color: active
+                    ? ThemeCleanPremium.primary
+                    : Colors.grey.shade500,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          ThemeCleanPremium.spaceMd,
+          0,
+          ThemeCleanPremium.spaceMd,
+          ThemeCleanPremium.spaceSm,
+        ),
+        child: Row(
+          children: [
+            toggle(Icons.view_list_rounded, !_membersGridView,
+                () => setState(() => _membersGridView = false), 'Lista'),
+            const SizedBox(width: 4),
+            toggle(Icons.grid_view_rounded, _membersGridView,
+                () => setState(() => _membersGridView = true),
+                'Grade com fotos'),
+            const Spacer(),
+            if (_membersGridView) ...[
+              if (_selectedMemberIds.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Text(
+                    '${_selectedMemberIds.length} selecionado(s)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+              TextButton.icon(
+                onPressed: () => setState(() {
+                  if (allSelected) {
+                    _selectedMemberIds.clear();
+                  } else {
+                    _selectedMemberIds.addAll(allIds);
+                  }
+                }),
+                icon: Icon(
+                  allSelected
+                      ? Icons.clear_all_rounded
+                      : Icons.done_all_rounded,
+                  size: 18,
+                ),
+                label: Text(allSelected ? 'Limpar' : 'Todos'),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Grade colorida com fotos (paginação compartilhada com a lista).
+  Widget _buildMembersPhotoGridSliver(List<_MemberDoc> docs) {
+    final instantList = docs.length <= _membersListInstantCap;
+    final count =
+        instantList ? docs.length : _membersVisibleCount.clamp(0, docs.length);
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(
+        ThemeCleanPremium.spaceMd,
+        0,
+        ThemeCleanPremium.spaceMd,
+        ThemeCleanPremium.spaceMd,
+      ),
+      sliver: SliverGrid(
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 172,
+          mainAxisExtent: 204,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+        ),
+        delegate: SliverChildBuilderDelegate(
+          (context, i) {
+            if (i >= count) return null;
+            return _memberGridTile(docs[i]);
+          },
+          childCount: count,
+        ),
+      ),
+    );
+  }
+
+  Widget _memberGridTile(_MemberDoc doc) {
+    final data = doc.data;
+    final name = _str(data, 'NOME_COMPLETO', 'nome', 'name').isEmpty
+        ? 'Membro'
+        : _str(data, 'NOME_COMPLETO', 'nome', 'name');
+    final status = _str(data, 'STATUS', 'status').isEmpty
+        ? 'ativo'
+        : _str(data, 'STATUS', 'status');
+    final isInativo = status.toLowerCase().contains('inativ');
+    final photo = _photoUrlForMember(doc.id, data);
+    final hasPhoto = photo.isNotEmpty;
+    final accent = _avatarColor(data, hasPhoto) ?? ThemeCleanPremium.primary;
+    final selected = _selectedMemberIds.contains(doc.id);
+    return GestureDetector(
+      onTap: () => _onMemberRowTap(context, doc),
+      onLongPress: () {
+        setState(() => _toggleMemberSelected(doc.id));
+        ThemeCleanPremium.hapticAction();
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? accent : const Color(0xFFECECF1),
+            width: selected ? 2.5 : 1,
+          ),
+          boxShadow: ThemeCleanPremium.softUiCardShadow,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          accent.withValues(alpha: 0.16),
+                          accent.withValues(alpha: 0.05),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Center(
+                    child: _MemberAvatar(
+                      photoUrl: hasPhoto ? photo : null,
+                      memberData: data,
+                      name: name,
+                      radius: 40,
+                      backgroundColor: accent.withValues(alpha: 0.15),
+                      tenantId: _storageTenantIdForMemberPhotos(data),
+                      memberId: doc.id,
+                      cpfDigits: _str(data, 'CPF', 'cpf'),
+                      authUid: _memberAuthUidFromData(data),
+                      memCacheMaxPx: 224,
+                    ),
+                  ),
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() => _toggleMemberSelected(doc.id));
+                        ThemeCleanPremium.hapticAction();
+                      },
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: selected ? accent : Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: selected ? accent : Colors.grey.shade400,
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.12),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          selected
+                              ? Icons.check_rounded
+                              : Icons.circle_outlined,
+                          size: 18,
+                          color: selected ? Colors.white : Colors.grey.shade400,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (isInativo)
+                    Positioned(
+                      top: 6,
+                      left: 6,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEA580C).withValues(alpha: 0.92),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: const Text(
+                          'Inativo',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+              child: Text(
+                name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMembersFlatListSliver(List<_MemberDoc> docs) {
     final instantList = docs.length <= _membersListInstantCap;
     final visibleCount = instantList
         ? docs.length
