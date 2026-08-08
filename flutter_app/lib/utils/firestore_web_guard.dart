@@ -187,9 +187,13 @@ class FirestoreWebGuard {
       // Recarregar a aba dá um cliente Firestore fresco (targetId zerado) e o
       // painel volta a carregar. reloadWebPageHard tem cooldown de 3min → nunca
       // vira loop; se estourar o cooldown, cai no soft-recover como fallback.
+      // PROVA (DevTools): após o 1º assertion a fila assíncrona do Firestore
+      // morre; enableNetwork/disableNetwork/user.reload/getIdToken passam a
+      // RE-LANÇAR o erro em loop (milhares de erros + accounts:lookup em massa).
+      // A ÚNICA cura é recarregar a aba (cliente novo). NÃO chamar
+      // recoverFirestoreWebSession aqui — enableNetwork alimenta o loop.
       debugPrint('FirestoreWebGuard: INTERNAL ASSERTION — auto-reload da aba.');
       reloadWebPageHard();
-      unawaited(recoverFirestoreWebSession(allowHardReconnect: true));
       return true;
     }
     if (isClientTerminated(e)) {
