@@ -15291,6 +15291,35 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
   _EventStats get _selected =>
       widget.stats[_selectedIndex.clamp(0, widget.stats.length - 1)];
 
+  /// Exclui comentários (docs) em lote — gestor/pastor/secretário/adm/líder
+  /// (canDeleteComments). Usa batch. O StreamBuilder atualiza sozinho.
+  Future<void> _deleteCommentRefs(
+      List<DocumentReference<Map<String, dynamic>>> refs) async {
+    if (refs.isEmpty) return;
+    setState(() => _clearing = true);
+    try {
+      final batch = firebaseDefaultFirestore.batch();
+      for (final r in refs) {
+        batch.delete(r);
+      }
+      await batch.commit();
+      if (!mounted) return;
+      setState(() {
+        _selectedUids.clear();
+        _selectionMode = false;
+        _clearing = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _clearing = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Não foi possível limpar: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _loadNames() async {
     if (widget.stats.isEmpty) return;
     setState(() {
@@ -15557,6 +15586,95 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                               onRetry: () =>
                                   setState(() => _commentsStreamKey++),
                             ),
+                          if (canDelete && docs.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
+                              child: Row(
+                                children: [
+                                  TextButton.icon(
+                                    onPressed: _clearing
+                                        ? null
+                                        : () => setState(() {
+                                              _selectionMode = !_selectionMode;
+                                              if (!_selectionMode) {
+                                                _selectedUids.clear();
+                                              }
+                                            }),
+                                    icon: Icon(
+                                        _selectionMode
+                                            ? Icons.close_rounded
+                                            : Icons.checklist_rounded,
+                                        size: 20),
+                                    label: Text(_selectionMode
+                                        ? 'Cancelar'
+                                        : 'Selecionar'),
+                                  ),
+                                  if (_selectionMode)
+                                    TextButton(
+                                      onPressed: () => setState(() {
+                                        final allIds =
+                                            docs.map((d) => d.id).toSet();
+                                        if (_selectedUids.length ==
+                                            allIds.length) {
+                                          _selectedUids.clear();
+                                        } else {
+                                          _selectedUids
+                                            ..clear()
+                                            ..addAll(allIds);
+                                        }
+                                      }),
+                                      child: Text(
+                                          _selectedUids.length == docs.length
+                                              ? 'Nenhum'
+                                              : 'Todos'),
+                                    ),
+                                  const Spacer(),
+                                  if (_selectionMode)
+                                    FilledButton.icon(
+                                      onPressed: (_clearing ||
+                                              _selectedUids.isEmpty)
+                                          ? null
+                                          : () async {
+                                              if (await _confirmClear(
+                                                  'Excluir ${_selectedUids.length} comentário(s) selecionado(s)?')) {
+                                                await _deleteCommentRefs(docs
+                                                    .where((d) => _selectedUids
+                                                        .contains(d.id))
+                                                    .map((d) => d.reference)
+                                                    .toList());
+                                              }
+                                            },
+                                      icon: const Icon(
+                                          Icons.delete_sweep_rounded,
+                                          size: 20),
+                                      label:
+                                          Text('Limpar (${_selectedUids.length})'),
+                                      style: FilledButton.styleFrom(
+                                          backgroundColor:
+                                              ThemeCleanPremium.error),
+                                    )
+                                  else
+                                    TextButton.icon(
+                                      onPressed: _clearing
+                                          ? null
+                                          : () async {
+                                              if (await _confirmClear(
+                                                  'Excluir TODOS os comentários deste evento?')) {
+                                                await _deleteCommentRefs(docs
+                                                    .map((d) => d.reference)
+                                                    .toList());
+                                              }
+                                            },
+                                      icon: const Icon(
+                                          Icons.delete_outline_rounded,
+                                          size: 20,
+                                          color: Colors.red),
+                                      label: const Text('Limpar tudo',
+                                          style: TextStyle(color: Colors.red)),
+                                    ),
+                                ],
+                              ),
+                            ),
                           Expanded(
                             child: ListView.builder(
                               controller: scrollCtrl,
@@ -15590,6 +15708,30 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                 return Card(
                                   margin: const EdgeInsets.only(bottom: 10),
                                   child: ListTile(
+                                    onTap: (_selectionMode && canDelete)
+                                        ? () => setState(() {
+                                              final id = docs[i].id;
+                                              if (_selectedUids.contains(id)) {
+                                                _selectedUids.remove(id);
+                                              } else {
+                                                _selectedUids.add(id);
+                                              }
+                                            })
+                                        : null,
+                                    leading: (_selectionMode && canDelete)
+                                        ? Checkbox(
+                                            value: _selectedUids
+                                                .contains(docs[i].id),
+                                            onChanged: (v) => setState(() {
+                                              final id = docs[i].id;
+                                              if (v == true) {
+                                                _selectedUids.add(id);
+                                              } else {
+                                                _selectedUids.remove(id);
+                                              }
+                                            }),
+                                          )
+                                        : null,
                                     title: Text(
                                       name,
                                       style: const TextStyle(
@@ -15611,7 +15753,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                         ),
                                       ],
                                     ),
-                                    trailing: canDelete
+                                    trailing: (canDelete && !_selectionMode)
                                         ? IconButton(
                                             icon: const Icon(
                                               Icons.delete_outline_rounded,
