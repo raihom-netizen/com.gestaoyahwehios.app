@@ -104,12 +104,24 @@ final class ChurchChatRepository extends ChurchModuleRepositoryBase {
     required Map<String, dynamic> payload,
     String? churchIdHint,
   }) async {
+    final col = messagesCol(churchId(churchIdHint), threadId);
     if (kIsWeb) {
+      // ID pré-gerado -> retry é idempotente (set no MESMO doc, sem duplicar).
+      final ref = col.doc();
       await FirestoreWebGuard.runChatWriteWithRecovery(() async {
-        await messagesCol(churchId(churchIdHint), threadId).add(payload);
+        await ref.set(payload);
+        // Confirma que a gravação PERSISTIU no servidor antes do "Enviado".
+        // `.add()`/`.set()` resolvem no cache local; sem esta checagem a
+        // mensagem podia mostrar "Enviado" e sumir ao voltar (não sincronizou).
+        final check = await ref
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 15));
+        if (!check.exists) {
+          throw StateError('Mensagem não confirmada no servidor.');
+        }
       });
       return;
     }
-    await messagesCol(churchId(churchIdHint), threadId).add(payload);
+    await col.add(payload);
   }
 }
