@@ -15,11 +15,20 @@ abstract final class FirestoreOfflineConfig {
 
 /// Configura o Firestore **antes** de qualquer leitura/escrita.
 ///
-/// Alinhado ao **Controle Total** com melhorias Web:
-/// - **Web:** `persistenceEnabled: true` (IndexedDB cache local para leituras rápidas)
-///   + `webExperimentalForceLongPolling: true` (evita INTERNAL ASSERTION).
-/// - **Mobile:** cache ilimitado + persistência nativa.
-/// - Cache de módulos na Web: [ChurchRepository.listCacheFirst] + Hive (não IndexedDB SDK).
+/// - **Web:** `persistenceEnabled: false` (cache **em memória**, sem IndexedDB)
+///   + `webExperimentalForceLongPolling: true`.
+///   Motivo: a persistência IndexedDB do SDK JS 12.x é a origem do bug
+///   `INTERNAL ASSERTION FAILED: Unexpected state` / `WatchChangeAggregator`
+///   (alvo de watch gravado com versão inválida `ve:-1`). Quando dispara,
+///   envenena o cliente Firestore da sessão inteira — todos os módulos
+///   (Financeiro, Chat, Eventos, Fornecedores, Patrimônio, Escalas…) passam a
+///   voltar vazios/erro — e o estado corrompido **sobrevive a reloads** no
+///   IndexedDB, além de conflitar entre abas. Sem persistência IndexedDB o
+///   estado corrompido deixa de existir e as leituras vão sempre ao servidor
+///   (dados corretos, como no iOS/Android). Velocidade de reabertura fica por
+///   conta do cache próprio do app ([ChurchRepository.listCacheFirst] + Hive),
+///   que **não** depende do IndexedDB do SDK.
+/// - **Mobile:** cache ilimitado + persistência nativa (SQLite, sem esse bug).
 void configureFirestoreForOfflineAndSpeed() {
   if (FirestoreOfflineConfig.settingsApplied) return;
   if (!isFirebaseReady) {
@@ -33,14 +42,14 @@ void configureFirestoreForOfflineAndSpeed() {
 
   if (kIsWeb) {
     try {
-      // Web: persistência IndexedDB + long polling — leituras rápidas após 1.º load
-      // (cache local evita round-trip ao servidor em reaberturas).
+      // Web: cache EM MEMÓRIA (sem IndexedDB) + long polling. Estabilidade acima
+      // de tudo — elimina o INTERNAL ASSERTION de persistência do SDK JS.
       db.settings = const Settings(
-        persistenceEnabled: true,
+        persistenceEnabled: false,
         ignoreUndefinedProperties: true,
         webExperimentalForceLongPolling: true,
       );
-      FirestoreOfflineConfig.persistenceEnabled = true;
+      FirestoreOfflineConfig.persistenceEnabled = false;
       FirestoreOfflineConfig.webIndexedDbFallback = false;
       FirestoreOfflineConfig.settingsApplied = true;
     } catch (e, st) {
@@ -68,14 +77,14 @@ void configureFirestoreForOfflineAndSpeed() {
 void _applyFallbackSettings(FirebaseFirestore db) {
   try {
     if (kIsWeb) {
-      // Fallback: persistência IndexedDB para leituras rápidas
+      // Fallback web: cache em memória (sem IndexedDB) — mesma blindagem.
       db.settings = const Settings(
-        persistenceEnabled: true,
+        persistenceEnabled: false,
         ignoreUndefinedProperties: true,
         webExperimentalForceLongPolling: true,
       );
-      FirestoreOfflineConfig.persistenceEnabled = true;
-      FirestoreOfflineConfig.webIndexedDbFallback = true;
+      FirestoreOfflineConfig.persistenceEnabled = false;
+      FirestoreOfflineConfig.webIndexedDbFallback = false;
       FirestoreOfflineConfig.settingsApplied = true;
     } else {
       db.settings = Settings(

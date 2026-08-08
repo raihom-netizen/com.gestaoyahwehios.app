@@ -28,6 +28,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/web_page_reload.dart';
 import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/skeleton_loader.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
@@ -371,23 +372,37 @@ class _FinanceScreenState extends State<FinanceScreen> {
     });
   }
 
-  /// Cache local corrompido. Na Web: F5 (sem `terminate` — derruba todos os módulos).
+  /// Cache local corrompido (IndexedDB Web / SQLite mobile).
+  ///
+  /// Sintoma típico: `INTERNAL ASSERTION FAILED: Unexpected state` /
+  /// `WatchChangeAggregator` com `targetId` de versão inválida (`ve:-1`) — um
+  /// alvo de watch gravado corrompido na persistência local que **reconectar a
+  /// rede não resolve** (o alvo corrompido é recarregado do disco). A única cura
+  /// é `terminate()` + `clearPersistence()` para apagar o store local.
+  ///
+  /// Na Web isso exige recarregar a aba a seguir (o singleton Firestore fica
+  /// terminado; um F5 reinicializa todos os módulos com persistência limpa).
+  /// É seguro aqui porque é ação **explícita** do utilizador a partir do ecrã
+  /// de erro (não há lançamento a meio) — o [reloadWebPageHard] ainda tem
+  /// cooldown de 3 min contra loop de reload.
   Future<void> _onClearCacheAndRetry() async {
     if (!mounted) return;
-    if (kIsWeb) {
-      FirestoreWebGuard.hardReloadWebApp(reason: 'finance_clear_cache');
-      return;
-    }
     setState(() {
       _mainPeriodLoadError = null;
       _mainPeriodLoading = true;
     });
+    // Apaga a persistência local corrompida (Web IndexedDB / mobile SQLite).
     try {
       await FirebaseFirestore.instance.terminate();
     } catch (_) {}
     try {
       await FirebaseFirestore.instance.clearPersistence();
     } catch (_) {}
+    if (kIsWeb) {
+      // Cliente terminado — reinicializa a app do zero com IndexedDB limpo.
+      reloadWebPageHard();
+      return;
+    }
     await _onRetryLoadTransactions();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
