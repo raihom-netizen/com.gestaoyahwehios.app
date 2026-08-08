@@ -34,6 +34,11 @@ import {
 } from "./churchFirestorePaths";
 import { recomputeMembersDirectoryFromDocs } from "./membersDirectoryCache";
 import { resolveTenantIdForCallable } from "./tenantCallableResolve";
+import {
+  stampCanonicalMember,
+  buildCanonicalRootUserPatch,
+  buildCanonicalTenantUserPatch,
+} from "./identityCanonical";
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -6921,6 +6926,18 @@ export const onNewMember = functions
     const tenantId = String(context.params.tenantId || "").trim();
     const membroId = String(context.params.membroId || "").trim();
 
+    // Identidade canônica: carimba authUid/cpf/email que faltarem (cadastros
+    // novos de qualquer igreja). Aditivo (merge) — sem loop (não há onUpdate).
+    try {
+      await stampCanonicalMember(snap.ref, data, membroId);
+    } catch (err) {
+      functions.logger.error("onNewMember canonical identity", {
+        tenantId,
+        memberId: membroId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     try {
       // Cadastro público já notifica na callable gyPublicMemberSignup.
       if (data.gestoresNotifyFromCallable !== true) {
@@ -6975,6 +6992,54 @@ export const onNewMember = functions
       }
     }
 
+    return null;
+  });
+
+/**
+ * Identidade canônica em `users/{uid}` (raiz): garante authUid = uid ao criar.
+ */
+export const onNewRootUserIdentity = functions
+  .region("us-central1")
+  .firestore.document("users/{userId}")
+  .onCreate(async (snap, context) => {
+    try {
+      const data = (snap.data() || {}) as Record<string, unknown>;
+      const patch = buildCanonicalRootUserPatch(
+        data,
+        String(context.params.userId || "").trim(),
+      );
+      if (Object.keys(patch).length) await snap.ref.set(patch, { merge: true });
+    } catch (err) {
+      functions.logger.error("onNewRootUserIdentity error", {
+        userId: context.params.userId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return null;
+  });
+
+/**
+ * Identidade canônica em `igrejas/{tenantId}/users/{uid}`: authUid + igrejaId.
+ */
+export const onNewTenantUserIdentity = functions
+  .region("us-central1")
+  .firestore.document("igrejas/{tenantId}/users/{userId}")
+  .onCreate(async (snap, context) => {
+    try {
+      const data = (snap.data() || {}) as Record<string, unknown>;
+      const patch = buildCanonicalTenantUserPatch(
+        data,
+        String(context.params.tenantId || "").trim(),
+        String(context.params.userId || "").trim(),
+      );
+      if (Object.keys(patch).length) await snap.ref.set(patch, { merge: true });
+    } catch (err) {
+      functions.logger.error("onNewTenantUserIdentity error", {
+        tenantId: context.params.tenantId,
+        userId: context.params.userId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
     return null;
   });
 
