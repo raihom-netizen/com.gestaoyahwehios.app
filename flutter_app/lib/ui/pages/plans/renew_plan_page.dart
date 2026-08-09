@@ -1604,86 +1604,55 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
             );
           }
           if (_checkoutSession != null) {
-            final screenH = MediaQuery.sizeOf(context).height;
-            final checkoutH = math.max(isMobile ? 520.0 : 440.0, math.min(screenH * (isMobile ? 0.76 : 0.68), 780.0));
-            return Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1200),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Material(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      clipBehavior: Clip.antiAlias,
-                      elevation: 0,
-                      shadowColor: Colors.black12,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              tooltip: 'Voltar',
-                              onPressed: _loading ? null : _closeCheckout,
-                              icon: const Icon(Icons.arrow_back_rounded),
-                              constraints: BoxConstraints(
-                                minWidth: ThemeCleanPremium.minTouchTarget,
-                                minHeight: ThemeCleanPremium.minTouchTarget,
-                              ),
-                            ),
-                            const Expanded(
-                              child: Text(
-                                'Concluir pagamento',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 17,
-                                  letterSpacing: -0.2,
-                                ),
-                              ),
-                            ),
-                          ],
+            // FULL-SCREEN (celular e web): o checkout do Mercado Pago ocupa TODA
+            // a área — assim todos os campos (código de segurança, parcelas,
+            // botão Pagar) ficam visíveis e clicáveis, sem cortar.
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Voltar',
+                        onPressed: _loading ? null : _closeCheckout,
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        constraints: BoxConstraints(
+                          minWidth: ThemeCleanPremium.minTouchTarget,
+                          minHeight: ThemeCleanPremium.minTouchTarget,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: checkoutH,
-                      child: Material(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        clipBehavior: Clip.antiAlias,
-                        elevation: 0,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x0A000000),
-                                blurRadius: 30,
-                                offset: Offset(0, 10),
-                              ),
-                            ],
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child:                             MpCheckoutEmbed(
-                              checkoutUrl: _checkoutSession!.initPoint,
-                              returnUrlHint: _checkoutSession!.backUrl,
-                              onLikelyFinished: _onCheckoutLikelyFinished,
-                              footerHint: widget.expressMode
-                                  ? 'PIX ou cartão nesta página — padrão Super Premium e mais rápido. '
-                                      'Não o leva para o site do Mercado Pago: o checkout abre aqui embebido; '
-                                      'o processamento continua seguro com o Mercado Pago em segundo plano.'
-                                  : null,
-                            ),
+                      const Expanded(
+                        child: Text(
+                          'Concluir pagamento',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 17,
+                            letterSpacing: -0.2,
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: MpCheckoutEmbed(
+                      checkoutUrl: _checkoutSession!.initPoint,
+                      returnUrlHint: _checkoutSession!.backUrl,
+                      onLikelyFinished: _onCheckoutLikelyFinished,
+                      footerHint: widget.expressMode
+                          ? 'PIX ou cartão nesta página — padrão Super Premium e mais rápido. '
+                              'Não o leva para o site do Mercado Pago: o checkout abre aqui embebido; '
+                              'o processamento continua seguro com o Mercado Pago em segundo plano.'
+                          : null,
+                    ),
+                  ),
+                ),
+              ],
             );
           }
 

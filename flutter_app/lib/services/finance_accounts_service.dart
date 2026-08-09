@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fa;
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/models/finance_account.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'finance_advanced_settings_service.dart';
 import 'goal_deposit_service.dart';
 
@@ -57,15 +58,30 @@ class FinanceAccountsService {
       if (u == null) {
         return Stream<List<FinanceAccount>>.value(const <FinanceAccount>[]);
       }
-      // Web/iOS/Android: listener ao vivo estável (1 alvo de watch por igreja,
-      // mantido). `authStateChanges` só reemite em login/logout (raro), então o
-      // listener não sofre churn de alvos.
+      // Web: listener ao vivo aqui era mais um alvo de watch simultâneo do
+      // Financeiro (INTERNAL ASSERTION FAILED / WatchChangeAggregator). Poll
+      // leve substitui sem travar o painel — contas mudam pouco por sessão.
+      if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
+        return _pollAccounts(uid);
+      }
       return _col(uid).snapshots().map((snap) {
         final list = snap.docs.map(FinanceAccount.fromDoc).toList();
         sortFinanceAccounts(list);
         return list;
       });
     });
+  }
+
+  Stream<List<FinanceAccount>> _pollAccounts(String uid) async* {
+    while (true) {
+      try {
+        final snap = await _col(uid).get();
+        final list = snap.docs.map(FinanceAccount.fromDoc).toList();
+        sortFinanceAccounts(list);
+        yield list;
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(seconds: 45));
+    }
   }
 
   Future<List<FinanceAccount>> listOnce(String uid) async {

@@ -2228,10 +2228,21 @@ class _CalendarPageState extends State<CalendarPage>
                       year: _holidayFooterYear, month: _holidayFooterMonth),
                 ),
               ),
+              // Depois do calendário + feriados: RESUMO DO DIA.
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+                  child: _buildSelectedDayEvents(),
+                ),
+              ),
+              // Cards/abas Todos/Reuniões/Eventos/Cultos — filtram o resumo do mês.
+              SliverToBoxAdapter(
+                child: _buildContentFilterCards(),
+              ),
               SliverToBoxAdapter(
                 child: Padding(
                   padding:
-                      const EdgeInsets.only(top: ThemeCleanPremium.spaceMd),
+                      const EdgeInsets.only(top: ThemeCleanPremium.spaceSm),
                   child: _buildMonthSectionHeader(),
                 ),
               ),
@@ -2691,15 +2702,22 @@ class _CalendarPageState extends State<CalendarPage>
 
   /// Lista vertical única (modo sem split): calendário + dia + resumo mês.
   Widget _buildCalendarStacked({Key? key}) {
+    // Ordem Controle Total: calendário → feriados → resumo do dia → cards
+    // (filtro) → resumo do mês.
     return Column(
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Cards clicáveis (Todos/Reuniões/Eventos/Cultos) antes da grade —
-        // mesmo filtro dos demais breakpoints.
-        _buildContentFilterCards(),
         _buildCalendarTopOnly(),
-        const SizedBox(height: ThemeCleanPremium.spaceMd),
+        const SizedBox(height: ThemeCleanPremium.spaceSm),
+        HolidayFooter(year: _holidayFooterYear, month: _holidayFooterMonth),
+        const SizedBox(height: ThemeCleanPremium.spaceSm),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+          child: _buildSelectedDayEvents(),
+        ),
+        _buildContentFilterCards(),
+        const SizedBox(height: ThemeCleanPremium.spaceSm),
         _buildMonthSectionHeader(),
         const SizedBox(height: ThemeCleanPremium.spaceSm),
         _buildFocusedMonthSummary(),
@@ -2802,12 +2820,11 @@ class _CalendarPageState extends State<CalendarPage>
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
               onTap: () {
-                if (_contentFilter != kind) {
-                  setState(() => _contentFilter = kind);
-                } else if (kind != _AgendaContentFilter.todos) {
-                  // Toque de novo no card ativo (≠ Todos) volta para Todos.
-                  setState(() => _contentFilter = _AgendaContentFilter.todos);
-                }
+                // Estilo Controle Total: seleciona a categoria E abre o modal
+                // com a grid/lista daquela categoria (Todos=todos, Cultos=só
+                // cultos, etc.), com editar/excluir em cada card.
+                setState(() => _contentFilter = kind);
+                unawaited(_openFocusedMonthEventsSheet());
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
@@ -2947,6 +2964,8 @@ class _CalendarPageState extends State<CalendarPage>
   }
 
   Widget _buildEscalasStyleCalendarBlock() {
+    // Só o CALENDÁRIO no topo (padrão Controle Total). Feriados, resumo do dia,
+    // cards e resumo do mês vêm DEPOIS (nos slivers de _buildSplitCalendarBody).
     return ChurchAgendaCalendarPremiumShell(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2955,12 +2974,6 @@ class _CalendarPageState extends State<CalendarPage>
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
             child: _buildVoltarHojeButton(),
           ),
-          // Ordem pedida: RESUMO DO DIA → ABAS (Todos/Cultos/Eventos) → GRID.
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
-            child: _buildSelectedDayEvents(),
-          ),
-          _buildContentFilterCards(),
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
             child: _buildTableCalendarInner(),
@@ -3673,6 +3686,11 @@ class _CalendarPageState extends State<CalendarPage>
       }
       if (d.year != y || d.month != m) continue;
       for (final ev in e.value) {
+        // Respeita o card ativo (Todos/Reuniões/Eventos/Cultos).
+        if (_contentFilter != _AgendaContentFilter.todos &&
+            !_eventPassesContentFilter(ev)) {
+          continue;
+        }
         total++;
         final g = _monthSummaryGroup(ev);
         byGroup[g] = (byGroup[g] ?? 0) + 1;

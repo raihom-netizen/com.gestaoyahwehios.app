@@ -270,17 +270,29 @@ class _FinanceScreenState extends State<FinanceScreen> {
     }
     if (_pendingStreamsUid != uid) _resetPendingStreamCaches();
     _pendingStreamsUid = uid;
-    // Web/iOS/Android: UM listener ao vivo ESTÁVEL (broadcast), assinado uma vez
-    // e reaproveitado por todas as faixas — 1 alvo de watch mantido, sem churn.
-    // (O antigo poll-com-`get()` na web abria/fechava alvo a cada ciclo — churn
-    // que disparava `INTERNAL ASSERTION / WatchChangeAggregator` no SDK JS.)
-    final s = _txRefPendingAll()
-        .snapshots(includeMetadataChanges: true)
-        .asBroadcastStream();
+    // Web: listener ao vivo aqui somava-se aos das outras faixas do Financeiro
+    // e disparava "INTERNAL ASSERTION FAILED" no WatchChangeAggregator do SDK
+    // (muitos alvos de watch em paralelo). Poll leve substitui sem travar o painel.
+    final s = FirestoreWebGuard.disableLiveSnapshotsOnWeb
+        ? _pollPendingTransactions().asBroadcastStream()
+        : _txRefPendingAll()
+            .snapshots(includeMetadataChanges: true)
+            .asBroadcastStream();
     _pendingTransactionsStreamCache = s;
     _pendingTransactionsTrackerSub = s
         .listen((snap) => _lastPendingTransactionsSnap = snap, onError: (_) {});
     return _pendingTransactionsStreamCache!;
+  }
+
+  /// Poll leve (1ª leitura imediata, depois a cada 45s) — substitui o listener
+  /// ao vivo no Web para não somar alvo de watch ao Financeiro.
+  Stream<QuerySnapshot<Map<String, dynamic>>> _pollPendingTransactions() async* {
+    while (true) {
+      try {
+        yield await _txRefPendingAll().get();
+      } catch (_) {}
+      await Future<void>.delayed(const Duration(seconds: 45));
+    }
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> get _pendingExpensesStream =>
@@ -8588,11 +8600,17 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
     _txWatchPollTimer?.cancel();
     final fsId = widget.uid.trim();
     if (fsId.isEmpty) return;
-    // Web/iOS/Android: UM listener ao vivo ESTÁVEL detecta mudanças (inclusive
-    // de outra aba/dispositivo) e recarrega a lista com debounce. Antes, na web,
-    // um timer de 45s fazia `get()` — que abre/fecha alvo de watch a cada ciclo
-    // (churn → `INTERNAL ASSERTION / WatchChangeAggregator`). Um único listener
-    // estável recarrega só quando há mudança real, sem churn.
+    // Web: listener ao vivo aqui era mais um alvo de watch simultâneo no
+    // Financeiro (INTERNAL ASSERTION FAILED / WatchChangeAggregator). Mudanças
+    // locais já recarregam via FinanceTransactionsHub.revision; isto aqui só
+    // cobria mudanças de outra aba/dispositivo — poll leve resolve sem risco.
+    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
+      _txWatchPollTimer = Timer.periodic(
+        const Duration(seconds: 45),
+        (_) => _scheduleDocsReloadDebounced(),
+      );
+      return;
+    }
     _txWatchSub = ChurchUiCollections.financeiro(fsId)
         .limit(1)
         .snapshots(includeMetadataChanges: true)

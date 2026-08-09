@@ -154,12 +154,12 @@ class FirestoreStreamUtils {
       yield* _webQueryPolling(query);
       return;
     }
-    // Listener ao vivo ESTÁVEL (web e mobile). Sem o gate de chave única
-    // `tryOpenListener('query')` — ele bloqueava TODAS as queries além da
-    // primeira; a estabilidade agora vem de manter 1 alvo por fonte (sem poll),
-    // não de limitar a contagem. `includeMetadataChanges: false` reduz ruído.
+    if (!WebPanelStability.tryOpenListener('query')) {
+      return;
+    }
+    // Único uso intencional de `.snapshots()` no app — mobile pós-bootstrap.
     yield* resilientQuery(
-      _nativeQuerySnapshots(query, includeMetadataChanges: false),
+      _nativeQuerySnapshots(query, includeMetadataChanges: true),
       broadcast: broadcast,
     );
   }
@@ -323,12 +323,7 @@ class FirestoreStreamUtils {
         },
       ),
     );
-    // `onCancel` cancela a fonte (`snapshots()`) quando NÃO há mais ouvintes —
-    // libera o alvo de watch ao sair do módulo (evita vazar targets na
-    // navegação e o `targetId` subir sem parar).
-    return broadcast
-        ? wired.asBroadcastStream(onCancel: (sub) => sub.cancel())
-        : wired;
+    return broadcast ? wired.asBroadcastStream() : wired;
   }
 
   /// Documento único (`DocumentReference.snapshots`) — ex.: `_panel_cache`.
@@ -351,9 +346,7 @@ class FirestoreStreamUtils {
         },
       ),
     );
-    return broadcast
-        ? wired.asBroadcastStream(onCancel: (sub) => sub.cancel())
-        : wired;
+    return broadcast ? wired.asBroadcastStream() : wired;
   }
 
   static final DocumentSnapshot<Map<String, dynamic>> _emptyDocumentSnapshot =

@@ -15,13 +15,14 @@ import 'package:gestao_yahweh/utils/web_page_reload.dart';
 class FirestoreWebGuard {
   FirestoreWebGuard._();
 
-  /// Web: usa listeners ao vivo ESTÁVEIS (igual iOS/Android), NÃO poll com
-  /// `get()`. O `get()`-poll era o real causador do INTERNAL ASSERTION: cada
-  /// `get()` no SDK JS abre/fecha um alvo de watch → o `targetId` sobe sem
-  /// parar (churn) e envenena o cliente da sessão. Um `.snapshots()` estável
-  /// segura UM alvo por fonte (zero churn). Assim a web fica estável e com a
-  /// mesma experiência do mobile.
-  static bool get disableLiveSnapshotsOnWeb => false;
+  /// Web: usa `get()` (RestConnection/REST) em vez de `.snapshots()`.
+  /// ⭐ DESCOBERTA (2026-08-09): a `INTERNAL ASSERTION` vive no
+  /// `WatchChangeAggregator`, que só é usado pelo caminho de **LISTEN**
+  /// (`.snapshots()`). Com `webExperimentalForceLongPolling: true`, os `get()`
+  /// usam **RestConnection (REST)** — que NÃO passa pelo agregador → não há a
+  /// assertion. Portanto, na web lemos por `get()` (poll leve) e evitamos os
+  /// listeners ao vivo (que caem no agregador bugado). Mobile: sempre live.
+  static bool get disableLiveSnapshotsOnWeb => kIsWeb;
 
   /// Web: limita leituras Firestore em voo (alvos do watch stream) para evitar
   /// dezenas de alvos paralelos → `INTERNAL ASSERTION FAILED: Unexpected state`
