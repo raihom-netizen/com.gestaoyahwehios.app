@@ -243,7 +243,13 @@ class AppConstants {
   /// Dias de carência após o vencimento antes de bloquear o acesso (igual Controle Total).
   static const int subscriptionGraceDays = 3;
   /// WhatsApp do suporte master (somente dígitos com DDI/DDD). Ex.: 5562999999999
-  static const String masterSupportWhatsApp = '';
+  static const String masterSupportWhatsApp = '5562991705247';
+
+  /// Nome exibido no contato de suporte (tela de bloqueio de licença).
+  static const String masterSupportName = 'Raihom Barbosa';
+
+  /// Telefone formatado para exibição.
+  static const String masterSupportPhoneLabel = '(62) 99170-5247';
 
   /// Conta master do produto: vê/gerencia todas as igrejas (bypass de isolamento multi-tenant).
   static const String productMasterEmail = 'raihom@gmail.com';

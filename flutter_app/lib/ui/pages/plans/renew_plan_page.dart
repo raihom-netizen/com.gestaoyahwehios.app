@@ -567,6 +567,128 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     return cfg?.monthlyPrice ?? _selectedPlan.monthlyPrice;
   }
 
+  /// Lista de parcelas do cartão (só ANUAL; mensal é sempre 1x). Mostra o valor
+  /// de cada parcela para o usuário ver antes de pagar. Os juros do
+  /// parcelamento, quando houver, são aplicados pelo Mercado Pago na finalização.
+  /// Multiplicador "cliente paga" do Mercado Pago por nº de parcelas (cartão),
+  /// derivado do simulador oficial do MP (base R$600). O valor final é sempre
+  /// confirmado pelo Mercado Pago no checkout — aqui é a ESTIMATIVA para o
+  /// gestor ver o total e o valor por parcela antes de pagar.
+  static const Map<int, double> _mpInstallmentMultiplier = {
+    1: 1.05242, // 4,98%
+    2: 1.15788,
+    3: 1.17468,
+    4: 1.17605,
+    5: 1.20720,
+    6: 1.20730,
+  };
+
+  double? _installmentTotal(int n) {
+    final base = _selectedCyclePrice();
+    if (base == null || base <= 0) return null;
+    final mult = _mpInstallmentMultiplier[n.clamp(1, 6)] ?? 1.0;
+    return base * mult;
+  }
+
+  Widget _buildInstallmentList() {
+    const accent = Color(0xFF2563EB); // cartão = azul
+    final rows = <Widget>[];
+    for (var n = 1; n <= 6; n++) {
+      final sel = _expressCardInstallments == n;
+      final total = _installmentTotal(n);
+      final per = total != null ? total / n : null;
+      rows.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _onSelectInstallment(n),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: sel
+                      ? accent.withValues(alpha: 0.10)
+                      : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: sel ? accent : const Color(0xFFE2E8F0),
+                    width: sel ? 2 : 1.2,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      sel
+                          ? Icons.radio_button_checked_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      color: sel ? accent : Colors.grey.shade400,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      '${n}x',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                        color: sel ? accent : const Color(0xFF1E293B),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        per == null
+                            ? '—'
+                            : (n == 1
+                                ? '${_money(per)} à vista'
+                                : '${n}x de ${_money(per)}'),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          color: Color(0xFF334155),
+                        ),
+                      ),
+                    ),
+                    if (per != null && n > 1)
+                      Text(
+                        'total ${_money(total!)}',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    rows.add(
+      Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Text(
+          'Valores estimados com as taxas de parcelamento do Mercado Pago. '
+          'O valor final por parcela é confirmado no checkout do Mercado Pago.',
+          style: TextStyle(
+            fontSize: 11.5,
+            color: Colors.grey.shade600,
+            height: 1.3,
+          ),
+        ),
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: rows,
+    );
+  }
+
   Widget _buildExpressConfirmPanel(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final price = _selectedCyclePrice();
@@ -1422,6 +1544,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                           label: 'PIX',
                           icon: Icons.qr_code_2_rounded,
                           selected: _paymentPix,
+                          accent: const Color(0xFF16A34A), // PIX = verde
                           onTap: _onSelectPix,
                         ),
                       ),
@@ -1433,6 +1556,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                               : 'Cartão (1x)',
                           icon: Icons.credit_card_rounded,
                           selected: !_paymentPix,
+                          accent: const Color(0xFF2563EB), // Cartão = azul
                           onTap: _onSelectCard,
                           enabled: true,
                         ),
@@ -1475,19 +1599,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                           TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
                     ),
                     const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: List.generate(6, (i) {
-                        final n = i + 1;
-                        final sel = _expressCardInstallments == n;
-                        return FilterChip(
-                          label: Text('${n}x'),
-                          selected: sel,
-                          onSelected: (_) => _onSelectInstallment(n),
-                        );
-                      }),
-                    ),
+                    _buildInstallmentList(),
                   ],
                   if (_usesAnnualCardConfirmFlow &&
                       !_paymentPix &&
@@ -1682,35 +1794,41 @@ class _PlanCardOficial extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final accent = _planCardAccent(plan.id);
+    final accentDark = Color.lerp(accent, Colors.black, 0.22)!;
+    final priceNull = (priceMonthly ?? plan.monthlyPrice) == null;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
         onTap: onTap,
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Color.lerp(accent, Colors.white, selected ? 0.80 : 0.90)!,
+                Colors.white,
+              ],
+            ),
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: selected
-                  ? cs.primary
-                  : (plan.featured ? cs.primary.withValues(alpha: 0.6) : const Color(0xFFE5EAF3)),
-              width: selected ? 2.5 : 1,
+                  ? accent
+                  : (plan.featured
+                      ? accent.withValues(alpha: 0.55)
+                      : accent.withValues(alpha: 0.22)),
+              width: selected ? 2.5 : 1.2,
             ),
             boxShadow: [
-              const BoxShadow(
-                color: Color(0x12000000),
-                blurRadius: 16,
-                offset: Offset(0, 10),
+              BoxShadow(
+                color: accent.withValues(alpha: selected ? 0.28 : 0.14),
+                blurRadius: selected ? 20 : 14,
+                offset: const Offset(0, 9),
               ),
-              if (selected)
-                BoxShadow(
-                  color: cs.primary.withValues(alpha: 0.15),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
             ],
           ),
           child: Column(
@@ -1718,47 +1836,83 @@ class _PlanCardOficial extends StatelessWidget {
             children: [
               Row(
                 children: [
+                  Container(
+                    padding: const EdgeInsets.all(9),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [accent, accentDark],
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: accent.withValues(alpha: 0.35),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(Icons.groups_rounded,
+                        size: 18, color: Colors.white),
+                  ),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       plan.name,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w900,
+                        color: accentDark,
                       ),
                     ),
                   ),
                   if (plan.featured)
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
-                        color: cs.primary.withValues(alpha: 0.1),
+                        gradient: LinearGradient(
+                          colors: [accent, accentDark],
+                        ),
                         borderRadius: BorderRadius.circular(999),
+                        boxShadow: [
+                          BoxShadow(
+                            color: accent.withValues(alpha: 0.35),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
-                      child: Text(
+                      child: const Text(
                         'Recomendado',
                         style: TextStyle(
-                          color: cs.primary,
+                          color: Colors.white,
                           fontWeight: FontWeight.w800,
-                          fontSize: 12,
+                          fontSize: 11.5,
                         ),
                       ),
                     ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Text(
                 plan.members,
-                style: TextStyle(color: Colors.grey.shade700, fontSize: 13),
+                style: TextStyle(
+                  color: Colors.grey.shade700,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(height: 10),
               Text(
-                (priceMonthly ?? plan.monthlyPrice) == null
+                priceNull
                     ? (plan.note ?? 'Valor a combinar')
                     : '${_money((priceMonthly ?? plan.monthlyPrice)!)} / mês',
                 style: TextStyle(
-                  fontSize: 20,
+                  fontSize: 22,
                   fontWeight: FontWeight.w900,
-                  color: plan.featured ? cs.primary : const Color(0xFF1E293B),
+                  color: accentDark,
                 ),
               ),
               const SizedBox(height: 6),
@@ -1772,7 +1926,8 @@ class _PlanCardOficial extends StatelessWidget {
                 'App + Painel Web + Site público\n'
                 'Eventos, escalas e financeiro\n'
                 'Backups automáticos e segurança',
-                style: TextStyle(color: Colors.black54, height: 1.35, fontSize: 12),
+                style:
+                    TextStyle(color: Colors.black54, height: 1.35, fontSize: 12),
               ),
               if (onChooseMonthly != null && onChooseAnnual != null) ...[
                 const SizedBox(height: 14),
@@ -1782,6 +1937,8 @@ class _PlanCardOficial extends StatelessWidget {
                       child: FilledButton.tonal(
                         onPressed: onChooseMonthly,
                         style: FilledButton.styleFrom(
+                          backgroundColor: accent.withValues(alpha: 0.14),
+                          foregroundColor: accentDark,
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                         child: const Text(
@@ -1795,6 +1952,8 @@ class _PlanCardOficial extends StatelessWidget {
                       child: FilledButton(
                         onPressed: onChooseAnnual,
                         style: FilledButton.styleFrom(
+                          backgroundColor: accent,
+                          foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 12),
                         ),
                         child: const Text(
@@ -1816,14 +1975,14 @@ class _PlanCardOficial extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Icon(Icons.check_circle_rounded, color: cs.primary, size: 20),
+                    Icon(Icons.check_circle_rounded, color: accent, size: 20),
                     const SizedBox(width: 4),
                     Text(
                       'Selecionado',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: cs.primary,
+                        color: accent,
                       ),
                     ),
                   ],
@@ -1834,6 +1993,32 @@ class _PlanCardOficial extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Cor de acento por plano — deixa os cards coloridos/modernos (por faixa).
+Color _planCardAccent(String id) {
+  switch (id.trim()) {
+    case 'inicial':
+      return const Color(0xFF3B82F6); // azul
+    case 'essencial':
+      return const Color(0xFF14B8A6); // teal
+    case 'intermediario':
+      return const Color(0xFF6366F1); // indigo
+    case 'avancado':
+      return const Color(0xFF8B5CF6); // violeta
+    case 'profissional':
+      return const Color(0xFFEC4899); // rosa
+    case 'premium':
+      return const Color(0xFFF59E0B); // âmbar
+    case 'premium_plus':
+      return const Color(0xFFF97316); // laranja
+    case 'corporativo_i':
+      return const Color(0xFF0EA5E9); // sky
+    case 'corporativo':
+      return const Color(0xFF0D9488); // teal escuro
+    default:
+      return const Color(0xFF2563EB);
   }
 }
 
@@ -1890,23 +2075,27 @@ class _ChoiceChip extends StatelessWidget {
   final VoidCallback? onTap;
   final bool enabled;
 
+  /// Cor de acento — permite diferenciar chips (ex.: PIX verde, Cartão azul).
+  final Color? accent;
+
   const _ChoiceChip({
     required this.label,
     this.icon,
     required this.selected,
     this.onTap,
     this.enabled = true,
+    this.accent,
   });
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final cs = accent ?? Theme.of(context).colorScheme.primary;
     final isDisabled = !enabled || onTap == null;
     final radius = BorderRadius.circular(16);
     return Material(
       color: Colors.transparent,
       elevation: selected ? 3 : 0,
-      shadowColor: selected ? cs.primary.withValues(alpha: 0.35) : Colors.transparent,
+      shadowColor: selected ? cs.withValues(alpha: 0.35) : Colors.transparent,
       borderRadius: radius,
       child: InkWell(
         onTap: isDisabled ? null : onTap,
@@ -1920,15 +2109,15 @@ class _ChoiceChip extends StatelessWidget {
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        cs.primary.withValues(alpha: 0.22),
-                        const Color(0xFFE0F2FE),
+                        cs.withValues(alpha: 0.28),
+                        Color.lerp(cs, Colors.white, 0.85)!,
                       ],
                     )
                   : null,
               color: selected ? null : Colors.grey.shade100,
               borderRadius: radius,
               border: Border.all(
-                color: selected ? cs.primary : Colors.grey.shade300,
+                color: selected ? cs : Colors.grey.shade300,
                 width: selected ? 2.5 : 1,
               ),
             ),
@@ -1941,7 +2130,7 @@ class _ChoiceChip extends StatelessWidget {
                     Icon(
                       icon,
                       size: 22,
-                      color: selected ? cs.primary : Colors.grey.shade700,
+                      color: selected ? cs : Colors.grey.shade700,
                     ),
                     const SizedBox(width: 10),
                   ],
@@ -1953,7 +2142,7 @@ class _ChoiceChip extends StatelessWidget {
                         fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                         fontSize: 15,
                         letterSpacing: -0.2,
-                        color: selected ? cs.primary : Colors.grey.shade800,
+                        color: selected ? cs : Colors.grey.shade800,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),

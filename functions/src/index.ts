@@ -177,6 +177,8 @@ function canPurchaseChurchLicenseRole(role: string): boolean {
   }
   if (r === "TESOUREIRO" || r === "TESOURARIA") return true;
   if (r === "ADMINISTRADOR" || r === "ADMINISTRADORA") return true;
+  // Pastor (e variantes) também pode gerar o pagamento da licença.
+  if (r === "PASTOR" || r === "PASTOR_PRESIDENTE" || r === "PASTORA") return true;
   const low = String(role || "").trim().toLowerCase();
   return [
     "gestor",
@@ -191,6 +193,9 @@ function canPurchaseChurchLicenseRole(role: string): boolean {
     "tesouraria",
     "administrador",
     "administradora",
+    "pastor",
+    "pastor_presidente",
+    "pastora",
   ].includes(low);
 }
 

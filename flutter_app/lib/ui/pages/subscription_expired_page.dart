@@ -43,12 +43,19 @@ class SubscriptionExpiredPage extends StatelessWidget {
       );
     }
 
-    final blockedMsg = canPurchaseLicense
-        ? '$churchName está com acesso bloqueado após o período de carência.\n\n'
-            'Renove a licença para liberar o painel, módulos e notificações.'
-        : '$churchName está com acesso bloqueado.\n\n'
-            'Somente o gestor, secretário ou tesoureiro pode gerar o '
-            'pagamento da licença. Peça a um deles para concluir a renovação.';
+    final contactLine =
+        '\n\nDúvidas? Fale com ${AppConstants.masterSupportName} — '
+        '${AppConstants.masterSupportPhoneLabel} no WhatsApp.';
+    final blockedMsg = (canPurchaseLicense
+            ? '$churchName está com acesso bloqueado após o período de carência.\n\n'
+                'Renove a licença (PIX ou cartão, mensal ou anual) para liberar o '
+                'painel, módulos e notificações. A licença é ativada automaticamente '
+                'assim que o pagamento é confirmado.'
+            : '$churchName está com acesso bloqueado.\n\n'
+                'Somente pastor, gestor, administrador, secretário ou tesoureiro '
+                'pode gerar o pagamento da licença. Peça a um deles para concluir '
+                'a renovação.') +
+        contactLine;
 
     return YahwehSaasLicenseStatePage(
       title: 'Assinatura suspensa',
@@ -60,7 +67,7 @@ class SubscriptionExpiredPage extends StatelessWidget {
           canPurchaseLicense ? 'Alterar plano / Pagar agora' : null,
       onPrimary: canPurchaseLicense ? onRenew : null,
       secondaryLabel: AppConstants.masterSupportWhatsApp.trim().isNotEmpty
-          ? 'Falar com suporte no WhatsApp'
+          ? 'WhatsApp — ${AppConstants.masterSupportName}'
           : null,
       onSecondary: AppConstants.masterSupportWhatsApp.trim().isNotEmpty
           ? _openSupportWhatsApp

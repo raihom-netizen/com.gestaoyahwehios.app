@@ -140,14 +140,28 @@ abstract final class _AgendaRamCache {
 
 enum _AgendaViewKind { month, week, list }
 
+/// Filtro de conteúdo da grade — cards clicáveis (estilo Controle Total):
+/// Todos / Reuniões / Eventos / Cultos. Aplica-se ao grid, ao resumo do dia,
+/// à contagem do cabeçalho e ao PDF.
+enum _AgendaContentFilter { todos, reunioes, eventos, cultos }
+
 class _CalendarPageState extends State<CalendarPage>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late DateTime _focusedMonth;
+  /// Âncora da JANELA carregada (modo mês). A agenda carrega uma janela ampla
+  /// (±[_kAgendaWindowMonthsEachSide] meses) de uma vez; trocar de mês DENTRO
+  /// da janela só repinta (instantâneo, sem novo fetch) — padrão Controle Total
+  /// (carrega amplo, filtra em memória). Recarrega/recentraliza só ao chegar na
+  /// borda, deixando o mês seguinte sempre pré-carregado.
+  DateTime? _windowAnchor;
+  static const int _kAgendaWindowMonthsEachSide = 6;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   /// Dia já “primado” após 1º toque — 2º toque abre incluir/editar (padrão Escalas CT).
   DateTime? _dayPrimedForMenu;
   _AgendaViewKind _agendaView = _AgendaViewKind.month;
+  /// Aba ativa do filtro de conteúdo (Todos / Cultos / Eventos).
+  _AgendaContentFilter _contentFilter = _AgendaContentFilter.todos;
   Map<String, List<_CalendarEvent>> _eventsByDay = {};
   Map<String, List<_CalendarEvent>> _legacyEventsByDay = {};
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _agendaDocs = [];
@@ -719,6 +733,7 @@ class _CalendarPageState extends State<CalendarPage>
     unawaited(_loadEventCategories());
     final now = DateTime.now();
     _focusedMonth = DateTime(now.year, now.month);
+    _windowAnchor = _focusedMonth;
     _focusedDay = DateTime(now.year, now.month, now.day);
     _selectedDay = DateTime(now.year, now.month, now.day);
     // Hoje selecionado + resumo no rodapé; 1º toque só seleciona, 2º abre o dia.
@@ -800,6 +815,14 @@ class _CalendarPageState extends State<CalendarPage>
 
   /// Carga única — agenda + eventos + cultos (sem triplicar queries).
   Future<void> _reloadCalendar({bool forceRefresh = false}) async {
+    // Se o mês focado saiu da janela ampla carregada (salto via date picker,
+    // "voltar para hoje" ou navegação além da borda), recentraliza a janela
+    // nele para o fetch cobrir o destino. Refresh em background de um mês
+    // DENTRO da janela preserva a âncora (evita recarga desnecessária).
+    if (_agendaView == _AgendaViewKind.month &&
+        !_monthWithinLoadedWindow(_focusedMonth)) {
+      _windowAnchor = _focusedMonth;
+    }
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }
@@ -935,10 +958,30 @@ class _CalendarPageState extends State<CalendarPage>
           return (DateTime(now.year, now.month, 1), DateTime(now.year, now.month + 1, 0, 23, 59, 59));
       }
     }
+    // Modo mês: carrega uma JANELA ampla (±_kAgendaWindowMonthsEachSide meses)
+    // ancorada em [_windowAnchor], para trocar de mês sem refetch.
+    final anchor = _windowAnchor ?? _focusedMonth;
     return (
-      DateTime(_focusedMonth.year, _focusedMonth.month, 1),
-      DateTime(_focusedMonth.year, _focusedMonth.month + 1, 0, 23, 59, 59),
+      DateTime(anchor.year, anchor.month - _kAgendaWindowMonthsEachSide, 1),
+      DateTime(
+        anchor.year,
+        anchor.month + _kAgendaWindowMonthsEachSide + 1,
+        0,
+        23,
+        59,
+        59,
+      ),
     );
+  }
+
+  /// `true` se [month] está DENTRO da janela já carregada (com margem de 1 mês
+  /// para pré-carregar antes da borda). Nesse caso a troca de mês é instantânea.
+  bool _monthWithinLoadedWindow(DateTime month) {
+    final anchor = _windowAnchor;
+    if (anchor == null) return false;
+    final monthsFromAnchor =
+        (month.year - anchor.year) * 12 + (month.month - anchor.month);
+    return monthsFromAnchor.abs() <= (_kAgendaWindowMonthsEachSide - 1);
   }
 
   void _clearAgendaBulkUi() {
@@ -2150,10 +2193,9 @@ class _CalendarPageState extends State<CalendarPage>
                 ),
               SliverToBoxAdapter(
                 child: _AgendaHeroHeader(
-                  eventCount: _eventsByDay.values.fold<int>(
-                    0,
-                    (sum, list) => sum + list.length,
-                  ),
+                  // Só o mês focado (a carga agora é ampla ±6 meses; somar tudo
+                  // mostraria ~1 ano). Respeita a aba Todos/Cultos/Eventos.
+                  eventCount: _countForFilter(_contentFilter),
                   monthLabel: DateFormat('MMMM yyyy', 'pt_BR')
                       .format(_focusedMonth),
                 ),
@@ -2660,6 +2702,9 @@ class _CalendarPageState extends State<CalendarPage>
       key: key,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Cards clicáveis (Todos/Reuniões/Eventos/Cultos) antes da grade —
+        // mesmo filtro dos demais breakpoints.
+        _buildContentFilterCards(),
         _buildCalendarTopOnly(),
         const SizedBox(height: ThemeCleanPremium.spaceMd),
         _buildMonthSectionHeader(),
@@ -2670,6 +2715,242 @@ class _CalendarPageState extends State<CalendarPage>
   }
 
   /// Card único Escalas CT: botão Hoje + grade + Resumo do dia.
+  bool _isCultoEvent(_CalendarEvent ev) =>
+      ev.source == 'cultos' || ev.categoryKey == 'culto';
+
+  bool _isReuniaoEvent(_CalendarEvent ev) {
+    if (_isCultoEvent(ev)) return false;
+    final ck = (ev.categoryKey ?? '').toLowerCase();
+    if (ck == 'lideranca' || ck == 'reuniao' || ck == 'reunião') return true;
+    final t = '${ev.type} ${ev.title}'.toLowerCase();
+    return t.contains('reuni'); // reunião / reunioes
+  }
+
+  bool _eventPassesContentFilter(_CalendarEvent ev) {
+    switch (_contentFilter) {
+      case _AgendaContentFilter.todos:
+        return true;
+      case _AgendaContentFilter.cultos:
+        return _isCultoEvent(ev);
+      case _AgendaContentFilter.reunioes:
+        return _isReuniaoEvent(ev);
+      case _AgendaContentFilter.eventos:
+        return !_isCultoEvent(ev) && !_isReuniaoEvent(ev);
+    }
+  }
+
+  /// Eventos do dia já filtrados pela aba ativa (Todos / Cultos / Eventos).
+  List<_CalendarEvent> _eventsForDay(DateTime day) {
+    final all = _eventsByDay[_dayKey(day)] ?? const <_CalendarEvent>[];
+    if (_contentFilter == _AgendaContentFilter.todos) return all;
+    return all.where(_eventPassesContentFilter).toList(growable: false);
+  }
+
+  /// Contagens do MÊS focado por categoria — alimenta os cards clicáveis.
+  ({int todos, int reunioes, int eventos, int cultos})
+      _focusedMonthContentCounts() {
+    var cultos = 0;
+    var reunioes = 0;
+    var eventos = 0;
+    for (final entry in _eventsByDay.entries) {
+      for (final ev in entry.value) {
+        if (ev.dateTime.year != _focusedMonth.year ||
+            ev.dateTime.month != _focusedMonth.month) {
+          continue;
+        }
+        if (_isCultoEvent(ev)) {
+          cultos++;
+        } else if (_isReuniaoEvent(ev)) {
+          reunioes++;
+        } else {
+          eventos++;
+        }
+      }
+    }
+    return (
+      todos: cultos + reunioes + eventos,
+      reunioes: reunioes,
+      eventos: eventos,
+      cultos: cultos,
+    );
+  }
+
+  int _countForFilter(_AgendaContentFilter kind) {
+    final c = _focusedMonthContentCounts();
+    switch (kind) {
+      case _AgendaContentFilter.todos:
+        return c.todos;
+      case _AgendaContentFilter.reunioes:
+        return c.reunioes;
+      case _AgendaContentFilter.eventos:
+        return c.eventos;
+      case _AgendaContentFilter.cultos:
+        return c.cultos;
+    }
+  }
+
+  /// Cards CLICÁVEIS estilo Controle Total — Todos / Reuniões / Eventos /
+  /// Cultos, cada um com a contagem do mês. Clicar filtra a grade + resumo do
+  /// dia + PDF. O card ativo fica destacado (gradiente + brilho).
+  Widget _buildContentFilterCards() {
+    Widget card(
+      _AgendaContentFilter kind,
+      String label,
+      IconData icon,
+      Color accent,
+    ) {
+      final selected = _contentFilter == kind;
+      final count = _countForFilter(kind);
+      return Expanded(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () {
+                if (_contentFilter != kind) {
+                  setState(() => _contentFilter = kind);
+                } else if (kind != _AgendaContentFilter.todos) {
+                  // Toque de novo no card ativo (≠ Todos) volta para Todos.
+                  setState(() => _contentFilter = _AgendaContentFilter.todos);
+                }
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: selected
+                        ? [accent, Color.lerp(accent, Colors.black, 0.20)!]
+                        : [
+                            Color.lerp(accent, Colors.white, 0.86)!,
+                            Color.lerp(accent, Colors.white, 0.94)!,
+                          ],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: selected
+                        ? Color.lerp(accent, Colors.black, 0.10)!
+                        : accent.withValues(alpha: 0.35),
+                    width: 1.4,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: accent
+                          .withValues(alpha: selected ? 0.35 : 0.14),
+                      blurRadius: selected ? 12 : 7,
+                      offset: Offset(0, selected ? 5 : 3),
+                    ),
+                  ],
+                ),
+                child: Stack(
+                  children: [
+                    // Barra de acento à esquerda (padrão CT).
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 4,
+                        color: selected
+                            ? Colors.white.withValues(alpha: 0.85)
+                            : accent,
+                      ),
+                    ),
+                    Padding(
+                      padding:
+                          const EdgeInsets.fromLTRB(8, 10, 6, 10),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: selected
+                                    ? [
+                                        Colors.white,
+                                        Colors.white
+                                            .withValues(alpha: 0.85),
+                                      ]
+                                    : [
+                                        accent,
+                                        Color.lerp(
+                                            accent, Colors.black, 0.18)!,
+                                      ],
+                              ),
+                            ),
+                            child: Icon(
+                              icon,
+                              size: 17,
+                              color: selected ? accent : Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              label,
+                              maxLines: 1,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.2,
+                                color: selected
+                                    ? Colors.white
+                                    : Color.lerp(
+                                        accent, Colors.black, 0.25)!,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '$count',
+                            style: TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w900,
+                              height: 1,
+                              color: selected
+                                  ? Colors.white
+                                  : Color.lerp(accent, Colors.black, 0.15)!,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 2, 8, 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          card(_AgendaContentFilter.todos, 'Todos',
+              Icons.calendar_month_rounded, ThemeCleanPremium.primary),
+          card(_AgendaContentFilter.reunioes, 'Reuniões',
+              Icons.groups_rounded, const Color(0xFF6366F1)),
+          card(_AgendaContentFilter.eventos, 'Eventos',
+              Icons.celebration_rounded, const Color(0xFFF97316)),
+          card(_AgendaContentFilter.cultos, 'Cultos', Icons.church_rounded,
+              const Color(0xFF7C3AED)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEscalasStyleCalendarBlock() {
     return ChurchAgendaCalendarPremiumShell(
       child: Column(
@@ -2679,10 +2960,15 @@ class _CalendarPageState extends State<CalendarPage>
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
             child: _buildVoltarHojeButton(),
           ),
-          _buildTableCalendarInner(),
+          // Ordem pedida: RESUMO DO DIA → ABAS (Todos/Cultos/Eventos) → GRID.
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 2, 12, 14),
+            padding: const EdgeInsets.fromLTRB(12, 2, 12, 6),
             child: _buildSelectedDayEvents(),
+          ),
+          _buildContentFilterCards(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 12),
+            child: _buildTableCalendarInner(),
           ),
         ],
       ),
@@ -2711,7 +2997,7 @@ class _CalendarPageState extends State<CalendarPage>
           startingDayOfWeek: StartingDayOfWeek.sunday,
           rowHeight: rowH,
           daysOfWeekHeight: dowH,
-          eventLoader: (day) => _eventsByDay[_dayKey(day)] ?? const [],
+          eventLoader: (day) => _eventsForDay(day),
           calendarStyle: ControleTotalCalendarTheme.calendarStyle(
             cellFs: cellFs,
             primary: wisdomPrimary,
@@ -2818,8 +3104,18 @@ class _CalendarPageState extends State<CalendarPage>
           },
           onPageChanged: (focused) {
             _focusedDay = focused;
-            _focusedMonth = DateTime(focused.year, focused.month, 1);
-            _reloadCalendar();
+            final newMonth = DateTime(focused.year, focused.month, 1);
+            _focusedMonth = newMonth;
+            // Dentro da janela ampla já carregada → troca INSTANTÂNEA (só
+            // repinta a partir dos mapas em memória, sem novo fetch). Só
+            // recarrega ao chegar na borda da janela (recentralizando).
+            if (_agendaView == _AgendaViewKind.month &&
+                _monthWithinLoadedWindow(newMonth)) {
+              setState(() {});
+            } else {
+              _windowAnchor = newMonth;
+              _reloadCalendar();
+            }
           },
         );
   }
@@ -2836,7 +3132,7 @@ class _CalendarPageState extends State<CalendarPage>
       );
     }
     final key = _dayKey(_selectedDay!);
-    final events = List<_CalendarEvent>.from(_eventsByDay[key] ?? [])
+    final events = List<_CalendarEvent>.from(_eventsForDay(_selectedDay!))
       ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
     final holidayName = HolidayHelper.holidayNameOn(_selectedDay!);
     final showHint = _isDayPrimedForMenu(_selectedDay!);
@@ -3430,7 +3726,9 @@ class _CalendarPageState extends State<CalendarPage>
         continue;
       }
       if (d.year != y || d.month != m) continue;
-      out.addAll(e.value);
+      out.addAll(_contentFilter == _AgendaContentFilter.todos
+          ? e.value
+          : e.value.where(_eventPassesContentFilter));
     }
     out.sort((a, b) => a.dateTime.compareTo(b.dateTime));
     return out;
@@ -3937,9 +4235,19 @@ class _CalendarPageState extends State<CalendarPage>
     var merged =
         _mergeDayMaps(_legacyEventsByDay, _agendaEventsFromDocs(_agendaDocs));
     merged = _dedupeLinkedNoticias(merged);
-    final (rangeStart, rangeEnd) = _computeLoadRange();
-    final startDay = DateTime(rangeStart.year, rangeStart.month, rangeStart.day);
-    final endDay = DateTime(rangeEnd.year, rangeEnd.month, rangeEnd.day);
+    // PDF: exporta o MÊS focado (modo mês/semana) ou o intervalo do filtro
+    // (modo lista). NÃO usa a janela ampla de CARGA (±6 meses) — senão o PDF
+    // sairia com ~1 ano de eventos. Respeita também a aba Todos/Cultos/Eventos.
+    final DateTime startDay;
+    final DateTime endDay;
+    if (_agendaView == _AgendaViewKind.list) {
+      final (rangeStart, rangeEnd) = _computeLoadRange();
+      startDay = DateTime(rangeStart.year, rangeStart.month, rangeStart.day);
+      endDay = DateTime(rangeEnd.year, rangeEnd.month, rangeEnd.day);
+    } else {
+      startDay = DateTime(_focusedMonth.year, _focusedMonth.month, 1);
+      endDay = DateTime(_focusedMonth.year, _focusedMonth.month + 1, 0);
+    }
 
     final out = <String, List<_CalendarEvent>>{};
     for (final e in merged.entries) {
@@ -3950,8 +4258,11 @@ class _CalendarPageState extends State<CalendarPage>
       } catch (_) {
         continue;
       }
-      if (e.value.isEmpty) continue;
-      out[e.key] = List<_CalendarEvent>.from(e.value)
+      final filtered = _contentFilter == _AgendaContentFilter.todos
+          ? e.value
+          : e.value.where(_eventPassesContentFilter).toList();
+      if (filtered.isEmpty) continue;
+      out[e.key] = List<_CalendarEvent>.from(filtered)
         ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
     }
     return out;
@@ -4127,9 +4438,15 @@ class _CalendarPageState extends State<CalendarPage>
       flat.add(const _AgendaFlatListItem.loading());
     }
     for (final dayKey in sortedKeys) {
+      var events = List<_CalendarEvent>.from(_eventsByDay[dayKey] ?? []);
+      // Respeita o card ativo (Todos/Reuniões/Eventos/Cultos) e pula dias que
+      // ficam sem eventos após o filtro.
+      if (_contentFilter != _AgendaContentFilter.todos) {
+        events = events.where(_eventPassesContentFilter).toList();
+      }
+      if (events.isEmpty) continue;
+      events.sort((a, b) => a.dateTime.compareTo(b.dateTime));
       flat.add(_AgendaFlatListItem.dayHeader(dayKey));
-      final events = List<_CalendarEvent>.from(_eventsByDay[dayKey] ?? [])
-        ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
       for (final ev in events) {
         flat.add(_AgendaFlatListItem.event(ev));
       }

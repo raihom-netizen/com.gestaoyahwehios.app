@@ -471,6 +471,15 @@ class AppPermissions {
       return true;
     }
     if (r == AppRoles.tesoureiro || r == AppRoles.tesouraria) return true;
+    // Pastor (e variantes) também pode gerar o pagamento da licença.
+    if (r == ChurchRoleKeys.pastor ||
+        r == ChurchRoleKeys.pastorPresidente ||
+        r == ChurchRoleKeys.pastorAuxiliar ||
+        r == 'pastor' ||
+        r == 'pastor_presidente' ||
+        r == 'pastora') {
+      return true;
+    }
     return false;
   }
 
