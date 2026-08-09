@@ -78,6 +78,10 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   /// Quando não nulo, exibe PIX pronto com QR e copia-e-cola.
   MpPixSession? _pixSession;
 
+  /// A seção de pagamento (ciclo/forma/parcelas) foi movida para um MODAL
+  /// aberto ao clicar Mensal/Anual no card. `false` = oculta na página.
+  static const bool _inlineCheckout = false;
+
   final _billing = BillingService();
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _churchBillingSub;
   StreamSubscription<User?>? _idTokenRefreshSub;
@@ -1042,6 +1046,298 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     }
   }
 
+  /// Preview moderno de checkout — abre ao clicar Mensal/Anual no card.
+  /// Escolhe PIX ou Cartão (anual: cartão em até 6x com valores). "Gerar
+  /// pagamento" fecha o modal e dispara o fluxo existente (PIX/checkout).
+  void _openCheckoutSheet() {
+    if (!mounted) return;
+    if (!widget.expressMode && !_canPurchaseLicense) return;
+    final cs = Theme.of(context).colorScheme;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useRootNavigator: widget.embeddedInShell,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (sheetCtx, setSheet) {
+            final plan = _selectedPlan;
+            final annual = _billingAnnual;
+            final basePrice = _selectedCyclePrice();
+            void refresh() {
+              setSheet(() {});
+              if (mounted) setState(() {});
+            }
+
+            Widget methodChip(
+                String label, IconData icon, bool pix, Color accent) {
+              final sel = _paymentPix == pix;
+              return Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () {
+                        _paymentPix = pix;
+                        if (pix) _expressCardInstallments = 1;
+                        refresh();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 14, horizontal: 10),
+                        decoration: BoxDecoration(
+                          color:
+                              sel ? accent.withValues(alpha: 0.12) : Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: sel ? accent : const Color(0xFFE2E8F0),
+                            width: sel ? 2.2 : 1.2,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(icon,
+                                size: 20,
+                                color: sel ? accent : Colors.grey.shade600),
+                            const SizedBox(width: 8),
+                            Text(
+                              label,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                                color: sel ? accent : Colors.grey.shade800,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            final showInstallments = annual && !_paymentPix;
+
+            return DraggableScrollableSheet(
+              initialChildSize: 0.72,
+              minChildSize: 0.5,
+              maxChildSize: 0.95,
+              expand: false,
+              builder: (ctx, scrollCtrl) => Container(
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF8FAFC),
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(22)),
+                ),
+                child: Column(
+                  children: [
+                    // Barra topo: Retornar (volta aos planos).
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 10, 12, 4),
+                      child: Row(
+                        children: [
+                          TextButton.icon(
+                            onPressed: () => Navigator.of(sheetCtx).pop(),
+                            icon: const Icon(Icons.arrow_back_rounded),
+                            label: const Text('Retornar'),
+                          ),
+                          const Spacer(),
+                          Text(
+                            annual ? 'Anual' : 'Mensal',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              color: cs.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView(
+                        controller: scrollCtrl,
+                        padding: const EdgeInsets.fromLTRB(18, 4, 18, 20),
+                        children: [
+                          Text(
+                            plan.name,
+                            style: const TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            basePrice == null
+                                ? (plan.note ?? 'Valor a combinar')
+                                : (annual
+                                    ? '${_money(basePrice)} à vista (anual)'
+                                    : '${_money(basePrice)} / mês'),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: cs.primary,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          const Text('Forma de pagamento',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 14)),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              methodChip('PIX', Icons.qr_code_2_rounded, true,
+                                  const Color(0xFF16A34A)),
+                              methodChip(
+                                  annual ? 'Cartão (até 6x)' : 'Cartão (1x)',
+                                  Icons.credit_card_rounded,
+                                  false,
+                                  const Color(0xFF2563EB)),
+                            ],
+                          ),
+                          if (showInstallments) ...[
+                            const SizedBox(height: 18),
+                            const Text('Parcelas no cartão',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w800, fontSize: 14)),
+                            const SizedBox(height: 8),
+                            for (var n = 1; n <= 6; n++)
+                              Builder(builder: (_) {
+                                final sel = _expressCardInstallments == n;
+                                final total = _installmentTotal(n);
+                                final per = total != null ? total / n : null;
+                                const accent = Color(0xFF2563EB);
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(12),
+                                    onTap: () {
+                                      _expressCardInstallments = n;
+                                      refresh();
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 14, vertical: 12),
+                                      decoration: BoxDecoration(
+                                        color: sel
+                                            ? accent.withValues(alpha: 0.10)
+                                            : Colors.white,
+                                        borderRadius:
+                                            BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: sel
+                                              ? accent
+                                              : const Color(0xFFE2E8F0),
+                                          width: sel ? 2 : 1.2,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            sel
+                                                ? Icons
+                                                    .radio_button_checked_rounded
+                                                : Icons
+                                                    .radio_button_unchecked_rounded,
+                                            color: sel
+                                                ? accent
+                                                : Colors.grey.shade400,
+                                            size: 20,
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Text('${n}x',
+                                              style: TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 16,
+                                                  color: sel
+                                                      ? accent
+                                                      : const Color(
+                                                          0xFF1E293B))),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text(
+                                              per == null
+                                                  ? '—'
+                                                  : (n == 1
+                                                      ? '${_money(per)} à vista'
+                                                      : '${n}x de ${_money(per)}'),
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 14,
+                                                  color: Color(0xFF334155)),
+                                            ),
+                                          ),
+                                          if (per != null && n > 1)
+                                            Text('total ${_money(total!)}',
+                                                style: TextStyle(
+                                                    fontSize: 11.5,
+                                                    color:
+                                                        Colors.grey.shade600,
+                                                    fontWeight:
+                                                        FontWeight.w600)),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }),
+                            Text(
+                              'Valores estimados com as taxas do Mercado Pago. '
+                              'O valor final é confirmado no checkout.',
+                              style: TextStyle(
+                                  fontSize: 11.5,
+                                  color: Colors.grey.shade600,
+                                  height: 1.3),
+                            ),
+                          ],
+                          const SizedBox(height: 22),
+                          SizedBox(
+                            height: 52,
+                            child: FilledButton.icon(
+                              onPressed: () {
+                                Navigator.of(sheetCtx).pop();
+                                _startSubscription();
+                              },
+                              icon: Icon(_paymentPix
+                                  ? Icons.qr_code_2_rounded
+                                  : Icons.credit_card_rounded),
+                              label: Text(
+                                _paymentPix
+                                    ? 'Gerar pagamento PIX'
+                                    : 'Ir para pagamento no cartão',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w800, fontSize: 15),
+                              ),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: _paymentPix
+                                    ? const Color(0xFF16A34A)
+                                    : const Color(0xFF2563EB),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Center(
+                            child: TextButton(
+                              onPressed: () => Navigator.of(sheetCtx).pop(),
+                              child: const Text('Cancelar'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _startSubscription() async {
     if (!widget.expressMode && !_canPurchaseLicense) {
       setState(() => _err =
@@ -1456,11 +1752,12 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                               _selected = p.id;
                               _billingAnnual = false;
                               _expressCardInstallments = 1;
+                              _paymentPix = true;
                               _expressPayStep = _ExpressPayStep.options;
                               _invalidatePaymentPrefetch();
                             });
                             _schedulePaymentPrefetch();
-                            _scrollPaymentSectionIntoView();
+                            _openCheckoutSheet();
                           },
                           onChooseAnnual: () {
                             setState(() {
@@ -1468,18 +1765,21 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                               _billingAnnual = true;
                               _expressCardInstallments =
                                   _expressCardInstallments.clamp(1, 6);
+                              _paymentPix = true;
                               _expressPayStep = _ExpressPayStep.options;
                               _invalidatePaymentPrefetch();
                             });
                             _schedulePaymentPrefetch();
-                            _scrollPaymentSectionIntoView();
+                            _openCheckoutSheet();
                           },
                         ),
                       );
                     }).toList(),
                   ),
-                  const SizedBox(height: 24),
-                  KeyedSubtree(
+                  // Seção de pagamento agora vive no MODAL (aberto ao clicar
+                  // Mensal/Anual no card). Mantida no código, oculta na página.
+                  if (_inlineCheckout) const SizedBox(height: 24),
+                  if (_inlineCheckout) KeyedSubtree(
                     key: _paymentSectionKey,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

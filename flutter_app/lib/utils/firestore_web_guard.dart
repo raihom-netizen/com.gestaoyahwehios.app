@@ -15,8 +15,13 @@ import 'package:gestao_yahweh/utils/web_page_reload.dart';
 class FirestoreWebGuard {
   FirestoreWebGuard._();
 
-  /// Web: evita dezenas de `snapshots()` paralelos (INTERNAL ASSERTION Firestore 11.x).
-  static bool get disableLiveSnapshotsOnWeb => kIsWeb;
+  /// Web: usa listeners ao vivo ESTÁVEIS (igual iOS/Android), NÃO poll com
+  /// `get()`. O `get()`-poll era o real causador do INTERNAL ASSERTION: cada
+  /// `get()` no SDK JS abre/fecha um alvo de watch → o `targetId` sobe sem
+  /// parar (churn) e envenena o cliente da sessão. Um `.snapshots()` estável
+  /// segura UM alvo por fonte (zero churn). Assim a web fica estável e com a
+  /// mesma experiência do mobile.
+  static bool get disableLiveSnapshotsOnWeb => false;
 
   /// Web: limita leituras Firestore em voo (alvos do watch stream) para evitar
   /// dezenas de alvos paralelos → `INTERNAL ASSERTION FAILED: Unexpected state`
