@@ -16,7 +16,7 @@ class ChurchInfoFooterShortcuts extends StatelessWidget {
       ChurchShellIndices.financeiro,
       ChurchShellIndices.muralAvisos,
       ChurchShellIndices.muralEventos,
-      ChurchShellIndices.chatIgreja,
+      ChurchShellIndices.agenda,
     ],
   });
 

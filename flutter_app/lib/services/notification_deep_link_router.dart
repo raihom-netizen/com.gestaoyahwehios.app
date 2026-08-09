@@ -40,16 +40,9 @@ abstract final class NotificationDeepLinkRouter {
 
     switch (screen) {
       case 'chat':
-        final threadId = resourceId.isNotEmpty ? resourceId : query['threadId'];
-        if (threadId != null && threadId.isNotEmpty) {
-          ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
-            threadId: threadId,
-            tenantId: tenantId,
-          );
-          return true;
-        }
+        // Módulo Yahweh Chat removido — links antigos de chat caem no Painel.
         ChurchPanelNavigationBridge.instance
-            .requestNavigateToShellIndex(kChurchShellIndexChat);
+            .requestNavigateToShellIndex(kChurchShellIndexPainel);
         return true;
       case 'evento':
         final eventoId = resourceId.isNotEmpty ? resourceId : query['eventoId'];

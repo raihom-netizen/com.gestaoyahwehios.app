@@ -41,7 +41,7 @@ abstract final class LegalDocumentsDefaults {
             'O Gestão YAHWEH oferece ferramentas para gestão eclesiástica e administrativa, '
             'conforme o plano contratado pela igreja, incluindo: cadastro da igreja; '
             'membros e visitantes; departamentos e cargos; avisos e mural; eventos e agenda; '
-            'chat interno; pedidos de oração; escalas; financeiro e fornecedores; patrimônio; '
+            'pedidos de oração; escalas; financeiro e fornecedores; patrimônio; '
             'certificados e carteirinha digital; cartas e transferências; doações; '
             'configurações e painel web (PWA). '
             'O acesso pode ser feito por celular (Android/iOS), tablet ou computador. '

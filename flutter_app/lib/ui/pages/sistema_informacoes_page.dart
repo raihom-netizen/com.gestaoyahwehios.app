@@ -75,10 +75,6 @@ const _kSistemaModulosResumo = <_SistemaModuloResumo>[
     description: 'Cultos, programação e feed público',
   ),
   _SistemaModuloResumo(
-    shellIndex: ChurchShellIndices.chatIgreja,
-    description: 'Yahweh Chat — conversas, grupos por departamento e canais',
-  ),
-  _SistemaModuloResumo(
     shellIndex: ChurchShellIndices.configuracoes,
     titleOverride: 'Notificações',
     description: 'Comunicados, lembretes e alertas do painel',

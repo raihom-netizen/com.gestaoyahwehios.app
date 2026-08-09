@@ -343,19 +343,6 @@ class ChurchPanelLeaderWisdomCard extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          YahwehSuperPremiumActionButton.chat(
-            compact: true,
-            onPressed: () => ChurchMemberContactChat.tapYahwehChat(
-              context: context,
-              tenantId: tenantId,
-              memberRole: role,
-              viewerCpfDigits: viewerCpfDigits,
-              memberData: data,
-              displayName: nome,
-              memberDocId: entry.memberDocId,
-            ),
-          ),
-          const SizedBox(width: 6),
           YahwehSuperPremiumActionButton.whatsapp(
             compact: true,
             onPressed: () => ChurchMemberContactChat.tapWhatsApp(
@@ -481,12 +468,6 @@ class ChurchPanelLeaderContactTile extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (onChat != null)
-            YahwehSuperPremiumActionButton.chat(
-              compact: true,
-              onPressed: onChat,
-            ),
-          if (onChat != null && onWhatsApp != null) const SizedBox(width: 6),
           if (onWhatsApp != null)
             YahwehSuperPremiumActionButton.whatsapp(
               compact: true,

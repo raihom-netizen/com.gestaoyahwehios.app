@@ -555,15 +555,11 @@ class FcmService {
     final t = (type ?? '').trim();
 
     if (t == 'novo_chat' || t == 'chat_message' || t == 'church_chat') {
-      final threadId = (message.data['threadId'] ?? '').toString().trim();
-      if (threadId.isNotEmpty) {
-        final tenantRaw = (message.data['tenantId'] ?? '').toString().trim();
-        ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
-          threadId: threadId,
-          tenantId: tenantRaw.isEmpty ? null : tenantRaw,
-        );
-        return;
-      }
+      // Módulo Yahweh Chat removido — push antigo de chat abre o Painel.
+      ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(
+        kChurchShellIndexPainel,
+      );
+      return;
     }
 
     if (t == 'new_member') {

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
@@ -105,16 +104,6 @@ class ChurchMemberPastoralContactCard extends StatelessWidget {
       ),
     );
 
-    void onChatTap() => ChurchMemberContactChat.tapYahwehChat(
-          context: context,
-          tenantId: tenantId,
-          memberRole: memberRole,
-          viewerCpfDigits: viewerCpfDigits,
-          memberData: memberData,
-          displayName: nome,
-          memberDocId: memberDocId,
-          draftText: waMsg,
-        );
     void onWhatsTap() => ChurchMemberContactChat.tapWhatsApp(
           context: context,
           memberData: memberData,
@@ -190,13 +179,6 @@ class ChurchMemberPastoralContactCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   if (iconOnly) ...[
                     _DenseRoundAction(
-                      tooltip: 'YahwehChat',
-                      gradient: churchChatWhatsPremiumLinearGradient,
-                      icon: Icons.forum_rounded,
-                      onTap: onChatTap,
-                    ),
-                    const SizedBox(width: 6),
-                    _DenseRoundAction(
                       tooltip: 'WhatsApp',
                       color: const Color(0xFF16A34A),
                       customChild: const WhatsappBrandIcon(
@@ -206,11 +188,6 @@ class ChurchMemberPastoralContactCard extends StatelessWidget {
                       onTap: hasPhone ? onWhatsTap : null,
                     ),
                   ] else ...[
-                    YahwehSuperPremiumActionButton.chat(
-                      compact: true,
-                      onPressed: onChatTap,
-                    ),
-                    const SizedBox(width: 6),
                     YahwehSuperPremiumActionButton.whatsapp(
                       compact: true,
                       onPressed: hasPhone ? onWhatsTap : null,
@@ -304,13 +281,6 @@ class ChurchMemberPastoralContactCard extends StatelessWidget {
             SizedBox(height: compact ? 10 : 14),
             Row(
               children: [
-                Expanded(
-                  child: YahwehSuperPremiumActionButton.chat(
-                    compact: true,
-                    onPressed: onChatTap,
-                  ),
-                ),
-                const SizedBox(width: 8),
                 Expanded(
                   child: YahwehSuperPremiumActionButton.whatsapp(
                     compact: true,

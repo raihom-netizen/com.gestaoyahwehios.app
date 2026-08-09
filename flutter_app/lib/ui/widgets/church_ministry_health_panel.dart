@@ -706,7 +706,7 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     }
 
     final desc =
-        'Membros que precisam de atenção / visita — sem engajamento recente (escalas / eventos, últimos ${ChurchMinistryIntelService.staleDays} dias). Em cada faixa, escolha Yahweh Chat ou WhatsApp.';
+        'Membros que precisam de atenção / visita — sem engajamento recente (escalas / eventos, últimos ${ChurchMinistryIntelService.staleDays} dias). Em cada faixa, fale pelo WhatsApp.';
 
     if (kIsWeb) {
       await showDialog<void>(

@@ -73,6 +73,7 @@ import 'widgets/connectivity_offline_strip.dart';
 import 'widgets/church_panel_ui_helpers.dart';
 import 'widgets/gestor_welcome_dialog.dart';
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
+import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_cache_bootstrap.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/core/church_shell_lazy_module_policy.dart';
@@ -414,11 +415,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         shortLabel: 'Eventos',
         accent: kChurchShellNavEntries[ChurchShellIndices.muralEventos].accent,
       ),
-      _ChurchShellFooterShortcut(
-        shellIndex: ChurchShellIndices.chatIgreja,
-        shortLabel: 'Chat',
-        accent: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
-      ),
+      if (kChurchChatModuleEnabled)
+        _ChurchShellFooterShortcut(
+          shellIndex: ChurchShellIndices.chatIgreja,
+          shortLabel: 'Chat',
+          accent:
+              kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
+        ),
     ];
 
     // Depois do Telegram — atalhos extras na MESMA linha (rolável).
@@ -1624,6 +1627,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   bool _canAccessItem(int index) {
+    // Módulo Yahweh Chat removido — nunca acessível (menu, deep link, push).
+    if (index == ChurchShellIndices.chatIgreja && !kChurchChatModuleEnabled) {
+      return false;
+    }
     return ChurchRolePermissions.shellAllowsNavIndex(
       _panelRole,
       index,
@@ -3051,9 +3058,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           embeddedInShell: true,
         );
       case 23:
-        // Motor nativo (Firestore + Storage) em todas as plataformas — o motor
-        // TDLib/Telegram exigia o membro validar sessão a cada uso e falhava
-        // com frequência; o chat próprio já é rápido, moderno e sem essa fricção.
+        // Módulo Yahweh Chat removido — placeholder (índice mantido estável
+        // para deep links / push / cache antigos não reindexarem os módulos).
+        if (!kChurchChatModuleEnabled) {
+          return ChurchPanelModuleRemovedPage.chat(key: _shellPageKey(23));
+        }
         return ChurchChatHubPage(
           key: _shellPageKey(23),
           tenantId: _moduleTenantId,

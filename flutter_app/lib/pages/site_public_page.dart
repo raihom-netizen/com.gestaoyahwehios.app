@@ -600,7 +600,7 @@ class _SitePublicPageState extends State<SitePublicPage>
                           const _SectionTitle(
                             title: "Tudo o que está incluído",
                             subtitle:
-                                "Nenhum plano é capado: o sistema completo já vem ativo — incluindo YAHWEH Chat para comunicação interna entre membros e departamentos.",
+                                "Nenhum plano é capado: o sistema completo já vem ativo — membros, departamentos, eventos, escalas, financeiro e mais.",
                           ),
                           const SizedBox(height: 16),
                           const _PremiumIncludedFeaturesGrid(),
@@ -885,11 +885,6 @@ class _YahwehPublicFaqSection extends StatelessWidget {
               ),
               const Divider(height: 1),
               tile(
-                'O que é o YAHWEH Chat?',
-                'É o módulo de comunicação interna YAHWEH Chat: mensagens diretas entre membros e grupos ligados aos departamentos, com presença online e alertas — disponível no painel web e no app, no padrão Super Premium do sistema.',
-              ),
-              const Divider(height: 1),
-              tile(
                 'Onde ficam armazenados dados e mídias?',
                 'Em infraestrutura cloud com regras de acesso por perfil (igreja, gestor e membro). Você controla o que é público no site e o que permanece interno.',
               ),
@@ -968,7 +963,7 @@ class _YahwehAudienceFooterBar extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          'Membros: use seu e-mail cadastrado na igreja para entrar no painel e aceder ao YAHWEH Chat, eventos, escalas e mais. Líderes: após o cadastro da igreja, liberamos o painel completo conforme o plano.',
+          'Membros: use seu e-mail cadastrado na igreja para entrar no painel e aceder a eventos, escalas e mais. Líderes: após o cadastro da igreja, liberamos o painel completo conforme o plano.',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.35),
         ),
       ],
@@ -1076,7 +1071,7 @@ class _LeftHero extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              "YAHWEH Chat: conversas entre membros e grupos por departamento — no painel e no aplicativo.",
+              "Membros, eventos, escalas, financeiro e Dízimos/Ofertas — no painel e no aplicativo.",
               style: TextStyle(
                 fontSize: isMobile ? 12 : 13.5,
                 color: Colors.black.withValues(alpha: 0.42),
@@ -1353,7 +1348,7 @@ class _PlanCard extends StatelessWidget {
             ),
           const SizedBox(height: 12),
           const Text(
-            "App + Painel Web + Site público\nYAHWEH Chat, eventos, escalas, Dízimos/Ofertas e financeiro (MP/PIX automático)\nBackups automáticos e segurança — Super Premium",
+            "App + Painel Web + Site público\nMembros, eventos, escalas, Dízimos/Ofertas e financeiro (MP/PIX automático)\nBackups automáticos e segurança — Super Premium",
             style: TextStyle(color: Colors.black54, height: 1.35, fontSize: 12),
           ),
         ],
@@ -1377,11 +1372,6 @@ class _PremiumIncludedFeaturesGrid extends StatelessWidget {
     (
       icon: Icons.favorite_rounded,
       label: 'Dízimos/Ofertas — PIX e cartão (Mercado Pago)',
-    ),
-    (
-      icon: Icons.chat_rounded,
-      label:
-          'YAHWEH Chat — transmissão para todos, grupos e membros (estilo WhatsApp)',
     ),
     (icon: Icons.public_rounded, label: 'Site público integrado ao sistema'),
     (icon: Icons.inventory_2_rounded, label: 'Controle de patrimônio'),

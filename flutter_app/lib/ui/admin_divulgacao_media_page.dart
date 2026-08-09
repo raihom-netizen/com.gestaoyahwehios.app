@@ -1514,8 +1514,8 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
             Padding(
               padding: const EdgeInsets.only(left: 4),
               child: Text(
-                'O site público e as telas de login destacam o padrão Super Premium e o YAHWEH Chat '
-                '(mensagens internas entre membros e grupos por departamento). '
+                'O site público e as telas de login destacam o padrão Super Premium do sistema '
+                '(membros, eventos, escalas, financeiro e Dízimos/Ofertas). '
                 'Vídeo institucional e galeria abaixo alinham com essa comunicação.',
                 style: TextStyle(
                   fontSize: 13,

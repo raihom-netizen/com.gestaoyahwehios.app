@@ -22,7 +22,6 @@ import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
-import 'package:gestao_yahweh/core/yahweh_contact_button_labels.dart';
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show
         churchDepartmentDocHasExplicitNameField,
@@ -4267,24 +4266,6 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              tooltip: YahwehContactButtonLabels.yahwehChat,
-              onPressed: () => ChurchMemberContactChat.tapYahwehChat(
-                context: context,
-                tenantId: widget.tenantId,
-                memberRole: widget.memberRole,
-                viewerCpfDigits: '',
-                memberData: data,
-                displayName: nome,
-                memberDocId: row.memberDocId,
-                popSheetBeforeNavigate: false,
-              ),
-              icon: Icon(
-                Icons.forum_rounded,
-                color: ThemeCleanPremium.primary,
-                size: 22,
-              ),
-            ),
-            IconButton(
               tooltip: 'WhatsApp',
               onPressed: () => ChurchMemberContactChat.tapWhatsApp(
                 context: context,
@@ -4398,24 +4379,6 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              tooltip: YahwehContactButtonLabels.yahwehChat,
-              onPressed: () => ChurchMemberContactChat.tapYahwehChat(
-                context: context,
-                tenantId: widget.tenantId,
-                memberRole: widget.memberRole,
-                viewerCpfDigits: '',
-                memberData: data,
-                displayName: nome,
-                memberDocId: row.memberDocId,
-                popSheetBeforeNavigate: false,
-              ),
-              icon: Icon(
-                Icons.forum_rounded,
-                color: ThemeCleanPremium.primary,
-                size: 20,
-              ),
-            ),
             IconButton(
               tooltip: 'WhatsApp',
               onPressed: () => ChurchMemberContactChat.tapWhatsApp(

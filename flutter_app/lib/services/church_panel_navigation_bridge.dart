@@ -1,4 +1,5 @@
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
+import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 
 /// Pedido de abrir uma conversa concreta (ex.: push FCM ou atalho «Yahweh Chat»).
 /// O hub nativo consome [threadId] / [peerUid] (DM Firestore `dm_…`).
@@ -45,6 +46,8 @@ class ChurchPanelNavigationBridge {
     String? initialDraftText,
     String? phoneDigits,
   }) {
+    // Módulo Yahweh Chat removido — não abre mais nenhuma conversa interna.
+    if (!kChurchChatModuleEnabled) return;
     final tid = threadId.trim();
     if (tid.isEmpty) return;
     final tRaw = tenantId?.trim() ?? '';

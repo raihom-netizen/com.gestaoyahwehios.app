@@ -130,7 +130,6 @@ import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
     show noticiaEventoEspecialCaiuDoFeedParaGaleria;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gestao_yahweh/ui/widgets/pastoral_inbox_home_card.dart';
-import 'package:gestao_yahweh/services/church_birthday_parabenizar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_wisdom_birthday_ui.dart';
 import 'package:gestao_yahweh/services/church_gallery_photo_warmup.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
@@ -1870,21 +1869,6 @@ void _openAniversarianteDetalheSheetCore(
                   ),
                 ],
                 const SizedBox(height: 28),
-                YahwehSuperPremiumActionButton.chat(
-                  label: 'Parabenizar no chat da igreja',
-                  onPressed: () => ChurchBirthdayParabenizar.openChatUnawaited(
-                    context: ctx,
-                    tenantId: tenantId,
-                    memberRole: memberRole,
-                    memberCpfDigits: memberCpfDigits,
-                    memberData: data,
-                    displayName: titulo,
-                    primeiroNome: primeiro,
-                    memberDocId: memberDocId,
-                    popSheetBeforeNavigate: true,
-                  ),
-                ),
-                const SizedBox(height: 10),
                 YahwehSuperPremiumActionButton.whatsapp(
                   label: 'Parabenizar no WhatsApp',
                   onPressed: () {
@@ -2552,26 +2536,6 @@ class _AniversariantesCard extends StatelessWidget {
                         const SizedBox(height: 6),
                         SizedBox(
                           width: double.infinity,
-                          child: YahwehSuperPremiumActionButton.chat(
-                            compact: true,
-                            onPressed: () =>
-                                ChurchBirthdayParabenizar.openChatUnawaited(
-                                  context: context,
-                                  tenantId: tenantId,
-                                  memberRole: role,
-                                  memberCpfDigits: memberCpfDigits,
-                                  memberData: data,
-                                  displayName: lite.displayName.trim().isEmpty
-                                      ? primeiro
-                                      : lite.displayName.trim(),
-                                  primeiroNome: primeiro,
-                                  memberDocId: lite.memberDocId,
-                                ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        SizedBox(
-                          width: double.infinity,
                           child: YahwehSuperPremiumActionButton.whatsapp(
                             compact: true,
                             label: 'WhatsApp',
@@ -2838,27 +2802,6 @@ class _AniversariantesCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        SizedBox(
-                          width: double.infinity,
-                          child: YahwehSuperPremiumActionButton.chat(
-                            compact: true,
-                            onPressed: () =>
-                                ChurchBirthdayParabenizar.openChatUnawaited(
-                                  context: context,
-                                  tenantId: tenantId,
-                                  memberRole: role,
-                                  memberCpfDigits: memberCpfDigits,
-                                  memberData: data,
-                                  displayName:
-                                      _anivNomeCompleto(data).trim().isEmpty
-                                      ? primeiro
-                                      : _anivNomeCompleto(data).trim(),
-                                  primeiroNome: primeiro,
-                                  memberDocId: d.id,
-                                ),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
                         SizedBox(
                           width: double.infinity,
                           child: YahwehSuperPremiumActionButton.whatsapp(
