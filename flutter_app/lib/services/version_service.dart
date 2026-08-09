@@ -232,6 +232,7 @@ class VersionService {
       final message = (data['message'] ?? '').toString();
       final storeUrlAndroid = (data['storeUrlAndroid'] ?? '').toString().trim();
       final storeUrlIos = (data['storeUrlIos'] ?? '').toString().trim();
+      final storeUrlWindows = (data['storeUrlWindows'] ?? '').toString().trim();
       // webRefresh no doc é legado; na web sempre oferecemos reload no diálogo.
 
       final outdated = await isInstalledBelowRequiredVersion(
@@ -273,6 +274,10 @@ class VersionService {
           updateUrl = storeUrlIos.isNotEmpty
               ? storeUrlIos
               : AppConstants.gestaoYahwehTestFlightUrl;
+        } else if (defaultTargetPlatform == TargetPlatform.windows) {
+          // Windows: «Atualizar» abre o download do ZIP no Storage
+          // (config/appVersion.storeUrlWindows == config/appDownloads.windowsUrl).
+          updateUrl = storeUrlWindows;
         }
       }
 

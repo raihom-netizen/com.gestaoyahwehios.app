@@ -60,6 +60,12 @@ class AppConstants {
     return gestaoYahwehTestFlightUrl;
   }
 
+  /// `config/appDownloads` — Windows: `windowsUrl` (zip do executável no Storage).
+  /// Sem loja/fallback: vazio = botão Windows escondido.
+  static String effectiveAppDownloadsWindowsUrl(Map<String, dynamic>? data) {
+    return (data?['windowsUrl'] ?? '').toString().trim();
+  }
+
   /// Base https normalizada (sem path final). [raw] pode ser `dominio.com` ou URL completa.
   static String? normalizePublicSiteBaseUrl(String? raw) {
     var t = (raw ?? '').trim();

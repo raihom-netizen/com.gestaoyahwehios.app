@@ -1554,6 +1554,8 @@ class _DownloadsSection extends StatelessWidget {
                     AppConstants.effectiveAppDownloadsAndroidUrl(data);
                 final iosEffective =
                     AppConstants.effectiveAppDownloadsIosUrl(data);
+                final windowsEffective =
+                    AppConstants.effectiveAppDownloadsWindowsUrl(data);
 
                 return Wrap(
                   spacing: 12,
@@ -1583,6 +1585,17 @@ class _DownloadsSection extends StatelessWidget {
                           ? null
                           : () => sitePublicLaunchStoreUrl(iosEffective),
                     ),
+                    if (windowsEffective.isNotEmpty)
+                      ModernStoreDownloadButton(
+                        label: 'Windows',
+                        subtitle: 'PC / Notebook',
+                        icon: Icons.desktop_windows_rounded,
+                        gradient: const [
+                          Color(0xFF0067B8),
+                          Color(0xFF0091FF),
+                        ],
+                        onTap: () => sitePublicLaunchStoreUrl(windowsEffective),
+                      ),
                     if (folderUrl.isNotEmpty)
                       OutlinedButton.icon(
                         onPressed: () => sitePublicLaunchStoreUrl(folderUrl),
