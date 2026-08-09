@@ -3,7 +3,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/constants/app_business_rules.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Preferências de exibição das despesas fixas: contas pendentes e quantos meses à frente.
 class FixedExpensePreferencesService {
@@ -57,23 +56,9 @@ class FixedExpensePreferencesService {
       };
 
   /// Stream das preferências (para reagir na UI).
+  /// Listener ao vivo estável (1 alvo de watch, mantido) — mesma experiência em
+  /// web/iOS/Android. Um doc-listener estável não gera churn de alvos.
   Stream<Map<String, dynamic>> watch(String uid) {
-    // Web: listener ao vivo aqui somava-se aos das outras faixas do Financeiro
-    // e disparava "INTERNAL ASSERTION FAILED" no WatchChangeAggregator do SDK
-    // (muitos alvos de watch em paralelo). Poll leve substitui sem travar o painel.
-    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
-      return _pollWatch(uid);
-    }
     return _settingsRef(uid).snapshots().map((s) => _mapFrom(s.data()));
-  }
-
-  Stream<Map<String, dynamic>> _pollWatch(String uid) async* {
-    while (true) {
-      try {
-        final snap = await _settingsRef(uid).get();
-        yield _mapFrom(snap.data());
-      } catch (_) {}
-      await Future<void>.delayed(const Duration(seconds: 45));
-    }
   }
 }

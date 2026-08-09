@@ -50,6 +50,51 @@ class _HomeFinanceOverviewPanelState extends State<HomeFinanceOverviewPanel> {
   String _saldoAberturaKey = '';
   ({double total, Map<String, double> byAccount})? _saldoAberturaCached;
 
+  // PERF/ESTABILIDADE (Web): o stream de transações do período era criado
+  // INLINE no build() (`financeTransactionsPeriodDocs(...)`), então o
+  // StreamBuilder re-inscrevia a cada rebuild — cancelando/abrindo alvos de
+  // watch do Firestore sem parar (churn → `INTERNAL ASSERTION FAILED /
+  // WatchChangeAggregator`, targetId disparando). Como o Início fica sempre
+  // montado no shell, esse churn era contínuo. Agora o stream é memoizado por
+  // (uid + período): criado UMA vez e reaproveitado até o período/uid mudar.
+  String? _periodDocsKey;
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _periodDocsCache;
+
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _periodDocsStream(
+    DateTime start,
+    DateTime end,
+  ) {
+    final key = '$_userFsId|${start.millisecondsSinceEpoch}'
+        '|${end.millisecondsSinceEpoch}';
+    final cached = _periodDocsCache;
+    if (cached != null && _periodDocsKey == key) return cached;
+    _periodDocsKey = key;
+    // `Stream.multi` — assinado UMA vez pelo StreamBuilder; ao trocar de período
+    // o StreamBuilder antigo é descartado (key muda) e o `onCancel` do multi
+    // encerra os 3 listeners. Sem `asBroadcastStream` (evita vazar a fonte).
+    _periodDocsCache = financeTransactionsPeriodDocs(
+      uid: _userFsId,
+      rangeStart: start,
+      rangeEnd: end,
+    );
+    return _periodDocsCache!;
+  }
+
+  // Mesmo motivo: o stream de contas era criado inline no build() (novo
+  // listener por rebuild). Memoizado por uid — 1 alvo de watch estável.
+  String? _accountsStreamUid;
+  Stream<List<FinanceAccount>>? _accountsStreamCache;
+
+  Stream<List<FinanceAccount>> _accountsStream() {
+    final uid = _userFsId;
+    final cached = _accountsStreamCache;
+    if (cached != null && _accountsStreamUid == uid) return cached;
+    _accountsStreamUid = uid;
+    _accountsStreamCache =
+        FinanceAccountsService().streamAccounts(uid).asBroadcastStream();
+    return _accountsStreamCache!;
+  }
+
   String get _userFsId => widget.uid.trim();
 
   (DateTime, DateTime) _rangeForPeriod() {
@@ -368,14 +413,10 @@ class _HomeFinanceOverviewPanelState extends State<HomeFinanceOverviewPanel> {
         SizedBox(height: 12),
         StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
           key: ValueKey('home_fin_${start.millisecondsSinceEpoch}_${end.millisecondsSinceEpoch}'),
-          stream: financeTransactionsPeriodDocs(
-            uid: _userFsId,
-            rangeStart: start,
-            rangeEnd: end,
-          ),
+          stream: _periodDocsStream(start, end),
           builder: (context, txSnap) {
             return StreamBuilder<List<FinanceAccount>>(
-              stream: FinanceAccountsService().streamAccounts(_userFsId),
+              stream: _accountsStream(),
               builder: (context, accSnap) {
                 final accounts = accSnap.data ?? const <FinanceAccount>[];
                 final docs = txSnap.data ?? const [];

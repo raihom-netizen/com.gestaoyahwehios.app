@@ -2,29 +2,9 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 import 'finance_line_opening.dart';
 import 'firestore_query_batched_collect.dart';
-
-/// Web: intervalo do poll leve que substitui `.snapshots()` nas funções deste
-/// arquivo — evita somar alvos de watch simultâneos no Financeiro
-/// (`INTERNAL ASSERTION FAILED` / `WatchChangeAggregator`, SDK JS 12.x).
-const Duration _kFinanceWebPollInterval = Duration(seconds: 45);
-
-/// Poll leve genérico: 1ª leitura imediata (cache, se houver, depois servidor
-/// via [query.get]), depois a cada [_kFinanceWebPollInterval] — usado no Web
-/// no lugar de `query.snapshots()`.
-Stream<QuerySnapshot<Map<String, dynamic>>> _pollQuery(
-  Query<Map<String, dynamic>> query,
-) async* {
-  while (true) {
-    try {
-      yield await query.get();
-    } catch (_) {}
-    await Future<void>.delayed(_kFinanceWebPollInterval);
-  }
-}
 
 /// Limite padrão para streams de pendentes (índice `status`+`date`).
 const int kFinancePendingStreamLimit = 500;
@@ -130,22 +110,11 @@ Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> financeTransactionsPer
       }
 
       unawaited(emitCacheFirst().then((_) {
-        if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
-          subs
-            ..add(_pollQuery(qDate).listen((s) {
-              lastA = s;
-              emitIfAny();
-            }, onError: (_) => emitIfAny()))
-            ..add(_pollQuery(qEffective).listen((s) {
-              lastB = s;
-              emitIfAny();
-            }, onError: (_) => emitIfAny()))
-            ..add(_pollQuery(qPaidAt).listen((s) {
-              lastC = s;
-              emitIfAny();
-            }, onError: (_) => emitIfAny()));
-          return;
-        }
+        // Web/iOS/Android: listeners ao vivo ESTÁVEIS (1 alvo por query, mantido
+        // por toda a vida da assinatura) — mesma experiência em todas as
+        // plataformas. O antigo poll-com-`get()` recriava/destruía alvos de
+        // watch a cada ciclo (`getDocs` abre um listener temporário no SDK JS),
+        // gerando o churn que disparava `INTERNAL ASSERTION / WatchChangeAggregator`.
         subs
           ..add(qDate.snapshots(includeMetadataChanges: true).listen(
             (s) {
@@ -304,9 +273,6 @@ Stream<QuerySnapshot<Map<String, dynamic>>> financeTransactionsOrderedSnapshots(
   required String uid,
 }) {
   final query = _transactionsCol(uid).orderBy('date', descending: false);
-  if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
-    return _pollQuery(query);
-  }
   return query.snapshots(includeMetadataChanges: true);
 }
 
@@ -339,9 +305,7 @@ Stream<QuerySnapshot<Map<String, dynamic>>> financeTransactionsPendingSnapshots(
     }
 
     unawaited(emitCache().then((_) {
-      final source = FirestoreWebGuard.disableLiveSnapshotsOnWeb
-          ? _pollQuery(query)
-          : query.snapshots(includeMetadataChanges: true);
+      final source = query.snapshots(includeMetadataChanges: true);
       sub = source.listen(
         (snap) => controller.add(_filterPendingByType(snap, type)),
         onError: controller.addError,
@@ -404,9 +368,7 @@ Stream<QuerySnapshot<Map<String, dynamic>>> financeTransactionsRangedSnapshots({
         final cached = await query.get(const GetOptions(source: Source.cache));
         if (!controller.isClosed) controller.add(cached);
       } catch (_) {}
-      final source = FirestoreWebGuard.disableLiveSnapshotsOnWeb
-          ? _pollQuery(query)
-          : query.snapshots(includeMetadataChanges: true);
+      final source = query.snapshots(includeMetadataChanges: true);
       sub = source.listen(
         controller.add,
         onError: controller.addError,

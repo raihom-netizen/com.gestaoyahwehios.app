@@ -2,7 +2,6 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Preferências opcionais do painel Financeiro (ex.: faixa de contas).
 
@@ -26,23 +25,9 @@ class FinanceAdvancedSettingsService {
 
   Stream<bool> watchStripHideZeroBalances(String uid) {
     if (uid.isEmpty) return Stream.value(false);
-    // Web: listener ao vivo aqui somava-se aos das outras faixas do Financeiro
-    // e disparava "INTERNAL ASSERTION FAILED" no WatchChangeAggregator do SDK
-    // (muitos alvos de watch em paralelo). Poll leve substitui sem travar o painel.
-    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
-      return _pollStripHideZeroBalances(uid);
-    }
+    // Listener ao vivo estável (1 alvo de watch no doc `finance_prefs`) —
+    // mesma experiência em web/iOS/Android, sem churn de alvos.
     return _doc(uid).snapshots().map((s) => s.data()?[_keyStripHideZero] == true);
-  }
-
-  Stream<bool> _pollStripHideZeroBalances(String uid) async* {
-    while (true) {
-      try {
-        final snap = await _doc(uid).get();
-        yield snap.data()?[_keyStripHideZero] == true;
-      } catch (_) {}
-      await Future<void>.delayed(const Duration(seconds: 45));
-    }
   }
 
   /// Leitura única (entrada rápida no Financeiro; o stream continua a atualizar).
@@ -76,27 +61,12 @@ class FinanceAdvancedSettingsService {
 
   Stream<String?> watchDefaultFinanceAccountId(String uid) {
     if (uid.isEmpty) return Stream.value(null);
-    // Web: mesmo motivo de _pollStripHideZeroBalances — evita mais um alvo de
-    // watch ao vivo no mesmo documento (`finance_prefs`) no painel Financeiro.
-    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
-      return _pollDefaultFinanceAccountId(uid);
-    }
+    // Listener ao vivo estável no mesmo doc `finance_prefs` — sem churn de alvos.
     return _doc(uid).snapshots().map((s) {
       final v = s.data()?[keyDefaultFinanceAccountId];
       if (v is String && v.trim().isNotEmpty) return v.trim();
       return null;
     });
-  }
-
-  Stream<String?> _pollDefaultFinanceAccountId(String uid) async* {
-    while (true) {
-      try {
-        final snap = await _doc(uid).get();
-        final v = snap.data()?[keyDefaultFinanceAccountId];
-        yield (v is String && v.trim().isNotEmpty) ? v.trim() : null;
-      } catch (_) {}
-      await Future<void>.delayed(const Duration(seconds: 45));
-    }
   }
 
   Future<void> setDefaultFinanceAccountId(String uid, String? accountId) async {

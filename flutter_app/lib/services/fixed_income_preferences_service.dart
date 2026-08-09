@@ -3,7 +3,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/constants/app_business_rules.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
-import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Preferências de exibição das receitas fixas: contas pendentes e quantos meses à frente.
 class FixedIncomePreferencesService {
@@ -54,22 +53,9 @@ class FixedIncomePreferencesService {
                 _defaultPendingMonthsAhead,
       };
 
+  /// Listener ao vivo estável (1 alvo de watch, mantido) — mesma experiência em
+  /// web/iOS/Android, sem churn de alvos.
   Stream<Map<String, dynamic>> watch(String uid) {
-    // Web: mesmo motivo do FixedExpensePreferencesService — evita mais um
-    // alvo de watch ao vivo concorrente no painel Financeiro.
-    if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
-      return _pollWatch(uid);
-    }
     return _settingsRef(uid).snapshots().map((s) => _mapFrom(s.data()));
-  }
-
-  Stream<Map<String, dynamic>> _pollWatch(String uid) async* {
-    while (true) {
-      try {
-        final snap = await _settingsRef(uid).get();
-        yield _mapFrom(snap.data());
-      } catch (_) {}
-      await Future<void>.delayed(const Duration(seconds: 45));
-    }
   }
 }
