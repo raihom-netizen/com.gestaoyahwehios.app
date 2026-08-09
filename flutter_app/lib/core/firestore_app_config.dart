@@ -42,18 +42,22 @@ void configureFirestoreForOfflineAndSpeed() {
 
   if (kIsWeb) {
     try {
-      // Web: cache EM MEMÓRIA (sem IndexedDB) + **LONG-POLLING FORÇADO**.
-      // ⭐ CORREÇÃO DEFINITIVA (2026-08-09): o INTERNAL ASSERTION /
-      // WatchChangeAggregator vive no transporte **WebChannel streaming**
-      // (`onWatchStreamChange`/`PersistentListenStream` no stack). O Controle
-      // Total roda estável na web com `webExperimentalForceLongPolling: true`
-      // — o long-polling usa outro transporte e NÃO cai nesse agregador bugado.
-      // O comentário antigo dizia que long-polling era o "gatilho" e desligou;
-      // era o inverso — long-polling é a CURA (provado pelo CT).
+      // Web: cache EM MEMÓRIA (sem IndexedDB), **SEM long-polling**.
+      // ⭐ CORREÇÃO DEFINITIVA (2026-08-09, PROVA EMPÍRICA): inspeção da rede ao
+      // vivo mostrou que com `webExperimentalForceLongPolling: true` TODAS as
+      // leituras `.get()` iam pelo canal `Listen/channel` (WebChannel /
+      // PersistentListenStream) — 10 Listen/channel, 0 RunQuery. Cada `.get()`
+      // alocava um alvo de watch → `targetId` subia (1260/1308) → estourava o
+      // `INTERNAL ASSERTION FAILED / WatchChangeAggregator` (SDK JS 12.17).
+      // Sem long-polling, o `.get()` one-shot usa **REST `RunQuery`** (não aloca
+      // alvo, não passa pelo agregador) → sem assertion e mais rápido. Como a web
+      // já não abre `.snapshots()` (disableLiveSnapshotsOnWeb=true, tudo é
+      // get-poll), o transporte de Listen é irrelevante — só os `.get()` REST
+      // importam. Isto conserta Financeiro/Patrimônio/Fornecedores e a lentidão
+      // do site público de uma só vez.
       db.settings = const Settings(
         persistenceEnabled: false,
         ignoreUndefinedProperties: true,
-        webExperimentalForceLongPolling: true,
       );
       FirestoreOfflineConfig.persistenceEnabled = false;
       FirestoreOfflineConfig.webIndexedDbFallback = false;

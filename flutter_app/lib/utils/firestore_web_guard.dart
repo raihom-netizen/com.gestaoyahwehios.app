@@ -187,28 +187,19 @@ class FirestoreWebGuard {
   static bool handleFatalWebErrorIfNeeded(Object e) {
     if (!kIsWeb) return false;
     if (isInternalAssertionError(e)) {
-      // AUTO-RECUPERAÇÃO: o INTERNAL ASSERTION / WatchChangeAggregator é bug
-      // do SDK JS (persiste em 12.14/12.17, WebChannel e long-polling, com ou
-      // sem persistência). Reconectar a rede NÃO cura (o target churn continua).
-      // Recarregar a aba dá um cliente Firestore fresco (targetId zerado) e o
-      // painel volta a carregar. reloadWebPageHard tem cooldown de 3min → nunca
-      // vira loop; se estourar o cooldown, cai no soft-recover como fallback.
-      // PROVA (DevTools): após o 1º assertion a fila assíncrona do Firestore
-      // morre; enableNetwork/disableNetwork/user.reload/getIdToken passam a
-      // RE-LANÇAR o erro em loop (milhares de erros + accounts:lookup em massa).
-      // A ÚNICA cura é recarregar a aba (cliente novo). NÃO chamar
-      // recoverFirestoreWebSession aqui — enableNetwork alimenta o loop.
-      debugPrint('FirestoreWebGuard: INTERNAL ASSERTION — auto-reload da aba.');
-      reloadWebPageHard();
+      // ⭐ 2026-08-09: NÃO recarregar a aba automaticamente (pedido do usuário:
+      // «nada de F5 sozinho»). A causa raiz do INTERNAL ASSERTION foi corrigida
+      // (SDK JS alinhado 12.17 compat+modular no index.html/SW; sem long-polling;
+      // web só get-poll). Se ainda pingar um assert isolado, apenas engolimos —
+      // as leituras são get-poll (REST RunQuery) e se recuperam sozinhas no
+      // próximo poll, sem matar a experiência com um reload surpresa.
+      debugPrint('FirestoreWebGuard: INTERNAL ASSERTION — ignorado (sem reload).');
       return true;
     }
     if (isClientTerminated(e)) {
-      // Cliente TERMINADO (failed-precondition: client already terminated) é
-      // IRRECUPERÁVEL sem reload — soft-recover NÃO des-termina. Força reload
-      // (bypass do cooldown): a página nova reinicia o cliente. Corrige o erro
-      // ao criar banco / carregar lançamentos depois de "Limpar cache".
-      debugPrint('FirestoreWebGuard: cliente TERMINADO — force reload da aba.');
-      reloadWebPageHard(force: true);
+      // Cliente terminado: recuperação suave (enableNetwork), sem reload de aba.
+      debugPrint('FirestoreWebGuard: cliente TERMINADO — soft recover (sem reload).');
+      unawaited(ensureFirestoreClientAlive());
       return true;
     }
     return false;

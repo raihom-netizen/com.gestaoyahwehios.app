@@ -2,8 +2,8 @@
 // Recebe push FCM quando o app está fechado/minimizado e mostra notificação nativa.
 // Alinhado a notificationBranding.ts (cores por módulo) e fcm_service.dart (routing).
 
-importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/12.17.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/12.17.0/firebase-messaging-compat.js');
 
 firebase.initializeApp({
   apiKey: 'AIzaSyB74Dm4WiLMHYdSiWPvB2yTzNWsINVBvWo',
