@@ -311,6 +311,11 @@ class _SitePublicPageState extends State<SitePublicPage>
               AppConstants.gestaoYahwehTestFlightUrl));
         },
       ),
+      const _WindowsDownloadNavButton(
+        compact: true,
+        onDarkSurface: true,
+        analyticsId: 'marketing_bar_windows',
+      ),
       barBtn(
         label: 'VER PLANOS',
         icon: Icons.workspace_premium_rounded,
@@ -1005,6 +1010,7 @@ class _LeftHero extends StatelessWidget {
               AppConstants.gestaoYahwehTestFlightUrl));
         },
       ),
+      const _WindowsDownloadNavButton(analyticsId: 'marketing_hero_windows'),
       MarketingNavButton(
         label: 'VER PLANOS',
         icon: Icons.workspace_premium_rounded,
@@ -1510,6 +1516,51 @@ class _PremiumFeatureTile extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Botão Windows (moderno) para header/hero — aparece só quando
+/// `config/appDownloads.windowsUrl` existe (ZIP do executável no Storage).
+class _WindowsDownloadNavButton extends StatelessWidget {
+  const _WindowsDownloadNavButton({
+    this.compact = false,
+    this.onDarkSurface = false,
+    this.analyticsId,
+  });
+
+  final bool compact;
+  final bool onDarkSurface;
+  final String? analyticsId;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: MarketingPublicSiteService.watchAppDownloads(),
+      builder: (context, snap) {
+        final data = snap.data?.data() ?? const <String, dynamic>{};
+        final url = AppConstants.effectiveAppDownloadsWindowsUrl(data);
+        if (url.isEmpty) return const SizedBox.shrink();
+        final btn = MarketingNavButton(
+          label: 'Windows',
+          subtitle: compact ? 'PC' : 'PC / Notebook',
+          icon: Icons.desktop_windows_rounded,
+          style: MarketingButtonStyle.store,
+          storeGradient: const [Color(0xFF0067B8), Color(0xFF0091FF)],
+          compact: compact,
+          onDarkSurface: onDarkSurface,
+          onTap: () {
+            final id = analyticsId;
+            if (id != null) {
+              unawaited(PublicSiteAnalytics.logMarketingAction(id));
+            }
+            unawaited(sitePublicLaunchStoreUrl(url));
+          },
+        );
+        return compact
+            ? Padding(padding: const EdgeInsets.only(left: 6), child: btn)
+            : btn;
+      },
     );
   }
 }
