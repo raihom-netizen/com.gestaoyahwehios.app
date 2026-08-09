@@ -183,32 +183,32 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
     });
     up('essencial', {
       'name': 'Plano Essencial',
-      'priceMonthly': 69.90,
-      'priceAnnual': 699.00,
+      'priceMonthly': 79.90,
+      'priceAnnual': 799.00,
       'membersMax': 150,
       'limits': {'admins': 3, 'leaders': 15, 'members': 150},
       'order': 2,
     });
     up('intermediario', {
       'name': 'Plano Intermediario',
-      'priceMonthly': 79.90,
-      'priceAnnual': 799.00,
+      'priceMonthly': 99.90,
+      'priceAnnual': 999.00,
       'membersMax': 250,
       'limits': {'admins': 4, 'leaders': 25, 'members': 250},
       'order': 3,
     });
     up('avancado', {
       'name': 'Plano Avancado',
-      'priceMonthly': 99.90,
-      'priceAnnual': 999.00,
+      'priceMonthly': 129.90,
+      'priceAnnual': 1299.00,
       'membersMax': 350,
       'limits': {'admins': 5, 'leaders': 35, 'members': 350},
       'order': 4,
     });
     up('profissional', {
       'name': 'Plano Profissional',
-      'priceMonthly': 109.90,
-      'priceAnnual': 1099.00,
+      'priceMonthly': 149.90,
+      'priceAnnual': 1499.00,
       'membersMax': 400,
       'limits': {'admins': 6, 'leaders': 40, 'members': 400},
       'order': 5,
@@ -223,19 +223,27 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
     });
     up('premium_plus', {
       'name': 'Plano Premium Plus',
-      'priceMonthly': 199.90,
-      'priceAnnual': 1999.00,
+      'priceMonthly': 219.90,
+      'priceAnnual': 2199.00,
       'membersMax': 600,
       'limits': {'admins': 10, 'leaders': 80, 'members': 600},
       'order': 7,
     });
-    up('corporativo', {
+    up('corporativo_i', {
       'name': 'Plano Corporativo',
-      'priceMonthly': 0,
-      'membersMax': 999999,
-      'limits': {'admins': 999, 'leaders': 999, 'members': 999999},
+      'priceMonthly': 299.90,
+      'priceAnnual': 2999.00,
+      'membersMax': 1000,
+      'limits': {'admins': 15, 'leaders': 120, 'members': 1000},
       'order': 8,
-      'note': 'Sob consulta',
+    });
+    up('corporativo', {
+      'name': 'Plano Corporativo Plus',
+      'priceMonthly': 0,
+      'membersMax': 100000,
+      'limits': {'admins': 999, 'leaders': 999, 'members': 100000},
+      'order': 9,
+      'note': 'Valor a combinar',
     });
 
     await MasterAdminFirestore.write(() => batch.commit());
