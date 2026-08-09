@@ -2266,7 +2266,7 @@ class _PlanCardOficial extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Toque para ir ao pagamento (PIX ou cartão) no fim da página.',
+                  'Escolha Mensal ou Anual para abrir o pagamento (PIX ou cartão).',
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
               ],

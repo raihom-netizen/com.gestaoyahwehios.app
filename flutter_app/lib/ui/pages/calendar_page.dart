@@ -2191,15 +2191,8 @@ class _CalendarPageState extends State<CalendarPage>
                     child: _buildAgendaResilienceBanner(),
                   ),
                 ),
-              SliverToBoxAdapter(
-                child: _AgendaHeroHeader(
-                  // Só o mês focado (a carga agora é ampla ±6 meses; somar tudo
-                  // mostraria ~1 ano). Respeita a aba Todos/Cultos/Eventos.
-                  eventCount: _countForFilter(_contentFilter),
-                  monthLabel: DateFormat('MMMM yyyy', 'pt_BR')
-                      .format(_focusedMonth),
-                ),
-              ),
+              // Hero "Agenda inteligente" removido (pedido) — estilo escala/
+              // agenda do Controle Total: direto no toggle + cards + calendário.
               const SliverToBoxAdapter(
                 child: SizedBox(height: ThemeCleanPremium.spaceSm),
               ),
@@ -2935,8 +2928,10 @@ class _CalendarPageState extends State<CalendarPage>
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 2, 8, 10),
+      // Row SIMPLES (sem `stretch`/IntrinsicHeight): em sliver de altura
+      // ilimitada o `stretch` estourava o layout (tela branca). Os 4 cards têm
+      // conteúdo idêntico → mesma altura naturalmente.
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           card(_AgendaContentFilter.todos, 'Todos',
               Icons.calendar_month_rounded, ThemeCleanPremium.primary),
