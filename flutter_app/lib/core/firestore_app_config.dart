@@ -42,14 +42,18 @@ void configureFirestoreForOfflineAndSpeed() {
 
   if (kIsWeb) {
     try {
-      // Web: cache EM MEMÓRIA (sem IndexedDB) + WebChannel (SEM long polling).
-      // O force-long-polling era o gatilho do INTERNAL ASSERTION /
-      // WatchChangeAggregator do SDK JS. Desligado -> transporte WebChannel.
+      // Web: cache EM MEMÓRIA (sem IndexedDB) + **LONG-POLLING FORÇADO**.
+      // ⭐ CORREÇÃO DEFINITIVA (2026-08-09): o INTERNAL ASSERTION /
+      // WatchChangeAggregator vive no transporte **WebChannel streaming**
+      // (`onWatchStreamChange`/`PersistentListenStream` no stack). O Controle
+      // Total roda estável na web com `webExperimentalForceLongPolling: true`
+      // — o long-polling usa outro transporte e NÃO cai nesse agregador bugado.
+      // O comentário antigo dizia que long-polling era o "gatilho" e desligou;
+      // era o inverso — long-polling é a CURA (provado pelo CT).
       db.settings = const Settings(
         persistenceEnabled: false,
         ignoreUndefinedProperties: true,
-        webExperimentalForceLongPolling: false,
-        webExperimentalAutoDetectLongPolling: false,
+        webExperimentalForceLongPolling: true,
       );
       FirestoreOfflineConfig.persistenceEnabled = false;
       FirestoreOfflineConfig.webIndexedDbFallback = false;
