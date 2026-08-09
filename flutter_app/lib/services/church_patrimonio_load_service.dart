@@ -497,7 +497,13 @@ abstract final class ChurchPatrimonioLoadService {
             readSource: 'repository_cache_first',
             collectionPath: path,
             fromCache: repo.error == null && docs.isNotEmpty,
-            softError: repo.error,
+            // Diagnóstico: quando cai vazio mas houve erros nas leituras
+            // anteriores, mostrar o erro real (permission/timeout/assertion)
+            // em vez de esconder atrás de "0 bens".
+            softError: repo.error ??
+                (docs.isEmpty && lastError != null
+                    ? _humanizeError(lastError)
+                    : null),
           );
         }
       }
