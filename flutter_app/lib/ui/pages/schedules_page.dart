@@ -2775,7 +2775,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                 child: ChurchPanelPillTabBar(
                   controller: _tab,
                   dense: true,
-                  accentColor: Colors.white,
+                  // Cor do módulo (ciano) — a pílula selecionada é BRANCA, então
+                  // o texto selecionado usa esta cor. Antes vinha `Colors.white`
+                  // => texto branco na pílula branca = invisível.
+                  accentColor: _wisdomAccent,
                   tabs: [
                     const Tab(text: 'Modelos'),
                     Tab(text: narrowTabs ? 'Geradas' : 'Escalas geradas'),
