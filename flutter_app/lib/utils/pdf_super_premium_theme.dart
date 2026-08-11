@@ -753,6 +753,35 @@ class PdfSuperPremiumTheme {
       );
     }
 
+    // A SELEÇÃO manda (padrão certificado): renderiza só os slots com signatário.
+    // 1 preenchido → 1 assinatura CENTRALIZADA; 2 → duas colunas; 0 → duas (linhas
+    // em branco para assinar à mão, como antes).
+    bool has(String name, Uint8List? sig, PdfDigitalStampInput? stamp) =>
+        name.trim().isNotEmpty ||
+        (showDigitalSignatures && stamp != null) ||
+        (sig != null && sig.length > 24);
+    final hasLeft =
+        has(leftSignerName, leftSignatureImageBytes, leftDigitalStamp);
+    final hasRight =
+        has(rightSignerName, rightSignatureImageBytes, rightDigitalStamp);
+
+    if (hasLeft != hasRight) {
+      // Exatamente um signatário → centralizado.
+      final title = hasLeft ? leftTitle : rightTitle;
+      final name = hasLeft ? leftSignerName : rightSignerName;
+      final sig = hasLeft ? leftSignatureImageBytes : rightSignatureImageBytes;
+      final stamp = hasLeft ? leftDigitalStamp : rightDigitalStamp;
+      return pw.Center(
+        child: pw.ConstrainedBox(
+          constraints: const pw.BoxConstraints(maxWidth: 300),
+          child: pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [slot(title, name, sig, stamp)],
+          ),
+        ),
+      );
+    }
+
     return pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [

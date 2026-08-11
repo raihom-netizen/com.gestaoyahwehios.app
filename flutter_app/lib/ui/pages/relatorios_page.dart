@@ -2997,11 +2997,18 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                     }
                   }
                   if (!ctx.mounted) return;
+                  // A SELEÇÃO manda: se o usuário escolheu SÓ UM signatário, o
+                  // outro fica VAZIO → o PDF traz 1 assinatura centralizada
+                  // (padrão certificado). Se não escolheu NENHUM, mantém os dois
+                  // rótulos padrão (linhas em branco para assinar à mão).
+                  final nenhumEscolhido = left == null && right == null;
                   Navigator.pop(
                     ctx,
                     (
-                      leftName: left?.nome ?? 'Tesoureiro(a)',
-                      rightName: right?.nome ?? 'Pastor Presidente',
+                      leftName: left?.nome ??
+                          (nenhumEscolhido ? 'Tesoureiro(a)' : ''),
+                      rightName: right?.nome ??
+                          (nenhumEscolhido ? 'Pastor Presidente' : ''),
                       leftSig: null,
                       rightSig: null,
                       showDigital: showDigital,
