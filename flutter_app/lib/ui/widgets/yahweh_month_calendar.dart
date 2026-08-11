@@ -64,27 +64,40 @@ class YahwehMonthCalendar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 14, 10, 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          _monthHeader(),
-          const SizedBox(height: 10),
-          _weekdayRow(),
-          const SizedBox(height: 6),
-          _grid(),
-        ],
+    return GestureDetector(
+      // Arrastar para a ESQUERDA = próximo mês; para a DIREITA = mês anterior.
+      // Além das setas ‹ › no cabeçalho. Só troca com gesto horizontal claro
+      // (não interfere no toque no dia nem no scroll vertical da página).
+      onHorizontalDragEnd: (details) {
+        final v = details.primaryVelocity ?? 0;
+        if (v < -120) {
+          onMonthDelta(1); // arrastou p/ esquerda → avança
+        } else if (v > 120) {
+          onMonthDelta(-1); // arrastou p/ direita → volta
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(10, 14, 10, 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.06),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            _monthHeader(),
+            const SizedBox(height: 10),
+            _weekdayRow(),
+            const SizedBox(height: 6),
+            _grid(),
+          ],
+        ),
       ),
     );
   }
