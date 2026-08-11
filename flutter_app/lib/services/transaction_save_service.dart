@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/utils/finance_transaction_status_resolver.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:gestao_yahweh/utils/module_write_guard.dart';
 import 'package:gestao_yahweh/utils/connectivity_offline.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
 import 'package:gestao_yahweh/services/finance_month_cache.dart';
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
