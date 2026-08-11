@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/services/church_module_firestore_audit.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_reliable_read.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_json_safe.dart';
 import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -72,6 +73,44 @@ abstract final class ChurchFirestoreAccess {
     final path = collectionPath(id, subcollectionName);
     final key = cacheKey ?? 'data_${id}_${subcollectionName}_$capped';
     final sw = Stopwatch()..start();
+
+    // ⭐ CORREÇÃO TOTAL WEB: lê por REST puro (não passa pelo watch stream do
+    // SDK → imune à INTERNAL ASSERTION que envenenava o cliente e fazia os
+    // módulos "perderem os dados"). Curando aqui — o gateway único — todos os
+    // módulos que usam listOnce ficam curados de uma vez.
+    if (kIsWeb) {
+      try {
+        final docs = await firestoreRestCollect(
+          collectionPath: path,
+          limit: capped,
+        ).timeout(ChurchPanelReadTimeouts.queryCap);
+        FirebaseQueryAudit.record(
+          module: module,
+          path: path,
+          kind: 'list',
+          durationMs: sw.elapsedMilliseconds,
+          docCount: docs.length,
+          limit: capped,
+          readSource: 'rest',
+        );
+        return MergedFirestoreQuerySnapshot(docs);
+      } catch (e) {
+        FirebaseQueryAudit.record(
+          module: module,
+          path: path,
+          kind: 'list',
+          durationMs: sw.elapsedMilliseconds,
+          limit: capped,
+          error: 'rest:$e',
+        );
+        // REST falhou (raro): devolve o último bom em memória ou vazio — NÃO cai
+        // no `.get()` do SDK (que poderia envenenar o cliente).
+        final mem = FirestoreReadResilience.peekLastGoodQuery(key);
+        if (mem != null) return mem;
+        return const MergedFirestoreQuerySnapshot([]);
+      }
+    }
+
     try {
       final snap = await ChurchModuleFirestoreAudit.traceQuery(
         module: module,
@@ -155,6 +194,13 @@ abstract final class ChurchFirestoreAccess {
     final id = churchId.trim();
     await _prepareRead();
     final path = '${collectionPath(id, subcollectionName)}/$docId';
+    // Web: doc único por REST (imune à assertion). Em falha, cai no SDK (cache).
+    if (kIsWeb) {
+      try {
+        return await firestoreRestGetDocSnap(path)
+            .timeout(ChurchPanelReadTimeouts.queryCap);
+      } catch (_) {}
+    }
     return ChurchModuleFirestoreAudit.traceQuery(
       module: module,
       churchId: id,
@@ -175,6 +221,14 @@ abstract final class ChurchFirestoreAccess {
   }) async {
     final id = churchId.trim();
     await _prepareRead();
+    // Web: doc raiz da igreja por REST (cura o Cadastro da Igreja/Sites que
+    // "às vezes não busca do banco"). Em falha, cai no SDK.
+    if (kIsWeb) {
+      try {
+        return await firestoreRestGetDocSnap(ChurchDataPaths.churchRoot(id))
+            .timeout(ChurchPanelReadTimeouts.churchDocCap);
+      } catch (_) {}
+    }
     return ChurchModuleFirestoreAudit.traceQuery(
       module: 'Cadastro Igreja',
       churchId: id,
@@ -204,6 +258,15 @@ abstract final class ChurchFirestoreAccess {
         Map<String, dynamic>.from(data),
       ),
     ) as Map<String, dynamic>;
+    // Web: grava por REST (imune à assertion — evita "salvou mas não persistiu").
+    if (kIsWeb) {
+      if (merge) {
+        await firestoreRestUpdateDoc(ref.path, setFields: payload);
+      } else {
+        await firestoreRestSetDoc(ref.path, payload);
+      }
+      return;
+    }
     await ChurchModuleFirestoreAudit.traceQuery(
       module: module,
       churchId: churchId,
@@ -228,6 +291,12 @@ abstract final class ChurchFirestoreAccess {
         Map<String, dynamic>.from(data),
       ),
     ) as Map<String, dynamic>;
+    // Web: cria por REST com id gerado no cliente (imune à assertion).
+    if (kIsWeb) {
+      final ref = col.doc();
+      await firestoreRestSetDoc(ref.path, payload);
+      return;
+    }
     await ChurchModuleFirestoreAudit.traceQuery(
       module: module,
       churchId: churchId,
@@ -246,6 +315,11 @@ abstract final class ChurchFirestoreAccess {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
     final ref = collectionRef(churchId, subcollectionName).doc(docId);
+    // Web: exclui por REST (imune à assertion).
+    if (kIsWeb) {
+      await firestoreRestDeleteDoc(ref.path);
+      return;
+    }
     await ChurchModuleFirestoreAudit.traceQuery(
       module: module,
       churchId: churchId,

@@ -8,6 +8,8 @@ import 'admin_planos_cobranca_page.dart';
 import 'admin_alertas_page.dart';
 import 'admin_usuarios_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -267,10 +269,21 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     }
     try {
       final db = firebaseDefaultFirestore;
-      final usersDoc = await db.collection('users').doc(u.uid).get();
-      final usuariosDoc = await db.collection('usuarios').doc(u.uid).get();
-      final usersData = usersDoc.data() ?? <String, dynamic>{};
-      final usuariosData = usuariosDoc.data() ?? <String, dynamic>{};
+      // Web: RBAC do master por REST (imune à assertion do SDK — role/permissões
+      // do master carregam mesmo com o cliente do SDK envenenado).
+      Map<String, dynamic> usersData;
+      Map<String, dynamic> usuariosData;
+      if (kIsWeb) {
+        usersData = await firestoreRestGetDoc('users/${u.uid}') ??
+            <String, dynamic>{};
+        usuariosData = await firestoreRestGetDoc('usuarios/${u.uid}') ??
+            <String, dynamic>{};
+      } else {
+        final usersDoc = await db.collection('users').doc(u.uid).get();
+        final usuariosDoc = await db.collection('usuarios').doc(u.uid).get();
+        usersData = usersDoc.data() ?? <String, dynamic>{};
+        usuariosData = usuariosDoc.data() ?? <String, dynamic>{};
+      }
       final role = (usersData['role'] ??
               usersData['nivel'] ??
               usuariosData['papel'] ??

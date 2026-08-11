@@ -357,6 +357,55 @@ class FirestoreStreamUtils {
   static Future<void> refreshAuthTokenIfNeeded({bool force = false}) async {
     await FirebaseAuthTokenGuard.refreshIfStale(force: force);
   }
+
+  /// ⭐ CORREÇÃO TOTAL WEB: lê a coleção por **REST puro** no navegador (não passa
+  /// pelo watch stream do SDK → imune à `INTERNAL ASSERTION`/`WatchChangeAggregator`
+  /// que envenenava o cliente e fazia módulos "perderem os dados"). No mobile usa
+  /// o listener normal via [mobileQuery]`.watchSafe()`.
+  ///
+  /// Web: emite a 1.ª leitura imediatamente e re-busca a cada [pollInterval]
+  /// (REST não gera churn de targets, então pode ser mais frequente que os 180s
+  /// do polling por `.get()`). Mantém o último dado bom em falha transitória.
+  static Stream<QuerySnapshot<Map<String, dynamic>>> restOrWatch({
+    required String collectionPath,
+    required Query<Map<String, dynamic>> Function() mobileQuery,
+    List<RestFieldFilter> filters = const [],
+    String? orderByField,
+    bool descending = false,
+    int? limit,
+    Duration pollInterval = const Duration(seconds: 30),
+  }) async* {
+    if (!kIsWeb) {
+      yield* mobileQuery().watchSafe();
+      return;
+    }
+    var first = true;
+    var emittedOnce = false;
+    while (true) {
+      if (!first) {
+        await Future<void>.delayed(pollInterval);
+      }
+      first = false;
+      if (WebPanelStability.isSessionExpired) return;
+      try {
+        final docs = await firestoreRestCollect(
+          collectionPath: collectionPath,
+          filters: filters,
+          orderByField: orderByField,
+          descending: descending,
+          limit: limit,
+        );
+        emittedOnce = true;
+        yield MergedFirestoreQuerySnapshot(docs);
+      } catch (e, st) {
+        // Mantém o último dado bom; se ainda não emitiu nada, propaga o erro
+        // (UI mostra banner/retry) em vez de spinner eterno.
+        if (!emittedOnce) {
+          yield* Stream<QuerySnapshot<Map<String, dynamic>>>.error(e, st);
+        }
+      }
+    }
+  }
 }
 
 /// Streams Firestore seguros — substituem `.snapshots()` directo (web Firestore 11.x).
@@ -370,6 +419,33 @@ extension SafeFirestoreDocumentStream on DocumentReference<Map<String, dynamic>>
     bool broadcast = true,
   }) =>
       FirestoreStreamUtils.documentWatchBootstrap(this, broadcast: broadcast);
+}
+
+/// Leitura de coleção resiliente: REST no web (imune à assertion), listener no
+/// mobile. Captura o `path` da coleção (só disponível no `CollectionReference`)
+/// e recebe o builder do query mobile já com os filtros/ordenação.
+extension RestCollectionWatch on CollectionReference<Map<String, dynamic>> {
+  Stream<QuerySnapshot<Map<String, dynamic>>> restWatch({
+    List<RestFieldFilter> filters = const [],
+    String? orderByField,
+    bool descending = false,
+    int? limit,
+    Query<Map<String, dynamic>> Function(CollectionReference<Map<String, dynamic>>)?
+        mobileQuery,
+    Duration pollInterval = const Duration(seconds: 30),
+  }) =>
+      FirestoreStreamUtils.restOrWatch(
+        collectionPath: path,
+        mobileQuery: () {
+          final mq = mobileQuery;
+          return mq == null ? this : mq(this);
+        },
+        filters: filters,
+        orderByField: orderByField,
+        descending: descending,
+        limit: limit,
+        pollInterval: pollInterval,
+      );
 }
 
 extension SafeFirestoreQueryStream on Query<Map<String, dynamic>> {
@@ -395,8 +471,7 @@ class MergedFirestoreQuerySnapshot implements QuerySnapshot<Map<String, dynamic>
   List<DocumentChange<Map<String, dynamic>>> get docChanges => const [];
 
   @override
-  SnapshotMetadata get metadata =>
-      docs.isNotEmpty ? docs.first.metadata : const _EmptySnapshotMetadata();
+  SnapshotMetadata get metadata => const _EmptySnapshotMetadata();
 
   @override
   int get size => docs.length;

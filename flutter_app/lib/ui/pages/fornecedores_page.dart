@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/services/church_signatory_load_service.dart';
 import 'package:gestao_yahweh/ui/widgets/fornecedor_recibo_emit_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/church_document_signature_panel.dart';
@@ -6233,11 +6234,17 @@ class _AgendaTabState extends State<_AgendaTab> {
         final endFornecedor = _fornecedorEnderecoResumo(fornData);
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: widget.compCol
-              .where('fornecedorId', isEqualTo: widget.fornecedorId)
-              .orderBy('dataVencimento', descending: false)
-              .limit(80)
-              .watchSafe(),
+          stream: widget.compCol.restWatch(
+            filters: [
+              RestFieldFilter.equal('fornecedorId', widget.fornecedorId),
+            ],
+            orderByField: 'dataVencimento',
+            limit: 80,
+            mobileQuery: (c) => c
+                .where('fornecedorId', isEqualTo: widget.fornecedorId)
+                .orderBy('dataVencimento', descending: false)
+                .limit(80),
+          ),
           builder: (context, snap) {
             if (!snap.hasData) {
               return const Center(child: CircularProgressIndicator());

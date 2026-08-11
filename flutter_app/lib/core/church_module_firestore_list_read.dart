@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -79,6 +80,30 @@ abstract final class ChurchModuleFirestoreListRead {
     if (kIsWeb) {
       await FirestoreSessionGuard.ensureWriteSession();
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      // ⭐ CORREÇÃO TOTAL WEB: leitura por REST puro (imune à INTERNAL ASSERTION
+      // do SDK). Cobre todos os módulos que passam por este helper (escalas,
+      // cargos, visitantes, oração, etc.). Em falha, cai no caminho SDK abaixo.
+      try {
+        final field = orderByField?.trim();
+        final hasOrder = field != null && field.isNotEmpty;
+        var restDocs = await firestoreRestCollect(
+          collectionPath: reference.path,
+          orderByField: hasOrder ? field : null,
+          descending: orderDescending,
+          limit: limit,
+        ).timeout(ChurchPanelReadTimeouts.queryCap);
+        // orderBy no REST omite docs sem o campo — se veio vazio, tenta plain
+        // (paridade com a cascata "plain primeiro" do caminho SDK).
+        if (restDocs.isEmpty && hasOrder) {
+          restDocs = await firestoreRestCollect(
+            collectionPath: reference.path,
+            limit: limit,
+          ).timeout(ChurchPanelReadTimeouts.queryCap);
+        }
+        return _finalize(restDocs, sortDocs);
+      } catch (_) {
+        // cai no caminho SDK (cache/lastGood) abaixo
+      }
     }
 
     Query<Map<String, dynamic>> plain(CollectionReference<Map<String, dynamic>> c) =>

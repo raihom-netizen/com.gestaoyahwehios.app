@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 
@@ -91,6 +92,16 @@ abstract final class IgrejaDirectFirestoreReads {
 
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      // Web: doc raiz por REST (site público + cadastro membro sem assertion).
+      try {
+        final data = await firestoreRestGetDoc(
+          ChurchFirestoreAccess.churchDoc(id).path,
+        );
+        if (data == null) return null;
+        return (docId: id, data: Map<String, dynamic>.from(data));
+      } catch (_) {
+        // cai no SDK abaixo
+      }
     }
 
     try {
@@ -129,6 +140,16 @@ abstract final class IgrejaDirectFirestoreReads {
 
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      // Web: cadastro da igreja por REST (imune à assertion do SDK).
+      try {
+        final data = await firestoreRestGetDoc(
+          ChurchFirestoreAccess.churchDoc(id).path,
+        );
+        if (data == null) return null;
+        return (docId: id, data: Map<String, dynamic>.from(data));
+      } catch (_) {
+        // cai no SDK abaixo
+      }
     }
 
     try {

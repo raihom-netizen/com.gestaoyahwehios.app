@@ -44,6 +44,9 @@ class RestQueryDoc implements QueryDocumentSnapshot<Map<String, dynamic>> {
   bool get exists => true;
 
   @override
+  SnapshotMetadata get metadata => const RestSnapshotMetadata();
+
+  @override
   dynamic get(Object field) => _data[field.toString()];
 
   @override
@@ -51,6 +54,62 @@ class RestQueryDoc implements QueryDocumentSnapshot<Map<String, dynamic>> {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// Metadata neutra para snapshots REST — `isFromCache=false` (dado fresco do
+/// servidor), `hasPendingWrites=false`. Evita NPE em callers que leem
+/// `snapshot.metadata.isFromCache`.
+class RestSnapshotMetadata implements SnapshotMetadata {
+  const RestSnapshotMetadata();
+
+  @override
+  bool get hasPendingWrites => false;
+
+  @override
+  bool get isFromCache => false;
+}
+
+/// Documento único REST — compatível com `DocumentSnapshot`
+/// (`.exists`, `.data()`, `.id`, `.reference`, `.get()`, `[]`). Demais membros
+/// via `noSuchMethod`.
+class RestDocumentSnapshot implements DocumentSnapshot<Map<String, dynamic>> {
+  RestDocumentSnapshot(this._id, this._data, this._ref);
+
+  final String _id;
+  final Map<String, dynamic>? _data;
+  final DocumentReference<Map<String, dynamic>> _ref;
+
+  @override
+  String get id => _id;
+
+  @override
+  bool get exists => _data != null;
+
+  @override
+  Map<String, dynamic>? data() => _data;
+
+  @override
+  DocumentReference<Map<String, dynamic>> get reference => _ref;
+
+  @override
+  SnapshotMetadata get metadata => const RestSnapshotMetadata();
+
+  @override
+  dynamic get(Object field) => _data?[field.toString()];
+
+  @override
+  dynamic operator [](Object field) => _data?[field.toString()];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// Lê UM documento por REST e devolve como [DocumentSnapshot] (compatível com o
+/// que os módulos consomem). `exists=false` se não existir.
+Future<RestDocumentSnapshot> firestoreRestGetDocSnap(String docPath) async {
+  final data = await firestoreRestGetDoc(docPath);
+  final ref = FirebaseFirestore.instance.doc(docPath.trim());
+  return RestDocumentSnapshot(ref.id, data, ref);
 }
 
 /// Converte um valor no formato REST do Firestore para o tipo Dart nativo
