@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 import 'finance_line_opening.dart';
@@ -219,9 +221,47 @@ Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> financePeriodMergedDoc
         .orderBy(field, descending: false);
   }
 
+  // REST (web): mesmos filtros do [base], mas por HTTP — não passa pelo watch
+  // stream do SDK, então NÃO dispara a INTERNAL ASSERTION e funciona mesmo com
+  // o cliente do SDK envenenado.
+  List<RestFieldFilter> restFilters(String field) {
+    final fs = <RestFieldFilter>[];
+    if (statusFilter == 'pending') {
+      fs.add(RestFieldFilter('status', 'EQUAL', {'stringValue': 'pending'}));
+    } else if (statusFilter == 'paid') {
+      fs.add(RestFieldFilter('status', 'EQUAL', {'stringValue': 'paid'}));
+    }
+    if (typeFilter == 'income') {
+      fs.add(RestFieldFilter('type', 'EQUAL', {'stringValue': 'income'}));
+    } else if (typeFilter == 'expense') {
+      fs.add(RestFieldFilter('type', 'EQUAL', {'stringValue': 'expense'}));
+    }
+    final acc = financeAccountId?.trim();
+    if (acc != null && acc.isNotEmpty) {
+      fs.add(RestFieldFilter('financeAccountId', 'EQUAL', {'stringValue': acc}));
+    }
+    fs.add(RestFieldFilter(field, 'GREATER_THAN_OR_EQUAL', restTimestamp(f)));
+    fs.add(RestFieldFilter(field, 'LESS_THAN_OR_EQUAL', restTimestamp(t)));
+    return fs;
+  }
+
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> safeCollect(
     Query<Map<String, dynamic>> q,
+    String field,
   ) async {
+    if (kIsWeb) {
+      try {
+        final rest = await firestoreRestCollect(
+          collectionPath: col.path,
+          filters: restFilters(field),
+          orderByField: field,
+          limit: maxDocuments,
+        );
+        return rest;
+      } catch (_) {
+        // Cai no SDK/cache abaixo.
+      }
+    }
     try {
       final server = await firestoreQueryCollectDocumentsBatched(
         q,
@@ -237,9 +277,9 @@ Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> financePeriodMergedDoc
     }
   }
 
-  final byDate = await safeCollect(base('date'));
-  final byEff = await safeCollect(base('effectiveDate'));
-  final byPaidAt = await safeCollect(base('paidAt'));
+  final byDate = await safeCollect(base('date'), 'date');
+  final byEff = await safeCollect(base('effectiveDate'), 'effectiveDate');
+  final byPaidAt = await safeCollect(base('paidAt'), 'paidAt');
 
   final merged = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
   for (final d in [...byDate, ...byEff, ...byPaidAt]) {

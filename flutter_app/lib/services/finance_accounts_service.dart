@@ -2,9 +2,11 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fa;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/models/finance_account.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'finance_advanced_settings_service.dart';
 import 'goal_deposit_service.dart';
@@ -95,6 +97,20 @@ class FinanceAccountsService {
 
   Future<List<FinanceAccount>> listOnce(String uid) async {
     if (uid.trim().isEmpty) return const [];
+    // Web: lê por REST (não passa pelo watch stream do SDK) — os bancos
+    // carregam SEMPRE, mesmo com o cliente do SDK envenenado pela assertion.
+    if (kIsWeb) {
+      try {
+        final docs = await firestoreRestCollect(collectionPath: _col(uid).path);
+        if (docs.isNotEmpty) {
+          final list = docs.map(FinanceAccount.fromDoc).toList();
+          sortFinanceAccounts(list);
+          return list;
+        }
+      } catch (_) {
+        // Cai no SDK abaixo.
+      }
+    }
     try {
       final snap = await _col(uid).get();
       final list = snap.docs.map(FinanceAccount.fromDoc).toList();

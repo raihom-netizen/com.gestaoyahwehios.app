@@ -1531,6 +1531,41 @@ class _FinanceScreenState extends State<FinanceScreen> {
       }
     });
 
+    // ⭐ WEB: carrega TODO o período por REST (financePeriodMergedDocumentsCollect
+    // já lê por HTTP `runQuery`). REST NÃO passa pelo watch stream do SDK, então
+    // NÃO dispara a INTERNAL ASSERTION e funciona MESMO com o cliente do SDK
+    // envenenado. O filtro por conta é aplicado na renderização.
+    if (kIsWeb && useServerPage) {
+      try {
+        final merged = await financePeriodMergedDocumentsCollect(
+          uid: sessionUid,
+          from: _from,
+          to: _to,
+          statusFilter: _statusFilter,
+          typeFilter: _typeFilter,
+          maxDocuments: 5000,
+        );
+        if (!mounted || myGen != _mainPeriodLoadGeneration) return;
+        setState(() {
+          _mainPeriodDocs = merged;
+          _mainPeriodLoadedCount = merged.length;
+          _mainPeriodLoading = false;
+          _mainPeriodServerPagingActive = false;
+          _mainPeriodHasMoreServer = false;
+          _mainPeriodFirestoreCursor = null;
+          _mainPeriodLoadError = null;
+          _pruneOptimisticEditedTxAgainstDocs(_mainPeriodDocs);
+        });
+        unawaited(_refreshMainPeriodServerKpis());
+        unawaited(_refreshMainPeriodStripAccountNets(sessionUid, myGen));
+        _notifyFinanceTransactionsChanged();
+        return;
+      } catch (e, st) {
+        debugPrint('_executeMainPeriodLoad REST web: $e\n$st');
+        // Se o REST falhar, cai no caminho SDK abaixo.
+      }
+    }
+
     try {
       if (useServerPage) {
         final q = financeMainPeriodFirestoreQuery(
@@ -1702,14 +1737,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
           _scheduleMainPeriodReloadAfterMutationDebounced();
           return;
         }
-        // ESTABILIDADE (pedido do usuário: "o módulo NÃO pode recarregar
-        // sozinho"). NADA de reload automático nem de recover+retry (que
-        // reiniciava o watch stream e AMPLIFICAVA o churn de targets → realimenta
-        // a assertion). A prevenção do assertion é feita na RAIZ
-        // (firestore_app_config: sem long-polling → `.get()` = RunQuery, não aloca
-        // alvo). Se mesmo assim pingar um assert isolado, apenas mostramos o
-        // estado de erro estável com "Tentar novamente" — a página permanece,
-        // sem F5 surpresa.
+        // Leitura por REST (ver finance_transactions_realtime / _rest) já evita
+        // a assertion. Se ainda cair aqui, mostramos o estado de erro estável
+        // com botão MANUAL "Recarregar página" — SEM reload automático.
         setState(() {
           _mainPeriodLoading = false;
           _mainPeriodLoadError = e;
