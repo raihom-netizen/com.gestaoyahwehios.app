@@ -487,6 +487,22 @@ class _FinanceScreenState extends State<FinanceScreen> {
     _invalidateRealtimeBalances(
         transactionEffectiveDate: transactionEffectiveDate);
 
+    // ⭐ WEB: recarrega TODO o período por REST após salvar/editar/excluir. O
+    // merge por-id abaixo usa `.get()` do SDK (falha/pendura no cliente
+    // envenenado pela assertion) → a lista e os saldos NÃO atualizavam sem F5.
+    // Com REST, lista + saldos (computados dos lançamentos) atualizam na hora.
+    if (kIsWeb) {
+      final uid = _effectiveFinanceSessionUid;
+      if (uid != null && mounted) {
+        _mainPeriodLoadGeneration++;
+        final g = _mainPeriodLoadGeneration;
+        await _executeMainPeriodLoad(g, uid, preserveExistingDocs: false);
+        if (mounted) _notifyFinanceTransactionsChanged(
+            effectiveDate: transactionEffectiveDate);
+      }
+      return;
+    }
+
     final removeSet = (removedDocIds ?? const [])
         .map((e) => e.trim())
         .where((e) => e.isNotEmpty)

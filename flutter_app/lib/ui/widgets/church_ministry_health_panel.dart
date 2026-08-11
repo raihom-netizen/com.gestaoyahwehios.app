@@ -26,6 +26,7 @@ import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
 import 'package:gestao_yahweh/utils/pdf_financeiro_super_extrato.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/models/finance_account.dart';
 import 'package:gestao_yahweh/constants/finance_account_visuals.dart';
 
@@ -265,6 +266,26 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     }
   }
 
+  /// Web: lê uma coleção por REST (não passa pelo watch stream do SDK → não
+  /// dispara/pendura na assertion; saldos atualizam sem F5). Falha → lista vazia.
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _restDocsWeb(
+    String collectionPath, {
+    String? orderByField,
+    bool descending = false,
+    int? limit,
+  }) async {
+    try {
+      return await firestoreRestCollect(
+        collectionPath: collectionPath,
+        orderByField: orderByField,
+        descending: descending,
+        limit: limit,
+      );
+    } catch (_) {
+      return const [];
+    }
+  }
+
   Future<void> _load() async {
     if (widget.tenantId.trim().isEmpty) return;
     final tid = widget.tenantId.trim();
@@ -301,14 +322,25 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       if (widget.canViewFinance) {
         if (!useFinanceStream) {
           futures.add(
-            _safeQueryDocs(
-              ChurchTenantResilientReads.financeRecent(tid,
-                  limit: ChurchDashboardQueryLimits.financeLedgerSnapshotMax),
-            ),
+            kIsWeb
+                ? _restDocsWeb(
+                    ChurchUiCollections.financeiro(tid).path,
+                    orderByField: 'date',
+                    descending: true,
+                    limit:
+                        ChurchDashboardQueryLimits.financeLedgerSnapshotMax,
+                  )
+                : _safeQueryDocs(
+                    ChurchTenantResilientReads.financeRecent(tid,
+                        limit: ChurchDashboardQueryLimits
+                            .financeLedgerSnapshotMax),
+                  ),
           );
         }
         futures.add(
-          _safeQueryDocs(ChurchTenantResilientReads.contas(tid)),
+          kIsWeb
+              ? _restDocsWeb(ChurchUiCollections.contas(tid).path)
+              : _safeQueryDocs(ChurchTenantResilientReads.contas(tid)),
         );
       }
       final churchFuture = ChurchTenantResilientReads.churchDocument(tid);
