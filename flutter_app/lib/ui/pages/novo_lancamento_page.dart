@@ -99,6 +99,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
   /// null = saldo geral (sem conta vinculada).
   String? _selectedFinanceAccountId;
 
+  /// Contas (bancos/cartões/caixas) cadastradas — para o seletor de banco.
+  List<FinanceAccount> _financeAccounts = const [];
+
   /// Cor que o lançamento exibirá no calendário (hex, ex.: '#E53935'). Null = padrão (vermelho/verde).
   String? _calendarColorHex;
 
@@ -282,7 +285,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
       if (!mounted) return;
 
       if (isEditing) {
-        setState(() {});
+        setState(() {
+          _financeAccounts = accounts;
+        });
       } else {
         String? defId;
         try {
@@ -298,6 +303,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
           pick = accounts.first.id;
         }
         setState(() {
+          _financeAccounts = accounts;
           _selectedFinanceAccountId = pick;
           _applyStatusDefaultForAccount(accounts);
         });
@@ -991,8 +997,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                         _buildPremiumCategorySelector(),
                         SizedBox(height: 10),
                         _buildPremiumDescField(),
-                        // Campo de conta/banco oculto — lanca sem vínculo.
-                        // (Seção removida a pedido do usuário: aparece como se não tivesse banco cadastrado.)
+                        // Seletor de banco/conta (padrão do cadastro, editável).
+                        _buildAccountSelector(),
                         SizedBox(height: 10),
                         ListenableBuilder(
                           listenable: Listenable.merge(
@@ -1161,6 +1167,110 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
           labelStyle: TextStyle(color: context.appTextSecondary),
           hintStyle: TextStyle(color: Colors.grey.shade400),
         ),
+      ),
+    );
+  }
+
+  /// Seletor de banco/conta — traz o padrão do cadastro e permite trocar
+  /// (mesma seleção vale para receitas, despesas e edições). Grava em
+  /// `financeAccountId`. Se não houver contas cadastradas, não aparece.
+  Widget _buildAccountSelector() {
+    if (_financeAccounts.isEmpty) return const SizedBox.shrink();
+    final accent = _isIncome
+        ? const Color(0xFF2E7D32)
+        : const Color(0xFFD32F2F);
+    Widget chip({
+      required String label,
+      required bool selected,
+      required VoidCallback onTap,
+      IconData? icon,
+    }) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+            decoration: BoxDecoration(
+              color: selected ? accent : accent.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                  color: selected ? accent : accent.withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null)
+                  Icon(icon,
+                      size: 16,
+                      color: selected ? Colors.white : accent),
+                if (icon != null) const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: selected ? Colors.white : accent,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.account_balance_rounded, size: 18, color: accent),
+              const SizedBox(width: 6),
+              Text(
+                'Banco / conta',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: context.appTextSecondary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                chip(
+                  label: 'Sem conta',
+                  icon: Icons.account_balance_wallet_outlined,
+                  selected: _selectedFinanceAccountId == null ||
+                      _selectedFinanceAccountId!.isEmpty,
+                  onTap: () =>
+                      setState(() => _selectedFinanceAccountId = null),
+                ),
+                for (final a in _financeAccounts)
+                  chip(
+                    label: a.displayName,
+                    icon: a.isCardProduct
+                        ? Icons.credit_card_rounded
+                        : (a.isVaultProduct
+                            ? Icons.savings_rounded
+                            : Icons.account_balance_rounded),
+                    selected: _selectedFinanceAccountId == a.id,
+                    onTap: () => setState(() {
+                      _selectedFinanceAccountId = a.id;
+                      _applyStatusDefaultForAccount(_financeAccounts);
+                    }),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

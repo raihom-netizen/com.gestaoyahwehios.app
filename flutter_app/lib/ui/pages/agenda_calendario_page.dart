@@ -790,6 +790,9 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
   bool _repeatWeekly = false;
   int _weeks = 4;
 
+  // Vários dias — cria uma ocorrência em cada data selecionada (além da principal).
+  final List<DateTime> _extraDays = <DateTime>[];
+
   // Departamentos (reunião).
   List<String> _allDepartments = const [];
   final Set<String> _selectedDepartments = <String>{};
@@ -1049,6 +1052,28 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
             ),
           );
         }
+      } else if (_extraDays.isNotEmpty) {
+        // Vários dias — cria uma ocorrência na data principal + em cada dia extra
+        // (mesma série; push só na 1ª para não repetir).
+        final seriesId = DateTime.now().millisecondsSinceEpoch.toString();
+        final hh = _allDay || _time == null ? 0 : _time!.hour;
+        final mm = _allDay || _time == null ? 0 : _time!.minute;
+        final allDates = <DateTime>[
+          when,
+          ..._extraDays.map((d) => DateTime(d.year, d.month, d.day, hh, mm)),
+        ];
+        for (var i = 0; i < allDates.length; i++) {
+          final ref = ChurchUiCollections.agenda(widget.tenantId).doc();
+          await ChurchAgendaLoadService.setAgendaEvent(
+            ref: ref,
+            payload: _buildPayload(
+              when: allDates[i],
+              notify: _notify && i == 0,
+              isCreate: true,
+              seriesId: seriesId,
+            ),
+          );
+        }
       } else {
         final ref = ChurchUiCollections.agenda(widget.tenantId).doc();
         await ChurchAgendaLoadService.setAgendaEvent(
@@ -1201,6 +1226,7 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
               ],
               if (_kind == AgKind.reuniao) _reuniaoFields(),
               if (!_isEdit && _kind != AgKind.reuniao) _recurrenceField(),
+              if (!_isEdit && !_repeatWeekly) _multiDaysField(),
               const SizedBox(height: 14),
               _notifyField(),
               const SizedBox(height: 8),
@@ -1502,6 +1528,64 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
           ),
       ],
     );
+  }
+
+  Widget _multiDaysField() {
+    final df = DateFormat('dd/MM/yyyy');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 14),
+        _sectionLabel('Vários dias (opcional)'),
+        const SizedBox(height: 4),
+        Text(
+          'Cria o mesmo item também nos dias escolhidos, além da data acima.',
+          style: TextStyle(fontSize: 12, color: Colors.blueGrey.shade400),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final d in _extraDays)
+              InputChip(
+                label: Text(df.format(d)),
+                onDeleted: () => setState(() => _extraDays.remove(d)),
+              ),
+            ActionChip(
+              avatar: const Icon(Icons.add_rounded, size: 18),
+              label: const Text('Adicionar dia'),
+              onPressed: _pickExtraDay,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickExtraDay() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      locale: const Locale('pt', 'BR'),
+    );
+    if (picked == null) return;
+    final d = DateTime(picked.year, picked.month, picked.day);
+    if (d.year == _date.year && d.month == _date.month && d.day == _date.day) {
+      _toast('Essa já é a data principal.');
+      return;
+    }
+    if (_extraDays.any(
+        (e) => e.year == d.year && e.month == d.month && e.day == d.day)) {
+      return;
+    }
+    setState(() {
+      _extraDays
+        ..add(d)
+        ..sort();
+    });
   }
 
   Widget _notifyField() {

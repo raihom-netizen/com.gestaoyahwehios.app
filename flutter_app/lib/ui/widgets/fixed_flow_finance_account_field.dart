@@ -7,7 +7,7 @@ import 'package:gestao_yahweh/core/finance_theme_context.dart';
 import 'finance_bank_brand_thumb.dart';
 
 /// Seletor de banco/caixa para despesas e receitas fixas (cadastro Financeiro).
-class FixedFlowFinanceAccountField extends StatelessWidget {
+class FixedFlowFinanceAccountField extends StatefulWidget {
   const FixedFlowFinanceAccountField({
     super.key,
     required this.uid,
@@ -23,11 +23,44 @@ class FixedFlowFinanceAccountField extends StatelessWidget {
       decorationBuilder;
 
   @override
+  State<FixedFlowFinanceAccountField> createState() =>
+      _FixedFlowFinanceAccountFieldState();
+}
+
+class _FixedFlowFinanceAccountFieldState
+    extends State<FixedFlowFinanceAccountField> {
+  // Carrega via listOnce (one-shot, confiável no web) em vez de streamAccounts
+  // (que no web vinha VAZIO no 1º frame → "Nenhuma conta cadastrada" mesmo
+  // com contas existentes). Igual ao form de lançamento.
+  List<FinanceAccount> _accounts = const [];
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final list = await FinanceAccountsService().listOnce(widget.uid);
+      if (!mounted) return;
+      setState(() {
+        _accounts = list;
+        _loaded = true;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loaded = true);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<FinanceAccount>>(
-      stream: FinanceAccountsService().streamAccounts(uid),
-      builder: (context, snap) {
-        final accounts = snap.data ?? const <FinanceAccount>[];
+    final selectedAccountId = widget.selectedAccountId;
+    final onChanged = widget.onChanged;
+    final decorationBuilder = widget.decorationBuilder;
+    {
+        final accounts = _accounts;
         final ids = accounts.map((a) => a.id).toSet();
         final value = selectedAccountId != null && ids.contains(selectedAccountId)
             ? selectedAccountId
@@ -47,6 +80,17 @@ class FixedFlowFinanceAccountField extends StatelessWidget {
               ),
               prefixIcon: prefix,
             );
+
+        if (!_loaded && accounts.isEmpty) {
+          return InputDecorator(
+            decoration: deco.copyWith(labelText: 'Banco ou caixa'),
+            child: const SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          );
+        }
 
         if (accounts.isEmpty) {
           return InputDecorator(
@@ -100,7 +144,6 @@ class FixedFlowFinanceAccountField extends StatelessWidget {
           ],
           onChanged: onChanged,
         );
-      },
-    );
+    }
   }
 }
