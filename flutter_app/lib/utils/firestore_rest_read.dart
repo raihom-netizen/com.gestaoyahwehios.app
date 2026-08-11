@@ -104,6 +104,19 @@ Map<String, dynamic> _restFields(Map<String, dynamic>? fields) {
 /// Filtro simples de campo (fieldFilter).
 class RestFieldFilter {
   RestFieldFilter(this.field, this.op, this.value);
+
+  /// `field == value` — converte o valor Dart para o formato REST.
+  factory RestFieldFilter.equal(String field, dynamic value) =>
+      RestFieldFilter(field, 'EQUAL', _toRestValue(value));
+
+  /// `field >= value`.
+  factory RestFieldFilter.greaterOrEqual(String field, dynamic value) =>
+      RestFieldFilter(field, 'GREATER_THAN_OR_EQUAL', _toRestValue(value));
+
+  /// `field <= value`.
+  factory RestFieldFilter.lessOrEqual(String field, dynamic value) =>
+      RestFieldFilter(field, 'LESS_THAN_OR_EQUAL', _toRestValue(value));
+
   final String field;
   final String op; // GREATER_THAN_OR_EQUAL, LESS_THAN_OR_EQUAL, EQUAL...
   final Map<String, dynamic> value; // já no formato REST (ex.: {timestampValue: ...})
@@ -248,6 +261,26 @@ Future<Map<String, dynamic>?> firestoreRestGetDoc(String docPath) async {
   final decoded = jsonDecode(resp.body);
   if (decoded is! Map<String, dynamic>) return null;
   return _restFields(decoded['fields'] as Map<String, dynamic>?);
+}
+
+/// EXCLUI um documento por REST (`DELETE .../documents/{docPath}`). Não passa
+/// pelo watch stream do SDK (não trava/assertion com o cliente envenenado).
+Future<void> firestoreRestDeleteDoc(String docPath) async {
+  final path = docPath.trim();
+  if (path.isEmpty) throw StateError('docPath vazio');
+  final user = fa.FirebaseAuth.instance.currentUser;
+  if (user == null) throw StateError('sem sessão');
+  final token = await user.getIdToken();
+  if (token == null || token.isEmpty) throw StateError('sem token');
+  final uri = Uri.parse('$_restBase/$path');
+  final resp = await http.delete(
+    uri,
+    headers: {'Authorization': 'Bearer $token'},
+  ).timeout(const Duration(seconds: 20));
+  if (resp.statusCode != 200 && resp.statusCode != 404) {
+    debugPrint('firestoreRestDeleteDoc ${resp.statusCode}: ${resp.body}');
+    throw StateError('REST delete ${resp.statusCode}');
+  }
 }
 
 /// Executa um `runQuery` REST numa subcoleção e devolve os documentos.

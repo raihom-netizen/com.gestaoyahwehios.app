@@ -2487,7 +2487,11 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
       ),
     );
     if (ok != true || !mounted) return;
-    await doc.reference.delete();
+    if (kIsWeb) {
+      await firestoreRestDeleteDoc(doc.reference.path);
+    } else {
+      await doc.reference.delete();
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -2505,12 +2509,15 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
     if (tipo == 'transferencia') return;
     final isEntrada =
         tipo.contains('entrada') || tipo.contains('receita');
-    if (isEntrada) {
-      final atual = data['recebimentoConfirmado'] != false;
-      await doc.reference.update({'recebimentoConfirmado': !atual});
+    final field = isEntrada ? 'recebimentoConfirmado' : 'pagamentoConfirmado';
+    final atual = data[field] != false;
+    if (kIsWeb) {
+      await firestoreRestUpdateDoc(
+        doc.reference.path,
+        setFields: {field: !atual, 'updatedAt': FieldValue.serverTimestamp()},
+      );
     } else {
-      final atual = data['pagamentoConfirmado'] != false;
-      await doc.reference.update({'pagamentoConfirmado': !atual});
+      await doc.reference.update({field: !atual});
     }
     await _afterMutation();
   }

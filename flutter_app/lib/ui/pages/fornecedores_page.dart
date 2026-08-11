@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_single_day_picker_page.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -574,15 +575,14 @@ Future<void> showFornecedorCompromissoEditor(
                         borderRadius: BorderRadius.circular(14),
                         child: InkWell(
                           onTap: () async {
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: dSel,
+                            final picked =
+                                await YahwehSingleDayPickerPage.show(
+                              context,
+                              initial: dSel,
                               firstDate: DateTime(2020),
                               lastDate: DateTime(2100),
-                              locale: const Locale('pt', 'BR'),
-                              helpText: 'Data do compromisso',
-                              cancelText: 'Cancelar',
-                              confirmText: 'Definir',
+                              accent: const Color(0xFF0EA5E9),
+                              title: 'Data do compromisso',
                             );
                             if (picked != null) {
                               dateNotify.value = DateTime(

@@ -1,10 +1,12 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:gestao_yahweh/constants/app_business_rules.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_status_resolver.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'finance_month_cache.dart';
 
 /// Receitas fixas (aluguéis, comissões, juros, etc.): o sistema gera lançamentos **pendentes** por mês no período.
@@ -23,6 +25,20 @@ class FixedIncomeService {
       ChurchUiCollections.financeiro(uid.trim());
 
   Future<List<Map<String, dynamic>>> list(String uid) async {
+    // Web: leitura por REST (evita a INTERNAL ASSERTION do SDK 12.17.0 que
+    // fazia a tela de Receitas Fixas "não abrir").
+    if (kIsWeb) {
+      final docs = await firestoreRestCollect(
+        collectionPath: _fixedRef(uid).path,
+        orderByField: 'createdAt',
+        descending: true,
+      );
+      return docs.map((d) {
+        final m = Map<String, dynamic>.from(d.data());
+        m['id'] = d.id;
+        return m;
+      }).toList();
+    }
     final snap =
         await _fixedRef(uid).orderBy('createdAt', descending: true).get();
     return snap.docs.map((d) {

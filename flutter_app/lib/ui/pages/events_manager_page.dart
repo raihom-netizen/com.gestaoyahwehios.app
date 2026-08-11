@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_single_day_picker_page.dart';
 import 'package:gestao_yahweh/core/firestore_cursor_pagination.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
@@ -7924,12 +7925,13 @@ class _EventoRecurrenceSection extends StatelessWidget {
     required ValueChanged<DateTime?> onChanged,
   }) async {
     final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial ?? firstDate ?? now,
+    final picked = await YahwehSingleDayPickerPage.show(
+      context,
+      initial: initial ?? firstDate ?? now,
       firstDate: firstDate ?? DateTime(now.year - 1),
       lastDate: DateTime(now.year + 3),
-      locale: const Locale('pt', 'BR'),
+      accent: const Color(0xFF2563EB),
+      title: 'Data do evento',
     );
     if (picked != null) onChanged(picked);
   }

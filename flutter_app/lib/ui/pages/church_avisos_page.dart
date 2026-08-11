@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:gestao_yahweh/ui/widgets/aviso_evento_social_link_button.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_single_day_picker_page.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/ecofire/direct_storage_url_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
@@ -2083,11 +2084,13 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
 
   Future<void> _pickExpiry() async {
     final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _expiresAt,
+    final picked = await YahwehSingleDayPickerPage.show(
+      context,
+      initial: _expiresAt,
       firstDate: now,
       lastDate: now.add(const Duration(days: 365 * 3)),
+      accent: const Color(0xFF7C3AED),
+      title: 'Data do aviso',
     );
     if (picked != null) setState(() => _expiresAt = picked);
   }

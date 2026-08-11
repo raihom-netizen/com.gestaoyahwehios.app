@@ -391,12 +391,19 @@ class TransactionSaveService {
             'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           };
-          await FinanceLancamentoWriteService.commitInTransaction(
-            churchId: churchId,
-            lancamentoRef: ref,
-            payload: payload,
-            merge: false,
-          );
+          // Web: cada parcela por REST (a transação do SDK trava no cliente
+          // envenenado pela assertion). Saldo é computado dos lançamentos →
+          // recalcula ao recarregar. Mobile: transação atômica normal.
+          if (kIsWeb) {
+            await firestoreRestSetDoc(ref.path, payload);
+          } else {
+            await FinanceLancamentoWriteService.commitInTransaction(
+              churchId: churchId,
+              lancamentoRef: ref,
+              payload: payload,
+              merge: false,
+            );
+          }
         }
         unawaited(
           LogsService()

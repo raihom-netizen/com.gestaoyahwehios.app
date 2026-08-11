@@ -1214,7 +1214,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
 
     // Conta é OBRIGATÓRIA — sem opção "Sem conta". LISTA vertical marcável;
     // sai já com o padrão do gestor. Toque para trocar (receita e despesa).
-    Widget tile(FinanceAccount a) {
+    Widget tile(FinanceAccount a, {VoidCallback? onTap}) {
       final selected = _selectedFinanceAccountId == a.id;
       final icon = a.isCardProduct
           ? Icons.credit_card_rounded
@@ -1227,10 +1227,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: () => setState(() {
-              _selectedFinanceAccountId = a.id;
-              _applyStatusDefaultForAccount(_financeAccounts);
-            }),
+            onTap: onTap ??
+                () => setState(() {
+                      _selectedFinanceAccountId = a.id;
+                      _applyStatusDefaultForAccount(_financeAccounts);
+                    }),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
@@ -1282,6 +1283,18 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
       );
     }
 
+    // Campo COMPACTO: mostra o banco selecionado; toque abre a lista (estilo
+    // do seletor de Categoria). Ocupa pouco espaço em receita e despesa.
+    final selected = _financeAccounts
+        .cast<FinanceAccount?>()
+        .firstWhere((a) => a?.id == _selectedFinanceAccountId, orElse: () => null);
+    final selIcon = selected == null
+        ? Icons.account_balance_rounded
+        : (selected.isCardProduct
+            ? Icons.credit_card_rounded
+            : (selected.isVaultProduct
+                ? Icons.savings_rounded
+                : Icons.account_balance_rounded));
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Column(
@@ -1302,9 +1315,120 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
             ],
           ),
           const SizedBox(height: 8),
-          for (final a in _financeAccounts) tile(a),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _openAccountPicker(accent, tile),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                decoration: BoxDecoration(
+                  color: context.appInputFill,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: accent.withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        color: accent.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(selIcon, size: 16, color: accent),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        selected?.displayName ?? 'Toque para escolher o banco',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: selected == null
+                              ? context.appTextSecondary
+                              : context.appTextPrimary,
+                        ),
+                      ),
+                    ),
+                    Icon(Icons.unfold_more_rounded,
+                        color: accent, size: 22),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  /// Abre a lista de bancos/contas em folha inferior (estilo Categoria).
+  Future<void> _openAccountPicker(Color accent,
+      Widget Function(FinanceAccount, {VoidCallback? onTap}) tile) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: context.appSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Icon(Icons.account_balance_rounded,
+                        size: 20, color: accent),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Escolher banco / conta',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: context.appTextPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        for (final a in _financeAccounts)
+                          tile(a, onTap: () {
+                            setState(() {
+                              _selectedFinanceAccountId = a.id;
+                              _applyStatusDefaultForAccount(_financeAccounts);
+                            });
+                            Navigator.of(ctx).pop();
+                          }),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -2273,63 +2397,6 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
             ),
           ),
       ],
-    );
-  }
-}
-
-class _NovoLancamentoAccountBadge extends StatelessWidget {
-  final FinanceAccount account;
-
-  const _NovoLancamentoAccountBadge({required this.account});
-
-  @override
-  Widget build(BuildContext context) {
-    final vis = financeAccountVisualFor(account);
-    final p = account.preset;
-    return Container(
-      width: 38,
-      height: 38,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(11),
-        gradient: LinearGradient(
-          colors: vis.gradient.length >= 2
-              ? vis.gradient.sublist(0, 2)
-              : vis.gradient,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        border: Border.all(
-          color: vis.isCreditCardStyle
-              ? const Color(0xFFFBBF24).withValues(alpha: 0.55)
-              : Colors.white.withValues(alpha: 0.35),
-          width: vis.isCreditCardStyle ? 1.4 : 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: vis.gradient.first.withValues(alpha: 0.35),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (vis.isCreditCardStyle)
-            const FinanceCreditCardPattern(stripeColor: Color(0xFFFBBF24)),
-          Center(
-            child: p != null
-                ? FinanceBankBrandThumb(
-                    preset: p,
-                    size: 28,
-                    onBrandGradient: true,
-                    fallbackIcon: vis.icon,
-                  )
-                : Icon(vis.icon, color: Colors.white, size: 20),
-          ),
-        ],
-      ),
     );
   }
 }

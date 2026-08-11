@@ -1,8 +1,10 @@
 ﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/constants/app_business_rules.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Preferências de exibição das receitas fixas: contas pendentes e quantos meses à frente.
@@ -17,9 +19,17 @@ class FixedIncomePreferencesService {
   DocumentReference<Map<String, dynamic>> _settingsRef(String uid) =>
       ChurchUiCollections.config(uid.trim()).doc('fixed_incomes_prefs');
 
-  Future<bool> getShowInPending(String uid) async {
+  /// Leitura do doc de prefs — REST no web (evita a INTERNAL ASSERTION).
+  Future<Map<String, dynamic>?> _read(String uid) async {
+    if (kIsWeb) {
+      return firestoreRestGetDoc(_settingsRef(uid).path);
+    }
     final snap = await _settingsRef(uid).get();
-    final data = snap.data();
+    return snap.data();
+  }
+
+  Future<bool> getShowInPending(String uid) async {
+    final data = await _read(uid);
     if (data == null) return true;
     return data[_showInPendingKey] as bool? ?? true;
   }
@@ -27,8 +37,7 @@ class FixedIncomePreferencesService {
   /// Quantos meses à frente considerar nas receitas pendentes (0 a 12).
   /// 0 = apenas o mês atual, 1 = mês atual + próximo, etc.
   Future<int> getPendingMonthsAhead(String uid) async {
-    final snap = await _settingsRef(uid).get();
-    final data = snap.data();
+    final data = await _read(uid);
     if (data == null) return _defaultPendingMonthsAhead;
     final v = data[_pendingMonthsAheadKey];
     if (v is num) return (v.toInt()).clamp(0, 12);
@@ -37,6 +46,18 @@ class FixedIncomePreferencesService {
 
   Future<void> set(String uid,
       {bool? showInPending, int? pendingMonthsAhead}) async {
+    // Web: grava por REST com updateMask (merge — só os campos enviados).
+    if (kIsWeb) {
+      final setFields = <String, dynamic>{
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      if (showInPending != null) setFields[_showInPendingKey] = showInPending;
+      if (pendingMonthsAhead != null) {
+        setFields[_pendingMonthsAheadKey] = pendingMonthsAhead.clamp(0, 12);
+      }
+      await firestoreRestUpdateDoc(_settingsRef(uid).path, setFields: setFields);
+      return;
+    }
     final data = <String, dynamic>{
       'updatedAt': FieldValue.serverTimestamp(),
     };
@@ -66,8 +87,7 @@ class FixedIncomePreferencesService {
   Stream<Map<String, dynamic>> _pollWatch(String uid) async* {
     while (true) {
       try {
-        final snap = await _settingsRef(uid).get();
-        yield _mapFrom(snap.data());
+        yield _mapFrom(await _read(uid));
       } catch (_) {}
       await Future<void>.delayed(const Duration(seconds: 180));
     }

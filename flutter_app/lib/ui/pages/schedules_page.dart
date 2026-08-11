@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_single_day_picker_page.dart';
 import 'package:gestao_yahweh/core/escala_firestore_fields.dart';
 import 'package:gestao_yahweh/core/escala_member_payload.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
@@ -7820,11 +7821,13 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
   }
 
   Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate,
+    final picked = await YahwehSingleDayPickerPage.show(
+      context,
+      initial: _selectedDate,
       firstDate: DateTime(2020),
       lastDate: DateTime(2035),
+      accent: const Color(0xFF7C3AED),
+      title: 'Data da escala',
     );
     if (picked != null && mounted) {
       setState(() => _selectedDate = picked);
