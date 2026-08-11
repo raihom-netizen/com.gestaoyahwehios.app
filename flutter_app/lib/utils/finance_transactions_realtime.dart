@@ -10,7 +10,7 @@ import 'firestore_query_batched_collect.dart';
 /// Web: intervalo do poll leve que substitui `.snapshots()` nas funções deste
 /// arquivo — evita somar alvos de watch simultâneos no Financeiro
 /// (`INTERNAL ASSERTION FAILED` / `WatchChangeAggregator`, SDK JS 12.x).
-const Duration _kFinanceWebPollInterval = Duration(seconds: 45);
+const Duration _kFinanceWebPollInterval = Duration(seconds: 180);
 
 /// Poll leve genérico: 1ª leitura imediata (cache, se houver, depois servidor
 /// via [query.get]), depois a cada [_kFinanceWebPollInterval] — usado no Web

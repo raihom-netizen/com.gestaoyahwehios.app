@@ -172,7 +172,7 @@ class PublicDivulgacaoPromo {
     controller = StreamController<PublicDivulgacaoPromo?>(
       onListen: () {
         unawaited(tick());
-        timer = Timer.periodic(const Duration(seconds: 45), (_) => tick());
+        timer = Timer.periodic(const Duration(seconds: 180), (_) => tick());
       },
       onCancel: () => timer?.cancel(),
     );

@@ -309,7 +309,7 @@ abstract final class YahwehDataEngineFetcher {
         }
         // 45s (era 12s) — reduz o churn de alvos do Watch stream na Web que
         // disparava o INTERNAL ASSERTION do SDK. Ver ChurchPanelReadTimeouts.
-        await Future<void>.delayed(const Duration(seconds: 45));
+        await Future<void>.delayed(const Duration(seconds: 180));
       }
     } else {
       Query<Map<String, dynamic>> query =

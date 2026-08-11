@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/web_page_reload.dart';
 import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/skeleton_loader.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
@@ -286,7 +287,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
       try {
         yield await _txRefPendingAll().get();
       } catch (_) {}
-      await Future<void>.delayed(const Duration(seconds: 45));
+      await Future<void>.delayed(const Duration(seconds: 180));
     }
   }
 
@@ -1787,7 +1788,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
           statusFilter: _statusFilter,
           typeFilter: _typeFilter,
           financeAccountId: _financeAccountFilterId,
-        ).timeout(const Duration(seconds: 45));
+        ).timeout(const Duration(seconds: 180));
         if (!mounted || generation != _mainPeriodLoadGeneration) return;
         final m = _netByFinanceAccountIdPaidEffective(all, _from, _to);
         setState(() {
@@ -7113,6 +7114,19 @@ class _FinanceScreenState extends State<FinanceScreen> {
                                               icon: Icon(Icons.refresh_rounded),
                                               label: Text('Tentar novamente'),
                                             ),
+                                            // Cura definitiva quando a assertion
+                                            // do SDK trava o cliente: clique do
+                                            // usuário recarrega a aba (cliente
+                                            // NOVO). Manual — nada automático.
+                                            if (kIsWeb)
+                                              OutlinedButton.icon(
+                                                onPressed: () =>
+                                                    reloadWebPageHard(
+                                                        force: true),
+                                                icon: Icon(Icons
+                                                    .restart_alt_rounded),
+                                                label: Text('Recarregar página'),
+                                              ),
                                           ],
                                         ),
                                       ],
@@ -8551,7 +8565,7 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
     // cobria mudanças de outra aba/dispositivo — poll leve resolve sem risco.
     if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
       _txWatchPollTimer = Timer.periodic(
-        const Duration(seconds: 45),
+        const Duration(seconds: 180),
         (_) => _scheduleDocsReloadDebounced(),
       );
       return;

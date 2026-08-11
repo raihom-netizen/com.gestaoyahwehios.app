@@ -1380,6 +1380,70 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     );
   }
 
+  /// Linha marcável de departamento — moderna, colorida, nome sempre visível.
+  Widget _depTile({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final color = AgKind.reuniao.color; // roxo
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: selected
+                  ? color.withValues(alpha: 0.12)
+                  : const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: selected ? color : const Color(0xFFE2E8F0),
+                width: selected ? 1.6 : 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: selected ? color : color.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon,
+                      size: 16, color: selected ? Colors.white : color),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                ),
+                Icon(
+                  selected
+                      ? Icons.check_circle_rounded
+                      : Icons.circle_outlined,
+                  color: selected ? color : Colors.blueGrey.shade200,
+                  size: 22,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _reuniaoFields() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1457,34 +1521,66 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
         _addrField(_complementoCtrl, 'Complemento (opcional)',
             Icons.add_location_alt_outlined),
         const SizedBox(height: 14),
-        _sectionLabel('Departamento(s)'),
+        Row(
+          children: [
+            _sectionLabel('Departamento(s)'),
+            const Spacer(),
+            if (_selectedDepartments.isNotEmpty)
+              Text(
+                '${_selectedDepartments.length} selecionado(s)',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: AgKind.reuniao.color,
+                ),
+              ),
+          ],
+        ),
         const SizedBox(height: 8),
         if (_allDepartments.isEmpty)
           Text(
             'Nenhum departamento cadastrado.',
             style: TextStyle(fontSize: 12.5, color: Colors.blueGrey.shade400),
           )
-        else
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final dep in _allDepartments)
-                FilterChip(
-                  label: Text(dep),
-                  selected: _selectedDepartments.contains(dep),
-                  onSelected: (sel) => setState(() {
-                    if (sel) {
-                      _selectedDepartments.add(dep);
-                    } else {
-                      _selectedDepartments.remove(dep);
-                    }
-                  }),
-                  selectedColor: AgKind.reuniao.color.withValues(alpha: 0.18),
-                  checkmarkColor: AgKind.reuniao.color,
-                ),
-            ],
+        else ...[
+          _depTile(
+            label: 'Todos os departamentos',
+            icon: Icons.done_all_rounded,
+            selected: _selectedDepartments.length == _allDepartments.length,
+            onTap: () => setState(() {
+              if (_selectedDepartments.length == _allDepartments.length) {
+                _selectedDepartments.clear();
+              } else {
+                _selectedDepartments
+                  ..clear()
+                  ..addAll(_allDepartments);
+              }
+            }),
           ),
+          const SizedBox(height: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 230),
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  for (final dep in _allDepartments)
+                    _depTile(
+                      label: dep,
+                      icon: Icons.groups_rounded,
+                      selected: _selectedDepartments.contains(dep),
+                      onTap: () => setState(() {
+                        if (_selectedDepartments.contains(dep)) {
+                          _selectedDepartments.remove(dep);
+                        } else {
+                          _selectedDepartments.add(dep);
+                        }
+                      }),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }

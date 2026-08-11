@@ -42,5 +42,5 @@ abstract final class ChurchPanelReadTimeouts {
   /// (gestão de igreja não precisa de tempo-real de segundos; mutações do próprio
   /// usuário já reemitem na hora via reload debounced pós-mutação).
   static Duration get webPollInterval =>
-      kIsWeb ? const Duration(seconds: 45) : const Duration(seconds: 8);
+      kIsWeb ? const Duration(seconds: 180) : const Duration(seconds: 8);
 }

@@ -89,7 +89,7 @@ class FinanceAccountsService {
         sortFinanceAccounts(list);
         yield list;
       } catch (_) {}
-      await Future<void>.delayed(const Duration(seconds: 45));
+      await Future<void>.delayed(const Duration(seconds: 180));
     }
   }
 

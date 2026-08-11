@@ -69,7 +69,7 @@ class FixedIncomePreferencesService {
         final snap = await _settingsRef(uid).get();
         yield _mapFrom(snap.data());
       } catch (_) {}
-      await Future<void>.delayed(const Duration(seconds: 45));
+      await Future<void>.delayed(const Duration(seconds: 180));
     }
   }
 }

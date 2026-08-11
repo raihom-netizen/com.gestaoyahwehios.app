@@ -201,7 +201,7 @@ class MpCheckoutPricingService {
         final snap = await _doc.get();
         yield MpCheckoutPricingSnapshot.fromFirestore(snap.data());
       } catch (_) {}
-      await Future<void>.delayed(const Duration(seconds: 45));
+      await Future<void>.delayed(const Duration(seconds: 180));
     }
   }
 }

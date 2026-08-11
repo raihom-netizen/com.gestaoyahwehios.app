@@ -41,7 +41,7 @@ class FinanceAdvancedSettingsService {
         final snap = await _doc(uid).get();
         yield snap.data()?[_keyStripHideZero] == true;
       } catch (_) {}
-      await Future<void>.delayed(const Duration(seconds: 45));
+      await Future<void>.delayed(const Duration(seconds: 180));
     }
   }
 
@@ -95,7 +95,7 @@ class FinanceAdvancedSettingsService {
         final v = snap.data()?[keyDefaultFinanceAccountId];
         yield (v is String && v.trim().isNotEmpty) ? v.trim() : null;
       } catch (_) {}
-      await Future<void>.delayed(const Duration(seconds: 45));
+      await Future<void>.delayed(const Duration(seconds: 180));
     }
   }
 

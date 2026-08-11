@@ -319,7 +319,7 @@ class DelegateAccessService {
       }
 
       unawaited(tick());
-      _indexPollTimer = Timer.periodic(const Duration(seconds: 45), (_) => tick());
+      _indexPollTimer = Timer.periodic(const Duration(seconds: 180), (_) => tick());
     }());
   }
 

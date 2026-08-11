@@ -70,7 +70,7 @@ abstract final class YahwehDepartmentsEngineFetcher {
     yield await loadOnce();
 
     if (kIsWeb) {
-      yield* Stream.periodic(const Duration(seconds: 45))
+      yield* Stream.periodic(const Duration(seconds: 180))
           .asyncMap((_) => loadOnce());
       return;
     }
