@@ -53,6 +53,15 @@ class FinanceAccountsService {
       } catch (_) {
         // Cache miss ou indisponível — segue para o snapshot listener.
       }
+      // Seed do SERVIDOR (one-shot). No web, sem IndexedDB, o cache acima vem
+      // vazio e a lista de "Bancos e cartões" mostrava 0 até o 1º poll (45s) —
+      // este `listOnce` garante as contas já no 1º frame. Barato (1 get).
+      try {
+        final server = await listOnce(uid);
+        if (server.isNotEmpty) yield server;
+      } catch (_) {
+        // Sem rede/erro — o poll/listener abaixo assume.
+      }
     }
     yield* fa.FirebaseAuth.instance.authStateChanges().asyncExpand((u) {
       if (u == null) {
