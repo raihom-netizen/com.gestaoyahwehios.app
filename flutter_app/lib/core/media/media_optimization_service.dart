@@ -7,7 +7,6 @@ import 'package:gestao_yahweh/core/media/media_optimization_isolate.dart';
 import 'package:gestao_yahweh/core/media/media_optimization_profile.dart';
 import 'package:gestao_yahweh/core/media/safe_image_bytes.dart';
 import 'package:gestao_yahweh/core/yahweh_heavy_work.dart';
-import 'package:gestao_yahweh/services/church_chat_media_prepare.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/web_image_compress_service.dart';
 
@@ -186,27 +185,6 @@ abstract final class MediaOptimizationService {
     );
   }
 
-  /// Vídeo chat — transcode + thumbnail (delega [ChurchChatMediaPrepare]).
-  static Future<OptimizedMediaPayload?> optimizeVideoForChat(
-    String inputPath, {
-    void Function(double progress)? onCompressProgress,
-  }) async {
-    if (kIsWeb || inputPath.trim().isEmpty) return null;
-    final prepared = await ChurchChatMediaPrepare.prepareVideo(
-      inputPath,
-      onCompressProgress: onCompressProgress,
-    );
-    if (prepared == null) return null;
-    return OptimizedMediaPayload(
-      fullBytes: Uint8List(0),
-      fullMime: 'video/mp4',
-      fullFileName: 'video.mp4',
-      thumbBytes: prepared.thumbnailBytes,
-      previewBytes: prepared.thumbnailBytes,
-      optimizedLocalPath: prepared.outputPath,
-    );
-  }
-
   /// Preview rápido a partir de path (bolha local antes da compressão full).
   static Future<Uint8List?> previewFromPath(String path) async {
     if (path.trim().isEmpty) return null;
@@ -221,13 +199,4 @@ abstract final class MediaOptimizationService {
     }
   }
 
-  /// Converte [PreparedChatImage] legado → payload unificado.
-  static OptimizedMediaPayload fromPreparedChatImage(PreparedChatImage p) =>
-      OptimizedMediaPayload(
-        fullBytes: p.fullBytes,
-        fullMime: p.fullMime,
-        fullFileName: p.fullFileName,
-        thumbBytes: p.thumbBytes,
-        previewBytes: p.thumbBytes ?? p.fullBytes,
-      );
 }

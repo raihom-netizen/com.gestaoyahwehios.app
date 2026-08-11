@@ -55,9 +55,19 @@ void configureFirestoreForOfflineAndSpeed() {
       // get-poll), o transporte de Listen é irrelevante — só os `.get()` REST
       // importam. Isto conserta Financeiro/Patrimônio/Fornecedores e a lentidão
       // do site público de uma só vez.
+      // ⭐ DEFINITIVO: fixar explicitamente os dois flags de long-polling em
+      // `false`. Se o `webExperimentalAutoDetectLongPolling` ficar no default
+      // (auto), o SDK pode LIGAR long-polling sozinho em certas redes — e a
+      // prova empírica (2026-08-09) mostrou que com long-polling TODO `.get()`
+      // vai pelo canal `Listen/channel` (aloca `targetId`, passa pelo
+      // `WatchChangeAggregator`) → `INTERNAL ASSERTION FAILED`. Forçando os dois
+      // em `false`, o `.get()` one-shot usa **REST `RunQuery`** (não aloca alvo,
+      // não passa pelo agregador) de forma determinística, em qualquer rede.
       db.settings = const Settings(
         persistenceEnabled: false,
         ignoreUndefinedProperties: true,
+        webExperimentalForceLongPolling: false,
+        webExperimentalAutoDetectLongPolling: false,
       );
       FirestoreOfflineConfig.persistenceEnabled = false;
       FirestoreOfflineConfig.webIndexedDbFallback = false;

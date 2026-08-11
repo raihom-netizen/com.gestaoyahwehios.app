@@ -25,10 +25,14 @@ abstract final class FastMediaPublishBootstrap {
   }
 
   static Future<void> _runWarm() async {
-    await FirebaseBootstrapService.ensureReadyForStorageUpload(requireAuth: true)
-        .timeout(const Duration(seconds: 8));
-    await FeedPostMediaUpload.warmAuthToken()
-        .timeout(const Duration(seconds: 5));
+    // Independentes (bootstrap Storage+Auth vs. warm do token) — em PARALELO
+    // corta ~metade da espera do 1.º upload (cold). Antes eram sequenciais:
+    // um `await` esperava o outro à toa antes de o putData começar.
+    await Future.wait<void>([
+      FirebaseBootstrapService.ensureReadyForStorageUpload(requireAuth: true)
+          .timeout(const Duration(seconds: 8)),
+      FeedPostMediaUpload.warmAuthToken().timeout(const Duration(seconds: 5)),
+    ]);
   }
 
   static void resetSessionWarm() {

@@ -13,8 +13,6 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
 import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/background_upload_worker.dart';
-import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
-import 'package:gestao_yahweh/services/church_chat_outbound_pending.dart';
 import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_post_pending_media_cache.dart';
 import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
@@ -164,39 +162,6 @@ abstract final class EcoFireResilientPublish {
 
     if (kDebugMode) {
       debugPrint('EcoFireResilientPublish: feed enfileirado $postType/$pid');
-    }
-  }
-
-  /// Chat — outbox local + bytes/path (sync silencioso).
-  static Future<void> queueChatMedia({
-    required String tenantId,
-    required String threadId,
-    required ChurchChatOutboundPending pending,
-    List<int>? bytes,
-    String? localPath,
-  }) async {
-    Uint8List? u8;
-    if (bytes != null && bytes.isNotEmpty) {
-      u8 = bytes is Uint8List ? bytes : Uint8List.fromList(bytes);
-    } else if (pending.previewBytes != null && pending.previewBytes!.isNotEmpty) {
-      u8 = pending.previewBytes;
-    }
-    await ChurchChatMediaOutboxService.registerJob(
-      tenantId: tenantId,
-      threadId: threadId,
-      localId: pending.localId,
-      kind: pending.kind,
-      fileName: pending.fileName,
-      mime: pending.mime,
-      firestoreMessageId: pending.firestoreMessageId,
-      storagePath: pending.storagePath,
-      localPath: localPath ?? pending.localPath,
-      bytes: u8,
-    );
-    if (kDebugMode) {
-      debugPrint(
-        'EcoFireResilientPublish: chat enfileirado ${pending.localId}',
-      );
     }
   }
 

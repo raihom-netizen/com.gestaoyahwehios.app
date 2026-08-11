@@ -568,66 +568,7 @@ service cloud.firestore {
         allow update, delete: if isAdminPanel() || canWriteTenant(id) || deptLeader(id);
       }
 
-      // ---- Chat ----
-      match /users_profile_chat/{u} {
-        allow read: if signedIn() && uid() == u && canAccessTenant(id);
-        allow create, update: if signedIn() && uid() == u && canAccessTenant(id);
-        allow delete: if false;
-      }
-      match /chat_presence/{u} {
-        allow read: if canAccessTenant(id);
-        allow create, update: if signedIn() && uid() == u && canAccessTenant(id);
-        allow delete: if false;
-      }
-      match /chat_peer_profiles/{authUid} { allow read: if canAccessTenant(id); allow write: if false; }
-      match /chat_member_prefs/{u} {
-        allow read: if signedIn() && uid() == u && canAccessTenant(id);
-        allow create, update: if signedIn() && uid() == u && canAccessTenant(id);
-        allow delete: if false;
-      }
-      match /chat_uploads/{uploadId} {
-        allow read: if canAccessTenant(id) && signedIn() && resource.data.ownerUid == uid();
-        allow create: if canAccessTenant(id) && signedIn() && request.resource.data.ownerUid == uid();
-        allow update, delete: if canAccessTenant(id) && signedIn() && resource.data.ownerUid == uid();
-      }
-      match /chat_stickers/{stickerId} {
-        allow read: if canAccessTenant(id);
-        allow create: if canAccessTenant(id) && signedIn() && request.resource.data.createdByUid == uid();
-        allow update: if false;
-        allow delete: if canAccessTenant(id) && signedIn() && resource.data.createdByUid == uid();
-      }
-      match /chats/{threadId} {
-        allow read: if canAccessTenant(id) && chatMember(threadId, resource.data);
-        allow create: if canAccessTenant(id)
-          && ((request.resource.data.type == 'dm'
-                && request.resource.data.participantUids is list
-                && uid() in request.resource.data.participantUids)
-            || request.resource.data.type == 'department');
-        allow update: if canAccessTenant(id) && chatMember(threadId, resource.data);
-        allow delete: if canAccessTenant(id) && (chatMember(threadId, resource.data) || canWriteTenant(id) || isPastoral(id));
-        match /typing/{t} {
-          allow read: if canAccessTenant(id);
-          allow create, update, delete: if canAccessTenant(id) && uid() == t;
-        }
-        match /messages/{msgId} {
-          allow read: if canAccessTenant(id);
-          allow create: if canAccessTenant(id)
-            && request.resource.data.senderUid == uid()
-            && request.resource.data.keys().hasAll(['senderUid', 'type', 'createdAt'])
-            && !('reactionsByUid' in request.resource.data);
-          // Updates: só campos permitidos, e não altera autoria/conteúdo base.
-          allow update: if canAccessTenant(id)
-            && request.resource.data.diff(resource.data).changedKeys().hasOnly([
-              'deliveryStatus', 'uploadProgress', 'mediaUrl', 'storagePath', 'fileName',
-              'thumbUrl', 'thumbStoragePath', 'thumbnailUrl', 'fileUrl', 'status',
-              'uploadCompleted', 'storageVerified', 'updatedAt', 'pendingMedia',
-              'erro', 'errorMessage', 'fileSize', 'size', 'stickerSource',
-              'reactionsByUid', 'hiddenForUids'
-            ]);
-          allow delete: if canAccessTenant(id)
-            && (resource.data.senderUid == uid() || canWriteTenant(id) || isPastoral(id));
-        }
-      }
+      // ---- Chat REMOVIDO — coleções de chat caem no deny-by-default ----
 
       // ---- Pontes MP + índices (Cloud Function) ----
       match /mp_payment_bridge/{b} { allow read, write: if false; }
@@ -667,15 +608,6 @@ service cloud.firestore {
       return signedIn() && canAccessTenant(t) && !canWriteTenant(t)
         && request.resource.data.diff(resource.data).changedKeys()
           .hasOnly(['confirmations', 'unavailabilityReasons']);
-    }
-    // Membro do thread de chat (participante, DM pelo id, ou dept da igreja).
-    function chatMember(threadId, d) {
-      let inPart = d.participantUids is list && uid() in d.participantUids;
-      let isDept = d.get('type', '') == 'department' || threadId.matches('^dept_.+');
-      return inPart
-        || threadId.matches('^dm_' + uid() + '_')
-        || threadId.matches('_' + uid() + '$')
-        || (isDept && signedIn());
     }
 
     // ========================================================================

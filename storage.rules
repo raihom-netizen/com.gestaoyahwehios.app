@@ -503,21 +503,7 @@ service firebase.storage {
       allow write: if false;
     }
 
-    // Chat igreja — qualquer membro da igreja (texto, foto, PDF, áudio, ficheiros)
-    match /igrejas/{igrejaId}/chat_media/{path=**} {
-      allow read: if isChurchMember(igrejaId);
-      allow write: if isChurchMember(igrejaId)
-        && request.resource.size < 200 * 1024 * 1024
-        && chatMediaOrBlob();
-    }
-
-    // Figurinhas do chat — só staff
-    match /igrejas/{igrejaId}/chat_stickers/{path=**} {
-      allow read: if isChurchMember(igrejaId);
-      allow write: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 8 * 1024 * 1024
-        && photoImageOrBlob();
-    }
+    // Chat REMOVIDO — chat_media / chat_stickers caem no deny-by-default.
 
     match /eventos/{eventoId}/{path=**} {
       allow read: if true;

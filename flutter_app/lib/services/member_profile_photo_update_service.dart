@@ -7,8 +7,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_canonical_media_contract.dart';
 import 'package:gestao_yahweh/core/offline/offline_module_sync.dart';
 import 'package:gestao_yahweh/services/church_certificados_load_service.dart';
-import 'package:gestao_yahweh/services/church_chat_member_photo_map.dart';
-import 'package:gestao_yahweh/services/church_chat_peer_profile_service.dart';
 import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
@@ -215,16 +213,6 @@ class MemberProfilePhotoUpdateService {
           : (bustedUrl.isNotEmpty
                 ? bustedUrl
                 : (tsp.isNotEmpty ? tsp : (sp.isEmpty ? null : sp)));
-      ChurchChatPeerProfileService.invalidateAuthUid(tid, authUid);
-      ChurchChatPeerProfileService.patchCachedMemberRef(
-        tid,
-        ChurchChatMemberRef(
-          memberId: mid,
-          data: memberRefData,
-          authUid: authUid,
-          photoUrl: displayPhoto,
-        ),
-      );
     }
 
     MemberProfilePhotoSyncNotifier.instance.notifyPhotoUpdated(
@@ -686,17 +674,6 @@ class MemberProfilePhotoUpdateService {
         : (bustedUrl.isNotEmpty
               ? bustedUrl
               : (tsp.isNotEmpty ? tsp : (sp.isEmpty ? null : sp)));
-    final chatRef = ChurchChatMemberRef(
-      memberId: memberDocId,
-      data: memberRefData,
-      authUid: authUid,
-      photoUrl: displayPhoto,
-    );
-
-    for (final tid in tenantIds) {
-      ChurchChatPeerProfileService.invalidateAuthUid(tid, authUid);
-      ChurchChatPeerProfileService.patchCachedMemberRef(tid, chatRef);
-    }
     // `chat_peer_profiles` é escrito pelo Admin SDK (CF onIgrejaMembroWriteChatPeerProfile).
     unawaited(
       Future.wait(

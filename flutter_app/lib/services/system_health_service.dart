@@ -13,7 +13,6 @@ import 'package:gestao_yahweh/core/system_health/session_performance_metrics.dar
 import 'package:gestao_yahweh/core/system_health/system_last_error_registry.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
-import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
@@ -464,9 +463,8 @@ abstract final class SystemHealthService {
 
   static Future<({bool ok, String detail})> _uploadQueuesOk() async {
     final mem = StorageUploadQueueService.instance.pendingCount;
-    final chat = await ChurchChatMediaOutboxService.pendingJobCount();
     final mural = await MuralPublishOutboxService.pendingJobCount();
-    final total = mem + chat + mural;
+    final total = mem + mural;
     if (total == 0) {
       return (ok: true, detail: 'Filas locais vazias');
     }

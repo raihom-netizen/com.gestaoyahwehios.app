@@ -21,7 +21,6 @@ import 'package:gestao_yahweh/constants/currency_formats.dart';
 import 'package:gestao_yahweh/models/user_profile.dart';
 import 'package:gestao_yahweh/services/user_categories_service.dart';
 import 'package:gestao_yahweh/services/logs_service.dart';
-import 'package:gestao_yahweh/services/functions_service.dart';
 import 'package:gestao_yahweh/services/finance_receipt_upload_service.dart';
 import 'package:gestao_yahweh/services/transaction_save_service.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -41,7 +40,6 @@ import 'package:gestao_yahweh/services/finance_service.dart';
 import 'smart_input_page.dart';
 import 'despesas_fixas_page.dart';
 import 'receitas_fixas_page.dart';
-import 'anexo_viewer_page.dart';
 import 'package:gestao_yahweh/services/fixed_expense_preferences_service.dart';
 import 'package:gestao_yahweh/services/fixed_income_preferences_service.dart';
 import 'package:gestao_yahweh/services/fixed_expense_service.dart';
@@ -56,8 +54,6 @@ import 'package:gestao_yahweh/utils/finance_main_period_server.dart';
 import 'package:gestao_yahweh/utils/finance_insight_query.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_realtime.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_sparkline.dart';
-import 'package:gestao_yahweh/ui/widgets/brl_amount_text_field.dart';
-import 'package:gestao_yahweh/constants/finance_category_visuals.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_category_picker.dart';
 import 'package:gestao_yahweh/utils/anexo_viewer_helper.dart';
 import 'package:gestao_yahweh/constants/finance_tips.dart';
@@ -1751,10 +1747,34 @@ class _FinanceScreenState extends State<FinanceScreen> {
             kIsWeb &&
             (FirestoreWebGuard.isTerminatedClientError(e) ||
                 FirestoreWebGuard.isInternalAssertionError(e));
+        // AUTO-CURA definitiva (sem F5): o INTERNAL ASSERTION vive no
+        // WatchChangeAggregator e envenena o cliente Firestore da sessão inteira
+        // — por isso o Financeiro (só get-poll) começa a falhar mesmo sem abrir
+        // listener. Com o IndexedDB desligado (persistenceEnabled:false), o
+        // estado corrompido é apenas EM MEMÓRIA: um ciclo
+        // disableNetwork→reconnect→enableNetwork (recoverFirestoreWebSession
+        // hard) reinicia os watch/write streams do SDK e zera o agregador SEM
+        // `terminate()`. Reconecta e re-tenta UMA vez; o banner de erro só
+        // aparece se a própria recuperação também falhar.
+        if (isWebAssertionClass && !isRetryAfterWebRecovery) {
+          try {
+            await FirestoreWebGuard.recoverFirestoreWebSession(
+              allowHardReconnect: true,
+            );
+          } catch (_) {}
+          if (!mounted || myGen != _mainPeriodLoadGeneration) return;
+          await _executeMainPeriodLoad(
+            myGen,
+            sessionUid,
+            preserveExistingDocs: preserveExistingDocs,
+            accountFilterOnly: accountFilterOnly,
+            isRetryAfterWebRecovery: true,
+          );
+          return;
+        }
         if (isWebAssertionClass) {
-          // Bug do SDK (INTERNAL ASSERTION): não cura por reconexão. Tenta
-          // auto-reload (cliente fresco, targetId zerado). Se estiver no
-          // cooldown de 3min, cai no erro abaixo com "Limpar cache e tentar".
+          // Recuperação já tentada e ainda falhou — engole o assert (sem reload
+          // surpresa) e mostra o banner com retry manual / limpar cache.
           FirestoreWebGuard.handleFatalWebErrorIfNeeded(e);
         }
         setState(() {

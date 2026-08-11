@@ -99,7 +99,6 @@ abstract final class YahwehDataEngineFetcher {
       ChurchDataPaths.transferencias => ChurchRepository.transferencias,
       ChurchDataPaths.certificados => ChurchRepository.certificados,
       ChurchDataPaths.cartoes => ChurchRepository.cartoes,
-      ChurchDataPaths.chats => ChurchRepository.chat,
       _ => null,
     };
   }

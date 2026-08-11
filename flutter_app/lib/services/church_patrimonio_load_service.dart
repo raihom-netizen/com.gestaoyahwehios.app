@@ -501,7 +501,7 @@ abstract final class ChurchPatrimonioLoadService {
             // anteriores, mostrar o erro real (permission/timeout/assertion)
             // em vez de esconder atrás de "0 bens".
             softError: repo.error ??
-                (docs.isEmpty && lastError != null
+                (docs.isEmpty
                     ? _humanizeError(lastError)
                     : null),
           );

@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
-import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/department_member_integration_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
@@ -180,17 +179,6 @@ class _ChurchDepartmentAddMembersBodyState
             memberDocId: doc.id,
             memberData: data,
           );
-          final auth = (data['authUid'] ?? data['firebaseUid'] ?? '')
-              .toString()
-              .trim();
-          if (auth.isNotEmpty) {
-            await ChurchChatService.ensureDepartmentThread(
-              tenantId: widget.tenantId,
-              departmentId: widget.departmentId,
-              departmentName: widget.departmentName,
-              participantUids: [auth],
-            );
-          }
           okCount++;
         } catch (e) {
           firstErr ??= e.toString();

@@ -338,8 +338,11 @@ class ChurchRolePermissions {
     bool? memberCanViewFinance,
     List<String>? permissions,
   }) {
+    // Financeiro restrito: só cargos do corpo administrativo (pastor, tesoureiro,
+    // secretário, gestor, adm/master) OU permissão granular 'financeiro' explícita.
+    // O campo legado `podeVerFinanceiro` (memberCanViewFinance) NÃO libera mais
+    // — evita membro comum ver despesas/receitas.
     if (_hasGranularModule(permissions, 'financeiro')) return true;
-    if (memberCanViewFinance == true) return true;
     return isFinancePanelTeam(role);
   }
 

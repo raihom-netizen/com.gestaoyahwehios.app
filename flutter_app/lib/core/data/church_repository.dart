@@ -4,7 +4,6 @@ import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/core/data/modules/church_agenda_repository.dart';
 import 'package:gestao_yahweh/core/data/modules/church_avisos_repository.dart';
 import 'package:gestao_yahweh/core/data/modules/church_cargos_repository.dart';
-import 'package:gestao_yahweh/core/data/modules/church_chat_repository.dart';
 import 'package:gestao_yahweh/core/data/modules/church_departamentos_repository.dart';
 import 'package:gestao_yahweh/core/data/modules/church_doacoes_repository.dart';
 import 'package:gestao_yahweh/core/data/modules/church_eventos_repository.dart';
@@ -37,7 +36,6 @@ abstract final class ChurchDataRepository {
   static const financeiro = ChurchFinanceiroRepository.instance;
   static const eventos = ChurchEventosRepository.instance;
   static const avisos = ChurchAvisosRepository.instance;
-  static const chat = ChurchChatRepository.instance;
   static const patrimonio = ChurchPatrimonioRepository.instance;
   static const membros = ChurchMembrosRepository.instance;
   static const doacoes = ChurchDoacoesRepository.instance;

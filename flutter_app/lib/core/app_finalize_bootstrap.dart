@@ -9,7 +9,6 @@ import 'package:gestao_yahweh/core/offline/offline_first_coordinator.dart';
 import 'package:gestao_yahweh/services/background_upload_worker.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
-import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/system_health_service.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
@@ -65,7 +64,6 @@ abstract final class AppFinalizeBootstrap {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      await ChurchChatMediaOutboxService.pruneUnrecoverableJobs();
       YahwehFlowLog.sync('BOOT', 'queues');
       _queuesBound = true;
       if (manualRecovery || (!kIsWeb && WebPanelStability.allowAutomaticRecovery)) {

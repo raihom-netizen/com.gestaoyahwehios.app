@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
 import 'package:gestao_yahweh/services/avisos_publish_verification_service.dart';
-import 'package:gestao_yahweh/services/chat_publish_verification_service.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_media_service.dart';
@@ -243,13 +242,6 @@ abstract final class GlobalTenantAuditService {
         lastError: err(EventosPublishVerificationService.lastError),
         firestoreCollection: '$root/${ChurchTenantPostsCollections.eventos}',
         storagePrefix: '$storage/eventos/',
-      ),
-      ChurchModuleStandardizationStatus(
-        module: 'Chat',
-        standardized: ok(ChatPublishVerificationService.lastError),
-        lastError: err(ChatPublishVerificationService.lastError),
-        firestoreCollection: '$root/chats',
-        storagePrefix: '$storage/chat_media/',
       ),
       ChurchModuleStandardizationStatus(
         module: 'Patrimônio',

@@ -2185,18 +2185,7 @@ export const repairMyChurchBinding = functions
       functions.logger.warn("repairMyChurchBinding: sync chat profile", { uid, tenantId, e });
     }
 
-    try {
-      const { repairDmThreadsForTenant } = await import("./churchChatDmThreadNormalize");
-      const repaired = await repairDmThreadsForTenant(tenantId);
-      if (repaired > 0) {
-        functions.logger.info("repairMyChurchBinding: DM threads reparados", {
-          tenantId,
-          repaired,
-        });
-      }
-    } catch (e) {
-      functions.logger.warn("repairMyChurchBinding: repair DM threads", { uid, tenantId, e });
-    }
+    // Chat removido — reparo de DM threads não é mais necessário.
 
     return {
       ok: true,
@@ -7212,22 +7201,15 @@ export {
   pruneContribuicoesDizimoHistorico,
 } from "./churchMercadoPago";
 
-export { pruneExpiredChurchChatMessages } from "./churchChatRetention";
-export { purgeChurchChatMessagesAdmin } from "./churchChatAdminPurge";
+// Chat REMOVIDO — functions de chat não são mais exportadas/deployadas
+// (churchChatRetention / churchChatAdminPurge / churchChatNotify /
+//  churchChatPeerProfileSync / churchChatDmThreadNormalize).
 export { purgeAnonymousAuthUsers } from "./purgeAnonymousAuthUsers";
-export { onChurchChatMessageCreated } from "./churchChatNotify";
-export { onIgrejaMembroWriteChatPeerProfile } from "./churchChatPeerProfileSync";
 
 export {
   onMembroWriteSyncSession,
   scheduledSyncMembroSessions,
 } from "./membroSessionSync";
-export {
-  onChurchChatDmThreadWrite,
-  onChurchChatMessageIndexThread,
-  backfillChurchChatDmThreads,
-  repairChurchChatDmThreads,
-} from "./churchChatDmThreadNormalize";
 
 export { onChurchFinanceWritePanelSummary } from "./panelFinanceSummary";
 export {
@@ -7332,11 +7314,7 @@ export {
 export { scheduledPurgeStalePendingUploads } from "./purgeStalePendingUploads";
 export { scheduledCleanupOrphanFiles } from "./cleanupOrphanFiles";
 
-export {
-  telegramBotWebhook,
-  telegramOutgoingMessage,
-  telegramSetWebhook,
-} from "./telegramBotBridge";
+// Telegram REMOVIDO — telegramBotBridge não é mais exportado/deployado.
 
 /** Financeiro pessoal: agregados mensais (paridade Controle Total). */
 export {

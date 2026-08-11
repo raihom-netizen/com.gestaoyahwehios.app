@@ -289,54 +289,33 @@ class PdfSuperPremiumTheme {
         .map(pdfSafeText)
         .toList();
 
-    const onPrimary = PdfColors.white;
+    // Cabeçalho estilo OFÍCIO (leve p/ impressão): só logo + dados da igreja,
+    // texto escuro sobre fundo branco e uma linha fina embaixo. Sem faixa verde.
+    final ink = PdfColor.fromInt(0xFF1F2937);
+    final muted = PdfColor.fromInt(0xFF6B7280);
+    final rule = PdfColor.fromInt(0xFF9CA3AF);
+
     pw.Widget logoBadge() {
       final lb = branding?.logoBytes;
-      if (lb != null && lb.length > 32) {
-        return pw.Container(
-          width: headerLogoSizePt,
-          height: headerLogoSizePt,
-          margin: const pw.EdgeInsets.only(right: 12),
-          padding: const pw.EdgeInsets.all(4),
-          decoration: pw.BoxDecoration(
-            color: PdfColors.white,
-            borderRadius: pw.BorderRadius.circular(12),
-            border: pw.Border.all(
-                color: const PdfColor(1, 1, 1, 0.35), width: 1),
-          ),
-          child: pw.Image(pw.MemoryImage(lb), fit: pw.BoxFit.contain),
-        );
+      if (lb == null || lb.length <= 32) {
+        return pw.SizedBox(width: 0, height: 0);
       }
       return pw.Container(
         width: headerLogoSizePt,
         height: headerLogoSizePt,
-        margin: const pw.EdgeInsets.only(right: 12),
-        decoration: pw.BoxDecoration(
-          color: const PdfColor(1, 1, 1, 0.18),
-          borderRadius: pw.BorderRadius.circular(12),
-          border: pw.Border.all(
-              color: const PdfColor(1, 1, 1, 0.35), width: 1),
-        ),
-        alignment: pw.Alignment.center,
-        child: pw.Text('✝',
-            style: pw.TextStyle(fontSize: 20, color: onPrimary)),
+        margin: const pw.EdgeInsets.only(right: 14),
+        child: pw.Image(pw.MemoryImage(lb), fit: pw.BoxFit.contain),
       );
     }
 
     return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      padding: const pw.EdgeInsets.only(bottom: 10),
+      margin: const pw.EdgeInsets.only(bottom: 6),
       decoration: pw.BoxDecoration(
-        gradient: const pw.LinearGradient(
-          colors: [
-            PdfColor.fromInt(0xFF14532D),
-            PdfColor.fromInt(0xFF166534),
-            PdfColor.fromInt(0xFF15803D),
-          ],
-        ),
-        borderRadius: pw.BorderRadius.circular(14),
+        border: pw.Border(bottom: pw.BorderSide(color: rule, width: 1)),
       ),
       child: pw.Row(
-        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: [
           logoBadge(),
           pw.Expanded(
@@ -349,29 +328,26 @@ class PdfSuperPremiumTheme {
                   style: pw.TextStyle(
                     fontSize: 14,
                     fontWeight: pw.FontWeight.bold,
-                    color: onPrimary,
+                    color: ink,
                   ),
                 ),
-                pw.SizedBox(height: 3),
+                pw.SizedBox(height: 2),
                 pw.Text(
                   safeTitle,
                   style: pw.TextStyle(
-                    fontSize: 11,
-                    color: onPrimary,
+                    fontSize: 10.5,
+                    color: muted,
                     fontWeight: pw.FontWeight.bold,
                   ),
                 ),
                 if (detailLines.isNotEmpty) ...[
-                  pw.SizedBox(height: 6),
+                  pw.SizedBox(height: 5),
                   ...detailLines.take(5).map(
                         (line) => pw.Padding(
-                          padding: const pw.EdgeInsets.only(bottom: 2),
+                          padding: const pw.EdgeInsets.only(bottom: 1.5),
                           child: pw.Text(
                             line,
-                            style: pw.TextStyle(
-                              fontSize: 7.8,
-                              color: const PdfColor(1, 1, 1, 0.92),
-                            ),
+                            style: pw.TextStyle(fontSize: 7.8, color: muted),
                           ),
                         ),
                       ),
@@ -379,21 +355,9 @@ class PdfSuperPremiumTheme {
               ],
             ),
           ),
-          pw.Container(
-            padding:
-                const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            decoration: pw.BoxDecoration(
-              color: const PdfColor(1, 1, 1, 0.16),
-              borderRadius: pw.BorderRadius.circular(8),
-            ),
-            child: pw.Text(
-              dateStr,
-              style: pw.TextStyle(
-                fontSize: 8,
-                fontWeight: pw.FontWeight.bold,
-                color: onPrimary,
-              ),
-            ),
+          pw.Text(
+            dateStr,
+            style: pw.TextStyle(fontSize: 8, color: muted),
           ),
         ],
       ),

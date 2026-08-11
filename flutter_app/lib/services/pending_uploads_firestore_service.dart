@@ -12,8 +12,6 @@ import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 import 'package:gestao_yahweh/services/upload_bytes_core.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 
-import 'package:gestao_yahweh/services/church_chat_pending_media_cache.dart';
-import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
@@ -354,20 +352,6 @@ abstract final class PendingUploadsFirestoreService {
             bytes = await f.readAsBytes();
           }
         }
-        if (bytes == null || bytes.isEmpty) {
-          final meta = d['meta'];
-          if (meta is Map) {
-            final threadId = (meta['threadId'] ?? '').toString();
-            final localId = (meta['localId'] ?? '').toString();
-            if (threadId.isNotEmpty && localId.isNotEmpty) {
-              bytes = await ChurchChatPendingMediaCache.get(
-                tenantId: tenantId,
-                threadId: threadId,
-                localId: localId,
-              );
-            }
-          }
-        }
         if (bytes != null && bytes.isNotEmpty) {
           await uploadStoragePutDataWithRetry(
             storagePath: storagePath,
@@ -596,13 +580,6 @@ abstract final class PendingUploadsFirestoreService {
           ? messageId
           : (d['messageId'] ?? '').toString();
       if (threadId.isEmpty || messageId.isEmpty) continue;
-      try {
-        await ChurchChatService.abandonMediaUploadMessage(
-          tenantId: tenantId,
-          threadId: threadId,
-          messageId: messageId,
-        );
-      } catch (_) {}
     }
   }
 

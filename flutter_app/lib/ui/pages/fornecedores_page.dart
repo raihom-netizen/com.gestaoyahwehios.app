@@ -44,6 +44,7 @@ import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/church_agenda_calendar_cells.dart';
 import 'package:gestao_yahweh/ui/widgets/church_agenda_calendar_shell.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_month_calendar.dart';
 import 'package:gestao_yahweh/ui/widgets/controle_total_resumo_dia_card.dart';
 import 'package:gestao_yahweh/ui/widgets/fornecedor_finance_panels.dart';
 import 'package:gestao_yahweh/services/fornecedor_compromisso_publish_service.dart';
@@ -3966,131 +3967,32 @@ class _FornecedoresAgendaGeralTabState
                           onTap: _goToToday,
                         ),
                       ),
-                      TableCalendar<Object?>(
-                        locale: 'pt_BR',
-                        startingDayOfWeek: StartingDayOfWeek.sunday,
-                        firstDay: DateTime.utc(2020, 1, 1),
-                        lastDay: DateTime.utc(2035, 12, 31),
-                        availableGestures: AvailableGestures.horizontalSwipe,
-                        focusedDay: _focused,
-                        sixWeekMonthsEnforced: true,
-                        rowHeight: ThemeCleanPremium.isMobile(context)
-                            ? 76
-                            : 64,
-                        daysOfWeekHeight: ThemeCleanPremium.isMobile(context)
-                            ? 34
-                            : 30,
-                        selectedDayPredicate: (d) =>
-                            _selected != null && isSameDay(_selected, d),
-                        eventLoader: (_) => const [],
-                        calendarBuilders: CalendarBuilders(
-                          markerBuilder: (context, day, events) => null,
-                          defaultBuilder: (context, day, focusedDay) =>
-                              FornecedorAgendaCalendarCells.buildDayWithCompromissos(
-                                context,
-                                day,
-                                focusedDay,
-                                byDay: byDay,
-                                isToday: isSameDay(day, DateTime.now()),
-                                isSelected:
-                                    _selected != null &&
-                                    isSameDay(_selected!, day),
-                                isOutside: false,
-                              ),
-                          outsideBuilder: (context, day, focusedDay) =>
-                              FornecedorAgendaCalendarCells.buildDayWithCompromissos(
-                                context,
-                                day,
-                                focusedDay,
-                                byDay: byDay,
-                                isToday: isSameDay(day, DateTime.now()),
-                                isSelected:
-                                    _selected != null &&
-                                    isSameDay(_selected!, day),
-                                isOutside: true,
-                              ),
-                          todayBuilder: (context, day, focusedDay) =>
-                              FornecedorAgendaCalendarCells.buildDayWithCompromissos(
-                                context,
-                                day,
-                                focusedDay,
-                                byDay: byDay,
-                                isToday: true,
-                                isSelected:
-                                    _selected != null &&
-                                    isSameDay(_selected!, day),
-                                isOutside: !_sameVisibleMonth(day, focusedDay),
-                              ),
-                          selectedBuilder: (context, day, focusedDay) =>
-                              FornecedorAgendaCalendarCells.buildDayWithCompromissos(
-                                context,
-                                day,
-                                focusedDay,
-                                byDay: byDay,
-                                isToday: isSameDay(day, DateTime.now()),
-                                isSelected: true,
-                                isOutside: !_sameVisibleMonth(day, focusedDay),
-                              ),
-                        ),
-                        onDaySelected: (sel, foc) {
-                          setState(() {
-                            _selected = sel;
-                            _focused = foc;
+                      Builder(
+                        builder: (context) {
+                          final dayColors = <String, Color>{};
+                          final dayCounts = <String, int>{};
+                          byDay.forEach((k, list) {
+                            if (list.isEmpty) return;
+                            dayColors[k] =
+                                ChurchAgendaCalendarCells.corFromCompromisso(
+                              list.first.data(),
+                            );
+                            dayCounts[k] = list.length;
                           });
+                          return YahwehMonthCalendar(
+                            visibleMonth:
+                                DateTime(_focused.year, _focused.month),
+                            selectedDay: _selected ?? DateTime.now(),
+                            dayColors: dayColors,
+                            dayCounts: dayCounts,
+                            onMonthDelta: (delta) => setState(() => _focused =
+                                DateTime(_focused.year, _focused.month + delta)),
+                            onDayTap: (day) => setState(() {
+                              _selected = day;
+                              _focused = DateTime(day.year, day.month);
+                            }),
+                          );
                         },
-                        onPageChanged: (f) {
-                          if (_focused.year != f.year ||
-                              _focused.month != f.month) {
-                            setState(() => _focused = f);
-                          }
-                        },
-                        daysOfWeekStyle: DaysOfWeekStyle(
-                          weekdayStyle: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: ThemeCleanPremium.isMobile(context)
-                                ? 12
-                                : 11,
-                            color: Colors.grey.shade800,
-                          ),
-                          weekendStyle: const TextStyle(
-                            color: Color(0xFFE53935),
-                            fontWeight: FontWeight.w900,
-                            fontSize: 12,
-                          ),
-                        ),
-                        calendarStyle: CalendarStyle(
-                          outsideDaysVisible: true,
-                          cellMargin: const EdgeInsets.all(1.85),
-                          cellPadding: EdgeInsets.zero,
-                          markersMaxCount: 0,
-                          markerSize: 0,
-                          weekendTextStyle: const TextStyle(
-                            color: Color(0xFFE53935),
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        headerStyle: HeaderStyle(
-                          formatButtonVisible: false,
-                          titleCentered: true,
-                          headerPadding: const EdgeInsets.only(bottom: 6),
-                          decoration: const BoxDecoration(),
-                          titleTextStyle: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 17,
-                            letterSpacing: -0.2,
-                            color: Colors.grey.shade900,
-                          ),
-                          leftChevronIcon: Icon(
-                            Icons.chevron_left_rounded,
-                            color: ThemeCleanPremium.primary,
-                            size: 28,
-                          ),
-                          rightChevronIcon: Icon(
-                            Icons.chevron_right_rounded,
-                            color: ThemeCleanPremium.primary,
-                            size: 28,
-                          ),
-                        ),
                       ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(12, 4, 12, 14),

@@ -7,7 +7,6 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
-import 'package:gestao_yahweh/utils/web_page_reload.dart';
 
 /// Blindagem Web (padrão Controle Total): **nunca** `terminate()` em retry automático
 /// (mata o singleton → `failed-precondition: client has already been terminated` em Doação,

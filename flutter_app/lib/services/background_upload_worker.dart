@@ -5,15 +5,11 @@ import 'package:gestao_yahweh/core/firebase_upload_policy.dart';
 import 'package:gestao_yahweh/core/offline/sync_engine.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
-import 'package:gestao_yahweh/services/web_panel_stability.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
-import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
-import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_migration.dart';
-import 'package:gestao_yahweh/services/church_chat_storage_retention_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
 
 /// Fila global de uploads em background — um job de cada vez.
@@ -41,11 +37,7 @@ abstract final class BackgroundUploadWorker {
     YahwehFlowLog.sync('UPLOAD_QUEUE', reason);
     try {
       await EcoFireResilientPublish.refreshSessionForDrain();
-      if (WebPanelStability.allowAutomaticRecovery) {
-        await ChurchChatAutoRecoveryService.recoverOnSessionStart();
-      }
       await Future.wait([
-        ChurchChatMediaOutboxService.resumeRecoverableNow(),
         MuralPublishOutboxService.drainPendingJobs(),
         ModuleMediaOutboxService.drainPendingJobs(),
         if (!kIsWeb) StorageUploadPersistenceService.resumePendingOnAppStart(),
@@ -61,11 +53,6 @@ abstract final class BackgroundUploadWorker {
       }
       YahwehFlowLog.success('UPLOAD_QUEUE');
 
-      final tenant =
-          await PendingUploadsFirestoreService.resolveTenantForCurrentUser();
-      if (tenant != null && tenant.isNotEmpty) {
-        unawaited(ChurchChatStorageRetentionService.maybeRunForTenant(tenant));
-      }
     } catch (e, st) {
       YahwehFlowLog.error('UPLOAD_QUEUE', e, st);
       if (kDebugMode) {
@@ -84,7 +71,6 @@ abstract final class BackgroundUploadWorker {
   static Future<void> bindOnAppStart() async {
     MuralPublishOutboxService.bindConnectivityResume();
     ModuleMediaOutboxService.bindConnectivityResume();
-    ChurchChatMediaOutboxService.bindConnectivityResume();
     await drainAll(reason: 'cold_start');
   }
 }

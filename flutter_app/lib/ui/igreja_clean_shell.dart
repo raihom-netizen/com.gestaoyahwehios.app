@@ -55,10 +55,9 @@ import 'pages/church_letters_page.dart';
 import 'pages/prayer_requests_page.dart';
 import 'pages/visitors_page.dart';
 import 'pages/cargos_page.dart';
-import 'pages/calendar_page.dart';
+import 'pages/agenda_calendario_page.dart';
 import 'pages/sistema_informacoes_page.dart';
 import 'pages/configuracoes_page.dart';
-import 'pages/church_chat_hub_page.dart';
 import 'pages/utilitarios_screen.dart';
 import 'pages/relatorios_page.dart';
 import 'pages/aprovar_membros_pendentes_page.dart';
@@ -915,7 +914,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     _homeWidgetClickSub?.cancel();
     AppSessionStability.unregisterResumeListener(_onGlobalSessionResume);
     WidgetsBinding.instance.removeObserver(this);
-    ChatPresenceEngine.stopAppWideHeartbeat();
     ChurchPanelNavigationBridge.instance.unregisterShellNavigator();
     HardwareKeyboard.instance.removeHandler(_onShellHardwareKey);
     PaymentUiFeedbackService.paymentConfirmedTick.removeListener(
@@ -1414,7 +1412,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       AppSessionStability.onGlobalResume();
       unawaited(FirestoreSessionGuard.stabilizeAfterAppResume());
       unawaited(OfflineFirstCoordinator.onAppResumed());
-      unawaited(ChatPresenceEngine.pingAppWideHeartbeatIfActive());
       unawaited(_resolveOperationalTenant(forceRefresh: false));
       ChurchTenantOfflineWarmupService.instance.scheduleLightRefreshOnResume(
         _moduleTenantId,
@@ -1439,24 +1436,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           _moduleTenantId,
         );
         await _resolveOperationalTenant(forceRefresh: false);
-        await ChatPresenceEngine.pingAppWideHeartbeatIfActive();
       })(),
     );
   }
 
   Future<void> _bootstrapChatPresenceHeartbeat() async {
-    final u = firebaseDefaultAuth.currentUser;
-    if (u == null) return;
-    final raw = _moduleTenantId.trim();
-    if (raw.isEmpty) return;
-    try {
-      final tid = ChurchRepository.churchId(raw);
-      if (!mounted) return;
-      ChatPresenceEngine.startAppWideHeartbeat(tid.isNotEmpty ? tid : raw);
-    } catch (_) {
-      if (!mounted) return;
-      ChatPresenceEngine.startAppWideHeartbeat(raw);
-    }
+    // Chat removido — presença (heartbeat) desativada. No-op.
   }
 
   bool _focusInsideEditableText() {
@@ -2929,7 +2914,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           embeddedInShell: true,
         );
       case 10:
-        return CalendarPage(
+        return AgendaCalendarioPage(
           key: _shellPageKey(10),
           tenantId: _moduleTenantId,
           role: _panelRole,
@@ -3060,18 +3045,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       case 23:
         // Módulo Yahweh Chat removido — placeholder (índice mantido estável
         // para deep links / push / cache antigos não reindexarem os módulos).
-        if (!kChurchChatModuleEnabled) {
-          return ChurchPanelModuleRemovedPage.chat(key: _shellPageKey(23));
-        }
-        return ChurchChatHubPage(
-          key: _shellPageKey(23),
-          tenantId: _moduleTenantId,
-          cpf: widget.cpf,
-          role: _panelRole,
-          embeddedInShell: true,
-          permissions: widget.permissions,
-          onShellBack: () => setState(() => _selectedIndex = 0),
-        );
+        return ChurchPanelModuleRemovedPage.chat(key: _shellPageKey(23));
       case 24:
         return UtilitariosScreen(
           key: _shellPageKey(24),

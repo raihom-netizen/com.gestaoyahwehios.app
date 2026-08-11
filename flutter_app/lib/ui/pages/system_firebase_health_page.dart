@@ -13,7 +13,6 @@ import 'package:gestao_yahweh/core/qa/qa_assurance_runner.dart';
 import 'package:gestao_yahweh/core/system_health/session_performance_metrics.dart';
 import 'package:gestao_yahweh/services/admin_diagnostic_service.dart';
 import 'package:gestao_yahweh/services/system_health_service.dart';
-import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/pending_uploads_firestore_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
@@ -81,11 +80,10 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
   }
 
   Future<void> _loadLocalQueues() async {
-    final chat = await ChurchChatMediaOutboxService.pendingJobCount();
     final mural = await MuralPublishOutboxService.pendingJobCount();
     if (!mounted) return;
     setState(() {
-      _chatOutbox = chat;
+      _chatOutbox = 0;
       _muralOutbox = mural;
     });
   }
@@ -160,7 +158,6 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
     setState(() => _busy = true);
     try {
       await PendingUploadsFirestoreService.resumeAllForTenant(tid);
-      ChurchChatMediaOutboxService.resumePendingOnAppStart();
       MuralPublishOutboxService.resumePendingOnAppStart();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

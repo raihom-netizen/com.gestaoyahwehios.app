@@ -9,8 +9,6 @@ import 'package:gestao_yahweh/core/offline/offline_firestore_executor.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/offline/sync_engine.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
-import 'package:gestao_yahweh/services/church_chat_auto_recovery_service.dart';
-import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/module_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_persistence_service.dart';
@@ -38,10 +36,6 @@ abstract final class OfflineBootstrap {
   }
 
   static void _registerModuleFlushers() {
-    SyncEngine.registerModuleFlusher('chat', () async {
-      await ChurchChatAutoRecoveryService.recoverOnSessionStart();
-      ChurchChatMediaOutboxService.resumePendingOnAppStart();
-    });
     SyncEngine.registerModuleFlusher('mural', () async {
       await MuralPublishOutboxService.drainPendingJobs();
     });

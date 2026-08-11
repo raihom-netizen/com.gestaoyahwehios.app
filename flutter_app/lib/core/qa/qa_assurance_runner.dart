@@ -4,7 +4,6 @@ import 'package:gestao_yahweh/core/offline/hive_local_store.dart';
 import 'package:gestao_yahweh/core/system_health/session_performance_metrics.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
-import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/resumable_upload_service.dart';
@@ -216,9 +215,8 @@ abstract final class QaAssuranceRunner {
 
     // 16–18 Uploads
     final memQ = StorageUploadQueueService.instance.pendingCount;
-    final chatQ = await ChurchChatMediaOutboxService.pendingJobCount();
     final muralQ = await MuralPublishOutboxService.pendingJobCount();
-    final uploadTotal = memQ + chatQ + muralQ;
+    final uploadTotal = memQ + muralQ;
     results.add(r(
       16,
       fb.storageOk ? QaTestStatus.pass : QaTestStatus.fail,
@@ -236,24 +234,6 @@ abstract final class QaAssuranceRunner {
       fb.storageOk ? QaTestStatus.pass : QaTestStatus.fail,
       fb.storageOk ? 'Storage OK para PDF' : 'Storage indisponível',
     ));
-
-    // 19–22 Chat
-    final chatCheck = health.checks.where((c) => c.label == 'Chat').firstOrNull;
-    final chatOk = chatCheck?.ok ?? false;
-    results.add(r(
-      19,
-      chatOk ? QaTestStatus.pass : QaTestStatus.fail,
-      chatCheck?.detail ?? 'Chat',
-    ));
-    for (final id in [20, 21, 22]) {
-      results.add(r(
-        id,
-        chatOk && uploadTotal < 20 ? QaTestStatus.pass : QaTestStatus.warn,
-        chatOk
-            ? 'Outbox chat: $chatQ · confirmar envio ${id == 20 ? 'foto' : id == 21 ? 'vídeo' : 'PDF'} na UI'
-            : 'Chat indisponível',
-      ));
-    }
 
     // 23 Push
     results.add(r(

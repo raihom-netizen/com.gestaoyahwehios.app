@@ -16,10 +16,6 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:gestao_yahweh/core/app_startup_preheat.dart';
 import 'package:gestao_yahweh/core/app_startup_route.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:gestao_yahweh/features/chat/data/tdlib_background_push.dart';
-import 'package:gestao_yahweh/features/chat/data/tdlib_credentials.dart';
-import 'package:gestao_yahweh/features/chat/presentation/telegram_login_screen.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/auth_session_service.dart';
 import 'package:gestao_yahweh/services/auth_service.dart';
@@ -79,7 +75,6 @@ import 'package:gestao_yahweh/services/public_site_analytics.dart';
 import 'package:gestao_yahweh/services/yahweh_observability.dart';
 import 'package:gestao_yahweh/services/domain_daily_hit_service.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
-import 'package:gestao_yahweh/services/church_chat_alert_notification_service.dart';
 import 'package:gestao_yahweh/services/panel_notification_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/legal_documents_service.dart';
@@ -92,7 +87,6 @@ import 'package:gestao_yahweh/core/app_deep_link.dart';
 import 'package:gestao_yahweh/core/app_navigator.dart';
 import 'package:gestao_yahweh/core/public_web_route_parser.dart';
 import 'package:gestao_yahweh/services/notification_deep_link_router.dart';
-import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
 import 'package:gestao_yahweh/debug/agent_debug_log.dart';
 import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
     if (dart.library.html) 'package:gestao_yahweh/web_resume_repaint_web.dart';
@@ -432,44 +426,23 @@ void main() async {
   // 1. Bindings Flutter antes de qualquer plugin nativo/async.
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 1b. Secrets TDLib (Telegram) — `.env` (gitignore); soft-fail se ausente.
-  try {
-    await loadTdlibDotEnv();
-  } catch (_) {}
-
   // 2. Firebase — init único/canônico (app [DEFAULT] + options da plataforma).
   //    Obrigatório antes de Firestore/Auth/Storage ou runApp (evita core/no-app).
   await FirebaseBootstrap.ensureInitialized();
   FirebaseBootstrapService.refreshCachedApp();
 
-  // 2b. Push TDLib com app fechado (isolate) — registar antes do runApp.
-  if (!kIsWeb) {
-    try {
-      FirebaseMessaging.onBackgroundMessage(
-        tdlibFirebaseMessagingBackgroundHandler,
-      );
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('FirebaseMessaging.onBackgroundMessage: $e');
-      }
-    }
-  }
-
   // 3. Health + settings Firestore/Auth/Storage — exige app [DEFAULT] pronto.
   final firebaseBoot = await FirebaseBootstrapService.initialize();
 
-  // 3b/4. Credenciais TDLib (config/telegram_tdlib) e Offline/Hive são
-  // independentes entre si — em paralelo corta esse trecho do startup quase
-  // pela metade (antes: um `await` esperava o outro terminar à toa).
+  // 3b/4. Offline/Hive — init local (disco), rápido. Fica sozinho no caminho
+  // crítico: o antigo `await` da credencial TDLib (leitura de rede no Firestore,
+  // sem timeout) que travava a tela azul/spinner foi REMOVIDO junto com o chat.
   if (firebaseBoot.isReady) {
-    await Future.wait([
-      ensureTelegramCredentialsLoaded().catchError((_) {}),
-      OfflineFirstCoordinator.initialize().catchError((e, st) {
-        if (kDebugMode) {
-          debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');
-        }
-      }),
-    ]);
+    await OfflineFirstCoordinator.initialize().catchError((e, st) {
+      if (kDebugMode) {
+        debugPrint('OfflineFirstCoordinator.initialize (main): $e\n$st');
+      }
+    });
   }
 
   // Controle Total: cache de imagens conservador (menos GC em listas com fotos).
@@ -845,15 +818,6 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
           .registerAndroidChannelsForBoot()
           .catchError((_) {}),
     );
-    unawaited(
-      ChurchChatAlertNotificationService.instance
-          .registerFcmChatAndroidChannelsForBoot()
-          .catchError((Object e, StackTrace st) {
-            if (kDebugMode) {
-              debugPrint('FCM chat channels boot: $e\n$st');
-            }
-          }),
-    );
   }
   if (!kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
@@ -1075,25 +1039,6 @@ class _AppWithThemeState extends State<_AppWithTheme>
   StreamSubscription<String>? _deepLinkSub;
   void _onThemeChanged() => setState(() {});
 
-  /// Web: quando o push de chat é tocado, o service worker abre
-  /// `/painel?gyChat={threadId}&gyTenant={tenantId}`. Aqui lemos esse query
-  /// param e pedimos ao painel para abrir a conversa/grupo (a ponte enfileira
-  /// até o painel estar pronto). Alinha o comportamento com iOS/Android.
-  void _consumeInitialWebChatDeepLink() {
-    try {
-      final q = Uri.base.queryParameters;
-      final threadId = (q['gyChat'] ?? '').trim();
-      if (threadId.isEmpty) return;
-      final tenantId = (q['gyTenant'] ?? '').trim();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
-          threadId: threadId,
-          tenantId: tenantId.isEmpty ? null : tenantId,
-        );
-      });
-    } catch (_) {}
-  }
-
   /// Roteia deep links de notificações (Android App Links / iOS Universal Links
   /// / custom scheme). Notificações têm prioridade sobre rotas públicas genéricas.
   void _handleDeepLinkPath(String path) {
@@ -1128,7 +1073,6 @@ class _AppWithThemeState extends State<_AppWithTheme>
     AppSessionStability.bindSessionKeepalive();
     if (kIsWeb) {
       registerWebResumeRepaint(_repaintAfterWebResume);
-      _consumeInitialWebChatDeepLink();
     }
     _themeProvider = ThemeModeProvider();
     _themeProvider.addListener(_onThemeChanged);
@@ -1522,11 +1466,6 @@ class _AppWithThemeState extends State<_AppWithTheme>
               case '/politica-de-privacidade':
               case '/privacidade':
                 pagina = const PoliticaPrivacidadePage();
-                break;
-              case '/tdlib-login':
-              case '/telegram-tdlib':
-                // Rota de teste do motor TDLib nativo (Android/iOS).
-                pagina = const TelegramLoginScreen();
                 break;
               default:
                 pagina = const SitePublicPage();

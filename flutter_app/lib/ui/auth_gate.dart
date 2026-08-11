@@ -32,8 +32,6 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/services/church_panel_access_bootstrap.dart';
-import 'package:gestao_yahweh/services/church_chat_alert_notification_service.dart';
-import 'package:gestao_yahweh/services/church_chat_notification_prefs.dart';
 import 'package:gestao_yahweh/services/church_auto_session_service.dart';
 import 'package:gestao_yahweh/services/persistent_auth_session_service.dart';
 import 'package:gestao_yahweh/services/church_sign_out_navigation.dart';
@@ -1872,20 +1870,7 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
           onForegroundMessage: (msg) {
           unawaited(() async {
             if (!context.mounted) return;
-            if (await ChurchChatNotificationPrefs.shouldSuppressForegroundSnack(
-              msg,
-            )) {
-              return;
-            }
-            final showedChatBanner =
-                await ChurchChatAlertNotificationService.instance
-                    .showForegroundAlertIfNeeded(msg);
-            if (!context.mounted) return;
-            final isChat =
-                ChurchChatNotificationPrefs.looksLikeChatNotification(msg);
-            if (!(isChat && showedChatBanner)) {
-              showGestaoForegroundNotificationSnackBar(context, msg);
-            }
+            showGestaoForegroundNotificationSnackBar(context, msg);
             final uid = user.uid;
             if (uid.isNotEmpty) {
               final title = (msg.notification?.title ?? msg.data['title'] ?? '')

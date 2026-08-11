@@ -583,12 +583,6 @@ abstract final class DebugChurchAuditService {
     );
     await webPause();
     await probeQuery(
-      'Chat',
-      'chats',
-      () => _moduleListSnapshot(ChurchRepository.chat, churchIdHint: churchId, limit: 50),
-    );
-    await webPause();
-    await probeQuery(
       'Patrimônio',
       'patrimonio',
       () => _moduleListSnapshot(ChurchRepository.patrimonio, churchIdHint: churchId, limit: 200),

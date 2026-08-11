@@ -134,13 +134,13 @@ Future<Uint8List> buildScheduleEscalaPdf({
       : ((approverSignatureBytes != null && approverSignatureBytes.length > 24)
           ? approverSignatureBytes
           : null);
+  // UMA assinatura só (padrão certificados): o signatário responsável — líder do
+  // departamento / pastor / secretário. Prefere o aprovador; senão, quem preparou.
+  // Não combina os dois nomes (o usuário não quer duas assinaturas em escalas).
   final combinedSignerLabel = () {
-    final a = preparedByName.trim();
     final b = approverName.trim();
-    if (a.isNotEmpty && b.isNotEmpty) return '$a · $b';
-    if (a.isNotEmpty) return a;
     if (b.isNotEmpty) return b;
-    return '';
+    return preparedByName.trim();
   }();
 
   final headerExtras = <String>[

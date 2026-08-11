@@ -20,8 +20,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
-import 'package:gestao_yahweh/ui/widgets/controle_total_calendar_theme.dart';
-import 'package:gestao_yahweh/services/church_chat_church_features.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_month_calendar.dart';
 import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
 import 'package:gestao_yahweh/services/schedule_intel_validators.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
@@ -2615,16 +2614,6 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         'updatedAt': tsNow,
         'active': true,
       });
-      unawaited(
-        ChurchChatChurchFeatures.notifyDepartmentEscalaCreated(
-          tenantId: tid,
-          departmentId: deptId,
-          departmentName: deptName,
-          escalaTitle: title,
-          when: dt,
-          timeLabel: time,
-        ),
-      );
     }
     await batch.commit();
     if (mounted) {
@@ -6435,62 +6424,34 @@ class _SchedulesCalendarPanel extends StatelessWidget {
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            child: TableCalendar<QueryDocumentSnapshot<Map<String, dynamic>>>(
-              locale: 'pt_BR',
-              firstDay: DateTime.utc(2020, 1, 1),
-              lastDay: DateTime.utc(2035, 12, 31),
-              focusedDay: focusedDay,
-              selectedDayPredicate: (d) => isSameDay(d, selectedDay),
-              eventLoader: _eventsForDay,
-              startingDayOfWeek: StartingDayOfWeek.sunday,
-              rowHeight: isMobile ? 56.0 : 50.0,
-              daysOfWeekHeight: isMobile ? 30.0 : 26.0,
-              calendarStyle: ControleTotalCalendarTheme.calendarStyle(
-                cellFs: cellFs,
-                primary: ThemeCleanPremium.primary,
-                onSurface: ThemeCleanPremium.onSurface,
-              ),
-              daysOfWeekStyle: DaysOfWeekStyle(
-                weekdayStyle: GoogleFonts.poppins(
-                  fontSize: isMobile ? 12.5 : 11.5,
-                  fontWeight: FontWeight.w700,
-                  color: ThemeCleanPremium.onSurfaceVariant,
-                ),
-                weekendStyle: GoogleFonts.poppins(
-                  fontSize: isMobile ? 12.5 : 11.5,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.grey.shade500,
-                ),
-              ),
-              headerStyle: HeaderStyle(
-                formatButtonVisible: false,
-                titleCentered: true,
-                titleTextStyle: GoogleFonts.poppins(
-                  fontSize: isMobile ? 17 : 16,
-                  fontWeight: FontWeight.w800,
-                  color: ThemeCleanPremium.onSurface,
-                ),
-              ),
-              calendarBuilders: CalendarBuilders(
-                markerBuilder: (context, day, events) {
-                  if (events.isEmpty) return null;
-                  final squares = _markerColorsForDay(events, 3);
-                  final more = events.length > 3 ? events.length - 3 : 0;
-                  return Positioned(
-                    bottom: 5,
-                    left: 1,
-                    right: 1,
-                    child: ControleTotalCalendarTheme.markerRow(
-                      colors: squares,
-                      moreCount: more,
-                      isMobile: isMobile,
-                    ),
-                  );
-                },
-              ),
-              onDaySelected: (selected, focused) =>
-                  _onCalendarDayPicked(context, selected, focused),
-              onPageChanged: onCalendarPageChanged,
+            child: Builder(
+              builder: (context) {
+                final dayColors = <String, Color>{};
+                final dayCounts = <String, int>{};
+                for (final d in docs) {
+                  DateTime? dt;
+                  try {
+                    dt = (d.data()['date'] as Timestamp?)?.toDate();
+                  } catch (_) {}
+                  if (dt == null) continue;
+                  final key = YahwehMonthCalendar.keyFor(dt);
+                  dayCounts[key] = (dayCounts[key] ?? 0) + 1;
+                  if (!dayColors.containsKey(key)) {
+                    final deptIdx = allDepts.indexWhere((x) =>
+                        x.id == (d.data()['departmentId'] ?? '').toString());
+                    dayColors[key] = colorForDept(deptIdx.clamp(0, 99));
+                  }
+                }
+                return YahwehMonthCalendar(
+                  visibleMonth: DateTime(focusedDay.year, focusedDay.month),
+                  selectedDay: selectedDay,
+                  dayColors: dayColors,
+                  dayCounts: dayCounts,
+                  onMonthDelta: (delta) => onCalendarPageChanged(
+                      DateTime(focusedDay.year, focusedDay.month + delta)),
+                  onDayTap: (day) => _onCalendarDayPicked(context, day, day),
+                );
+              },
             ),
           ),
         ),

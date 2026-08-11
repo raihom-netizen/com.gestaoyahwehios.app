@@ -5,12 +5,9 @@ import 'package:gestao_yahweh/core/resilience/degraded_services.dart';
 import 'package:gestao_yahweh/core/resilience/emergency_mode_service.dart';
 import 'package:gestao_yahweh/core/resilience/service_degradation_registry.dart';
 import 'package:gestao_yahweh/core/system_health/system_last_error_registry.dart';
-import 'package:gestao_yahweh/services/church_chat_media_outbox_service.dart';
-import 'package:gestao_yahweh/services/church_chat_service.dart';
 import 'package:gestao_yahweh/services/mural_publish_outbox_service.dart';
 import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/services/system_health_service.dart';
-import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 class AdminDiagnosticSnapshot {
   const AdminDiagnosticSnapshot({
@@ -67,9 +64,9 @@ abstract final class AdminDiagnosticService {
         (await HiveLocalStore.instance.listTasks(module: OfflineModules.eventos))
             .length;
     final memQ = StorageUploadQueueService.instance.pendingCount;
-    final chatQ = await ChurchChatMediaOutboxService.pendingJobCount();
+    const chatQ = 0; // chat removido
     final muralQ = await MuralPublishOutboxService.pendingJobCount();
-    final pendingUpload = memQ + chatQ + muralQ;
+    final pendingUpload = memQ + muralQ;
     final pendingChatMessages = chatQ + pendingChatHive;
 
     var chatOnline = 0;
@@ -91,18 +88,6 @@ abstract final class AdminDiagnosticService {
         final docs = await TenantModuleHiveCache.readDocs(tid, mod);
         if (docs.isNotEmpty) cachedModules.add(mod);
       }
-    }
-    if (tid.isNotEmpty) {
-      try {
-        final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-        final q = await             ChurchOperationalPaths.churchDoc(op)
-            .collection('chat_presence')
-            .limit(80)
-            .get();
-        for (final d in q.docs) {
-          if (ChurchChatService.isOnlineFromSnapshot(d)) chatOnline++;
-        }
-      } catch (_) {}
     }
 
     final degraded = DegradedService.values

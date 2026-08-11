@@ -21,13 +21,6 @@ export 'package:gestao_yahweh/core/tenant/diagnostic_access_policy.dart';
 export 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 export 'package:gestao_yahweh/core/tenant/church_profile_loader.dart';
 export 'package:gestao_yahweh/core/tenant/tenant_migration_service.dart';
-export 'package:gestao_yahweh/core/chat_engine/chat_hub_operations.dart';
-export 'package:gestao_yahweh/core/chat_engine/chat_hub_threads.dart';
-export 'package:gestao_yahweh/core/chat_engine/chat_messaging_engine.dart';
-export 'package:gestao_yahweh/core/chat_engine/chat_presence_engine.dart';
-export 'package:gestao_yahweh/core/chat_engine/chat_thread_operations.dart';
-export 'package:gestao_yahweh/core/chat_engine/chat_models.dart';
-export 'package:gestao_yahweh/core/chat_engine/chat_engine_paths.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
@@ -105,7 +98,6 @@ abstract final class ChurchRepository {
   static final membros = data.ChurchDataRepository.membros;
   static final eventos = data.ChurchDataRepository.eventos;
   static final avisos = data.ChurchDataRepository.avisos;
-  static final chat = data.ChurchDataRepository.chat;
   static final patrimonio = data.ChurchDataRepository.patrimonio;
   static final financeiro = data.ChurchDataRepository.financeiro;
   static final fornecedores = data.ChurchDataRepository.fornecedores;

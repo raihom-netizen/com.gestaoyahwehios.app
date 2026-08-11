@@ -460,7 +460,7 @@ abstract final class ChurchAvisosService {
         'youtubeUrl': ytWatch,
         'videoUrl': ytWatch,
       },
-      if (igUrl != null) 'instagramUrl': igUrl,
+      'instagramUrl': ?igUrl,
       if (resolvedThumbPath.isNotEmpty)
         'thumbStoragePath': resolvedThumbPath,
     };

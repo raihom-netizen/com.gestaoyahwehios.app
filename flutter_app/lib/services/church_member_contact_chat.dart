@@ -1,15 +1,10 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/core/yahweh_contact_greeting.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/services/church_chat_service.dart';
-import 'package:gestao_yahweh/services/church_panel_navigation_bridge.dart';
-import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/yahweh_whatsapp_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -50,26 +45,6 @@ abstract final class ChurchMemberContactChat {
     return null;
   }
 
-  /// Igual à ficha em [MembersPage] — `authUid` ou doc id em formato Firebase UID.
-  static String? peerAuthUidFromMember(
-    Map<String, dynamic> data, {
-    String? memberDocId,
-  }) {
-    final fromFields = authUidFromMember(data);
-    if (fromFields != null && fromFields.isNotEmpty) return fromFields;
-    final id = (memberDocId ?? '').trim();
-    if (id.length >= 20 && RegExp(r'^[A-Za-z0-9]+$').hasMatch(id)) {
-      return id;
-    }
-    return null;
-  }
-
-  static String _cpfDigitsFromMemberData(Map<String, dynamic> data) {
-    return (data['CPF'] ?? data['cpf'] ?? '')
-        .toString()
-        .replaceAll(RegExp(r'\D'), '');
-  }
-
   static Future<DocumentSnapshot<Map<String, dynamic>>?> _readMemberDoc(
     String churchId,
     String docId,
@@ -85,86 +60,6 @@ abstract final class ChurchMemberContactChat {
     return ChurchUiCollections.membros(churchId).doc(id).get();
   }
 
-  /// Resolve `authUid` do destinatário — doc directo `igrejas/{churchId}/membros`.
-  static Future<
-      ({
-        Map<String, dynamic> data,
-        String memberDocId,
-        String? peerUid,
-      })> resolvePeerForChat({
-    required String tenantId,
-    required Map<String, dynamic> memberData,
-    String? memberDocId,
-  }) async {
-    var data = Map<String, dynamic>.from(memberData);
-    var docId = (memberDocId ?? '').trim();
-    final cpf = _cpfDigitsFromMemberData(data);
-    if (docId.isEmpty && cpf.length == 11) docId = cpf;
-
-    String? peerFromData([String? mid]) => peerAuthUidFromMember(
-          data,
-          memberDocId: (mid ?? docId).trim().isEmpty ? null : (mid ?? docId),
-        );
-
-    var peer = peerFromData();
-    if (peer != null && peer.isNotEmpty) {
-      return (data: data, memberDocId: docId, peerUid: peer);
-    }
-
-    final churchId = ChurchRepository.churchId(tenantId.trim());
-    if (churchId.isEmpty) {
-      return (data: data, memberDocId: docId, peerUid: peerFromData());
-    }
-
-    Future<void> mergeSnap(DocumentSnapshot<Map<String, dynamic>> snap) async {
-      if (!snap.exists) return;
-      docId = snap.id;
-      final fresh = snap.data();
-      if (fresh != null && fresh.isNotEmpty) {
-        data = {...data, ...fresh};
-      }
-    }
-
-    try {
-      await ChurchTenantResilientReads.preparePanelRead();
-      if (docId.isNotEmpty) {
-        final snap = await _readMemberDoc(churchId, docId);
-        if (snap != null) {
-          await mergeSnap(snap);
-          peer = peerFromData();
-          if (peer != null && peer.isNotEmpty) {
-            return (data: data, memberDocId: docId, peerUid: peer);
-          }
-        }
-      }
-      if (cpf.length == 11 && cpf != docId) {
-        final snap = await _readMemberDoc(churchId, cpf);
-        if (snap != null) {
-          await mergeSnap(snap);
-          peer = peerFromData();
-          if (peer != null && peer.isNotEmpty) {
-            return (data: data, memberDocId: docId, peerUid: peer);
-          }
-        }
-      }
-      final auth = authUidFromMember(data);
-      if (auth != null && auth.isNotEmpty) {
-        Future<QuerySnapshot<Map<String, dynamic>>> query() =>
-            ChurchUiCollections.membros(churchId)
-                .where('authUid', isEqualTo: auth)
-                .limit(1)
-                .get();
-        final q = await query();
-        if (q.docs.isNotEmpty) {
-          await mergeSnap(q.docs.first);
-          peer = auth;
-          return (data: data, memberDocId: docId, peerUid: peer);
-        }
-      }
-    } catch (_) {}
-
-    return (data: data, memberDocId: docId, peerUid: peerFromData());
-  }
 
   /// Atalho único — Yahweh Chat: abre módulo + conversa individual (web/iOS/Android).
   static void tapYahwehChat({
@@ -332,99 +227,19 @@ abstract final class ChurchMemberContactChat {
     String? draftText,
     bool popSheetBeforeNavigate = false,
   }) async {
-    final myUid = firebaseDefaultAuth.currentUser?.uid.trim();
-    final messenger = ScaffoldMessenger.maybeOf(context);
-
+    // Chat interno da igreja foi removido — contato de membro passa a abrir
+    // diretamente o WhatsApp (fallback único). Mantém a assinatura para os
+    // callers (botões "Falar" no painel/membros) seguirem funcionando.
     if (popSheetBeforeNavigate && context.mounted) {
       _popPanelOverlayIfNeeded(context);
     }
-
-    if (myUid == null || myUid.isEmpty) {
-      messenger?.showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Entre na sua conta para usar o chat da igreja.',
-        ),
-      );
-      return;
-    }
-
-    final operationalTenant = ChurchPanelTenant.forFirestore(tenantId);
-    if (operationalTenant.isEmpty) {
-      messenger?.showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Igreja não identificada para abrir o Yahweh Chat.',
-        ),
-      );
-      return;
-    }
-
-    final resolved = await resolvePeerForChat(
-      tenantId: operationalTenant,
-      memberData: memberData,
+    await openWhatsAppFaleComigo(
+      context,
+      memberData,
+      message: draftText,
+      tenantId: tenantId,
       memberDocId: memberDocId,
     );
-    final peerUid = resolved.peerUid?.trim();
-    final phoneDigits = _stripPhoneDigits(
-      resolved.data['telefone'] ??
-          resolved.data['phone'] ??
-          memberData['telefone'] ??
-          memberData['phone'],
-    );
-    // Telegram (TDLib): telefone basta. Chat Firestore: precisa authUid.
-    if ((peerUid == null || peerUid.isEmpty) && phoneDigits.length < 10) {
-      messenger?.showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Cadastre o telefone do membro (mesmo do Telegram) ou ative o login no app.',
-        ),
-      );
-      return;
-    }
-    if (peerUid != null && peerUid == myUid) {
-      messenger?.showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Você não pode abrir chat consigo mesmo.',
-        ),
-      );
-      return;
-    }
-
-    final titulo =
-        displayName.trim().isEmpty ? 'Membro' : displayName.trim();
-
-    final titleA = firebaseDefaultAuth.currentUser?.displayName ?? 'Eu';
-    final threadId = (peerUid != null && peerUid.isNotEmpty)
-        ? ChurchChatService.dmThreadId(myUid, peerUid)
-        : 'tdlib_phone_$phoneDigits';
-    final draft = (draftText ?? faleComigoDraft()).trim();
-
-    // Navega para o Yahweh Chat nativo (hub TDLib consome telefone / DM).
-    ChurchPanelNavigationBridge.instance.requestNavigateToChatThread(
-      threadId: threadId,
-      tenantId: operationalTenant,
-      peerUid: peerUid,
-      displayName: titulo,
-      initialDraftText: draft.isEmpty ? null : draft,
-      phoneDigits: phoneDigits.length >= 10 ? phoneDigits : null,
-    );
-    ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
-    Future<void>.delayed(const Duration(milliseconds: 350), () {
-      ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
-    });
-    Future<void>.delayed(const Duration(milliseconds: 900), () {
-      ChurchPanelNavigationBridge.instance.renotifyPendingChatThreadOpen();
-    });
-
-    if (peerUid != null && peerUid.isNotEmpty) {
-      unawaited(
-        ChurchChatService.ensureDmThreadResilient(
-          tenantId: operationalTenant,
-          uidA: myUid,
-          uidB: peerUid,
-          titleA: titleA,
-          titleB: titulo,
-        ),
-      );
-    }
   }
 
   static Future<void> openWhatsAppFaleComigo(
