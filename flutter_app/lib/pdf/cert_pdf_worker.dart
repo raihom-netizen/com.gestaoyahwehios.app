@@ -1159,7 +1159,11 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
         cpfDigits: p.signatoriesForPdf[i].cpfDigits,
       ),
   ];
-  if (p.includeInstitutionalPastorSignature) {
+  // ⭐ A SELEÇÃO É AUTORITATIVA: se o usuário marcou signatários, o PDF mostra
+  // SÓ eles (marcou 1 → 1 assinatura; marcou 2 → 2). A assinatura institucional
+  // do "Pastor(a) Presidente" só entra como FALLBACK quando NENHUM signatário
+  // foi marcado. (Antes, era sempre anexada → marcava 1 e saíam 2 no PDF.)
+  if (p.includeInstitutionalPastorSignature && p.signatoriesForPdf.isEmpty) {
     var nomeInst = p.institutionalPastorNome.trim();
     if (nomeInst.isEmpty) {
       nomeInst = p.pastorManual.trim();
