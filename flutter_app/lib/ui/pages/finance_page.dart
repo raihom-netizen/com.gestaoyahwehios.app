@@ -372,47 +372,6 @@ class _FinanceScreenState extends State<FinanceScreen> {
     });
   }
 
-  /// Cache local corrompido (IndexedDB Web / SQLite mobile).
-  ///
-  /// Sintoma típico: `INTERNAL ASSERTION FAILED: Unexpected state` /
-  /// `WatchChangeAggregator` com `targetId` de versão inválida (`ve:-1`) — um
-  /// alvo de watch gravado corrompido na persistência local que **reconectar a
-  /// rede não resolve** (o alvo corrompido é recarregado do disco). A única cura
-  /// é `terminate()` + `clearPersistence()` para apagar o store local.
-  ///
-  /// Na Web isso exige recarregar a aba a seguir (o singleton Firestore fica
-  /// terminado; um F5 reinicializa todos os módulos com persistência limpa).
-  /// É seguro aqui porque é ação **explícita** do utilizador a partir do ecrã
-  /// de erro (não há lançamento a meio) — o [reloadWebPageHard] ainda tem
-  /// cooldown de 3 min contra loop de reload.
-  Future<void> _onClearCacheAndRetry() async {
-    if (!mounted) return;
-    setState(() {
-      _mainPeriodLoadError = null;
-      _mainPeriodLoading = true;
-    });
-    // Apaga a persistência local corrompida (Web IndexedDB / mobile SQLite).
-    try {
-      await FirebaseFirestore.instance.terminate();
-    } catch (_) {}
-    try {
-      await FirebaseFirestore.instance.clearPersistence();
-    } catch (_) {}
-    if (kIsWeb) {
-      // Cliente terminado — reinicializa a app do zero com IndexedDB limpo.
-      reloadWebPageHard();
-      return;
-    }
-    await _onRetryLoadTransactions();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Cache local limpo. Buscando do servidor…'),
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
-
   /// Só recarrega saldo de abertura quando o lançamento pode alterá-lo (antes do período).
   void _invalidateRealtimeBalances({DateTime? transactionEffectiveDate}) {
     if (transactionEffectiveDate != null) {
@@ -1747,35 +1706,19 @@ class _FinanceScreenState extends State<FinanceScreen> {
             kIsWeb &&
             (FirestoreWebGuard.isTerminatedClientError(e) ||
                 FirestoreWebGuard.isInternalAssertionError(e));
-        // AUTO-CURA definitiva (sem F5): o INTERNAL ASSERTION vive no
-        // WatchChangeAggregator e envenena o cliente Firestore da sessão inteira
-        // — por isso o Financeiro (só get-poll) começa a falhar mesmo sem abrir
-        // listener. Com o IndexedDB desligado (persistenceEnabled:false), o
-        // estado corrompido é apenas EM MEMÓRIA: um ciclo
-        // disableNetwork→reconnect→enableNetwork (recoverFirestoreWebSession
-        // hard) reinicia os watch/write streams do SDK e zera o agregador SEM
-        // `terminate()`. Reconecta e re-tenta UMA vez; o banner de erro só
-        // aparece se a própria recuperação também falhar.
-        if (isWebAssertionClass && !isRetryAfterWebRecovery) {
-          try {
-            await FirestoreWebGuard.recoverFirestoreWebSession(
-              allowHardReconnect: true,
-            );
-          } catch (_) {}
-          if (!mounted || myGen != _mainPeriodLoadGeneration) return;
-          await _executeMainPeriodLoad(
-            myGen,
-            sessionUid,
-            preserveExistingDocs: preserveExistingDocs,
-            accountFilterOnly: accountFilterOnly,
-            isRetryAfterWebRecovery: true,
-          );
-          return;
-        }
+        // CURA DEFINITIVA, AUTOMÁTICA E SEM BOTÃO (pedido do usuário: "o módulo
+        // tem que funcionar sozinho"). A INTERNAL ASSERTION do WatchChangeAggregator
+        // (SDK JS 12.x) MATA a fila assíncrona do Firestore da sessão — NENHUM
+        // disableNetwork/enableNetwork revive (comprovado). Pior: o antigo
+        // recover+retry re-executava as 3 queries do período e reiniciava o watch
+        // stream → alocava MAIS targets → `targetId` disparava (1290→1372) →
+        // realimentava a assertion. A única cura confiável é um CLIENTE NOVO =
+        // recarregar a aba. Aqui é tela de LEITURA (lista), sem formulário a meio,
+        // então o reload é seguro. `reloadWebPageHard()` tem cooldown de 3min
+        // anti-loop; se estiver no cooldown, cai no banner mínimo (só "Tentar
+        // novamente"). Nada de recover+retry (amplificava o churn).
         if (isWebAssertionClass) {
-          // Recuperação já tentada e ainda falhou — engole o assert (sem reload
-          // surpresa) e mostra o banner com retry manual / limpar cache.
-          FirestoreWebGuard.handleFatalWebErrorIfNeeded(e);
+          reloadWebPageHard();
         }
         setState(() {
           _mainPeriodLoading = false;
@@ -7180,13 +7123,6 @@ class _FinanceScreenState extends State<FinanceScreen> {
                                                   _onRetryLoadTransactions,
                                               icon: Icon(Icons.refresh_rounded),
                                               label: Text('Tentar novamente'),
-                                            ),
-                                            OutlinedButton.icon(
-                                              onPressed: _onClearCacheAndRetry,
-                                              icon: Icon(Icons
-                                                  .cleaning_services_rounded),
-                                              label:
-                                                  Text('Limpar cache e tentar'),
                                             ),
                                           ],
                                         ),

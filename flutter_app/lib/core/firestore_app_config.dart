@@ -55,18 +55,20 @@ void configureFirestoreForOfflineAndSpeed() {
       // get-poll), o transporte de Listen é irrelevante — só os `.get()` REST
       // importam. Isto conserta Financeiro/Patrimônio/Fornecedores e a lentidão
       // do site público de uma só vez.
-      // ⭐ DEFINITIVO: fixar explicitamente os dois flags de long-polling em
-      // `false`. Se o `webExperimentalAutoDetectLongPolling` ficar no default
-      // (auto), o SDK pode LIGAR long-polling sozinho em certas redes — e a
-      // prova empírica (2026-08-09) mostrou que com long-polling TODO `.get()`
-      // vai pelo canal `Listen/channel` (aloca `targetId`, passa pelo
-      // `WatchChangeAggregator`) → `INTERNAL ASSERTION FAILED`. Forçando os dois
-      // em `false`, o `.get()` one-shot usa **REST `RunQuery`** (não aloca alvo,
-      // não passa pelo agregador) de forma determinística, em qualquer rede.
+      // ⭐ CORREÇÃO DEFINITIVA (2026-08-11, causa-raiz do assertion que voltou no
+      // 2183): o firebase-js-sdk **rejeita quando `experimentalForceLongPolling`
+      // E `experimentalAutoDetectLongPolling` são especificados JUNTOS** (mesmo
+      // ambos `false`) → `db.settings =` LANÇA → caía no `_applyFallbackSettings`
+      // que ligava `forceLongPolling: true` → long-polling LIGADO → todo `.get()`
+      // ia pelo canal Listen (`PersistentListenStream`), alocando `targetId` →
+      // churn → `INTERNAL ASSERTION FAILED / WatchChangeAggregator`. FIX: setar
+      // **apenas UM** flag. `webExperimentalAutoDetectLongPolling: false` (com
+      // `forceLongPolling` no default `false`) GARANTE long-polling desligado
+      // sem auto-detecção → `.get()` one-shot usa RunQuery (não aloca alvo, não
+      // passa pelo agregador). Um único flag = nada lança, nada liga long-polling.
       db.settings = const Settings(
         persistenceEnabled: false,
         ignoreUndefinedProperties: true,
-        webExperimentalForceLongPolling: false,
         webExperimentalAutoDetectLongPolling: false,
       );
       FirestoreOfflineConfig.persistenceEnabled = false;
@@ -98,10 +100,13 @@ void _applyFallbackSettings(FirebaseFirestore db) {
   try {
     if (kIsWeb) {
       // Fallback web: cache em memória (sem IndexedDB) — mesma blindagem.
+      // ⚠️ NUNCA ligar long-polling aqui: era o BUG (fallback com
+      // `forceLongPolling: true` → `.get()` via Listen → churn de targetId →
+      // INTERNAL ASSERTION). Igual ao primário: só `autoDetectLongPolling:false`.
       db.settings = const Settings(
         persistenceEnabled: false,
         ignoreUndefinedProperties: true,
-        webExperimentalForceLongPolling: true,
+        webExperimentalAutoDetectLongPolling: false,
       );
       FirestoreOfflineConfig.persistenceEnabled = false;
       FirestoreOfflineConfig.webIndexedDbFallback = false;
