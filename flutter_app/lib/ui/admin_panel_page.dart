@@ -255,9 +255,17 @@ class _AdminPanelPageState extends State<AdminPanelPage>
   }
 
   Future<void> _loadMasterRbac() async {
+    final u = firebaseDefaultAuth.currentUser;
+    if (u == null) return;
+    // ⭐ Master do produto por AUTH (e-mail/UID) resolvido PRIMEIRO e imune a
+    // falha de leitura Firestore (assertion/permissão no web deixavam
+    // `_masterRole` vazio → "Acesso negado" mesmo para raihom@ / isabelle).
+    final isProductMasterByAuth =
+        AppConstants.isProductMasterAccount(uid: u.uid, email: u.email);
+    if (isProductMasterByAuth && mounted) {
+      setState(() => _masterRole = 'master');
+    }
     try {
-      final u = firebaseDefaultAuth.currentUser;
-      if (u == null) return;
       final db = firebaseDefaultFirestore;
       final usersDoc = await db.collection('users').doc(u.uid).get();
       final usuariosDoc = await db.collection('usuarios').doc(u.uid).get();
@@ -280,16 +288,17 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       );
       // Operador master do produto (UID/e-mail/CPF) SEMPRE tem acesso total —
       // imune a role/permissions ausentes no doc do usuário.
-      final isProductMaster = AppConstants.isProductMasterAccount(
-        uid: u.uid,
-        email: u.email,
-        cpfDigitsOrRaw: (usersData['cpf'] ??
-                usersData['CPF'] ??
-                usuariosData['cpf'] ??
-                usuariosData['CPF'] ??
-                '')
-            .toString(),
-      );
+      final isProductMaster = isProductMasterByAuth ||
+          AppConstants.isProductMasterAccount(
+            uid: u.uid,
+            email: u.email,
+            cpfDigitsOrRaw: (usersData['cpf'] ??
+                    usersData['CPF'] ??
+                    usuariosData['cpf'] ??
+                    usuariosData['CPF'] ??
+                    '')
+                .toString(),
+          );
       if (!mounted) return;
       setState(() {
         _masterRole = isProductMaster ? 'master' : role;
@@ -297,6 +306,10 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       });
     } catch (e, st) {
       debugPrint('AdminPanel _loadMasterRbac: $e\n$st');
+      // Leitura falhou (web/assertion): se é master por auth, mantém acesso total.
+      if (isProductMasterByAuth && mounted) {
+        setState(() => _masterRole = 'master');
+      }
     }
   }
 
