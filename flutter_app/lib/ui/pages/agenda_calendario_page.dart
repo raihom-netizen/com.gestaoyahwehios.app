@@ -1130,25 +1130,53 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        surfaceTintColor: Colors.white,
-        elevation: 0.5,
-        leading: IconButton(
-          tooltip: 'Voltar',
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.of(context).pop(false),
-        ),
-        title: Text(
-          _isEdit ? 'Editar compromisso' : 'Novo compromisso',
-          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
-        ),
-      ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.fromLTRB(18, 16, 18, 20 + bottomInset),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        child: Column(
+          children: [
+            // Cabeçalho FIXO com Voltar no topo — no web o AppBar não estava a
+            // aparecer; este header garante o botão em todas as plataformas.
+            Container(
+              padding: const EdgeInsets.fromLTRB(4, 6, 8, 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Voltar',
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    onPressed: () => Navigator.of(context).pop(false),
+                  ),
+                  Expanded(
+                    child: Text(
+                      _isEdit ? 'Editar compromisso' : 'Novo compromisso',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w800, fontSize: 18),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    label: const Text('Cancelar'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(18, 16, 18, 20 + bottomInset),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextField(
                 controller: _titleCtrl,
@@ -1248,6 +1276,23 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
                     ),
                     const SizedBox(width: 10),
                   ],
+                  if (!_isEdit) ...[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _saving
+                            ? null
+                            : () => Navigator.of(context).pop(false),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF475569),
+                          side: const BorderSide(color: Color(0xFFCBD5E1)),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                        icon: const Icon(Icons.close_rounded),
+                        label: const Text('Cancelar'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                  ],
                   Expanded(
                     flex: 2,
                     child: FilledButton.icon(
@@ -1273,6 +1318,9 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
               ),
             ],
           ),
+        ),
+            ),
+          ],
         ),
       ),
     );
