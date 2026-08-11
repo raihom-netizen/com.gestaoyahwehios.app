@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/firebase_options.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Tela «Integração» da conta Mercado Pago (Financeiro → Contas).
@@ -98,15 +99,29 @@ class _MercadoPagoIntegrationPageState
     if (mounted) setState(() => _loading = true);
     try {
       final churchId = _effectiveTenantId;
+      Map<String, dynamic>? data;
+      // ⭐ Web: lê a config por REST (não passa pelo watch stream do SDK, então
+      // NÃO trava no cliente envenenado pela assertion). Timeout de 12s embutido.
       if (kIsWeb) {
-        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+        try {
+          data = await firestoreRestGetDoc(
+            'igrejas/$churchId/config/mercado_pago',
+          );
+        } catch (_) {}
       }
-      final hit = await IgrejaDirectFirestoreReads.readIgrejaConfig(
-        churchId,
-        'mercado_pago',
-      );
-      _cfg = hit?.data;
-      if (hit != null) _operationalTenantId = hit.docId;
+      // Fallback SDK — com TIMEOUT para NUNCA pendurar o formulário (era isso que
+      // deixava a tela travada carregando).
+      if (data == null) {
+        final hit = await IgrejaDirectFirestoreReads.readIgrejaConfig(
+          churchId,
+          'mercado_pago',
+        ).timeout(const Duration(seconds: 8), onTimeout: () => null);
+        if (hit != null) {
+          data = hit.data;
+          _operationalTenantId = hit.docId;
+        }
+      }
+      _cfg = data;
       _publicKeyCtrl.text = (_cfg?['publicKey'] ?? '').toString();
       _clientIdCtrl.text = (_cfg?['clientId'] ?? '').toString();
       _publicKeyTestCtrl.text = (_cfg?['publicKeyTest'] ?? '').toString();

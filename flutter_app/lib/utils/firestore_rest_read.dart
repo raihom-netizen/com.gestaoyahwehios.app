@@ -119,6 +119,99 @@ class RestFieldFilter {
 Map<String, dynamic> restTimestamp(DateTime d) =>
     {'timestampValue': d.toUtc().toIso8601String()};
 
+/// Converte um valor Dart para o formato REST do Firestore.
+/// `FieldValue.serverTimestamp()` (e afins) viram timestamp do cliente (now) —
+/// suficiente para createdAt/updatedAt via REST (sem transform).
+Map<String, dynamic> _toRestValue(dynamic v) {
+  if (v == null) return {'nullValue': null};
+  if (v is bool) return {'booleanValue': v};
+  if (v is int) return {'integerValue': v.toString()};
+  if (v is double) return {'doubleValue': v};
+  if (v is String) return {'stringValue': v};
+  if (v is DateTime) {
+    return {'timestampValue': v.toUtc().toIso8601String()};
+  }
+  if (v is Timestamp) {
+    return {'timestampValue': v.toDate().toUtc().toIso8601String()};
+  }
+  if (v is FieldValue) {
+    return {'timestampValue': DateTime.now().toUtc().toIso8601String()};
+  }
+  if (v is Map) {
+    return {
+      'mapValue': {
+        'fields': {
+          for (final e in v.entries) e.key.toString(): _toRestValue(e.value),
+        },
+      },
+    };
+  }
+  if (v is Iterable) {
+    return {
+      'arrayValue': {'values': v.map(_toRestValue).toList()},
+    };
+  }
+  return {'stringValue': v.toString()};
+}
+
+/// GRAVA (cria/sobrescreve) um documento por REST (`PATCH .../documents/{docPath}`).
+/// PATCH sem updateMask escreve o doc inteiro (ideal para CRIAR). Não passa pelo
+/// watch stream do SDK → funciona mesmo com o cliente envenenado pela assertion.
+Future<void> firestoreRestSetDoc(
+  String docPath,
+  Map<String, dynamic> data,
+) async {
+  final path = docPath.trim();
+  if (path.isEmpty) throw StateError('docPath vazio');
+  final user = fa.FirebaseAuth.instance.currentUser;
+  if (user == null) throw StateError('sem sessão');
+  final token = await user.getIdToken();
+  if (token == null || token.isEmpty) throw StateError('sem token');
+  final fields = <String, dynamic>{
+    for (final e in data.entries) e.key: _toRestValue(e.value),
+  };
+  final uri = Uri.parse('$_restBase/$path');
+  final resp = await http
+      .patch(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'fields': fields}),
+      )
+      .timeout(const Duration(seconds: 20));
+  if (resp.statusCode != 200) {
+    debugPrint('firestoreRestSetDoc ${resp.statusCode}: ${resp.body}');
+    throw StateError('REST write ${resp.statusCode}');
+  }
+}
+
+/// Lê UM documento por REST (`GET .../documents/{docPath}`). Retorna os campos
+/// já convertidos, ou `null` se não existir. Não passa pelo watch stream do SDK
+/// (não trava/assertion com o cliente envenenado).
+Future<Map<String, dynamic>?> firestoreRestGetDoc(String docPath) async {
+  final path = docPath.trim();
+  if (path.isEmpty) return null;
+  final user = fa.FirebaseAuth.instance.currentUser;
+  if (user == null) return null;
+  final token = await user.getIdToken();
+  if (token == null || token.isEmpty) return null;
+  final uri = Uri.parse('$_restBase/$path');
+  final resp = await http.get(
+    uri,
+    headers: {'Authorization': 'Bearer $token'},
+  ).timeout(const Duration(seconds: 12));
+  if (resp.statusCode == 404) return null;
+  if (resp.statusCode != 200) {
+    debugPrint('firestoreRestGetDoc ${resp.statusCode}: ${resp.body}');
+    throw StateError('REST ${resp.statusCode}');
+  }
+  final decoded = jsonDecode(resp.body);
+  if (decoded is! Map<String, dynamic>) return null;
+  return _restFields(decoded['fields'] as Map<String, dynamic>?);
+}
+
 /// Executa um `runQuery` REST numa subcoleção e devolve os documentos.
 ///
 /// [collectionPath] = caminho completo até a coleção (ex.:

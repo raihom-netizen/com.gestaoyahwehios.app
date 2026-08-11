@@ -296,10 +296,12 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         } catch (_) {
           defId = null;
         }
+        // Conta é OBRIGATÓRIA (receita E despesa): sai já com o padrão do gestor
+        // (`defaultFinanceAccountId`) ou, na falta, a primeira conta cadastrada.
         String? pick;
         if (defId != null && accounts.any((a) => a.id == defId)) {
           pick = defId;
-        } else if (!_isIncome && accounts.isNotEmpty) {
+        } else if (accounts.isNotEmpty) {
           pick = accounts.first.id;
         }
         setState(() {
@@ -534,10 +536,14 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     }
 
     var financeAid = (_selectedFinanceAccountId ?? '').trim();
-    // Conta não é mais obrigatória — lança sem vínculo se não houver.
-    if (financeAid.isEmpty && !_isIncome) {
-      final list = await FinanceAccountsService().listOnce(widget.uid);
-      if (list.isNotEmpty) financeAid = list.first.id;
+    // Conta é OBRIGATÓRIA (receita e despesa) quando há contas cadastradas.
+    if (financeAid.isEmpty && _financeAccounts.isNotEmpty) {
+      financeAid = _financeAccounts.first.id;
+    }
+    if (financeAid.isEmpty && _financeAccounts.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Escolha o banco/conta do lançamento.')));
+      return;
     }
 
     if (_isEditing) {
@@ -1179,42 +1185,71 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     final accent = _isIncome
         ? const Color(0xFF2E7D32)
         : const Color(0xFFD32F2F);
-    Widget chip({
-      required String label,
-      required bool selected,
-      required VoidCallback onTap,
-      IconData? icon,
-    }) {
+
+    // Conta é OBRIGATÓRIA — sem opção "Sem conta". LISTA vertical marcável;
+    // sai já com o padrão do gestor. Toque para trocar (receita e despesa).
+    Widget tile(FinanceAccount a) {
+      final selected = _selectedFinanceAccountId == a.id;
+      final icon = a.isCardProduct
+          ? Icons.credit_card_rounded
+          : (a.isVaultProduct
+              ? Icons.savings_rounded
+              : Icons.account_balance_rounded);
       return Padding(
-        padding: const EdgeInsets.only(right: 8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-            decoration: BoxDecoration(
-              color: selected ? accent : accent.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                  color: selected ? accent : accent.withValues(alpha: 0.35)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (icon != null)
-                  Icon(icon,
-                      size: 16,
-                      color: selected ? Colors.white : accent),
-                if (icon != null) const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: selected ? Colors.white : accent,
-                  ),
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => setState(() {
+              _selectedFinanceAccountId = a.id;
+              _applyStatusDefaultForAccount(_financeAccounts);
+            }),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: selected
+                    ? accent.withValues(alpha: 0.12)
+                    : context.appInputFill,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: selected
+                      ? accent
+                      : accent.withValues(alpha: 0.18),
+                  width: selected ? 1.6 : 1,
                 ),
-              ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: selected ? accent : accent.withValues(alpha: 0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon,
+                        size: 16, color: selected ? Colors.white : accent),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      a.displayName,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: context.appTextPrimary,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    selected
+                        ? Icons.check_circle_rounded
+                        : Icons.circle_outlined,
+                    color: selected ? accent : accent.withValues(alpha: 0.3),
+                    size: 22,
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1231,7 +1266,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
               Icon(Icons.account_balance_rounded, size: 18, color: accent),
               const SizedBox(width: 6),
               Text(
-                'Banco / conta',
+                'Banco / conta *',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w800,
@@ -1241,35 +1276,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
             ],
           ),
           const SizedBox(height: 8),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                chip(
-                  label: 'Sem conta',
-                  icon: Icons.account_balance_wallet_outlined,
-                  selected: _selectedFinanceAccountId == null ||
-                      _selectedFinanceAccountId!.isEmpty,
-                  onTap: () =>
-                      setState(() => _selectedFinanceAccountId = null),
-                ),
-                for (final a in _financeAccounts)
-                  chip(
-                    label: a.displayName,
-                    icon: a.isCardProduct
-                        ? Icons.credit_card_rounded
-                        : (a.isVaultProduct
-                            ? Icons.savings_rounded
-                            : Icons.account_balance_rounded),
-                    selected: _selectedFinanceAccountId == a.id,
-                    onTap: () => setState(() {
-                      _selectedFinanceAccountId = a.id;
-                      _applyStatusDefaultForAccount(_financeAccounts);
-                    }),
-                  ),
-              ],
-            ),
-          ),
+          for (final a in _financeAccounts) tile(a),
         ],
       ),
     );

@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/utils/module_write_guard.dart';
 import 'package:gestao_yahweh/utils/connectivity_offline.dart';
 import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
 import 'package:gestao_yahweh/services/finance_month_cache.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/services/finance_receipt_upload_service.dart';
 import 'logs_service.dart';
 
@@ -298,14 +299,20 @@ class TransactionSaveService {
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         };
-        // Grava + ajusta saldo da conta atomicamente (mesmo motor do resto
-        // do Financeiro por-igreja — igual FinanceAccountMigrateService).
-        await FinanceLancamentoWriteService.commitInTransaction(
-          churchId: churchId,
-          lancamentoRef: ref,
-          payload: payload,
-          merge: false,
-        );
+        // Web: grava o doc por REST (a transação do SDK trava no cliente
+        // envenenado pela assertion). O saldo é COMPUTADO dos lançamentos no
+        // painel → recalcula sozinho ao recarregar (leitura REST). Mobile:
+        // transação atômica normal (ajusta saldo stored da conta).
+        if (kIsWeb) {
+          await firestoreRestSetDoc(ref.path, payload);
+        } else {
+          await FinanceLancamentoWriteService.commitInTransaction(
+            churchId: churchId,
+            lancamentoRef: ref,
+            payload: payload,
+            merge: false,
+          );
+        }
         firstDocId = ref.id;
         savedIds.add(ref.id);
         unawaited(

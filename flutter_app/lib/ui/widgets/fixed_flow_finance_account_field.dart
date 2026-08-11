@@ -62,9 +62,19 @@ class _FixedFlowFinanceAccountFieldState
     {
         final accounts = _accounts;
         final ids = accounts.map((a) => a.id).toSet();
-        final value = selectedAccountId != null && ids.contains(selectedAccountId)
-            ? selectedAccountId
-            : null;
+        // Conta obrigatória: se nada válido selecionado, cai no PRIMEIRO banco
+        // (e avisa o pai no próximo frame para sincronizar).
+        final String? value =
+            selectedAccountId != null && ids.contains(selectedAccountId)
+                ? selectedAccountId
+                : (accounts.isNotEmpty ? accounts.first.id : null);
+        if (value != null &&
+            value != selectedAccountId &&
+            accounts.isNotEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) onChanged(value);
+          });
+        }
         final prefix = Icon(
           Icons.account_balance_rounded,
           color: AppColors.primary.withValues(alpha: 0.88),
@@ -119,10 +129,7 @@ class _FixedFlowFinanceAccountFieldState
             helperText: 'Padrão do cadastro de bancos, se definido.',
           ),
           items: [
-            const DropdownMenuItem<String?>(
-              value: null,
-              child: Text('Sem conta vinculada'),
-            ),
+            // Conta obrigatória — sem opção "Sem conta vinculada".
             ...accounts.map((a) {
               return DropdownMenuItem<String?>(
                 value: a.id,
