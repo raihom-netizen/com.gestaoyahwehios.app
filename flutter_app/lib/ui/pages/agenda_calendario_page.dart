@@ -6,7 +6,9 @@ import 'package:intl/intl.dart';
 
 import 'package:gestao_yahweh/core/agenda_firestore_fields.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
+import 'package:gestao_yahweh/services/church_departments_load_service.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_month_calendar.dart';
 
 /// Módulo Agenda — reescrito do zero no padrão Controle Total (Agenda/Escala):
@@ -78,6 +80,7 @@ class _AgendaItem {
     required this.kind,
     required this.allDay,
     required this.ref,
+    required this.data,
   });
 
   final String id;
@@ -86,6 +89,7 @@ class _AgendaItem {
   final AgKind kind;
   final bool allDay;
   final DocumentReference<Map<String, dynamic>> ref;
+  final Map<String, dynamic> data;
 }
 
 class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
@@ -161,6 +165,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
           kind: _kindFrom(data, title),
           allDay: data['allDay'] == true,
           ref: doc.reference,
+          data: data,
         );
         map.putIfAbsent(_keyFor(when), () => []).add(item);
       }
@@ -763,11 +768,30 @@ class _AgendaFormSheet extends StatefulWidget {
 
 class _AgendaFormSheetState extends State<_AgendaFormSheet> {
   late final TextEditingController _titleCtrl;
+  late final TextEditingController _descCtrl;
+  late final TextEditingController _localCtrl;
+  late final TextEditingController _responsavelCtrl;
+  late final TextEditingController _enderecoCtrl;
+  late final TextEditingController _cepCtrl;
   late AgKind _kind;
   late DateTime _date;
   TimeOfDay? _time;
   bool _allDay = false;
   bool _saving = false;
+
+  // Notificar todos (push via Cloud Function onNovaAgendaPush).
+  bool _notify = false;
+
+  // Recorrência (culto/evento fixo — repetir toda semana).
+  bool _repeatWeekly = false;
+  int _weeks = 4;
+
+  // Departamentos (reunião).
+  List<String> _allDepartments = const [];
+  final Set<String> _selectedDepartments = <String>{};
+
+  bool _cepLoading = false;
+  bool _churchAddrLoading = false;
 
   bool get _isEdit => widget.item != null;
 
@@ -775,18 +799,44 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
   void initState() {
     super.initState();
     final it = widget.item;
+    final d = it?.data ?? const <String, dynamic>{};
     _titleCtrl = TextEditingController(text: it?.title ?? '');
+    _descCtrl = TextEditingController(
+      text: (d['descricao'] ?? d['description'] ?? d['obs'] ?? '').toString(),
+    );
+    _localCtrl = TextEditingController(
+      text: (d['local'] ?? d['localizacao'] ?? '').toString(),
+    );
+    _responsavelCtrl = TextEditingController(
+      text: (d['responsavel'] ?? d['responsavelNome'] ?? '').toString(),
+    );
+    _enderecoCtrl = TextEditingController(
+      text: (d['endereco'] ?? d['endereço'] ?? '').toString(),
+    );
+    _cepCtrl = TextEditingController(text: (d['cep'] ?? '').toString());
+    final deps = d['departamentos'];
+    if (deps is List) {
+      _selectedDepartments.addAll(
+        deps.map((e) => e.toString().trim()).where((e) => e.isNotEmpty),
+      );
+    }
     _kind = it?.kind ?? AgKind.culto;
     _date = it?.when ?? widget.initialDate;
     _allDay = it?.allDay ?? false;
     _time = (it != null && !it.allDay)
         ? TimeOfDay(hour: it.when.hour, minute: it.when.minute)
         : const TimeOfDay(hour: 19, minute: 30);
+    unawaited(_loadDepartments());
   }
 
   @override
   void dispose() {
     _titleCtrl.dispose();
+    _descCtrl.dispose();
+    _localCtrl.dispose();
+    _responsavelCtrl.dispose();
+    _enderecoCtrl.dispose();
+    _cepCtrl.dispose();
     super.dispose();
   }
 
@@ -795,6 +845,84 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
       return DateTime(_date.year, _date.month, _date.day, 0, 0);
     }
     return DateTime(_date.year, _date.month, _date.day, _time!.hour, _time!.minute);
+  }
+
+  Future<void> _loadDepartments() async {
+    try {
+      final res = await ChurchDepartmentsLoadService.load(
+        seedTenantId: widget.tenantId,
+      );
+      final names = <String>[];
+      for (final doc in res.docs) {
+        final m = doc.data();
+        final n = (m['label'] ?? m['nome'] ?? m['name'] ?? m['titulo'] ?? '')
+            .toString()
+            .trim();
+        if (n.isNotEmpty && !names.contains(n)) names.add(n);
+      }
+      if (!mounted) return;
+      setState(() => _allDepartments = names);
+    } catch (_) {
+      // Departamentos são opcionais — silencioso.
+    }
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _buscarCep() async {
+    final digits = _cepCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length != 8) {
+      _toast('Informe um CEP com 8 dígitos.');
+      return;
+    }
+    setState(() => _cepLoading = true);
+    final r = await fetchCep(digits);
+    if (!mounted) return;
+    setState(() => _cepLoading = false);
+    if (!r.ok) {
+      _toast('CEP não encontrado.');
+      return;
+    }
+    final parts = [r.logradouro, r.bairro, r.localidade, r.uf]
+        .where((e) => e != null && e.trim().isNotEmpty)
+        .map((e) => e!.trim())
+        .join(', ');
+    setState(() {
+      if (parts.isNotEmpty) _enderecoCtrl.text = parts;
+    });
+  }
+
+  Future<void> _usarEnderecoIgreja() async {
+    setState(() => _churchAddrLoading = true);
+    try {
+      final snap = await ChurchUiCollections.churchDoc(widget.tenantId).get();
+      final d = snap.data() ?? const <String, dynamic>{};
+      final rua = (d['rua'] ?? d['address'] ?? d['endereco'] ?? '')
+          .toString()
+          .trim();
+      final bairro = (d['bairro'] ?? '').toString().trim();
+      final cidade = (d['cidade'] ?? d['localidade'] ?? '').toString().trim();
+      final uf = (d['estado'] ?? d['uf'] ?? '').toString().trim();
+      final cep = (d['cep'] ?? '').toString().trim();
+      final parts = [rua, bairro, cidade, uf]
+          .where((e) => e.isNotEmpty)
+          .join(', ');
+      if (!mounted) return;
+      setState(() {
+        if (parts.isNotEmpty) _enderecoCtrl.text = parts;
+        if (cep.isNotEmpty && _cepCtrl.text.trim().isEmpty) _cepCtrl.text = cep;
+      });
+      if (parts.isEmpty && cep.isEmpty) {
+        _toast('A igreja ainda não tem endereço cadastrado.');
+      }
+    } catch (_) {
+      _toast('Não foi possível ler o endereço da igreja.');
+    } finally {
+      if (mounted) setState(() => _churchAddrLoading = false);
+    }
   }
 
   Future<void> _pickDate() async {
@@ -816,46 +944,90 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     if (picked != null) setState(() => _time = picked);
   }
 
+  /// Monta o payload da agenda para um dado horário. [notify] só é `true` no
+  /// primeiro doc de uma série (evita spam de push na recorrência).
+  Map<String, dynamic> _buildPayload({
+    required DateTime when,
+    required bool notify,
+    required bool isCreate,
+    String? seriesId,
+  }) {
+    final title = _titleCtrl.text.trim();
+    final p = <String, dynamic>{
+      'title': title,
+      'titulo': title,
+      'tipo': _kind.id,
+      'categoria': _kind.id,
+      'startTime': Timestamp.fromDate(when),
+      'data': Timestamp.fromDate(when),
+      'allDay': _allDay,
+      'active': true,
+      'notify': notify,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    final desc = _descCtrl.text.trim();
+    if (desc.isNotEmpty) p['descricao'] = desc;
+    final local = _localCtrl.text.trim();
+    if (local.isNotEmpty) p['local'] = local;
+    if (_kind == AgKind.reuniao) {
+      final resp = _responsavelCtrl.text.trim();
+      if (resp.isNotEmpty) p['responsavel'] = resp;
+      final end = _enderecoCtrl.text.trim();
+      if (end.isNotEmpty) p['endereco'] = end;
+      final cep = _cepCtrl.text.trim();
+      if (cep.isNotEmpty) p['cep'] = cep;
+      if (_selectedDepartments.isNotEmpty) {
+        p['departamentos'] = _selectedDepartments.toList();
+      }
+    }
+    if (seriesId != null) p['seriesId'] = seriesId;
+    if (isCreate) p['createdAt'] = FieldValue.serverTimestamp();
+    return p;
+  }
+
   Future<void> _save() async {
     final title = _titleCtrl.text.trim();
     if (title.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Informe um título.')),
-      );
+      _toast('Informe um título.');
       return;
     }
     setState(() => _saving = true);
     try {
       final when = _effectiveWhen;
-      final payload = <String, dynamic>{
-        'title': title,
-        'titulo': title,
-        'tipo': _kind.id,
-        'categoria': _kind.id,
-        'startTime': Timestamp.fromDate(when),
-        'data': Timestamp.fromDate(when),
-        'allDay': _allDay,
-        'active': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
       if (_isEdit) {
         await ChurchAgendaLoadService.updateAgendaEvent(
           ref: widget.item!.ref,
-          payload: payload,
+          payload: _buildPayload(when: when, notify: _notify, isCreate: false),
         );
+      } else if (_repeatWeekly && _weeks > 1) {
+        // Culto/evento fixo — cria uma ocorrência por semana (mesma série).
+        final seriesId = DateTime.now().millisecondsSinceEpoch.toString();
+        for (var i = 0; i < _weeks; i++) {
+          final w = when.add(Duration(days: 7 * i));
+          final ref = ChurchUiCollections.agenda(widget.tenantId).doc();
+          await ChurchAgendaLoadService.setAgendaEvent(
+            ref: ref,
+            payload: _buildPayload(
+              when: w,
+              notify: _notify && i == 0,
+              isCreate: true,
+              seriesId: seriesId,
+            ),
+          );
+        }
       } else {
-        payload['createdAt'] = FieldValue.serverTimestamp();
         final ref = ChurchUiCollections.agenda(widget.tenantId).doc();
-        await ChurchAgendaLoadService.setAgendaEvent(ref: ref, payload: payload);
+        await ChurchAgendaLoadService.setAgendaEvent(
+          ref: ref,
+          payload: _buildPayload(when: when, notify: _notify, isCreate: true),
+        );
       }
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Falha ao salvar: $e')),
-      );
+      _toast('Falha ao salvar. Verifique a conexão e tente de novo.');
     }
   }
 
@@ -977,6 +1149,33 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
                 value: _allDay,
                 onChanged: (v) => setState(() => _allDay = v),
               ),
+              const SizedBox(height: 6),
+              // ---- Campos ricos (variam por tipo) ----
+              _sectionLabel('Descrição'),
+              const SizedBox(height: 8),
+              _multilineField(
+                controller: _descCtrl,
+                hint: 'Detalhes, tema, observações…',
+                minLines: 2,
+                maxLines: 4,
+              ),
+              if (_kind != AgKind.reuniao) ...[
+                const SizedBox(height: 14),
+                _sectionLabel('Local'),
+                const SizedBox(height: 8),
+                _multilineField(
+                  controller: _localCtrl,
+                  hint: _kind == AgKind.culto
+                      ? 'Ex.: Templo — Salão principal'
+                      : 'Ex.: Onde será o evento',
+                  minLines: 1,
+                  maxLines: 2,
+                ),
+              ],
+              if (_kind == AgKind.reuniao) _reuniaoFields(),
+              if (!_isEdit && _kind != AgKind.reuniao) _recurrenceField(),
+              const SizedBox(height: 14),
+              _notifyField(),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -1087,6 +1286,203 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(String text) => Text(
+        text,
+        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+      );
+
+  Widget _multilineField({
+    required TextEditingController controller,
+    required String hint,
+    int minLines = 1,
+    int maxLines = 3,
+  }) {
+    return TextField(
+      controller: controller,
+      minLines: minLines,
+      maxLines: maxLines,
+      textCapitalization: TextCapitalization.sentences,
+      decoration: InputDecoration(
+        hintText: hint,
+        isDense: true,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  Widget _reuniaoFields() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 14),
+        _sectionLabel('Responsável'),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _responsavelCtrl,
+          textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(
+            hintText: 'Quem organiza a reunião',
+            isDense: true,
+            prefixIcon: const Icon(Icons.person_outline_rounded, size: 20),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _sectionLabel('Localização'),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _cepCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'CEP',
+                  hintText: '00000-000',
+                  isDense: true,
+                  border:
+                      OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 48,
+              child: FilledButton.tonalIcon(
+                onPressed: _cepLoading ? null : _buscarCep,
+                icon: _cepLoading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.search_rounded, size: 18),
+                label: const Text('Buscar'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: _churchAddrLoading ? null : _usarEnderecoIgreja,
+            icon: _churchAddrLoading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.church_rounded, size: 18),
+            label: const Text('Usar endereço da igreja'),
+          ),
+        ),
+        const SizedBox(height: 4),
+        _multilineField(
+          controller: _enderecoCtrl,
+          hint: 'Rua, número, bairro, cidade/UF',
+          minLines: 2,
+          maxLines: 3,
+        ),
+        const SizedBox(height: 14),
+        _sectionLabel('Departamento(s)'),
+        const SizedBox(height: 8),
+        if (_allDepartments.isEmpty)
+          Text(
+            'Nenhum departamento cadastrado.',
+            style: TextStyle(fontSize: 12.5, color: Colors.blueGrey.shade400),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final dep in _allDepartments)
+                FilterChip(
+                  label: Text(dep),
+                  selected: _selectedDepartments.contains(dep),
+                  onSelected: (sel) => setState(() {
+                    if (sel) {
+                      _selectedDepartments.add(dep);
+                    } else {
+                      _selectedDepartments.remove(dep);
+                    }
+                  }),
+                  selectedColor: AgKind.reuniao.color.withValues(alpha: 0.18),
+                  checkmarkColor: AgKind.reuniao.color,
+                ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Widget _recurrenceField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 6),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text(
+            _kind == AgKind.culto ? 'Culto fixo (toda semana)' : 'Repetir toda semana',
+          ),
+          subtitle: const Text('Cria uma ocorrência por semana'),
+          value: _repeatWeekly,
+          onChanged: (v) => setState(() => _repeatWeekly = v),
+        ),
+        if (_repeatWeekly)
+          Row(
+            children: [
+              const Text('Por', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(width: 10),
+              IconButton(
+                onPressed: _weeks > 2
+                    ? () => setState(() => _weeks--)
+                    : null,
+                icon: const Icon(Icons.remove_circle_outline_rounded),
+              ),
+              Text(
+                '$_weeks semanas',
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+              ),
+              IconButton(
+                onPressed: _weeks < 26
+                    ? () => setState(() => _weeks++)
+                    : null,
+                icon: const Icon(Icons.add_circle_outline_rounded),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Widget _notifyField() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+      ),
+      child: SwitchListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+        secondary: const Icon(Icons.notifications_active_rounded,
+            color: Color(0xFF2563EB)),
+        title: const Text(
+          'Notificar todos',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: const Text(
+          'Envia um aviso (push) para os membros da igreja',
+          style: TextStyle(fontSize: 12),
+        ),
+        value: _notify,
+        onChanged: (v) => setState(() => _notify = v),
       ),
     );
   }

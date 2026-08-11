@@ -7185,6 +7185,8 @@ export {
   onNovoAvisoMuralPublishedPush,
   onNovoEventoNoticiaPush,
   onNovoEventoNoticiaPublishedPush,
+  onNovaAgendaPush,
+  onNovaAgendaNotifyPush,
 } from "./pushNovoConteudo";
 export { scheduledFornecedorAgendaReminders } from "./fornecedorAgendaReminders";
 export { scheduledEventoReminders } from "./eventoReminders";

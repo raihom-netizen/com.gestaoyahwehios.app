@@ -310,3 +310,92 @@ export const onNovoEventoNoticiaPublishedPush = functions
     }
     return null;
   });
+
+// ---------------------------------------------------------------------------
+// Agenda (culto / evento / reunião) — push só quando o gestor marca
+// "Notificar todos" (`notify: true`) no formulário da Agenda. Reaproveita o
+// tópico `evento` (que todos os membros já assinam) para garantir entrega.
+// ---------------------------------------------------------------------------
+function agendaKindPush(kind: string): { emoji: string; label: string } {
+  const k = String(kind || "").toLowerCase();
+  if (k.includes("culto")) return { emoji: "⛪", label: "Novo culto" };
+  if (k.includes("reuni")) return { emoji: "👥", label: "Nova reunião" };
+  return { emoji: "📅", label: "Novo evento" };
+}
+
+function agendaDocDateSuffix(d: Record<string, unknown>): string {
+  const ts = (d.startTime || d.data || d.startAt) as
+    | admin.firestore.Timestamp
+    | undefined;
+  if (ts && typeof ts.toDate === "function") {
+    return ` • ${ts
+      .toDate()
+      .toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}`;
+  }
+  return "";
+}
+
+async function sendNovaAgendaPush(
+  tenantId: string,
+  postId: string,
+  d: Record<string, unknown>,
+): Promise<void> {
+  const title = clip(String(d.title || d.titulo || "Agenda"), 80) || "Agenda";
+  const { emoji, label } = agendaKindPush(
+    String(d.tipo || d.categoria || d.kind || ""),
+  );
+  const body = clip(`${title}${agendaDocDateSuffix(d)}`, 180);
+  await sendGyTopicPush(tenantId, "evento", (churchId) =>
+    buildGyTopicMessage({
+      topic: topicPushNovo(churchId, "evento"),
+      title: `${emoji} ${label}`,
+      body,
+      data: {
+        type: "nova_agenda",
+        tenantId: churchId,
+        postId,
+        click_action: "FLUTTER_NOTIFICATION_CLICK",
+        deepLink: buildGyNotificationDeepLink(churchId, "agenda"),
+      },
+      module: "evento",
+    }),
+  );
+  await recordTenantNotification(tenantId, {
+    type: "nova_agenda",
+    title: label,
+    body,
+    postId,
+  });
+}
+
+export const onNovaAgendaPush = functions
+  .region("us-central1")
+  .firestore.document("igrejas/{tenantId}/agenda/{id}")
+  .onCreate(async (snap, context) => {
+    const d = (snap.data() || {}) as Record<string, unknown>;
+    if (d.notify !== true) return null;
+    const tenantId = context.params.tenantId as string;
+    try {
+      await sendNovaAgendaPush(tenantId, context.params.id as string, d);
+    } catch (e) {
+      functions.logger.error("onNovaAgendaPush FCM", { tenantId, e });
+    }
+    return null;
+  });
+
+export const onNovaAgendaNotifyPush = functions
+  .region("us-central1")
+  .firestore.document("igrejas/{tenantId}/agenda/{id}")
+  .onUpdate(async (change, context) => {
+    const before = (change.before.data() || {}) as Record<string, unknown>;
+    const after = (change.after.data() || {}) as Record<string, unknown>;
+    if (after.notify !== true) return null;
+    if (before.notify === true) return null; // já notificado — evita spam em edições
+    const tenantId = context.params.tenantId as string;
+    try {
+      await sendNovaAgendaPush(tenantId, context.params.id as string, after);
+    } catch (e) {
+      functions.logger.error("onNovaAgendaNotifyPush FCM", { tenantId, e });
+    }
+    return null;
+  });
