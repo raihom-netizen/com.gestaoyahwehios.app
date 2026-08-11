@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
 import 'package:gestao_yahweh/services/church_departments_load_service.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_month_calendar.dart';
+import 'package:gestao_yahweh/ui/widgets/yahweh_multi_day_picker_page.dart';
 
 /// Módulo Agenda — reescrito do zero no padrão Controle Total (Agenda/Escala):
 /// calendário mensal colorido, "Funções Calendário", Hoje/Sincronizar Google,
@@ -1649,9 +1650,9 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
                 onDeleted: () => setState(() => _extraDays.remove(d)),
               ),
             ActionChip(
-              avatar: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Adicionar dia'),
-              onPressed: _pickExtraDay,
+              avatar: const Icon(Icons.calendar_month_rounded, size: 18),
+              label: const Text('Escolher no calendário'),
+              onPressed: _pickDaysCalendar,
             ),
           ],
         ),
@@ -1659,27 +1660,27 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     );
   }
 
-  Future<void> _pickExtraDay() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _date,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-      locale: const Locale('pt', 'BR'),
+  /// Abre o calendário multi-dias (padrão Controle Total): marca os dias,
+  /// Cancelar/Confirmar, voltar no topo. Substitui a lista de dias extras.
+  Future<void> _pickDaysCalendar() async {
+    final result = await Navigator.of(context).push<List<DateTime>>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => YahwehMultiDayPickerPage(
+          initialSelected: _extraDays,
+          accent: _kind.color,
+        ),
+      ),
     );
-    if (picked == null) return;
-    final d = DateTime(picked.year, picked.month, picked.day);
-    if (d.year == _date.year && d.month == _date.month && d.day == _date.day) {
-      _toast('Essa já é a data principal.');
-      return;
-    }
-    if (_extraDays.any(
-        (e) => e.year == d.year && e.month == d.month && e.day == d.day)) {
-      return;
-    }
+    if (result == null) return;
+    final main = DateTime(_date.year, _date.month, _date.day);
     setState(() {
       _extraDays
-        ..add(d)
+        ..clear()
+        ..addAll(result.where((d) =>
+            !(d.year == main.year &&
+                d.month == main.month &&
+                d.day == main.day)))
         ..sort();
     });
   }

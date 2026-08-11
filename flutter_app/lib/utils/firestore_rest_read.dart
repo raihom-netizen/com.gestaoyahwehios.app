@@ -187,6 +187,44 @@ Future<void> firestoreRestSetDoc(
   }
 }
 
+/// ATUALIZA campos de um documento por REST (`PATCH` com `updateMask`). Só toca
+/// nos campos em [setFields] (grava) e [deleteFields] (remove) — os demais ficam
+/// intactos. Não passa pelo watch stream do SDK.
+Future<void> firestoreRestUpdateDoc(
+  String docPath, {
+  required Map<String, dynamic> setFields,
+  List<String> deleteFields = const [],
+}) async {
+  final path = docPath.trim();
+  if (path.isEmpty) throw StateError('docPath vazio');
+  final user = fa.FirebaseAuth.instance.currentUser;
+  if (user == null) throw StateError('sem sessão');
+  final token = await user.getIdToken();
+  if (token == null || token.isEmpty) throw StateError('sem token');
+  final maskPaths = <String>[...setFields.keys, ...deleteFields];
+  final qp = maskPaths
+      .map((f) => 'updateMask.fieldPaths=${Uri.encodeQueryComponent(f)}')
+      .join('&');
+  final uri = Uri.parse('$_restBase/$path?$qp');
+  final fields = <String, dynamic>{
+    for (final e in setFields.entries) e.key: _toRestValue(e.value),
+  };
+  final resp = await http
+      .patch(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'fields': fields}),
+      )
+      .timeout(const Duration(seconds: 20));
+  if (resp.statusCode != 200) {
+    debugPrint('firestoreRestUpdateDoc ${resp.statusCode}: ${resp.body}');
+    throw StateError('REST update ${resp.statusCode}');
+  }
+}
+
 /// Lê UM documento por REST (`GET .../documents/{docPath}`). Retorna os campos
 /// já convertidos, ou `null` se não existir. Não passa pelo watch stream do SDK
 /// (não trava/assertion com o cliente envenenado).

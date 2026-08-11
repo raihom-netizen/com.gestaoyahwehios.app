@@ -1,7 +1,9 @@
 ﻿import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart' hide showDatePicker;
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/ui/widgets/fast_text_field.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -677,9 +679,33 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         }
       }
 
-      await ChurchUiCollections.financeiro(widget.uid.trim())
-          .doc(docId)
-          .update(updateData);
+      final txRef =
+          ChurchUiCollections.financeiro(widget.uid.trim()).doc(docId);
+      if (kIsWeb) {
+        // Web: atualiza por REST (o SDK trava no cliente envenenado). Separa os
+        // campos a GRAVAR dos a DELETAR (updatedAt = serverTimestamp → grava now;
+        // demais FieldValue = delete). updateMask só toca nesses campos.
+        final setData = <String, dynamic>{};
+        final deleteKeys = <String>[];
+        updateData.forEach((k, v) {
+          if (v is FieldValue) {
+            if (k == 'updatedAt') {
+              setData[k] = v; // serverTimestamp → now (serializer REST)
+            } else {
+              deleteKeys.add(k);
+            }
+          } else {
+            setData[k] = v;
+          }
+        });
+        await firestoreRestUpdateDoc(
+          txRef.path,
+          setFields: setData,
+          deleteFields: deleteKeys,
+        );
+      } else {
+        await txRef.update(updateData);
+      }
 
       final goalId = (current['goalId'] ?? '').toString().trim();
       if (goalId.isNotEmpty && _isIncome) {
