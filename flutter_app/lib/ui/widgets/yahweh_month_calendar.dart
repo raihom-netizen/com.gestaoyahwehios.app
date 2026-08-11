@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -76,27 +77,34 @@ class YahwehMonthCalendar extends StatelessWidget {
           onMonthDelta(-1); // arrastou p/ direita → volta
         }
       },
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 14, 10, 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.06),
-              blurRadius: 16,
-              offset: const Offset(0, 6),
+      child: Center(
+        child: ConstrainedBox(
+          // Web: limita a largura para o calendário não esticar/inchar no
+          // desktop (células menores). Mobile: usa toda a largura (maior).
+          constraints: BoxConstraints(maxWidth: kIsWeb ? 640 : double.infinity),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(10, 14, 10, 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
             ),
-          ],
-        ),
-        child: Column(
-          children: [
-            _monthHeader(),
-            const SizedBox(height: 10),
-            _weekdayRow(),
-            const SizedBox(height: 6),
-            _grid(),
-          ],
+            child: Column(
+              children: [
+                _monthHeader(),
+                const SizedBox(height: 10),
+                _weekdayRow(),
+                const SizedBox(height: 6),
+                _grid(),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -180,6 +188,10 @@ class YahwehMonthCalendar extends StatelessWidget {
       cells.add(const SizedBox.shrink());
     }
 
+    // Web (tela larga): célula ACHATADA (mais larga que alta) para o calendário
+    // não ficar gigante; mobile: célula levemente mais ALTA (maior alvo de toque).
+    final cellAspect = kIsWeb ? 1.45 : 0.92;
+
     final rows = <Widget>[];
     for (var i = 0; i < cells.length; i += 7) {
       rows.add(Row(
@@ -188,7 +200,7 @@ class YahwehMonthCalendar extends StatelessWidget {
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(3),
-                child: AspectRatio(aspectRatio: 1, child: cells[i + j]),
+                child: AspectRatio(aspectRatio: cellAspect, child: cells[i + j]),
               ),
             ),
         ],

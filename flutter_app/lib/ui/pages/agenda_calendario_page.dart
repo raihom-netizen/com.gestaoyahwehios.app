@@ -729,14 +729,15 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
   Future<void> _openAddEditForm({DateTime? day, _AgendaItem? item}) async {
     if (!_canEdit) return;
     final initialDate = item?.when ?? day ?? _selectedDay;
-    final result = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _AgendaFormSheet(
-        tenantId: widget.tenantId,
-        item: item,
-        initialDate: initialDate,
+    // Tela CHEIA (padrão Eventos/Avisos) com botão Voltar — em vez de bottom sheet.
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _AgendaFormSheet(
+          tenantId: widget.tenantId,
+          item: item,
+          initialDate: initialDate,
+        ),
       ),
     );
     if (result == true) {
@@ -771,8 +772,11 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
   late final TextEditingController _descCtrl;
   late final TextEditingController _localCtrl;
   late final TextEditingController _responsavelCtrl;
-  late final TextEditingController _enderecoCtrl;
   late final TextEditingController _cepCtrl;
+  late final TextEditingController _ruaCtrl;
+  late final TextEditingController _bairroCtrl;
+  late final TextEditingController _cidadeCtrl;
+  late final TextEditingController _complementoCtrl;
   late AgKind _kind;
   late DateTime _date;
   TimeOfDay? _time;
@@ -810,10 +814,19 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     _responsavelCtrl = TextEditingController(
       text: (d['responsavel'] ?? d['responsavelNome'] ?? '').toString(),
     );
-    _enderecoCtrl = TextEditingController(
-      text: (d['endereco'] ?? d['endereço'] ?? '').toString(),
-    );
     _cepCtrl = TextEditingController(text: (d['cep'] ?? '').toString());
+    // Endereço separado; retrocompat com o campo único `endereco` legado.
+    final legadoEnd = (d['endereco'] ?? d['endereço'] ?? '').toString();
+    _ruaCtrl = TextEditingController(
+      text: (d['rua'] ?? d['logradouro'] ?? (d['rua'] == null ? legadoEnd : ''))
+          .toString(),
+    );
+    _bairroCtrl = TextEditingController(text: (d['bairro'] ?? '').toString());
+    _cidadeCtrl = TextEditingController(
+      text: (d['cidade'] ?? d['localidade'] ?? '').toString(),
+    );
+    _complementoCtrl =
+        TextEditingController(text: (d['complemento'] ?? '').toString());
     final deps = d['departamentos'];
     if (deps is List) {
       _selectedDepartments.addAll(
@@ -835,8 +848,11 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     _descCtrl.dispose();
     _localCtrl.dispose();
     _responsavelCtrl.dispose();
-    _enderecoCtrl.dispose();
     _cepCtrl.dispose();
+    _ruaCtrl.dispose();
+    _bairroCtrl.dispose();
+    _cidadeCtrl.dispose();
+    _complementoCtrl.dispose();
     super.dispose();
   }
 
@@ -886,12 +902,16 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
       _toast('CEP não encontrado.');
       return;
     }
-    final parts = [r.logradouro, r.bairro, r.localidade, r.uf]
-        .where((e) => e != null && e.trim().isNotEmpty)
-        .map((e) => e!.trim())
-        .join(', ');
     setState(() {
-      if (parts.isNotEmpty) _enderecoCtrl.text = parts;
+      if ((r.logradouro ?? '').trim().isNotEmpty) {
+        _ruaCtrl.text = r.logradouro!.trim();
+      }
+      if ((r.bairro ?? '').trim().isNotEmpty) _bairroCtrl.text = r.bairro!.trim();
+      final cidadeUf = [r.localidade, r.uf]
+          .where((e) => e != null && e.trim().isNotEmpty)
+          .map((e) => e!.trim())
+          .join(' - ');
+      if (cidadeUf.isNotEmpty) _cidadeCtrl.text = cidadeUf;
     });
   }
 
@@ -907,15 +927,16 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
       final cidade = (d['cidade'] ?? d['localidade'] ?? '').toString().trim();
       final uf = (d['estado'] ?? d['uf'] ?? '').toString().trim();
       final cep = (d['cep'] ?? '').toString().trim();
-      final parts = [rua, bairro, cidade, uf]
-          .where((e) => e.isNotEmpty)
-          .join(', ');
+      final cidadeUf =
+          [cidade, uf].where((e) => e.isNotEmpty).join(' - ');
       if (!mounted) return;
       setState(() {
-        if (parts.isNotEmpty) _enderecoCtrl.text = parts;
+        if (rua.isNotEmpty) _ruaCtrl.text = rua;
+        if (bairro.isNotEmpty) _bairroCtrl.text = bairro;
+        if (cidadeUf.isNotEmpty) _cidadeCtrl.text = cidadeUf;
         if (cep.isNotEmpty && _cepCtrl.text.trim().isEmpty) _cepCtrl.text = cep;
       });
-      if (parts.isEmpty && cep.isEmpty) {
+      if (rua.isEmpty && bairro.isEmpty && cidade.isEmpty && cep.isEmpty) {
         _toast('A igreja ainda não tem endereço cadastrado.');
       }
     } catch (_) {
@@ -972,10 +993,23 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     if (_kind == AgKind.reuniao) {
       final resp = _responsavelCtrl.text.trim();
       if (resp.isNotEmpty) p['responsavel'] = resp;
-      final end = _enderecoCtrl.text.trim();
-      if (end.isNotEmpty) p['endereco'] = end;
       final cep = _cepCtrl.text.trim();
       if (cep.isNotEmpty) p['cep'] = cep;
+      final rua = _ruaCtrl.text.trim();
+      if (rua.isNotEmpty) p['rua'] = rua;
+      final bairro = _bairroCtrl.text.trim();
+      if (bairro.isNotEmpty) p['bairro'] = bairro;
+      final cidade = _cidadeCtrl.text.trim();
+      if (cidade.isNotEmpty) p['cidade'] = cidade;
+      final complemento = _complementoCtrl.text.trim();
+      if (complemento.isNotEmpty) p['complemento'] = complemento;
+      // Endereço composto (retrocompat com quem lê o campo único `endereco`).
+      final composto = [
+        [rua, complemento].where((e) => e.isNotEmpty).join(', '),
+        bairro,
+        cidade,
+      ].where((e) => e.isNotEmpty).join(' — ');
+      if (composto.isNotEmpty) p['endereco'] = composto;
       if (_selectedDepartments.isNotEmpty) {
         p['departamentos'] = _selectedDepartments.toList();
       }
@@ -1068,35 +1102,28 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottomInset),
-      child: Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        elevation: 0.5,
+        leading: IconButton(
+          tooltip: 'Voltar',
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).pop(false),
         ),
-        padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+        title: Text(
+          _isEdit ? 'Editar compromisso' : 'Novo compromisso',
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+        ),
+      ),
+      body: SafeArea(
         child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(18, 16, 18, 20 + bottomInset),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: Container(
-                  width: 42,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFCBD5E1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ),
-              Text(
-                _isEdit ? 'Editar compromisso' : 'Novo compromisso',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 16),
               TextField(
                 controller: _titleCtrl,
                 textCapitalization: TextCapitalization.sentences,
@@ -1314,6 +1341,19 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     );
   }
 
+  Widget _addrField(TextEditingController c, String hint, IconData icon) {
+    return TextField(
+      controller: c,
+      textCapitalization: TextCapitalization.words,
+      decoration: InputDecoration(
+        hintText: hint,
+        isDense: true,
+        prefixIcon: Icon(icon, size: 20),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
   Widget _reuniaoFields() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1381,13 +1421,15 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
             label: const Text('Usar endereço da igreja'),
           ),
         ),
-        const SizedBox(height: 4),
-        _multilineField(
-          controller: _enderecoCtrl,
-          hint: 'Rua, número, bairro, cidade/UF',
-          minLines: 2,
-          maxLines: 3,
-        ),
+        const SizedBox(height: 8),
+        _addrField(_ruaCtrl, 'Rua e número', Icons.signpost_outlined),
+        const SizedBox(height: 8),
+        _addrField(_bairroCtrl, 'Bairro', Icons.map_outlined),
+        const SizedBox(height: 8),
+        _addrField(_cidadeCtrl, 'Cidade / UF', Icons.location_city_rounded),
+        const SizedBox(height: 8),
+        _addrField(_complementoCtrl, 'Complemento (opcional)',
+            Icons.add_location_alt_outlined),
         const SizedBox(height: 14),
         _sectionLabel('Departamento(s)'),
         const SizedBox(height: 8),

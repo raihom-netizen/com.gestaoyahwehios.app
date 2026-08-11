@@ -1703,6 +1703,37 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     );
   }
 
+  /// Abre a MESMA grid de lançamentos (padrão do card de banco), mas filtrada
+  /// por TIPO — usado pelos cards Receitas/Despesas/Saldo clicáveis do painel.
+  Future<void> _openPanelFinanceTypeSheet(
+      BuildContext context, String typeFilter, String titulo) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 1.0,
+        minChildSize: 0.50,
+        maxChildSize: 1.0,
+        builder: (_, scrollCtrl) => _PanelFinanceContaMovimentos(
+          tenantId: widget.tenantId,
+          role: widget.role,
+          contaId: '',
+          contaNome: titulo,
+          typeFilter: typeFilter,
+          allFinanceDocs: _financeAllDocs,
+          scrollController: scrollCtrl,
+          onReloadParent: () async {
+            await _load();
+            widget.onRefreshDashboard?.call();
+          },
+        ),
+      ),
+    );
+  }
+
   /// Totais do período + saldo de abertura (paridade Controle Total).
   ({
     double saldoAbertura,
@@ -1859,8 +1890,9 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
     required double value,
     required Color accent,
     String? hint,
+    VoidCallback? onTap,
   }) {
-    return Container(
+    final card = Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       decoration: BoxDecoration(
@@ -1877,13 +1909,21 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: accent,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: accent,
+                  ),
+                ),
+              ),
+              if (onTap != null)
+                Icon(Icons.chevron_right_rounded, size: 16, color: accent),
+            ],
           ),
           const SizedBox(height: 4),
           Text(
@@ -1913,15 +1953,19 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
         ],
       ),
     );
+    if (onTap == null) return card;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: card,
+      ),
+    );
   }
 
   Widget _financeBlock(
       BuildContext context, ChurchFinanceInsight fi, bool narrow) {
-    final meta = fi.metaValor != null && fi.metaValor! > 0;
-    final pct = meta && fi.metaAcumulado != null
-        ? (fi.metaAcumulado!.clamp(0.0, fi.metaValor!) / fi.metaValor!)
-            .clamp(0.0, 1.0)
-        : 0.0;
     final contasAtivas =
         _contasDocs.where((c) => c.data()['ativo'] != false).toList();
     final idsAtivos = contasAtivas.map((c) => c.id).toSet();
@@ -2119,6 +2163,8 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                   value: totals.receitas,
                   accent: pos,
                   hint: 'Recebidas no período',
+                  onTap: () => _openPanelFinanceTypeSheet(
+                      context, 'income', 'Receitas'),
                 ),
                 const SizedBox(height: 10),
                 _panelSummaryMiniCard(
@@ -2128,6 +2174,8 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                   hint: totals.despesasPendentes > 0
                       ? '${totals.despesasPendentes} pendente(s)'
                       : 'Pagas no período',
+                  onTap: () => _openPanelFinanceTypeSheet(
+                      context, 'expense', 'Despesas'),
                 ),
                 const SizedBox(height: 10),
                 _panelSummaryMiniCard(
@@ -2135,6 +2183,8 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                   value: totals.saldoAcumulado,
                   accent: totals.saldoAcumulado >= 0 ? pos : neg,
                   hint: 'Acumulado até o fim do período',
+                  onTap: () =>
+                      _openPanelFinanceTypeSheet(context, 'all', 'Saldo'),
                 ),
               ] else
                 Row(
@@ -2145,6 +2195,8 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                         value: totals.receitas,
                         accent: pos,
                         hint: 'Recebidas no período',
+                        onTap: () => _openPanelFinanceTypeSheet(
+                            context, 'income', 'Receitas'),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -2156,6 +2208,8 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                         hint: totals.despesasPendentes > 0
                             ? '${totals.despesasPendentes} pendente(s)'
                             : 'Pagas no período',
+                        onTap: () => _openPanelFinanceTypeSheet(
+                            context, 'expense', 'Despesas'),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -2165,6 +2219,8 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
                         value: totals.saldoAcumulado,
                         accent: totals.saldoAcumulado >= 0 ? pos : neg,
                         hint: 'Acumulado até o fim',
+                        onTap: () => _openPanelFinanceTypeSheet(
+                            context, 'all', 'Saldo'),
                       ),
                     ),
                   ],
@@ -2235,106 +2291,10 @@ class ChurchMinistryHealthPanelState extends State<ChurchMinistryHealthPanel> {
             ],
           ),
         ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF0FDF4),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFBBF7D0)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.insights_rounded,
-                      color: Color(0xFF166534), size: 18),
-                  SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Inteligência (equiv. mensal no período)',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
-                        color: Color(0xFF14532D),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              if (narrow) ...[
-                _finRow('Média entradas / mês',
-                    _brMoney.format(fi.mediaEntradasMensal)),
-                _finRow('Média saídas / mês',
-                    _brMoney.format(fi.mediaSaidasMensal)),
-                _finRow('Projeção saídas',
-                    _brMoney.format(fi.projecaoSaidasProxMes)),
-              ] else
-                Row(
-                  children: [
-                    Expanded(
-                        child: _finRow('Média entradas / mês',
-                            _brMoney.format(fi.mediaEntradasMensal))),
-                    Expanded(
-                        child: _finRow('Média saídas / mês',
-                            _brMoney.format(fi.mediaSaidasMensal))),
-                    Expanded(
-                        child: _finRow('Projeção saídas',
-                            _brMoney.format(fi.projecaoSaidasProxMes))),
-                  ],
-                ),
-              if (meta) ...[
-                const SizedBox(height: 12),
-                Text(
-                  fi.metaTitulo ?? 'Meta ministerial',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                      color: Color(0xFF14532D)),
-                ),
-                const SizedBox(height: 8),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    value: pct,
-                    minHeight: 14,
-                    backgroundColor: Colors.white,
-                    color: const Color(0xFF22C55E),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '${_brMoney.format(fi.metaAcumulado ?? 0)} de ${_brMoney.format(fi.metaValor!)} (${(pct * 100).toStringAsFixed(0)}%)',
-                  style:
-                      TextStyle(fontSize: 12, color: Colors.grey.shade700),
-                ),
-              ],
-            ],
-          ),
-        ),
       ],
     );
   }
 
-  Widget _finRow(String k, String v) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-              child: Text(k,
-                  style:
-                      TextStyle(fontSize: 12, color: Colors.grey.shade700))),
-          Text(v,
-              style:
-                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
-        ],
-      ),
-    );
-  }
 }
 
 double _churchPanelParseValor(dynamic raw) {
@@ -2379,6 +2339,10 @@ class _PanelFinanceContaMovimentos extends StatefulWidget {
   final ScrollController scrollController;
   final Future<void> Function() onReloadParent;
 
+  /// Quando definido ('income' / 'expense' / 'all'), a grid filtra por TIPO em
+  /// vez de por conta (usado pelos cards Receitas/Despesas/Saldo do painel).
+  final String? typeFilter;
+
   const _PanelFinanceContaMovimentos({
     required this.tenantId,
     required this.role,
@@ -2387,6 +2351,7 @@ class _PanelFinanceContaMovimentos extends StatefulWidget {
     required this.allFinanceDocs,
     required this.scrollController,
     required this.onReloadParent,
+    this.typeFilter,
   });
 
   @override
@@ -2398,12 +2363,29 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
   bool _loading = true;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = const [];
 
-  /// Lançamentos desta conta a partir dos docs JÁ carregados do painel
+  /// Filtro unificado: por TIPO (typeFilter) ou por conta (contaId).
+  bool _matches(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+    final tf = widget.typeFilter;
+    if (tf == null) {
+      return _churchPanelFinanceDocTouchesAccount(d, widget.contaId);
+    }
+    if (tf == 'all') return true;
+    final tipo = (d.data()['type'] ?? '').toString().toLowerCase();
+    if (tf == 'income') {
+      return tipo.contains('entrada') || tipo.contains('receita');
+    }
+    if (tf == 'expense') {
+      return tipo.contains('saida') ||
+          tipo.contains('saída') ||
+          tipo.contains('despesa');
+    }
+    return true;
+  }
+
+  /// Lançamentos a partir dos docs JÁ carregados do painel
   /// (mesma fonte do saldo -> nunca fica "0" enquanto o saldo mostra valor).
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _fromPanelDocs() {
-    final list = widget.allFinanceDocs
-        .where((d) => _churchPanelFinanceDocTouchesAccount(d, widget.contaId))
-        .toList();
+    final list = widget.allFinanceDocs.where(_matches).toList();
     list.sort((a, b) => _churchPanelParseDate(
             b.data()['createdAt'] ?? b.data()['date'])
         .compareTo(
@@ -2430,9 +2412,7 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
           .limit(1000)
           .get();
       if (!mounted) return;
-      final list = snap.docs
-          .where((d) => _churchPanelFinanceDocTouchesAccount(d, widget.contaId))
-          .toList();
+      final list = snap.docs.where(_matches).toList();
       list.sort((a, b) => _churchPanelParseDate(
               b.data()['createdAt'] ?? b.data()['date'])
           .compareTo(_churchPanelParseDate(
@@ -2536,7 +2516,9 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
                             fontWeight: FontWeight.w900, fontSize: 18),
                       ),
                       Text(
-                        '${_docs.length} lançamento(s) nesta conta',
+                        widget.typeFilter != null
+                            ? '${_docs.length} lançamento(s) no período'
+                            : '${_docs.length} lançamento(s) nesta conta',
                         style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                       ),
                     ],

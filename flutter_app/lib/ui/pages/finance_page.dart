@@ -27,7 +27,6 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
-import 'package:gestao_yahweh/utils/web_page_reload.dart';
 import 'package:gestao_yahweh/ui/widgets/modern_module_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/skeleton_loader.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
@@ -1702,24 +1701,14 @@ class _FinanceScreenState extends State<FinanceScreen> {
           _scheduleMainPeriodReloadAfterMutationDebounced();
           return;
         }
-        final isWebAssertionClass =
-            kIsWeb &&
-            (FirestoreWebGuard.isTerminatedClientError(e) ||
-                FirestoreWebGuard.isInternalAssertionError(e));
-        // CURA DEFINITIVA, AUTOMÁTICA E SEM BOTÃO (pedido do usuário: "o módulo
-        // tem que funcionar sozinho"). A INTERNAL ASSERTION do WatchChangeAggregator
-        // (SDK JS 12.x) MATA a fila assíncrona do Firestore da sessão — NENHUM
-        // disableNetwork/enableNetwork revive (comprovado). Pior: o antigo
-        // recover+retry re-executava as 3 queries do período e reiniciava o watch
-        // stream → alocava MAIS targets → `targetId` disparava (1290→1372) →
-        // realimentava a assertion. A única cura confiável é um CLIENTE NOVO =
-        // recarregar a aba. Aqui é tela de LEITURA (lista), sem formulário a meio,
-        // então o reload é seguro. `reloadWebPageHard()` tem cooldown de 3min
-        // anti-loop; se estiver no cooldown, cai no banner mínimo (só "Tentar
-        // novamente"). Nada de recover+retry (amplificava o churn).
-        if (isWebAssertionClass) {
-          reloadWebPageHard();
-        }
+        // ESTABILIDADE (pedido do usuário: "o módulo NÃO pode recarregar
+        // sozinho"). NADA de reload automático nem de recover+retry (que
+        // reiniciava o watch stream e AMPLIFICAVA o churn de targets → realimenta
+        // a assertion). A prevenção do assertion é feita na RAIZ
+        // (firestore_app_config: sem long-polling → `.get()` = RunQuery, não aloca
+        // alvo). Se mesmo assim pingar um assert isolado, apenas mostramos o
+        // estado de erro estável com "Tentar novamente" — a página permanece,
+        // sem F5 surpresa.
         setState(() {
           _mainPeriodLoading = false;
           _mainPeriodLoadError = e;
