@@ -13,7 +13,7 @@ class TransactionNameCleaner {
   static final RegExp _tailAuthDigits = RegExp(r'[\s_\-]+\d{4,}$');
   static final RegExp _underscores = RegExp(r'_+');
 
-  /// Ex.: `PG *MARKET_SAO_JOSE_12345` → `Market Sao Jose`.
+  /// Ex.: `PG *MARKET_SAO_JOSE_12345` ? `Market Sao Jose`.
   static String clean(String rawName) {
     var s = rawName.trim();
     if (s.isEmpty) return s;

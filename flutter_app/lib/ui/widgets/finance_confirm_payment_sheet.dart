@@ -14,6 +14,7 @@ import 'package:gestao_yahweh/utils/date_picker_a11y.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_datetime.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'finance_premium_ui.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Resultado da confirmação de pagamento/recebimento.
 class FinanceConfirmPaymentSheetResult {
@@ -928,7 +929,7 @@ Future<void> commitFinanceConfirmPaymentBatch({
   for (var i = 0; i < unique.length; i += 400) {
     final end = i + 400 < unique.length ? i + 400 : unique.length;
     final chunk = unique.sublist(i, end);
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = YahwehBatch();
     for (final id in chunk) {
       final updateData = <String, dynamic>{
         'updatedAt': updatedAt,
@@ -942,23 +943,23 @@ Future<void> commitFinanceConfirmPaymentBatch({
         if (sched.autoDebitOnDueDate && aid.isNotEmpty) {
           updateData['paidFromFinanceAccountId'] = aid;
         } else if (!sched.autoDebitOnDueDate) {
-          updateData['paidFromFinanceAccountId'] = FieldValue.delete();
+          updateData['paidFromFinanceAccountId'] = YahwehFv.deleteField;
         }
       } else {
         updateData['status'] = 'paid';
         updateData['paidAt'] = confTs;
         updateData['effectiveDate'] = confTs;
-        updateData['faturaPaymentScheduledAt'] = FieldValue.delete();
-        updateData['faturaClosedAt'] = FieldValue.delete();
-        updateData['faturaAutoDebit'] = FieldValue.delete();
+        updateData['faturaPaymentScheduledAt'] = YahwehFv.deleteField;
+        updateData['faturaClosedAt'] = YahwehFv.deleteField;
+        updateData['faturaAutoDebit'] = YahwehFv.deleteField;
         if (creditCardFaturaPayment) {
           if (aid.isNotEmpty) {
             updateData['paidFromFinanceAccountId'] = aid;
           } else {
-            updateData['paidFromFinanceAccountId'] = FieldValue.delete();
+            updateData['paidFromFinanceAccountId'] = YahwehFv.deleteField;
           }
         } else if (aid.isEmpty) {
-          updateData['financeAccountId'] = FieldValue.delete();
+          updateData['financeAccountId'] = YahwehFv.deleteField;
         } else {
           updateData['financeAccountId'] = aid;
         }

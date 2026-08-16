@@ -12,8 +12,9 @@ import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
-/// Resultado — membros pendentes `igrejas/{churchId}/membros`.
+/// Resultado ? membros pendentes `igrejas/{churchId}/membros`.
 class ChurchAprovacoesPendentesResult {
   const ChurchAprovacoesPendentesResult({
     required this.churchId,
@@ -236,7 +237,7 @@ abstract final class ChurchAprovacoesLoadService {
     return _tryLocalCaches(churchId);
   }
 
-  /// Cache local (RAM → Hive → mem Firestore) — **0 pendentes também é válido**.
+  /// Cache local (RAM ? Hive ? mem Firestore) ? **0 pendentes também ? válido**.
   static Future<ChurchAprovacoesPendentesResult?> _tryLocalCaches(
     String churchId,
   ) async {
@@ -336,7 +337,7 @@ abstract final class ChurchAprovacoesLoadService {
     return snap.docs;
   }
 
-  /// Pendentes — query indexada em `igrejas/{churchId}/membros` + varredura fallback.
+  /// Pendentes ? query indexada em `igrejas/{churchId}/membros` + varredura fallback.
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
       _fetchPendentesNetwork(String churchId, String cacheKey) async {
     if (kIsWeb) {
@@ -369,7 +370,7 @@ abstract final class ChurchAprovacoesLoadService {
       } catch (_) {}
     }
 
-    // Paralelo — antes eram 3 round-trips sequenciais (+ scan 800 se vazio).
+    // Paralelo ? antes eram 3 round-trips sequenciais (+ scan 800 se vazio).
     await Future.wait([
       mergeQuery(
         col.where('status', isEqualTo: 'pendente').limit(kPendentesQueryLimit),
@@ -500,7 +501,7 @@ abstract final class ChurchAprovacoesLoadService {
     if (s.contains('permission-denied')) {
       return 'Sem permissão para ver cadastros pendentes.';
     }
-    if (s.length > 180) return '${s.substring(0, 177)}…';
+    if (s.length > 180) return '${s.substring(0, 177)}?';
     return s;
   }
 
@@ -716,9 +717,9 @@ abstract final class ChurchAprovacoesLoadService {
       final slice = ids.sublist(i, end);
       await runFirestorePublishWithRecovery(
         () async {
-          final batch = ChurchRepository.batch();
+          final batch = YahwehBatch();
           for (final id in slice) {
-            batch.delete(col.doc(id));
+            batch.deleteDoc(col.doc(id));
           }
           await batch.commit();
         },

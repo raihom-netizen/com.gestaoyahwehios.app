@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/data/biblical_finance_tips.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/insights_engine.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Painel MASTER — cadastro/edição das "Dicas inteligentes" (financeiras e
 /// evangélicas) exibidas no módulo Financeiro dos usuários. Escreve na coleção
@@ -178,7 +179,7 @@ class FinancialTipsAdminPage extends StatelessWidget {
     try {
       final existing = await _col.get();
       final existingIds = existing.docs.map((d) => d.id).toSet();
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = YahwehBatch();
       var novas = 0;
       for (final tip in kBiblicalFinanceTips) {
         if (existingIds.contains(tip.id)) continue;
@@ -193,7 +194,7 @@ class FinancialTipsAdminPage extends StatelessWidget {
           'textoVersiculo': tip.textoVersiculo,
           'ativo': true,
           'origem': 'wisdom_biblical',
-          'atualizadoEm': FieldValue.serverTimestamp(),
+          'atualizadoEm': YahwehFv.serverTimestamp,
         });
         novas++;
       }

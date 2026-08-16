@@ -335,7 +335,7 @@ class AppPermissions {
     return ChurchRolePermissions.isCorporateModuleTeam(role);
   }
 
-  /// Criar/editar/excluir fornecedores — corporate, granular `fornecedores` ou `financeiro`.
+  /// Criar/editar/excluir fornecedores ? corporate, granular `fornecedores` ou `financeiro`.
   static bool canWriteFornecedores(
     String role, {
     List<String>? permissions,
@@ -418,12 +418,12 @@ class AppPermissions {
   /// Módulo Membros: só a própria ficha (editar dados, foto e carteirinha).
   ///
   /// Papel básico (`membro`/`visitante`, `restrictedNav`): **sempre** só o próprio
-  /// cadastro — `membros` / `membros_ver` / `membros_edicao` herdados de cargo
+  /// cadastro ? `membros` / `membros_ver` / `membros_edicao` herdados de cargo
   /// **não** abrem o diretório (segurança).
   /// Equipe (gestor, pastor, secretário, líder, diácono, etc.) vê a lista completa.
   static bool isSelfOnlyMemberAccess(String role, List<String>? permissions) {
     final s = ChurchRolePermissions.snapshotFor(role);
-    // Membro comum: trava absoluta — nunca lista dos outros.
+    // Membro comum: trava absoluta ? nunca lista dos outros.
     if (s.restrictedNav) return true;
     if (canEditMembersDirectory(role, permissions)) return false;
     if (hasModulePermission(permissions, 'membros_ver')) return false;
@@ -483,7 +483,7 @@ class AppPermissions {
     return false;
   }
 
-  /// Links de recebimento (Mercado Pago) — gestor, pastor, tesoureiro.
+  /// Links de recebimento (Mercado Pago) ? gestor, pastor, tesoureiro.
   static bool canManageChurchPaymentReceiving(
     String role, {
     List<String>? permissions,
@@ -524,7 +524,7 @@ class AppPermissions {
     return ChurchRolePermissions.snapshotFor(role).editDepartments;
   }
 
-  /// Aba Chat → Grupos: vê **todos** os departamentos (adm, gestor, pastor, secretário, tesoureiro).
+  /// Aba Chat ? Grupos: vê **todos** os departamentos (adm, gestor, pastor, secretário, tesoureiro).
   /// **Não** inclui líder de departamento — esse vê só os grupos em que participa + os que lidera.
   static bool chatHubSeesAllDepartmentGroups(
     String role, {

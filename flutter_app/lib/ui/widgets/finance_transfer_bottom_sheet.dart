@@ -26,6 +26,7 @@ import 'finance_bank_brand_thumb.dart';
 import 'finance_premium_ui.dart';
 import 'modern_module_ui.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_datetime.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 const List<String> _kTransferReceiptExtensions = ['pdf', 'png', 'jpg', 'jpeg'];
 
@@ -1177,7 +1178,7 @@ class _FinanceTransferEdit {
             transferDay, existingDate);
     final transferTs = Timestamp.fromDate(transferAt);
 
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = YahwehBatch();
     for (final doc in pairSnap.docs) {
       final dir = (doc.data()['transferDirection'] ?? '').toString();
       final isOut = dir == 'out';
@@ -1193,7 +1194,7 @@ class _FinanceTransferEdit {
         'description': isOut
             ? 'Saída • Transferência • $histLine$notePart'
             : 'Entrada • Transferência • $histLine$notePart',
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       });
     }
     try {

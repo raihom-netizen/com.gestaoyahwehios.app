@@ -5,7 +5,7 @@ class PremiumProLimits {
   /// Ciclo do plano **mensal** PRO: mesmos 30 dias de licença que o backend aplica ao aprovar pagamento.
   static const int monthlyLicenseDays = 30;
 
-  /// Conexões Open Finance **inclusas** no plano padrão; acima disso → [extraConnectionMonthlyBrl]/mês cada.
+  /// Conexões Open Finance **inclusas** no plano padrão; acima disso ? [extraConnectionMonthlyBrl]/mês cada.
   static const int defaultIncludedBankConnections = 2;
 
   /// Contas com limite incluso ampliado (monitoramento manual de custo API).
@@ -17,7 +17,7 @@ class PremiumProLimits {
     'isabelle.krdoso@gmail.com',
   };
 
-  /// Conexões inclusas para o e-mail do utilizador (normalmente 2; VIP na lista → 5).
+  /// Conexões inclusas para o e-mail do utilizador (normalmente 2; VIP na lista ? 5).
   static int includedBankConnectionsForEmail(String? email) {
     final e = email?.trim().toLowerCase() ?? '';
     if (kHighIncludedConnectionsEmails.contains(e)) return vipIncludedBankConnections;
@@ -60,9 +60,9 @@ class PremiumProLimits {
   static String get extraConnectionAnnualPriceLabel =>
       'R\$ ${extraConnectionAnnualBrl.toStringAsFixed(2).replaceAll('.', ',')}';
 
-  /// Frase comercial: [included] conexões simultâneas inclusas; da [includedPlusOne]ª cobra-se extra (mesmo [extraConnectionPriceLabel] do app).
+  /// Frase comercial: [included] conexões simultâneas inclusas; da [includedPlusOne]? cobra-se extra (mesmo [extraConnectionPriceLabel] do app).
   static String includedConnectionsPricingLine(int included, int includedPlusOne) =>
-      '$included conexões de banco inclusas no plano. A partir da $includedPlusOneª, cada uma custa '
+      '$included conexões de banco inclusas no plano. A partir da $includedPlusOne?, cada uma custa '
       '$extraConnectionPriceLabel/mês a mais — o mesmo valor já usado no app para cobrir custos de '
       'integração e não operarmos em prejuízo.';
 

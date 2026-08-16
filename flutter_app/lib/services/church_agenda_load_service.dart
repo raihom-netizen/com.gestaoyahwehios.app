@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Resultado da carga agenda — `igrejas/{churchId}/agenda`.
 class ChurchAgendaLoadResult {
@@ -659,7 +660,7 @@ abstract final class ChurchAgendaLoadService {
   }
 
   /// Commit de batch (vários creates/deletes da agenda).
-  static Future<void> commitAgendaBatch(WriteBatch batch) async {
+  static Future<void> commitAgendaBatch(YahwehBatch batch) async {
     await _prepareWrite();
     await FirestoreWebGuard.runWithWebRecovery(
       () => runFirestorePublishWithRecovery(
@@ -696,9 +697,9 @@ abstract final class ChurchAgendaLoadService {
     if (ids.isEmpty) return;
     const chunk = 450;
     for (var i = 0; i < ids.length; i += chunk) {
-      final batch = ChurchRepository.batch();
+      final batch = YahwehBatch();
       for (final id in ids.skip(i).take(chunk)) {
-        batch.delete(ChurchUiCollections.agenda(cid).doc(id));
+        batch.deleteDoc(ChurchUiCollections.agenda(cid).doc(id));
       }
       await commitAgendaBatch(batch);
     }
@@ -723,9 +724,9 @@ abstract final class ChurchAgendaLoadService {
     if (snap.docs.isEmpty) return 0;
     const chunk = 450;
     for (var i = 0; i < snap.docs.length; i += chunk) {
-      final batch = ChurchRepository.batch();
+      final batch = YahwehBatch();
       for (final d in snap.docs.skip(i).take(chunk)) {
-        batch.delete(d.reference);
+        batch.deleteDoc(d.reference);
       }
       await commitAgendaBatch(batch);
     }

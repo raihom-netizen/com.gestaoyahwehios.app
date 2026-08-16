@@ -18,6 +18,7 @@ class YahwehMonthCalendar extends StatelessWidget {
     required this.selectedDay,
     required this.dayColors,
     this.dayCounts = const {},
+    this.dayColorBands = const {},
     required this.onDayTap,
     this.onDaySelectedTap,
     required this.onMonthDelta,
@@ -35,6 +36,9 @@ class YahwehMonthCalendar extends StatelessWidget {
 
   /// Contagem de itens por dia (chave `yyyy-MM-dd`) — mostra o badge de número.
   final Map<String, int> dayCounts;
+
+  /// Cores dos compromissos do dia, usadas como faixas quando há vários itens.
+  final Map<String, List<Color>> dayColorBands;
 
   /// Cor usada quando um dia tem itens de tipos diferentes (misto).
   final Color mixedColor;
@@ -111,8 +115,10 @@ class YahwehMonthCalendar extends StatelessWidget {
   }
 
   Widget _monthHeader() {
-    final title =
-        DateFormat("MMMM 'de' yyyy", 'pt_BR').format(visibleMonth).toUpperCase();
+    final title = DateFormat(
+      "MMMM 'de' yyyy",
+      'pt_BR',
+    ).format(visibleMonth).toUpperCase();
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -170,8 +176,11 @@ class YahwehMonthCalendar extends StatelessWidget {
 
   Widget _grid() {
     final first = DateTime(visibleMonth.year, visibleMonth.month, 1);
-    final daysInMonth =
-        DateTime(visibleMonth.year, visibleMonth.month + 1, 0).day;
+    final daysInMonth = DateTime(
+      visibleMonth.year,
+      visibleMonth.month + 1,
+      0,
+    ).day;
     final leading = first.weekday % 7; // domingo = 0
     final today = _dateOnly(DateTime.now());
     final sel = _dateOnly(selectedDay);
@@ -190,30 +199,40 @@ class YahwehMonthCalendar extends StatelessWidget {
 
     // Web (tela larga): célula ACHATADA (mais larga que alta) para o calendário
     // não ficar gigante; mobile: célula levemente mais ALTA (maior alvo de toque).
-    final cellAspect = kIsWeb ? 1.45 : 0.92;
+    final cellAspect = kIsWeb ? 1.22 : 0.78;
 
     final rows = <Widget>[];
     for (var i = 0; i < cells.length; i += 7) {
-      rows.add(Row(
-        children: [
-          for (var j = 0; j < 7; j++)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(3),
-                child: AspectRatio(aspectRatio: cellAspect, child: cells[i + j]),
+      rows.add(
+        Row(
+          children: [
+            for (var j = 0; j < 7; j++)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(3),
+                  child: AspectRatio(
+                    aspectRatio: cellAspect,
+                    child: cells[i + j],
+                  ),
+                ),
               ),
-            ),
-        ],
-      ));
+          ],
+        ),
+      );
     }
     return Column(children: rows);
   }
 
-  Widget _dayCell(DateTime day, {required bool isToday, required bool isSelected}) {
+  Widget _dayCell(
+    DateTime day, {
+    required bool isToday,
+    required bool isSelected,
+  }) {
     final key = keyFor(day);
     final bg = dayColors[key];
     final count = dayCounts[key] ?? 0;
-    final hasItems = bg != null;
+    final bands = dayColorBands[key] ?? const <Color>[];
+    final hasItems = bg != null || bands.isNotEmpty;
     final fg = hasItems ? Colors.white : const Color(0xFF334155);
 
     return InkWell(
@@ -227,7 +246,14 @@ class YahwehMonthCalendar extends StatelessWidget {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: bg ?? Colors.white,
+          color: bands.length > 1 ? null : (bg ?? Colors.white),
+          gradient: bands.length > 1
+              ? LinearGradient(
+                  colors: bands,
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                )
+              : null,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected
@@ -242,7 +268,7 @@ class YahwehMonthCalendar extends StatelessWidget {
               child: Text(
                 '${day.day}',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 18,
                   fontWeight: FontWeight.w700,
                   color: fg,
                 ),
@@ -251,23 +277,27 @@ class YahwehMonthCalendar extends StatelessWidget {
             if (isToday)
               Positioned(
                 bottom: 3,
-                left: 0,
-                right: 0,
+                left: 3,
                 child: Center(
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 1,
+                    ),
                     decoration: BoxDecoration(
                       color: hasItems ? Colors.white : const Color(0xFF1D4ED8),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
+                      maxLines: 1,
+                      overflow: TextOverflow.clip,
                       'HOJE',
                       style: TextStyle(
-                        fontSize: 7.5,
+                        fontSize: 8.0,
                         fontWeight: FontWeight.w900,
-                        color:
-                            hasItems ? const Color(0xFF1D4ED8) : Colors.white,
+                        color: hasItems
+                            ? const Color(0xFF1D4ED8)
+                            : Colors.white,
                       ),
                     ),
                   ),
@@ -278,8 +308,8 @@ class YahwehMonthCalendar extends StatelessWidget {
                 top: 3,
                 right: 4,
                 child: Container(
-                  width: 16,
-                  height: 16,
+                  width: 22,
+                  height: 22,
                   alignment: Alignment.center,
                   decoration: const BoxDecoration(
                     color: Colors.white,

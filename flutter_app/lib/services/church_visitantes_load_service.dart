@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/core/offline/optimistic_firestore_write.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Resultado — `igrejas/{churchId}/visitantes` (Web = Android = iOS).
 class ChurchVisitantesLoadResult {
@@ -536,9 +537,9 @@ abstract final class ChurchVisitantesLoadService {
     for (var i = 0; i < ids.length; i += chunkSize) {
       final end = (i + chunkSize > ids.length) ? ids.length : i + chunkSize;
       final slice = ids.sublist(i, end);
-      final batch = ChurchRepository.batch();
+      final batch = YahwehBatch();
       for (final id in slice) {
-        batch.delete(col.doc(id));
+        batch.deleteDoc(col.doc(id));
       }
       await runFirestorePublishWithRecovery(
         () => batch.commit(),

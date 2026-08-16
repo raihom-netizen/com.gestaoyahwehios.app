@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/panel_feed_post_validator.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/services/panel_programacao_loader.dart';
@@ -18,6 +19,7 @@ import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Resultado da carga de eventos — `igrejas/{churchId}/eventos`.
 class ChurchEventosLoadResult {
@@ -47,16 +49,16 @@ class ChurchEventosLoadResult {
 abstract final class ChurchEventosLoadService {
   ChurchEventosLoadService._();
 
-  static const int kDefaultFeedLimit = PanelFeedPostValidator.kPanelFeedPageSize;
+  static const int kDefaultFeedLimit =
+      PanelFeedPostValidator.kPanelFeedPageSize;
   static const int kGalleryLimit = 250;
   static const String _legacyEventsCollectionEn = 'events';
 
   static final Map<
-      String,
-      ({
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-        DateTime at,
-      })> _ram = {};
+    String,
+    ({List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, DateTime at})
+  >
+  _ram = {};
 
   static const Duration _ramTtl = Duration(minutes: 20);
 
@@ -76,13 +78,12 @@ abstract final class ChurchEventosLoadService {
   static List<QueryDocumentSnapshot<Map<String, dynamic>>> _withoutDeleted(
     String churchId,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) =>
-      TenantDeletedDocTombstones.filter(
-        churchId,
-        TenantModuleKeys.eventos,
-        docs,
-        (d) => d.id,
-      );
+  ) => TenantDeletedDocTombstones.filter(
+    churchId,
+    TenantModuleKeys.eventos,
+    docs,
+    (d) => d.id,
+  );
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekRam(
     String seedTenantId, {
@@ -139,16 +140,15 @@ abstract final class ChurchEventosLoadService {
   ) {
     final sorted = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
     sorted.sort((a, b) {
-      final ta =
-          _startAt(a.data()) ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final tb =
-          _startAt(b.data()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final ta = _startAt(a.data()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final tb = _startAt(b.data()) ?? DateTime.fromMillisecondsSinceEpoch(0);
       return tb.compareTo(ta);
     });
     return sorted;
   }
 
-  static List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterRenderableFeed(
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>
+  _filterRenderableFeed(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     String churchId, {
     int? max,
@@ -178,7 +178,8 @@ abstract final class ChurchEventosLoadService {
     return true;
   }
 
-  static List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterPublishedLegacySafe(
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>
+  _filterPublishedLegacySafe(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
     int? max,
   }) {
@@ -205,8 +206,9 @@ abstract final class ChurchEventosLoadService {
         churchId: churchId,
         docs: const [],
         readSource: 'eventos_module_removed',
-        collectionPath:
-            churchId.isEmpty ? 'eventos' : 'igrejas/$churchId/eventos',
+        collectionPath: churchId.isEmpty
+            ? 'eventos'
+            : 'igrejas/$churchId/eventos',
       );
     }
     final churchId = _resolve(seedTenantId);
@@ -227,11 +229,13 @@ abstract final class ChurchEventosLoadService {
     if (!forceRefresh && !forceServer) {
       final ramHit = peekRam(churchId, limit: limit);
       if (ramHit != null) {
-        unawaited(_refreshFeedInBackground(
-          churchId: churchId,
-          limit: limit,
-          ramKey: ramKey,
-        ));
+        unawaited(
+          _refreshFeedInBackground(
+            churchId: churchId,
+            limit: limit,
+            ramKey: ramKey,
+          ),
+        );
         return ChurchEventosLoadResult(
           churchId: churchId,
           docs: ramHit.length > limit ? ramHit.sublist(0, limit) : ramHit,
@@ -245,11 +249,13 @@ abstract final class ChurchEventosLoadService {
       if (mem != null) {
         final docs = _withoutDeleted(churchId, _sortByStartAt(mem.docs));
         _putRam(ramKey, docs);
-        unawaited(_refreshFeedInBackground(
-          churchId: churchId,
-          limit: limit,
-          ramKey: ramKey,
-        ));
+        unawaited(
+          _refreshFeedInBackground(
+            churchId: churchId,
+            limit: limit,
+            ramKey: ramKey,
+          ),
+        );
         return ChurchEventosLoadResult(
           churchId: churchId,
           docs: docs.length > limit ? docs.sublist(0, limit) : docs,
@@ -271,11 +277,13 @@ abstract final class ChurchEventosLoadService {
           );
           if (docs.isNotEmpty) {
             _putRam(ramKey, docs);
-            unawaited(_refreshFeedInBackground(
-              churchId: churchId,
-              limit: limit,
-              ramKey: ramKey,
-            ));
+            unawaited(
+              _refreshFeedInBackground(
+                churchId: churchId,
+                limit: limit,
+                ramKey: ramKey,
+              ),
+            );
             return ChurchEventosLoadResult(
               churchId: churchId,
               docs: docs.length > limit ? docs.sublist(0, limit) : docs,
@@ -327,11 +335,13 @@ abstract final class ChurchEventosLoadService {
             _sortByStartAt(cacheSnap.docs),
           );
           _putRam(ramKey, docs);
-          unawaited(_refreshFeedInBackground(
-            churchId: churchId,
-            limit: limit,
-            ramKey: ramKey,
-          ));
+          unawaited(
+            _refreshFeedInBackground(
+              churchId: churchId,
+              limit: limit,
+              ramKey: ramKey,
+            ),
+          );
           return ChurchEventosLoadResult(
             churchId: churchId,
             docs: docs.length > limit ? docs.sublist(0, limit) : docs,
@@ -373,15 +383,18 @@ abstract final class ChurchEventosLoadService {
     }
 
     try {
-      final snap = await IgrejaDirectFirestoreReads.listSubcollection(
-        churchId,
-        'eventos',
-        moduleLabel: 'Eventos',
-        limit: limit,
-        cacheKey: ramKey,
-      ).timeout(
-        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
-      );
+      final snap =
+          await IgrejaDirectFirestoreReads.listSubcollection(
+            churchId,
+            'eventos',
+            moduleLabel: 'Eventos',
+            limit: limit,
+            cacheKey: ramKey,
+          ).timeout(
+            kIsWeb
+                ? const Duration(seconds: 14)
+                : ChurchPanelReadTimeouts.queryCap,
+          );
       if (snap.docs.isNotEmpty) {
         final docs = _withoutDeleted(
           churchId,
@@ -401,7 +414,7 @@ abstract final class ChurchEventosLoadService {
         );
       }
     } catch (e) {
-      lastError ??= e;
+      lastError = e;
     }
 
     final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
@@ -428,9 +441,7 @@ abstract final class ChurchEventosLoadService {
 
   /// Categorias de evento — `igrejas/{id}/event_categories`.
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      loadEventCategories({
-    required String seedTenantId,
-  }) async {
+  loadEventCategories({required String seedTenantId}) async {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) return const [];
 
@@ -449,10 +460,12 @@ abstract final class ChurchEventosLoadService {
             .timeout(const Duration(seconds: 3));
         if (cacheSnap.docs.isNotEmpty) {
           final list = cacheSnap.docs.toList()
-            ..sort((a, b) => (a.data()['nome'] ?? '')
-                .toString()
-                .toLowerCase()
-                .compareTo((b.data()['nome'] ?? '').toString().toLowerCase()));
+            ..sort(
+              (a, b) => (a.data()['nome'] ?? '')
+                  .toString()
+                  .toLowerCase()
+                  .compareTo((b.data()['nome'] ?? '').toString().toLowerCase()),
+            );
           return list;
         }
       } catch (e) {
@@ -462,7 +475,9 @@ abstract final class ChurchEventosLoadService {
 
     Future<QuerySnapshot<Map<String, dynamic>>> read() =>
         FirestoreReadResilience.getQuery(
-          ChurchUiCollections.churchDoc(churchId).collection('event_categories'),
+          ChurchUiCollections.churchDoc(
+            churchId,
+          ).collection('event_categories'),
           cacheKey: cacheKey,
           maxAttempts: kIsWeb ? 4 : 3,
           attemptTimeout: ChurchPanelReadTimeouts.attempt,
@@ -474,15 +489,16 @@ abstract final class ChurchEventosLoadService {
     );
 
     final list = snap.docs.toList()
-      ..sort((a, b) => (a.data()['nome'] ?? '')
-          .toString()
-          .toLowerCase()
-          .compareTo((b.data()['nome'] ?? '').toString().toLowerCase()));
+      ..sort(
+        (a, b) => (a.data()['nome'] ?? '').toString().toLowerCase().compareTo(
+          (b.data()['nome'] ?? '').toString().toLowerCase(),
+        ),
+      );
     return list;
   }
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _loadFirestoreFeed({
+  _loadFirestoreFeed({
     required String churchId,
     required int limit,
     required String cacheKey,
@@ -542,8 +558,7 @@ abstract final class ChurchEventosLoadService {
           maxAttempts: kIsWeb ? 4 : 3,
           attemptTimeout: ChurchPanelReadTimeouts.attempt,
         );
-        final strict =
-            ChurchModuleFirestoreListRead.filterPublishedFeedRecords(
+        final strict = ChurchModuleFirestoreListRead.filterPublishedFeedRecords(
           plainSnap.docs,
         );
         final filtered = strict.isNotEmpty
@@ -566,9 +581,7 @@ abstract final class ChurchEventosLoadService {
 
     // Caminho direto — sem runWithWebRecovery (multiplicava timeouts / sync na Web).
     final snap = await readServer().timeout(
-      kIsWeb
-          ? const Duration(seconds: 12)
-          : ChurchPanelReadTimeouts.warmCap,
+      kIsWeb ? const Duration(seconds: 12) : ChurchPanelReadTimeouts.warmCap,
     );
 
     final sorted = _sortByStartAt(snap.docs);
@@ -631,8 +644,9 @@ abstract final class ChurchEventosLoadService {
         churchId: churchId,
         docs: const [],
         readSource: 'eventos_module_removed',
-        collectionPath:
-            churchId.isEmpty ? 'eventos' : 'igrejas/$churchId/eventos',
+        collectionPath: churchId.isEmpty
+            ? 'eventos'
+            : 'igrejas/$churchId/eventos',
       );
     }
     final churchId = _resolve(seedTenantId);
@@ -665,7 +679,9 @@ abstract final class ChurchEventosLoadService {
     if (!forceRefresh && !forceServer) {
       final ramHit = _peekRam(ramKey);
       if (ramHit != null) {
-        unawaited(_refreshGalleryInBackground(churchId: churchId, ramKey: ramKey));
+        unawaited(
+          _refreshGalleryInBackground(churchId: churchId, ramKey: ramKey),
+        );
         return ChurchEventosLoadResult(
           churchId: churchId,
           docs: ramHit,
@@ -700,7 +716,9 @@ abstract final class ChurchEventosLoadService {
           );
           if (docs.isNotEmpty) {
             _putRam(ramKey, docs);
-            unawaited(_refreshGalleryInBackground(churchId: churchId, ramKey: ramKey));
+            unawaited(
+              _refreshGalleryInBackground(churchId: churchId, ramKey: ramKey),
+            );
             return ChurchEventosLoadResult(
               churchId: churchId,
               docs: docs,
@@ -723,7 +741,9 @@ abstract final class ChurchEventosLoadService {
             _sortByStartAt(cacheSnap.docs),
           );
           _putRam(ramKey, docs);
-          unawaited(_refreshGalleryInBackground(churchId: churchId, ramKey: ramKey));
+          unawaited(
+            _refreshGalleryInBackground(churchId: churchId, ramKey: ramKey),
+          );
           return ChurchEventosLoadResult(
             churchId: churchId,
             docs: docs,
@@ -758,15 +778,18 @@ abstract final class ChurchEventosLoadService {
     }
 
     try {
-      final snap = await IgrejaDirectFirestoreReads.listSubcollection(
-        churchId,
-        'eventos',
-        moduleLabel: 'Eventos Galeria',
-        limit: limit,
-        cacheKey: '${ramKey}_direct',
-      ).timeout(
-        kIsWeb ? const Duration(seconds: 14) : ChurchPanelReadTimeouts.queryCap,
-      );
+      final snap =
+          await IgrejaDirectFirestoreReads.listSubcollection(
+            churchId,
+            'eventos',
+            moduleLabel: 'Eventos Galeria',
+            limit: limit,
+            cacheKey: '${ramKey}_direct',
+          ).timeout(
+            kIsWeb
+                ? const Duration(seconds: 14)
+                : ChurchPanelReadTimeouts.queryCap,
+          );
       final docs = _withoutDeleted(churchId, _sortByStartAt(snap.docs));
       _putRam(ramKey, docs);
       unawaited(_persistHive(churchId, docs));
@@ -777,7 +800,7 @@ abstract final class ChurchEventosLoadService {
         collectionPath: path,
       );
     } catch (e) {
-      lastError ??= e;
+      lastError = e;
     }
 
     final mem = FirestoreReadResilience.peekLastGoodQuery(ramKey);
@@ -821,7 +844,7 @@ abstract final class ChurchEventosLoadService {
   }
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _loadFirestoreGallery({
+  _loadFirestoreGallery({
     required String churchId,
     required String cacheKey,
     required bool forceServer,
@@ -845,7 +868,8 @@ abstract final class ChurchEventosLoadService {
       } catch (_) {}
     }
 
-    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> plainLoad() async {
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+    plainLoad() async {
       final plainSnap = await FirestoreReadResilience.getQuery(
         plain(),
         cacheKey: '${cacheKey}_plain',
@@ -855,7 +879,8 @@ abstract final class ChurchEventosLoadService {
       return _sortByStartAt(plainSnap.docs);
     }
 
-    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> readServer() async {
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+    readServer() async {
       try {
         final snap = await FirestoreReadResilience.getQuery(
           byStart(),
@@ -871,9 +896,7 @@ abstract final class ChurchEventosLoadService {
 
     if (kIsWeb) {
       try {
-        final plain = await plainLoad().timeout(
-          const Duration(seconds: 14),
-        );
+        final plain = await plainLoad().timeout(const Duration(seconds: 14));
         if (plain.isNotEmpty) return plain;
       } catch (_) {}
     }
@@ -897,14 +920,15 @@ abstract final class ChurchEventosLoadService {
   }
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _loadLegacyEventsEn({
+  _loadLegacyEventsEn({
     required String churchId,
     required int limit,
     required String cacheKey,
     required bool forceServer,
   }) async {
-    final legacyCol =
-        ChurchUiCollections.churchDoc(churchId).collection(_legacyEventsCollectionEn);
+    final legacyCol = ChurchUiCollections.churchDoc(
+      churchId,
+    ).collection(_legacyEventsCollectionEn);
     Query<Map<String, dynamic>> plain() => legacyCol.limit(limit);
     Query<Map<String, dynamic>> byStart() =>
         legacyCol.orderBy('startAt', descending: true).limit(limit);
@@ -922,7 +946,8 @@ abstract final class ChurchEventosLoadService {
       }
     }
 
-    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> readServer() async {
+    Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+    readServer() async {
       try {
         final snap = await FirestoreReadResilience.getQuery(
           byStart(),
@@ -948,7 +973,9 @@ abstract final class ChurchEventosLoadService {
     );
   }
 
-  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekRam(String key) {
+  static List<QueryDocumentSnapshot<Map<String, dynamic>>>? _peekRam(
+    String key,
+  ) {
     final hit = _ram[key];
     if (hit == null) return null;
     if (DateTime.now().difference(hit.at) > _ramTtl) {
@@ -1005,15 +1032,15 @@ abstract final class ChurchEventosLoadService {
     Iterable<String> docIds,
   ) async {
     try {
-      final batch = ChurchRepository.batch();
+      final batch = YahwehBatch();
       for (final id in docIds) {
         final tenant = firebaseDefaultFirestore
             .collection(ChurchDataPaths.rootCollection)
             .doc(churchId);
-        batch.delete(
+        batch.deleteDoc(
           tenant.collection(ChurchDataPaths.legacyEventosEn).doc(id),
         );
-        batch.delete(
+        batch.deleteDoc(
           tenant.collection(ChurchDataPaths.legacyEventosNoticias).doc(id),
         );
       }
@@ -1070,16 +1097,13 @@ abstract final class ChurchEventosLoadService {
         churchId: cid,
         collection: 'eventos',
         docIds: slice,
-        directDelete: () => FirestoreWebGuard.runWithWebRecovery(
-          () async {
-            final batch = ChurchRepository.batch();
-            for (final id in slice) {
-              batch.delete(col.doc(id));
-            }
-            await batch.commit();
-          },
-          maxAttempts: 4,
-        ),
+        directDelete: () => FirestoreWebGuard.runWithWebRecovery(() async {
+          final batch = YahwehBatch();
+          for (final id in slice) {
+            batch.deleteDoc(col.doc(id));
+          }
+          await batch.commit();
+        }, maxAttempts: 4),
       );
       for (final id in slice) {
         ChurchCanonicalMediaDeleteService.scheduleFeedPostDeleted(
@@ -1089,7 +1113,15 @@ abstract final class ChurchEventosLoadService {
           data: dataById[id],
         );
       }
-      unawaited(_deleteLegacyEventsMirror(cid, slice));
+      await _deleteLegacyEventsMirror(cid, slice);
+      await Future.wait(
+        slice.map(
+          (id) => ChurchFeedAgendaSyncService.deleteForEvento(
+            tenantId: cid,
+            eventoId: id,
+          ),
+        ),
+      );
     }
 
     removeFromRam(cid, ids);

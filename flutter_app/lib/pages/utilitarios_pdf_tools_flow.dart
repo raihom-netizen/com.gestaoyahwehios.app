@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -135,18 +135,19 @@ Future<UtilitariosPdfToolResult?> openUtilitariosPdfToolFlow(
 }
 
 class _PdfSource {
-  _PdfSource(
-      {required this.name, required this.bytes, required this.pageCount});
+  _PdfSource({
+    required this.name,
+    required this.bytes,
+    required this.pageCount,
+  });
   final String name;
   final Uint8List bytes;
   final int pageCount;
 }
 
 class _MergePageItem {
-  _MergePageItem({
-    required this.sourceIndex,
-    required this.pageIndex,
-  }) : thumb = null;
+  _MergePageItem({required this.sourceIndex, required this.pageIndex})
+    : thumb = null;
   final int sourceIndex;
   final int pageIndex;
   Uint8List? thumb;
@@ -168,7 +169,7 @@ enum _PdfEditorTool {
   highlight,
   whiteout,
   check,
-  erase
+  erase,
 }
 
 /// Modo de visualização do editor: documento ou grade de páginas.
@@ -192,10 +193,12 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   List<int> _splitPageOrder = const [];
   int _splitRangeFrom = 1;
   int _splitRangeTo = 1;
-  final TextEditingController _splitRangeFromCtrl =
-      TextEditingController(text: '1');
-  final TextEditingController _splitRangeToCtrl =
-      TextEditingController(text: '1');
+  final TextEditingController _splitRangeFromCtrl = TextEditingController(
+    text: '1',
+  );
+  final TextEditingController _splitRangeToCtrl = TextEditingController(
+    text: '1',
+  );
   bool _splitThumbsLoading = false;
 
   @override
@@ -215,8 +218,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   int get _singlePdfPageCount => _thumbs.length;
 
   void _syncSplitRangeCtrls() {
-    final from =
-        _splitRangeFrom.clamp(1, math.max(1, _singlePdfPageCount)).toInt();
+    final from = _splitRangeFrom
+        .clamp(1, math.max(1, _singlePdfPageCount))
+        .toInt();
     final to = _splitRangeTo.clamp(1, math.max(1, _singlePdfPageCount)).toInt();
     _splitRangeFrom = from;
     _splitRangeTo = to;
@@ -270,8 +274,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     if (pdf == null || _thumbs.isEmpty) return;
     if (_splitThumbsLoading) return;
     _splitThumbsLoading = true;
-    final thumbWidth =
-        widget.mode == UtilitariosPdfToolMode.split ? 240.0 : 360.0;
+    final thumbWidth = widget.mode == UtilitariosPdfToolMode.split
+        ? 240.0
+        : 360.0;
     final thumbQuality = widget.mode == UtilitariosPdfToolMode.split ? 74 : 82;
     final baseOrder = widget.mode == UtilitariosPdfToolMode.edit
         ? <int>[0, ...List.generate(_thumbs.length - 1, (i) => i + 1)]
@@ -319,6 +324,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   final List<List<UtilPdfPageAnnotation>> _annotations = [];
   _PdfEditorTool _editTool = _PdfEditorTool.select;
   _EditViewMode _editViewMode = _EditViewMode.document;
+
   /// Chrome mínimo no documento — página quase tela cheia (toque nos campos).
   bool _editToolsExpanded = false;
   bool _editThumbsExpanded = false;
@@ -330,28 +336,28 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   int _textColor = 0xFF1E293B;
 
   List<Color> get _gradient => switch (widget.mode) {
-        UtilitariosPdfToolMode.merge => const [
-            Color(0xFF2563EB),
-            Color(0xFF7C3AED),
-            Color(0xFF06B6D4)
-          ],
-        UtilitariosPdfToolMode.split => const [
-            Color(0xFFEA580C),
-            Color(0xFFF97316),
-            Color(0xFFFBBF24)
-          ],
-        UtilitariosPdfToolMode.edit => const [
-            Color(0xFF059669),
-            Color(0xFF10B981),
-            Color(0xFF34D399)
-          ],
-      };
+    UtilitariosPdfToolMode.merge => const [
+      Color(0xFF2563EB),
+      Color(0xFF7C3AED),
+      Color(0xFF06B6D4),
+    ],
+    UtilitariosPdfToolMode.split => const [
+      Color(0xFFEA580C),
+      Color(0xFFF97316),
+      Color(0xFFFBBF24),
+    ],
+    UtilitariosPdfToolMode.edit => const [
+      Color(0xFF059669),
+      Color(0xFF10B981),
+      Color(0xFF34D399),
+    ],
+  };
 
   String get _title => switch (widget.mode) {
-        UtilitariosPdfToolMode.merge => 'Juntar PDF',
-        UtilitariosPdfToolMode.split => 'Dividir PDF',
-        UtilitariosPdfToolMode.edit => 'Editor PDF',
-      };
+    UtilitariosPdfToolMode.merge => 'Juntar PDF',
+    UtilitariosPdfToolMode.split => 'Dividir PDF',
+    UtilitariosPdfToolMode.edit => 'Editor PDF',
+  };
 
   Future<void> _withBusy(String label, Future<void> Function() fn) async {
     setState(() {
@@ -379,10 +385,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   }
 
   bool get _hasWork => switch (widget.mode) {
-        UtilitariosPdfToolMode.merge => _mergeOrder.isNotEmpty,
-        UtilitariosPdfToolMode.split => _singlePdf != null,
-        UtilitariosPdfToolMode.edit => _singlePdf != null,
-      };
+    UtilitariosPdfToolMode.merge => _mergeOrder.isNotEmpty,
+    UtilitariosPdfToolMode.split => _singlePdf != null,
+    UtilitariosPdfToolMode.edit => _singlePdf != null,
+  };
 
   bool get _hasUnsavedEditWork {
     if (widget.mode != UtilitariosPdfToolMode.edit) return false;
@@ -424,7 +430,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   }
 
   Future<bool> _confirmDiscard(String message) async {
-    final dirty = _hasUnsavedEditWork ||
+    final dirty =
+        _hasUnsavedEditWork ||
         (widget.mode == UtilitariosPdfToolMode.merge &&
             _mergeOrder.isNotEmpty) ||
         (widget.mode != UtilitariosPdfToolMode.merge && _singlePdf != null);
@@ -485,23 +492,23 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     }
     if (!mounted) return;
     setState(_clearAllWork);
-    await _pickPdfs(
-      multiple: widget.mode == UtilitariosPdfToolMode.merge,
-    );
+    await _pickPdfs(multiple: widget.mode == UtilitariosPdfToolMode.merge);
   }
 
   ButtonStyle _sessionOutlinedStyle() => OutlinedButton.styleFrom(
-        minimumSize: const Size(0, 46),
-        foregroundColor: _gradient.first,
-        side: BorderSide(
-            color: _gradient.first.withValues(alpha: 0.38), width: 1.3),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      );
+    minimumSize: const Size(0, 46),
+    foregroundColor: _gradient.first,
+    side: BorderSide(
+      color: _gradient.first.withValues(alpha: 0.38),
+      width: 1.3,
+    ),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+  );
 
   String get _trocarArquivoLabel => switch (widget.mode) {
-        UtilitariosPdfToolMode.merge => 'Outros PDFs',
-        _ => 'Trocar PDF',
-      };
+    UtilitariosPdfToolMode.merge => 'Outros PDFs',
+    _ => 'Trocar PDF',
+  };
 
   Future<void> _pickPdfs({required bool multiple}) async {
     await _withBusy('Lendo PDF…', () async {
@@ -515,13 +522,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           if (f.bytes.isEmpty) continue;
           UtilitariosLocalService.ensureWithinSize(f.bytes, label: 'PDF');
           final n = await UtilitariosLocalService.pdfPageCount(f.bytes);
-          _sources.add(
-            _PdfSource(
-              name: f.name,
-              bytes: f.bytes,
-              pageCount: n,
-            ),
-          );
+          _sources.add(_PdfSource(name: f.name, bytes: f.bytes, pageCount: n));
           for (var p = 0; p < n; p++) {
             if (_mergeOrder.length >=
                 UtilitariosLocalService.kMaxPdfPagesTools) {
@@ -592,7 +593,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           _annotations
             ..clear()
             ..addAll(
-                List.generate(pageCount, (_) => <UtilPdfPageAnnotation>[]));
+              List.generate(pageCount, (_) => <UtilPdfPageAnnotation>[]),
+            );
           _editPageImages
             ..clear()
             ..addAll(List<Uint8List?>.filled(pageCount, null));
@@ -619,9 +621,11 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           _editToolsExpanded = false;
           _editThumbsExpanded = false;
           _undo.clear();
-          unawaited(_loadEditPageSizes(picked.bytes).then((_) {
-            if (mounted) unawaited(_ensureEditPageReady(0));
-          }));
+          unawaited(
+            _loadEditPageSizes(picked.bytes).then((_) {
+              if (mounted) unawaited(_ensureEditPageReady(0));
+            }),
+          );
           // Não dispara ensure em paralelo — espera tamanhos reais do PDF.
         }
         if (mounted) setState(() {});
@@ -663,10 +667,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     await _withBusy('Unindo páginas…', () async {
       final order = _mergeOrder
           .map(
-            (e) => (
-              pdf: _sources[e.sourceIndex].bytes,
-              pageIndex: e.pageIndex,
-            ),
+            (e) => (pdf: _sources[e.sourceIndex].bytes, pageIndex: e.pageIndex),
           )
           .toList();
       final pdf = await UtilitariosLocalService.mergeOrderedPdfPages(order);
@@ -743,7 +744,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     final exportOrder = _resolveSplitExportOrder();
     if (exportOrder.isEmpty) {
       throw StateError(
-          'Marque ao menos uma página ou defina um intervalo válido.');
+        'Marque ao menos uma página ou defina um intervalo válido.',
+      );
     }
     await _withBusy('Gerando PDF…', () async {
       final out = await UtilitariosLocalService.splitPdfPages(
@@ -805,9 +807,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           decoration: BoxDecoration(
             color: _gradient.first.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: _gradient.first.withValues(alpha: 0.25),
-            ),
+            border: Border.all(color: _gradient.first.withValues(alpha: 0.25)),
           ),
           child: Text(
             label,
@@ -878,8 +878,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: _gradient.first.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
@@ -1131,11 +1133,13 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     if (_thumbs.isEmpty) return;
     setState(() {
       if (fromField) {
-        _splitRangeFrom =
-            (_splitRangeFrom + delta).clamp(1, _singlePdfPageCount).toInt();
+        _splitRangeFrom = (_splitRangeFrom + delta)
+            .clamp(1, _singlePdfPageCount)
+            .toInt();
       } else {
-        _splitRangeTo =
-            (_splitRangeTo + delta).clamp(1, _singlePdfPageCount).toInt();
+        _splitRangeTo = (_splitRangeTo + delta)
+            .clamp(1, _singlePdfPageCount)
+            .toInt();
       }
       _applySplitRangeSync();
     });
@@ -1171,9 +1175,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         );
         final flat =
             await UtilitariosLocalService.flattenPdfPageWithAnnotations(
-          base,
-          i < _annotations.length ? _annotations[i] : const [],
-        );
+              base,
+              i < _annotations.length ? _annotations[i] : const [],
+            );
         pages.add(flat);
       }
       final sizes = _editPageSizesPts.length == pages.length
@@ -1199,8 +1203,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
 
   Future<void> _loadEditPageSizes(Uint8List pdfBytes) async {
     try {
-      final sizes =
-          await UtilitariosLocalService.pdfAllPagePointSizes(pdfBytes);
+      final sizes = await UtilitariosLocalService.pdfAllPagePointSizes(
+        pdfBytes,
+      );
       if (!mounted || sizes.isEmpty) return;
       setState(() {
         _editPageSizesPts
@@ -1233,8 +1238,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           pdf,
           page,
         );
-        _editPageAspects[page] =
-            size.width > 0 ? size.width / size.height : 1.0;
+        _editPageAspects[page] = size.width > 0
+            ? size.width / size.height
+            : 1.0;
         final mq = MediaQuery.sizeOf(context);
         final renderWidth = kIsWeb
             ? math.max(
@@ -1251,10 +1257,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
       if (_docFields[page].isEmpty) {
         _docFields[page] =
             await UtilitariosLocalService.detectPdfPageTextFields(
-          pdf,
-          page,
-          pageJpeg: _editPageImages[page],
-        );
+              pdf,
+              page,
+              pageJpeg: _editPageImages[page],
+            );
       }
       if (mounted) setState(() {});
     } catch (_) {
@@ -1459,10 +1465,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     );
 
     if (result != null && mounted) {
-      _applyFieldsFromDrafts(
-        result.drafts,
-        excludedKeys: result.excludedKeys,
-      );
+      _applyFieldsFromDrafts(result.drafts, excludedKeys: result.excludedKeys);
     }
   }
 
@@ -1542,8 +1545,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(14),
-                        borderSide:
-                            BorderSide(color: _gradient.first, width: 2),
+                        borderSide: BorderSide(
+                          color: _gradient.first,
+                          width: 2,
+                        ),
                       ),
                     ),
                   ),
@@ -1707,8 +1712,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     for (var i = 0; i < _thumbs.length; i++) {
       await _ensureEditPageReady(i);
       final base = _editPageImages.length > i ? _editPageImages[i] : null;
-      final ann =
-          i < _annotations.length ? _annotations[i] : <UtilPdfPageAnnotation>[];
+      final ann = i < _annotations.length
+          ? _annotations[i]
+          : <UtilPdfPageAnnotation>[];
       if (base == null || base.isEmpty) {
         final thumb = _thumbs[i];
         if (thumb.isNotEmpty) out.add(thumb);
@@ -1868,8 +1874,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content:
-                Text('Não foi possível salvar a edição no PDF. Tente de novo.'),
+            content: Text(
+              'Não foi possível salvar a edição no PDF. Tente de novo.',
+            ),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -1891,8 +1898,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           content: Text(
             ok
                 ? (action == 'share'
-                    ? 'PDF editado pronto para compartilhar.'
-                    : 'PDF editado salvo (formato original).')
+                      ? 'PDF editado pronto para compartilhar.'
+                      : 'PDF editado salvo (formato original).')
                 : 'Não foi possível exportar o PDF.',
           ),
           behavior: SnackBarBehavior.floating,
@@ -1934,9 +1941,11 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(ok
-                ? 'Word (.docx) visual pronto — formato original preservado.'
-                : 'Não foi possível exportar o Word.'),
+            content: Text(
+              ok
+                  ? 'Word (.docx) visual pronto — formato original preservado.'
+                  : 'Não foi possível exportar o Word.',
+            ),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -2010,9 +2019,11 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(ok
-                ? '${asPng ? 'PNG' : 'JPEG'} pronto para compartilhar.'
-                : 'Não foi possível exportar.'),
+            content: Text(
+              ok
+                  ? '${asPng ? 'PNG' : 'JPEG'} pronto para compartilhar.'
+                  : 'Não foi possível exportar.',
+            ),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -2302,8 +2313,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     return Scaffold(
       backgroundColor: ModernModuleUI.scaffoldBgOf(context),
       appBar: AppBar(
-        title:
-            Text(_title, style: const TextStyle(fontWeight: FontWeight.w800)),
+        title: Text(
+          _title,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
         backgroundColor: _gradient.first,
         foregroundColor: Colors.white,
         leading: IconButton(
@@ -2403,16 +2416,15 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                           onPressed: _busy
                               ? null
                               : () => setState(() {
-                                    _editViewMode =
-                                        _editViewMode == _EditViewMode.grid
-                                            ? _EditViewMode.document
-                                            : _EditViewMode.grid;
-                                    if (_editViewMode ==
-                                        _EditViewMode.document) {
-                                      _editToolsExpanded = false;
-                                      _editThumbsExpanded = false;
-                                    }
-                                  }),
+                                  _editViewMode =
+                                      _editViewMode == _EditViewMode.grid
+                                      ? _EditViewMode.document
+                                      : _EditViewMode.grid;
+                                  if (_editViewMode == _EditViewMode.document) {
+                                    _editToolsExpanded = false;
+                                    _editThumbsExpanded = false;
+                                  }
+                                }),
                           icon: Icon(
                             _editViewMode == _EditViewMode.grid
                                 ? Icons.fullscreen_rounded
@@ -2499,9 +2511,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                     color: const Color(0xFF2563EB),
                     onTap: _busy
                         ? null
-                        : () => unawaited(
-                              _openEditPreview(preferShare: false),
-                            ),
+                        : () => unawaited(_openEditPreview(preferShare: false)),
                   ),
                   const SizedBox(width: 6),
                   _compactBarBtn(
@@ -2509,9 +2519,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                     icon: Icons.ios_share_rounded,
                     filled: true,
                     color: _gradient.first,
-                    onTap: _busy
-                        ? null
-                        : () => unawaited(_openShareFormats()),
+                    onTap: _busy ? null : () => unawaited(_openShareFormats()),
                   ),
                 ],
               )
@@ -2520,9 +2528,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.white70,
                   minimumSize: const Size.fromHeight(48),
-                  side: BorderSide(
-                    color: Colors.white.withValues(alpha: 0.35),
-                  ),
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.35)),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                   ),
@@ -2581,11 +2587,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    icon,
-                    size: 18,
-                    color: filled ? Colors.white : color,
-                  ),
+                  Icon(icon, size: 18, color: filled ? Colors.white : color),
                   const SizedBox(width: 6),
                   Flexible(
                     child: FittedBox(
@@ -2626,8 +2628,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
             children: [
               const CircularProgressIndicator(),
               const SizedBox(height: 14),
-              Text(_busyLabel ?? 'Processando…',
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
+              Text(
+                _busyLabel ?? 'Processando…',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             ],
           ),
         ),
@@ -2691,8 +2695,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: item.thumb != null
@@ -2723,7 +2729,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: _gradient.first.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(6),
@@ -2742,7 +2750,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                         child: Text(
                           'Arraste ≡ para mudar',
                           style: TextStyle(
-                              fontSize: 11, color: Colors.grey.shade600),
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                          ),
                         ),
                       ),
                     ],
@@ -2810,7 +2820,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: _gradient.first.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(8),
@@ -2829,8 +2841,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                           onPressed: _busy
                               ? null
                               : (_splitSelected.length == total
-                                  ? _clearSplitSelection
-                                  : _selectAllSplitPages),
+                                    ? _clearSplitSelection
+                                    : _selectAllSplitPages),
                           icon: Icon(
                             _splitSelected.length == total
                                 ? Icons.clear_all_rounded
@@ -2842,7 +2854,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                                 ? 'Desmarcar'
                                 : 'Todas',
                             style: const TextStyle(
-                                fontWeight: FontWeight.w800, fontSize: 12),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                            ),
                           ),
                         ),
                       ],
@@ -2861,7 +2875,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                         _splitQuickBtn(
                           'Últimas 5',
                           () => _quickSelectPages(
-                              (i) => i >= math.max(0, total - 5)),
+                            (i) => i >= math.max(0, total - 5),
+                          ),
                         ),
                         _splitQuickBtn(
                           'Pares',
@@ -2895,17 +2910,14 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                   mainAxisSpacing: 10,
                   childAspectRatio: aspectRatio,
                 ),
-                delegate: SliverChildBuilderDelegate(
-                  (context, listIndex) {
-                    final pageIdx = _splitPageOrder[listIndex];
-                    return _buildSplitPageGridTile(
-                      listIndex: listIndex,
-                      pageIdx: pageIdx,
-                      selected: _splitSelected.contains(pageIdx),
-                    );
-                  },
-                  childCount: _splitPageOrder.length,
-                ),
+                delegate: SliverChildBuilderDelegate((context, listIndex) {
+                  final pageIdx = _splitPageOrder[listIndex];
+                  return _buildSplitPageGridTile(
+                    listIndex: listIndex,
+                    pageIdx: pageIdx,
+                    selected: _splitSelected.contains(pageIdx),
+                  );
+                }, childCount: _splitPageOrder.length),
               ),
             ),
           ],
@@ -3122,8 +3134,11 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                 onPressed: _busy
                     ? null
                     : () => unawaited(_openFieldsEditorFullscreen()),
-                icon: Icon(Icons.edit_note_rounded,
-                    color: _gradient.first, size: 20),
+                icon: Icon(
+                  Icons.edit_note_rounded,
+                  color: _gradient.first,
+                  size: 20,
+                ),
                 label: Text(
                   'Campos',
                   style: TextStyle(
@@ -3147,7 +3162,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
             itemCount: _thumbs.length,
             itemBuilder: (context, i) {
               final sel = i == _editPage;
-              final edits = i < _annotations.length ? _annotations[i].length : 0;
+              final edits = i < _annotations.length
+                  ? _annotations[i].length
+                  : 0;
               final thumb = _thumbs[i];
               return Material(
                 color: const Color(0xFF1E293B),
@@ -3181,7 +3198,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                         left: 8,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: sel
                                 ? _gradient.first
@@ -3203,7 +3222,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                           right: 8,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: const Color(0xFF2563EB),
                               borderRadius: BorderRadius.circular(8),
@@ -3224,7 +3245,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                         bottom: 8,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 6),
+                            horizontal: 8,
+                            vertical: 6,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.7),
                             borderRadius: BorderRadius.circular(10),
@@ -3256,8 +3279,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     final sel = _selectedAnn;
     final fields = _currentFields;
     final pageImage = _editPageImages[_editPage];
-    final aspect =
-        _editPageAspects.length > _editPage ? _editPageAspects[_editPage] : 1.0;
+    final aspect = _editPageAspects.length > _editPage
+        ? _editPageAspects[_editPage]
+        : 1.0;
     return Column(
       children: [
         // Barra fina de ferramentas (expansível) — não rouba a página.
@@ -3301,8 +3325,7 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                               height: size.height,
                               child: GestureDetector(
                                 behavior: HitTestBehavior.translucent,
-                                onTapDown: (d) =>
-                                    _onCanvasTap(d, size, aspect),
+                                onTapDown: (d) => _onCanvasTap(d, size, aspect),
                                 child: Stack(
                                   clipBehavior: Clip.none,
                                   children: [
@@ -3316,8 +3339,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                                           color: Colors.white,
                                           boxShadow: [
                                             BoxShadow(
-                                              color: Colors.black
-                                                  .withValues(alpha: 0.45),
+                                              color: Colors.black.withValues(
+                                                alpha: 0.45,
+                                              ),
                                               blurRadius: 24,
                                               offset: const Offset(0, 10),
                                             ),
@@ -3335,13 +3359,13 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                                     ),
                                     ...fields
                                         .where(
-                                            (f) => !_fieldHasAnnotation(f.id))
+                                          (f) => !_fieldHasAnnotation(f.id),
+                                        )
                                         .map(
                                           (f) => _buildDocFieldOverlay(
                                             f,
                                             imgRect,
-                                            selected:
-                                                f.id == _selectedFieldId,
+                                            selected: f.id == _selectedFieldId,
                                             edited: false,
                                           ),
                                         ),
@@ -3359,7 +3383,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                             bottom: 10,
                             child: Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 6),
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.black.withValues(alpha: 0.72),
                                 borderRadius: BorderRadius.circular(20),
@@ -3392,9 +3418,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                                 onTap: _busy
                                     ? null
                                     : () => setState(() {
-                                          _editThumbsExpanded =
-                                              !_editThumbsExpanded;
-                                        }),
+                                        _editThumbsExpanded =
+                                            !_editThumbsExpanded;
+                                      }),
                                 child: Padding(
                                   padding: const EdgeInsets.all(12),
                                   child: Icon(
@@ -3434,9 +3460,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                   : Icons.handyman_rounded,
               label: _editToolsExpanded ? 'Ocultar' : 'Ferramentas',
               selected: _editToolsExpanded,
-              onTap: () => setState(
-                () => _editToolsExpanded = !_editToolsExpanded,
-              ),
+              onTap: () =>
+                  setState(() => _editToolsExpanded = !_editToolsExpanded),
             ),
             const SizedBox(width: 6),
             if (fieldCount > 0)
@@ -3452,9 +3477,8 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
               icon: Icons.view_carousel_rounded,
               label: 'Pág. ${_editPage + 1}',
               selected: _editThumbsExpanded,
-              onTap: () => setState(
-                () => _editThumbsExpanded = !_editThumbsExpanded,
-              ),
+              onTap: () =>
+                  setState(() => _editThumbsExpanded = !_editThumbsExpanded),
             ),
           ],
         ),
@@ -3545,7 +3569,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                         top: 2,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 4, vertical: 1),
+                            horizontal: 4,
+                            vertical: 1,
+                          ),
                           decoration: BoxDecoration(
                             color: _gradient.first,
                             borderRadius: BorderRadius.circular(6),
@@ -3569,7 +3595,6 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
       ),
     );
   }
-
 
   Widget _buildDetectingBanner() {
     return Padding(
@@ -3637,7 +3662,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          fontWeight: FontWeight.w800, fontSize: 13),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
                     ),
                   ],
                 ),
@@ -3708,16 +3735,21 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                   alignment: Alignment.topRight,
                   child: Container(
                     margin: const EdgeInsets.all(2),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [color, color.withValues(alpha: 0.75)],
                       ),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Icon(Icons.edit_rounded,
-                        size: 12, color: Colors.white),
+                    child: const Icon(
+                      Icons.edit_rounded,
+                      size: 12,
+                      color: Colors.white,
+                    ),
                   ),
                 )
               : null,
@@ -3769,8 +3801,11 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.edit_note_rounded,
-                    color: Colors.white, size: 20),
+                child: const Icon(
+                  Icons.edit_note_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -3795,6 +3830,21 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                         height: 1.25,
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(Icons.lock_outline_rounded, size: 12, color: g0),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Processamento local · páginas e marcações rápidas',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: subtextColor.withValues(alpha: 0.78),
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -3809,7 +3859,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                         : () => unawaited(_openFieldsEditorFullscreen()),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -3840,22 +3892,40 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
               padding: const EdgeInsets.symmetric(horizontal: 2),
               children: [
                 _modernToolButton(
-                    _PdfEditorTool.select, Icons.touch_app_rounded, 'Mover'),
+                  _PdfEditorTool.select,
+                  Icons.touch_app_rounded,
+                  'Mover',
+                ),
                 const SizedBox(width: 6),
                 _modernToolButton(
-                    _PdfEditorTool.text, Icons.text_fields_rounded, 'Texto'),
-                const SizedBox(width: 6),
-                _modernToolButton(_PdfEditorTool.highlight,
-                    Icons.highlight_rounded, 'Destaque'),
-                const SizedBox(width: 6),
-                _modernToolButton(_PdfEditorTool.whiteout,
-                    Icons.format_color_reset_rounded, 'Corrigir'),
+                  _PdfEditorTool.text,
+                  Icons.text_fields_rounded,
+                  'Texto',
+                ),
                 const SizedBox(width: 6),
                 _modernToolButton(
-                    _PdfEditorTool.check, Icons.check_box_rounded, 'Check'),
+                  _PdfEditorTool.highlight,
+                  Icons.highlight_rounded,
+                  'Destaque',
+                ),
                 const SizedBox(width: 6),
                 _modernToolButton(
-                    _PdfEditorTool.erase, Icons.auto_fix_off_rounded, 'Apagar'),
+                  _PdfEditorTool.whiteout,
+                  Icons.format_color_reset_rounded,
+                  'Corrigir',
+                ),
+                const SizedBox(width: 6),
+                _modernToolButton(
+                  _PdfEditorTool.check,
+                  Icons.check_box_rounded,
+                  'Check',
+                ),
+                const SizedBox(width: 6),
+                _modernToolButton(
+                  _PdfEditorTool.erase,
+                  Icons.auto_fix_off_rounded,
+                  'Apagar',
+                ),
               ],
             ),
           ),
@@ -3936,9 +4006,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         onTap: _busy
             ? null
             : () => setState(() {
-                  _editTool = tool;
-                  _selectedFieldId = null;
-                }),
+                _editTool = tool;
+                _selectedFieldId = null;
+              }),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
@@ -3946,15 +4016,13 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             gradient: sel
-                ? LinearGradient(
-                    colors: [g0, g0.withValues(alpha: 0.8)],
-                  )
+                ? LinearGradient(colors: [g0, g0.withValues(alpha: 0.8)])
                 : null,
             color: sel
                 ? null
                 : (isDark
-                    ? Colors.white.withValues(alpha: 0.08)
-                    : Colors.grey.shade100),
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : Colors.grey.shade100),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: sel
@@ -4035,15 +4103,15 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         onTap: _busy
             ? null
             : () => setState(() {
-                  _textFontScale = scale;
-                  final s = _selectedAnn;
-                  if (s != null && s.type == 'text') {
-                    _pushUndo();
-                    final list = _annotations[_editPage];
-                    final i = list.indexWhere((a) => a.id == s.id);
-                    if (i >= 0) list[i] = list[i].copyWith(fontScale: scale);
-                  }
-                }),
+                _textFontScale = scale;
+                final s = _selectedAnn;
+                if (s != null && s.type == 'text') {
+                  _pushUndo();
+                  final list = _annotations[_editPage];
+                  final i = list.indexWhere((a) => a.id == s.id);
+                  if (i >= 0) list[i] = list[i].copyWith(fontScale: scale);
+                }
+              }),
         child: Container(
           width: 32,
           height: 32,
@@ -4074,15 +4142,14 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
   }
 
   String get _editToolHint => switch (_editTool) {
-        _PdfEditorTool.pickField => 'Toque em Campos para abrir a lista',
-        _PdfEditorTool.select =>
-          'Arraste para mover · toque no campo para editar',
-        _PdfEditorTool.text => 'Toque na página para novo texto',
-        _PdfEditorTool.highlight => 'Toque para destacar trecho',
-        _PdfEditorTool.whiteout => 'Toque para cobrir texto antigo',
-        _PdfEditorTool.check => 'Toque para marcar check',
-        _PdfEditorTool.erase => 'Toque no campo para apagar',
-      };
+    _PdfEditorTool.pickField => 'Toque em Campos para abrir a lista',
+    _PdfEditorTool.select => 'Arraste para mover · toque no campo para editar',
+    _PdfEditorTool.text => 'Toque na página para novo texto',
+    _PdfEditorTool.highlight => 'Toque para destacar trecho',
+    _PdfEditorTool.whiteout => 'Toque para cobrir texto antigo',
+    _PdfEditorTool.check => 'Toque para marcar check',
+    _PdfEditorTool.erase => 'Toque no campo para apagar',
+  };
 
   Widget _toolChip(
     double width,
@@ -4102,9 +4169,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           onTap: _busy
               ? null
               : () => setState(() {
-                    _editTool = tool;
-                    _selectedFieldId = null;
-                  }),
+                  _editTool = tool;
+                  _selectedFieldId = null;
+                }),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             padding: const EdgeInsets.symmetric(vertical: 10),
@@ -4121,8 +4188,11 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon,
-                    size: 22, color: sel ? chipColor : Colors.grey.shade600),
+                Icon(
+                  icon,
+                  size: 22,
+                  color: sel ? chipColor : Colors.grey.shade600,
+                ),
                 const SizedBox(height: 4),
                 Text(
                   label,
@@ -4150,15 +4220,15 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
         onSelected: _busy
             ? null
             : (_) => setState(() {
-                  _textFontScale = scale;
-                  final s = _selectedAnn;
-                  if (s != null && s.type == 'text') {
-                    _pushUndo();
-                    final list = _annotations[_editPage];
-                    final i = list.indexWhere((a) => a.id == s.id);
-                    if (i >= 0) list[i] = list[i].copyWith(fontScale: scale);
-                  }
-                }),
+                _textFontScale = scale;
+                final s = _selectedAnn;
+                if (s != null && s.type == 'text') {
+                  _pushUndo();
+                  final list = _annotations[_editPage];
+                  final i = list.indexWhere((a) => a.id == s.id);
+                  if (i >= 0) list[i] = list[i].copyWith(fontScale: scale);
+                }
+              }),
       ),
     );
   }
@@ -4181,7 +4251,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 12),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
                 ),
               ),
               if (sel.type == 'text')
@@ -4192,8 +4264,11 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                 ),
               IconButton(
                 tooltip: 'Excluir',
-                icon: Icon(Icons.delete_outline_rounded,
-                    size: 20, color: Colors.red.shade600),
+                icon: Icon(
+                  Icons.delete_outline_rounded,
+                  size: 20,
+                  color: Colors.red.shade600,
+                ),
                 onPressed: _busy ? null : () => _deleteAnn(sel.id),
               ),
             ],
@@ -4232,20 +4307,23 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           border: selected
               ? border
               : (a.seamless
-                  ? Border.all(
-                      color: _gradient.first.withValues(alpha: 0.35),
-                      width: 1,
-                    )
-                  : border),
+                    ? Border.all(
+                        color: _gradient.first.withValues(alpha: 0.35),
+                        width: 1,
+                      )
+                    : border),
         ),
         child: selected && !a.seamless
             ? null
             : (a.seamless
-                ? null
-                : Center(
-                    child: Icon(Icons.format_color_reset_rounded,
-                        size: 16, color: Colors.grey.shade500),
-                  )),
+                  ? null
+                  : Center(
+                      child: Icon(
+                        Icons.format_color_reset_rounded,
+                        size: 16,
+                        color: Colors.grey.shade500,
+                      ),
+                    )),
       );
     } else if (a.type == 'check') {
       child = Container(
@@ -4256,8 +4334,11 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           borderRadius: BorderRadius.circular(4),
           color: Colors.white.withValues(alpha: 0.9),
         ),
-        child:
-            Icon(Icons.check_rounded, color: Colors.green.shade700, size: 18),
+        child: Icon(
+          Icons.check_rounded,
+          color: Colors.green.shade700,
+          size: 18,
+        ),
       );
     } else if (a.type == 'text' && a.seamless) {
       // Mostra o texto novo sobre o PDF (estilo Word) — o que se vê é o que sai.
@@ -4292,7 +4373,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
           border: selected
               ? Border.all(color: _gradient.first, width: 1.5)
               : Border.all(
-                  color: _gradient.first.withValues(alpha: 0.25), width: 1),
+                  color: _gradient.first.withValues(alpha: 0.25),
+                  width: 1,
+                ),
         ),
         child: Text(
           text,
@@ -4427,9 +4510,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
     };
     final confirmLabel = switch (widget.mode) {
       UtilitariosPdfToolMode.edit => 'Salvar PDF',
-      UtilitariosPdfToolMode.split => _resolveSplitExportOrder().isEmpty
-          ? 'Gerar PDF'
-          : 'Gerar (${_resolveSplitExportOrder().length} pág.)',
+      UtilitariosPdfToolMode.split =>
+        _resolveSplitExportOrder().isEmpty
+            ? 'Gerar PDF'
+            : 'Gerar (${_resolveSplitExportOrder().length} pág.)',
       _ => 'Confirmar',
     };
     final isEdit = widget.mode == UtilitariosPdfToolMode.edit;
@@ -4523,8 +4607,9 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                           style: FilledButton.styleFrom(
                             minimumSize: const Size.fromHeight(48),
                             backgroundColor: Colors.transparent,
-                            disabledBackgroundColor:
-                                Colors.grey.withValues(alpha: 0.35),
+                            disabledBackgroundColor: Colors.grey.withValues(
+                              alpha: 0.35,
+                            ),
                             foregroundColor: Colors.white,
                             shadowColor: Colors.transparent,
                             shape: RoundedRectangleBorder(
@@ -4545,8 +4630,10 @@ class _UtilitariosPdfToolPageState extends State<_UtilitariosPdfToolPage> {
                   ),
                   label: const Text(
                     'Limpar senha e compartilhar',
-                    style:
-                        TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12.5,
+                    ),
                   ),
                   style: TextButton.styleFrom(
                     foregroundColor: const Color(0xFF7C3AED),
@@ -4686,7 +4773,9 @@ class _PdfFieldsEditorScreenState extends State<_PdfFieldsEditorScreen> {
     Navigator.pop(
       context,
       _PdfFieldsEditorResult(
-          drafts: _drafts, excludedKeys: Set.from(_excluded)),
+        drafts: _drafts,
+        excludedKeys: Set.from(_excluded),
+      ),
     );
   }
 
@@ -4919,153 +5008,157 @@ class _PdfFieldsEditorScreenState extends State<_PdfFieldsEditorScreen> {
                     SliverPadding(
                       padding: const EdgeInsets.fromLTRB(10, 10, 10, 14),
                       sliver: SliverGrid(
-                        delegate: SliverChildBuilderDelegate(
-                          (context, index) {
-                            final item = items[index];
-                            final field = item.field;
-                            final p = item.page;
-                            final i = item.idx;
-                            final fieldKey = _key(p, field.id);
-                            final accent =
-                                _cardAccents[index % _cardAccents.length];
-                            final excluded = _excluded.contains(fieldKey);
-                            final text = _fieldText(p, field);
-                            final original = field.text.trim();
-                            final edited = !excluded && text != original;
-                            final textColor = Color(field.textArgb);
+                        delegate: SliverChildBuilderDelegate((context, index) {
+                          final item = items[index];
+                          final field = item.field;
+                          final p = item.page;
+                          final i = item.idx;
+                          final fieldKey = _key(p, field.id);
+                          final accent =
+                              _cardAccents[index % _cardAccents.length];
+                          final excluded = _excluded.contains(fieldKey);
+                          final text = _fieldText(p, field);
+                          final original = field.text.trim();
+                          final edited = !excluded && text != original;
+                          final textColor = Color(field.textArgb);
 
-                            return Opacity(
-                              key: _cardKeys[fieldKey],
-                              opacity: excluded ? 0.5 : 1,
-                              child: GestureDetector(
-                                onTap: excluded
-                                    ? () => _restoreField(p, field)
-                                    : () => _editField(p, field),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                      color: excluded
-                                          ? Colors.grey.shade300
-                                          : accent.withValues(alpha: 0.45),
-                                      width: 1.2,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: accent.withValues(alpha: 0.08),
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 3),
-                                      ),
-                                    ],
+                          return Opacity(
+                            key: _cardKeys[fieldKey],
+                            opacity: excluded ? 0.5 : 1,
+                            child: GestureDetector(
+                              onTap: excluded
+                                  ? () => _restoreField(p, field)
+                                  : () => _editField(p, field),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: excluded
+                                        ? Colors.grey.shade300
+                                        : accent.withValues(alpha: 0.45),
+                                    width: 1.2,
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.fromLTRB(
-                                            10, 8, 6, 7),
-                                        decoration: BoxDecoration(
-                                          color: excluded
-                                              ? Colors.grey.shade100
-                                              : accent.withValues(alpha: 0.08),
-                                          borderRadius:
-                                              const BorderRadius.vertical(
-                                            top: Radius.circular(13),
-                                          ),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            Container(
-                                              width: 3,
-                                              height: 22,
-                                              decoration: BoxDecoration(
-                                                color: excluded
-                                                    ? Colors.grey.shade400
-                                                    : accent,
-                                                borderRadius:
-                                                    BorderRadius.circular(3),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Expanded(
-                                              child: Text(
-                                                'Pg ${p + 1} · C ${i + 1}${edited ? ' ✎' : ''}',
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.w900,
-                                                  fontSize: 11,
-                                                  color: excluded
-                                                      ? Colors.grey.shade500
-                                                      : accent,
-                                                ),
-                                              ),
-                                            ),
-                                            if (!excluded)
-                                              SizedBox(
-                                                width: 28,
-                                                height: 28,
-                                                child: IconButton(
-                                                  padding: EdgeInsets.zero,
-                                                  tooltip: 'Excluir',
-                                                  onPressed: () =>
-                                                      _deleteField(p, field),
-                                                  icon: Icon(
-                                                    Icons
-                                                        .delete_outline_rounded,
-                                                    size: 16,
-                                                    color: Colors.red.shade600,
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: accent.withValues(alpha: 0.08),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 3),
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        10,
+                                        8,
+                                        6,
+                                        7,
                                       ),
-                                      Expanded(
-                                        child: Padding(
-                                          padding: const EdgeInsets.fromLTRB(
-                                              10, 7, 10, 8),
-                                          child: Text(
-                                            excluded
-                                                ? (original.isEmpty
+                                      decoration: BoxDecoration(
+                                        color: excluded
+                                            ? Colors.grey.shade100
+                                            : accent.withValues(alpha: 0.08),
+                                        borderRadius:
+                                            const BorderRadius.vertical(
+                                              top: Radius.circular(13),
+                                            ),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 3,
+                                            height: 22,
+                                            decoration: BoxDecoration(
+                                              color: excluded
+                                                  ? Colors.grey.shade400
+                                                  : accent,
+                                              borderRadius:
+                                                  BorderRadius.circular(3),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              'Pg ${p + 1} · C ${i + 1}${edited ? ' ✎' : ''}',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 11,
+                                                color: excluded
+                                                    ? Colors.grey.shade500
+                                                    : accent,
+                                              ),
+                                            ),
+                                          ),
+                                          if (!excluded)
+                                            SizedBox(
+                                              width: 28,
+                                              height: 28,
+                                              child: IconButton(
+                                                padding: EdgeInsets.zero,
+                                                tooltip: 'Excluir',
+                                                onPressed: () =>
+                                                    _deleteField(p, field),
+                                                icon: Icon(
+                                                  Icons.delete_outline_rounded,
+                                                  size: 16,
+                                                  color: Colors.red.shade600,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          10,
+                                          7,
+                                          10,
+                                          8,
+                                        ),
+                                        child: Text(
+                                          excluded
+                                              ? (original.isEmpty
                                                     ? '(excluído)'
                                                     : original)
-                                                : (text.isEmpty
+                                              : (text.isEmpty
                                                     ? 'Toque para editar'
                                                     : text),
-                                            maxLines: 4,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              fontWeight: field.fontBold
-                                                  ? FontWeight.w800
-                                                  : FontWeight.w600,
-                                              fontSize: 12.5,
-                                              height: 1.3,
-                                              color: excluded
-                                                  ? Colors.grey.shade500
-                                                  : textColor,
-                                              decoration: excluded
-                                                  ? TextDecoration.lineThrough
-                                                  : null,
-                                            ),
+                                          maxLines: 4,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontWeight: field.fontBold
+                                                ? FontWeight.w800
+                                                : FontWeight.w600,
+                                            fontSize: 12.5,
+                                            height: 1.3,
+                                            color: excluded
+                                                ? Colors.grey.shade500
+                                                : textColor,
+                                            decoration: excluded
+                                                ? TextDecoration.lineThrough
+                                                : null,
                                           ),
                                         ),
                                       ),
-                                    ],
-                                  ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            );
-                          },
-                          childCount: items.length,
-                        ),
+                            ),
+                          );
+                        }, childCount: items.length),
                         gridDelegate:
                             const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 8,
-                          crossAxisSpacing: 8,
-                          childAspectRatio: 0.88,
-                        ),
+                              crossAxisCount: 2,
+                              mainAxisSpacing: 8,
+                              crossAxisSpacing: 8,
+                              childAspectRatio: 0.88,
+                            ),
                       ),
                     ),
                   ],
@@ -5363,12 +5456,16 @@ class _PdfEditPreviewScreenState extends State<_PdfEditPreviewScreen> {
                                       left: 8,
                                       child: Container(
                                         padding: const EdgeInsets.symmetric(
-                                            horizontal: 8, vertical: 4),
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
                                         decoration: BoxDecoration(
-                                          color:
-                                              g.first.withValues(alpha: 0.92),
-                                          borderRadius:
-                                              BorderRadius.circular(999),
+                                          color: g.first.withValues(
+                                            alpha: 0.92,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
                                         ),
                                         child: Text(
                                           '${index + 1}/${widget.pages.length}',
@@ -5388,13 +5485,15 @@ class _PdfEditPreviewScreenState extends State<_PdfEditPreviewScreen> {
                                       onPressed: () =>
                                           _openZoom(context, index),
                                       style: IconButton.styleFrom(
-                                        backgroundColor: const Color(0xFF0F172A)
-                                            .withValues(alpha: 0.75),
+                                        backgroundColor: const Color(
+                                          0xFF0F172A,
+                                        ).withValues(alpha: 0.75),
                                         foregroundColor: Colors.white,
                                         minimumSize: const Size(44, 44),
                                       ),
-                                      icon:
-                                          const Icon(Icons.fullscreen_rounded),
+                                      icon: const Icon(
+                                        Icons.fullscreen_rounded,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -5574,8 +5673,9 @@ class _PdfPageZoomScreenState extends State<_PdfPageZoomScreen> {
                     padding: const EdgeInsets.all(12),
                     child: LayoutBuilder(
                       builder: (context, c) {
-                        final aspect =
-                            widget.aspect > 0.05 ? widget.aspect : 1.0;
+                        final aspect = widget.aspect > 0.05
+                            ? widget.aspect
+                            : 1.0;
                         final maxW = c.maxWidth;
                         final maxH = c.maxHeight;
                         late final double w;
@@ -5631,15 +5731,18 @@ class _PdfPageZoomScreenState extends State<_PdfPageZoomScreen> {
                   color: const Color(0xFF0F172A).withValues(alpha: 0.9),
                   borderRadius: BorderRadius.circular(18),
                   child: Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
                           tooltip: 'Diminuir',
-                          onPressed:
-                              current <= 1.01 ? null : () => _zoomBy(1 / 1.4),
+                          onPressed: current <= 1.01
+                              ? null
+                              : () => _zoomBy(1 / 1.4),
                           icon: const Icon(Icons.remove_rounded),
                           color: Colors.white,
                           disabledColor: Colors.white38,
@@ -5647,7 +5750,8 @@ class _PdfPageZoomScreenState extends State<_PdfPageZoomScreen> {
                         TextButton(
                           onPressed: _reset,
                           style: TextButton.styleFrom(
-                              foregroundColor: Colors.white),
+                            foregroundColor: Colors.white,
+                          ),
                           child: Text(
                             '${(current * 100).round()}%',
                             style: const TextStyle(fontWeight: FontWeight.w900),
@@ -5655,8 +5759,9 @@ class _PdfPageZoomScreenState extends State<_PdfPageZoomScreen> {
                         ),
                         IconButton(
                           tooltip: 'Ampliar',
-                          onPressed:
-                              current >= 7.99 ? null : () => _zoomBy(1.4),
+                          onPressed: current >= 7.99
+                              ? null
+                              : () => _zoomBy(1.4),
                           icon: const Icon(Icons.add_rounded),
                           color: Colors.white,
                           disabledColor: Colors.white38,

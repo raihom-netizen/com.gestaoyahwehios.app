@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui
@@ -121,10 +121,10 @@ enum UtilPhotoBlurMode {
 
 /// Estilo moderno de legenda (texto / emoji) na foto.
 enum UtilPhotoCaptionStyle {
-  clean('Clássico', 'Limpo · sombra suave'),
-  classic('Contorno', 'Contorno · legível'),
-  bold('Caixa', 'Caixa · negrito'),
-  neon('Neon', 'Cor viva · brilho');
+  clean('Clássico', 'Limpo ? sombra suave'),
+  classic('Contorno', 'Contorno ? legível'),
+  bold('Caixa', 'Caixa ? negrito'),
+  neon('Neon', 'Cor viva ? brilho');
 
   const UtilPhotoCaptionStyle(this.label, this.subtitle);
   final String label;
@@ -228,7 +228,7 @@ abstract final class UtilitariosPhotoService {
     UtilPhotoCollageTemplate(
       id: 'duo_h',
       label: 'Lado a lado',
-      subtitle: '2 fotos · paisagem',
+      subtitle: '2 fotos ? paisagem',
       slots: 2,
       aspect: 4 / 3,
       cells: [
@@ -239,7 +239,7 @@ abstract final class UtilitariosPhotoService {
     UtilPhotoCollageTemplate(
       id: 'duo_v',
       label: 'Empilhadas',
-      subtitle: '2 fotos · retrato',
+      subtitle: '2 fotos ? retrato',
       slots: 2,
       aspect: 3 / 4,
       cells: [
@@ -262,7 +262,7 @@ abstract final class UtilitariosPhotoService {
     UtilPhotoCollageTemplate(
       id: 'grid4',
       label: 'Grid 2×2',
-      subtitle: '4 fotos · quadrado',
+      subtitle: '4 fotos ? quadrado',
       slots: 4,
       aspect: 1,
       cells: [
@@ -290,7 +290,7 @@ abstract final class UtilitariosPhotoService {
     UtilPhotoCollageTemplate(
       id: 'feature3',
       label: 'Destaque + 2',
-      subtitle: '1 grande · 2 pequenas',
+      subtitle: '1 grande ? 2 pequenas',
       slots: 3,
       aspect: 4 / 5,
       cells: [
@@ -302,7 +302,7 @@ abstract final class UtilitariosPhotoService {
     UtilPhotoCollageTemplate(
       id: 'feature_side',
       label: 'Mosaico lateral',
-      subtitle: '1 grande · 2 laterais',
+      subtitle: '1 grande ? 2 laterais',
       slots: 3,
       aspect: 4 / 5,
       cells: [
@@ -498,7 +498,7 @@ abstract final class UtilitariosPhotoService {
     );
   }
 
-  /// Gira 90° no sentido horário.
+  /// Gira 90? no sentido horário.
   static Future<Uint8List> rotateClockwise(Uint8List raw) {
     return compute(_rotateClockwiseIsolate, raw);
   }
@@ -564,7 +564,7 @@ abstract final class UtilitariosPhotoService {
     );
   }
 
-  /// Detecta rostos (Android/iOS) para borrar — multi-pass + colagens.
+  /// Detecta rostos (Android/iOS) para borrar ? multi-pass + colagens.
   static Future<List<UtilPhotoEditRegion>> detectFaces(Uint8List jpeg) async {
     if (!mlKitFaceSupported) return const [];
     final normalized = await compute(_normalizePhotoForMlKitIsolate, jpeg);
@@ -1212,7 +1212,7 @@ Uint8List _enhanceQualityFromRawIsolate(_EnhanceArgs args) {
   // Ruído leve antes da nitidez (prints comprimidos / CFTV).
   work = _photoDenoiseMild(work, mix: 0.14);
 
-  // Nitidez tipo «clareza» profissional — bem mais suave que antes.
+  // Nitidez tipo ?clareza? profissional ? bem mais suave que antes.
   final sharpenDim = math.max(work.width, work.height);
   final sharpen = sharpenDim > 1600 ? 0.14 : 0.20;
   work = _photoSharpen(work, strength: sharpen);

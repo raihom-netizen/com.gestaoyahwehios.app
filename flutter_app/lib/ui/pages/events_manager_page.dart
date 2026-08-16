@@ -171,6 +171,7 @@ import 'package:gestao_yahweh/core/event_gallery_archive.dart';
 import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
     show noticiaEventoEspecialCaiuDoFeedParaGaleria;
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Botão "colar" num campo de link — evita digitar/copiar manualmente.
 Widget _pasteFieldButton(TextEditingController controller) {
@@ -295,7 +296,7 @@ abstract final class _EventosNoticiasRamCache {
 String _eventosNoticiasMemKey(String tenantId, int limit) =>
     '${ChurchRepository.churchId(tenantId).trim()}_noticias_start_$limit';
 
-/// Cache RAM — modelos de culto fixo.
+/// Cache RAM ? modelos de culto fixo.
 abstract final class _EventTemplatesRamCache {
   _EventTemplatesRamCache._();
 
@@ -622,7 +623,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       if (!ok) {
         setState(() {
           _firebaseInitError =
-              'A sincronizar com o servidor… tente de novo em instantes.';
+              'A sincronizar com o servidor? tente de novo em instantes.';
         });
         return;
       }
@@ -913,7 +914,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     required String tenantId,
     required String templateStorageId,
   }) async {
-    // Padrão CT: pick bytes uma vez → Facade (sem double compress).
+    // Padrão CT: pick bytes uma vez ? Facade (sem double compress).
     final picked = await ChurchCtModuleUpload.pickImage(
       source: ImageSource.gallery,
       imageQuality: 78,
@@ -954,7 +955,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       text: (data['title'] ?? '').toString(),
     );
     // Multi-dias da semana: lê `weekdays` (array) ou cai no `weekday` único
-    // legado. Guarda um Set<int> (1=Seg … 7=Dom).
+    // legado. Guarda um Set<int> (1=Seg ? 7=Dom).
     final initWeekdays = <int>{};
     final wdListInit = data['weekdays'];
     if (wdListInit is List) {
@@ -1013,7 +1014,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     ) async {
       if (uploadingPhoto.value) return;
       try {
-        // Capa moderna: mesmo editor de recorte do mural (avisos/eventos) —
+        // Capa moderna: mesmo editor de recorte do mural (avisos/eventos) ?
         // enquadramento antes do upload, não só escolher e mandar direto.
         final encoded = await pickCropEncodeWebp(
           source: ImageSource.gallery,
@@ -1050,7 +1051,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.successSnackBar(
-                'Capa pronta — toque em Salvar para gravar.',
+                'Capa pronta ? toque em Salvar para gravar.',
               ),
             );
           }
@@ -1261,99 +1262,114 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                             runSpacing: 8,
                             children: [
                               ...List.generate(7, (i) {
-                              final day = i + 1;
-                              final color = _eventoFixoWeekdayColors[i];
-                              final selected = selectedDow.contains(day);
-                              return Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  onTap: () {
-                                    // Multi-seleção: liga/desliga o dia,
-                                    // mantendo pelo menos 1 selecionado.
-                                    final next = Set<int>.from(selectedDow);
-                                    if (next.contains(day)) {
-                                      if (next.length > 1) next.remove(day);
-                                    } else {
-                                      next.add(day);
-                                    }
-                                    dow.value = next;
-                                  },
-                                  borderRadius: BorderRadius.circular(14),
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 180),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      gradient: selected
-                                          ? LinearGradient(
-                                              colors: [
-                                                color,
-                                                color.withValues(alpha: 0.78),
-                                              ],
-                                            )
-                                          : null,
-                                      color: selected
-                                          ? null
-                                          : color.withValues(alpha: 0.12),
-                                      borderRadius: BorderRadius.circular(14),
-                                      border: Border.all(
-                                        color: selected
-                                            ? color
-                                            : color.withValues(alpha: 0.28),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      _eventoFixoWeekdayLabels[i],
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 13,
-                                        color: selected ? Colors.white : color,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }),
-                              // Chip "Todos os dias" — liga/desliga todos.
-                              Builder(builder: (_) {
-                                final all = selectedDow.length == 7;
+                                final day = i + 1;
+                                final color = _eventoFixoWeekdayColors[i];
+                                final selected = selectedDow.contains(day);
                                 return Material(
                                   color: Colors.transparent,
                                   child: InkWell(
-                                    onTap: () => dow.value = all
-                                        ? <int>{DateTime.monday}
-                                        : {1, 2, 3, 4, 5, 6, 7},
+                                    onTap: () {
+                                    // Multi-seleção: liga/desliga o dia,
+                                      // mantendo pelo menos 1 selecionado.
+                                      final next = Set<int>.from(selectedDow);
+                                      if (next.contains(day)) {
+                                        if (next.length > 1) next.remove(day);
+                                      } else {
+                                        next.add(day);
+                                      }
+                                      dow.value = next;
+                                    },
                                     borderRadius: BorderRadius.circular(14),
                                     child: AnimatedContainer(
-                                      duration:
-                                          const Duration(milliseconds: 180),
+                                      duration: const Duration(
+                                        milliseconds: 180,
+                                      ),
                                       padding: const EdgeInsets.symmetric(
-                                          horizontal: 14, vertical: 10),
+                                        horizontal: 14,
+                                        vertical: 10,
+                                      ),
                                       decoration: BoxDecoration(
-                                        color: all
-                                            ? ThemeCleanPremium.primary
-                                            : ThemeCleanPremium.primary
-                                                .withValues(alpha: 0.12),
+                                        gradient: selected
+                                            ? LinearGradient(
+                                                colors: [
+                                                  color,
+                                                  color.withValues(alpha: 0.78),
+                                                ],
+                                              )
+                                            : null,
+                                        color: selected
+                                            ? null
+                                            : color.withValues(alpha: 0.12),
                                         borderRadius: BorderRadius.circular(14),
                                         border: Border.all(
-                                          color: ThemeCleanPremium.primary
-                                              .withValues(
-                                                  alpha: all ? 1 : 0.28),
+                                          color: selected
+                                              ? color
+                                              : color.withValues(alpha: 0.28),
                                         ),
                                       ),
-                                      child: Text('Todos',
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              fontSize: 13,
-                                              color: all
-                                                  ? Colors.white
-                                                  : ThemeCleanPremium.primary)),
+                                      child: Text(
+                                        _eventoFixoWeekdayLabels[i],
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 13,
+                                          color: selected
+                                              ? Colors.white
+                                              : color,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 );
                               }),
+                              // Chip "Todos os dias" ? liga/desliga todos.
+                              Builder(
+                                builder: (_) {
+                                  final all = selectedDow.length == 7;
+                                  return Material(
+                                    color: Colors.transparent,
+                                    child: InkWell(
+                                      onTap: () => dow.value = all
+                                          ? <int>{DateTime.monday}
+                                          : {1, 2, 3, 4, 5, 6, 7},
+                                      borderRadius: BorderRadius.circular(14),
+                                      child: AnimatedContainer(
+                                        duration: const Duration(
+                                          milliseconds: 180,
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                          vertical: 10,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: all
+                                              ? ThemeCleanPremium.primary
+                                              : ThemeCleanPremium.primary
+                                                    .withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
+                                          border: Border.all(
+                                            color: ThemeCleanPremium.primary
+                                                .withValues(
+                                                  alpha: all ? 1 : 0.28,
+                                                ),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          'Todos',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13,
+                                            color: all
+                                                ? Colors.white
+                                                : ThemeCleanPremium.primary,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
                             ],
                           ),
                         ),
@@ -1667,7 +1683,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                                       ),
                                                 label: Text(
                                                   uploading
-                                                      ? 'A preparar capa…'
+                                                      ? 'A preparar capa?'
                                                       : hasPhoto
                                                       ? 'Trocar capa'
                                                       : 'Escolher capa',
@@ -1836,7 +1852,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                       firstDate: DateTime(2020),
                                       lastDate: DateTime(2100),
                                     );
-                                    if (picked != null) validFrom.value = picked;
+                                    if (picked != null)
+                                      validFrom.value = picked;
                                   },
                                   icon: const Icon(
                                     Icons.event_rounded,
@@ -1859,11 +1876,14 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                     final picked = await showDatePicker(
                                       context: ctx,
                                       initialDate:
-                                          v ?? validFrom.value ?? DateTime.now(),
+                                          v ??
+                                          validFrom.value ??
+                                          DateTime.now(),
                                       firstDate: DateTime(2020),
                                       lastDate: DateTime(2100),
                                     );
-                                    if (picked != null) validUntil.value = picked;
+                                    if (picked != null)
+                                      validUntil.value = picked;
                                   },
                                   icon: const Icon(
                                     Icons.event_busy_rounded,
@@ -1877,23 +1897,24 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                             ),
                             ValueListenableBuilder<DateTime?>(
                               valueListenable: validFrom,
-                              builder: (_, vf, _) => ValueListenableBuilder<DateTime?>(
-                                valueListenable: validUntil,
-                                builder: (_, vu, _) =>
-                                    (vf == null && vu == null)
-                                    ? const SizedBox.shrink()
-                                    : IconButton(
+                              builder: (_, vf, _) =>
+                                  ValueListenableBuilder<DateTime?>(
+                                    valueListenable: validUntil,
+                                    builder: (_, vu, _) =>
+                                        (vf == null && vu == null)
+                                        ? const SizedBox.shrink()
+                                        : IconButton(
                                         tooltip: 'Limpar vigência',
-                                        icon: const Icon(
-                                          Icons.close_rounded,
-                                          size: 20,
-                                        ),
-                                        onPressed: () {
-                                          validFrom.value = null;
-                                          validUntil.value = null;
-                                        },
-                                      ),
-                              ),
+                                            icon: const Icon(
+                                              Icons.close_rounded,
+                                              size: 20,
+                                            ),
+                                            onPressed: () {
+                                              validFrom.value = null;
+                                              validUntil.value = null;
+                                            },
+                                          ),
+                                  ),
                             ),
                           ],
                         ),
@@ -1956,7 +1977,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
     await Future.delayed(const Duration(milliseconds: 150));
     final now = Timestamp.now();
-    // Capa: URL e/ou path Storage (path basta — URL pode falhar no getDownloadURL).
+    // Capa: URL e/ou path Storage (path basta ? URL pode falhar no getDownloadURL).
     var coverUrl = sanitizeImageUrl(defaultPhotoUrl.value.trim());
     var coverPath = coverStoragePath.value.trim();
     final pending = pendingCoverBytes.value;
@@ -2180,7 +2201,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       else
         cursor = cursor.add(const Duration(days: 7));
     }
-    final batch = ChurchRepository.batch();
+    final batch = YahwehBatch();
     final tsNow = Timestamp.now();
     final templateCoverPath =
         (data['coverStoragePath'] ??
@@ -2466,7 +2487,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   }
 }
 
-/// CRUD categorias (nome + cor) — `igrejas/{id}/event_categories`.
+/// CRUD categorias (nome + cor) ? `igrejas/{id}/event_categories`.
 class _EventCategoriesManagerPage extends StatefulWidget {
   final String tenantId;
   const _EventCategoriesManagerPage({required this.tenantId});
@@ -2651,7 +2672,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
         setState(() {
           _fetching = false;
           _loadError =
-              'A sincronizar com o servidor… tente de novo em instantes.';
+              'A sincronizar com o servidor? tente de novo em instantes.';
         });
         return;
       }
@@ -3967,7 +3988,7 @@ class _EventCategoriesManagerPageState
                         ),
                       )
                     : const Icon(Icons.add_rounded),
-                label: Text(_saving ? 'Salvando…' : 'Adicionar categoria'),
+                label: Text(_saving ? 'Salvando?' : 'Adicionar categoria'),
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
@@ -4081,9 +4102,9 @@ class _EventCategoriesManagerPageState
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Feed Tab — leitura pontual (.get()) para evitar INTERNAL ASSERTION FAILED (web/mobile).
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
+// Feed Tab ? leitura pontual (.get()) para evitar INTERNAL ASSERTION FAILED (web/mobile).
+// -------------------------------------------------------------------------------
 class _FeedTab extends StatefulWidget {
   final String tenantId;
   final CollectionReference<Map<String, dynamic>> noticias;
@@ -4202,7 +4223,7 @@ class _FeedTabState extends State<_FeedTab> {
         setState(() {
           _isInitialLoading = false;
           _feedLoadError = StateError(
-            'A sincronizar com o servidor… tente de novo em instantes.',
+            'A sincronizar com o servidor? tente de novo em instantes.',
           );
         });
       }
@@ -4619,7 +4640,7 @@ class _FeedTabState extends State<_FeedTab> {
     int weekday,
     String searchQuery,
   ) {
-    // Feed = só eventos especiais; data passada → Galeria, não o Feed.
+    // Feed = só eventos especiais; data passada ? Galeria, não o Feed.
     var out = docs.where(eventoDocApareceNoFeedPainel).where((d) {
       final data = d.data();
       if (data['ativo'] == false) return false;
@@ -5165,9 +5186,9 @@ class _CoralActionPillButton extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Stories Bar — estilo Instagram
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
+// Stories Bar ? estilo Instagram
+// -------------------------------------------------------------------------------
 class _StoriesBar extends StatelessWidget {
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
   final String nomeIgreja, logoUrl, tenantId;
@@ -5805,14 +5826,14 @@ int? _eventPhotoUrlIndexInDoc(Map<String, dynamic> data, String candidateUrl) {
 List<String> _eventFeedCardPhotoUrls(Map<String, dynamic> data) {
   final raw = noticiaGalleryRefsForShare(data);
   // Só exclui thumbs de vídeo quando HÁ vídeo. Sem vídeo, displayVideoThumbnail
-  // caía na 1ª foto e o feed ficava branco (Ampliar sem imagem).
+  // caía na 1? foto e o feed ficava branco (Ampliar sem imagem).
   if (!eventNoticiaDocHasPlayableVideo(data)) {
     return dedupeImageRefsByStorageIdentity(raw);
   }
   final thumbUrls = <String>{
     sanitizeImageUrl(eventNoticiaVideoThumbUrl(data) ?? ''),
   }..removeWhere((e) => e.isEmpty);
-  // Poster dedicado (não a 1ª foto da galeria, se for a única).
+  // Poster dedicado (não a 1? foto da galeria, se for a ?nica).
   final dedicatedPoster = sanitizeImageUrl(
     (data['posterUrl'] ??
             data['videoPosterUrl'] ??
@@ -5853,9 +5874,9 @@ List<String> _eventFeedCardPhotoUrls(Map<String, dynamic> data) {
 List<Map<String, String>> _eventVideosFromData(Map<String, dynamic> data) =>
     eventNoticiaVideosFromDoc(data);
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Post do Evento — Instagram completo (foto, vídeo, comentários)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 class _EventoPost extends StatefulWidget {
   final String tenantId;
   final QueryDocumentSnapshot<Map<String, dynamic>> doc;
@@ -6170,8 +6191,7 @@ class _EventoPostState extends State<_EventoPost>
     final hasAnyMedia = hasImages || eventNoticiaDocHasPlayableVideo(data);
     final publishState = (data['publishState'] ?? '').toString();
     final mediaUploading =
-        publishState == MuralFastPublishService.stateUploading &&
-        !hasAnyMedia;
+        publishState == MuralFastPublishService.stateUploading && !hasAnyMedia;
     final publishFailed = publishState == MuralFastPublishService.stateFailed;
     final publishError = (data['publishError'] ?? '').toString();
     final location = (data['location'] ?? '').toString();
@@ -6362,7 +6382,7 @@ class _EventoPostState extends State<_EventoPost>
                                           ),
                                           SizedBox(width: 8),
                                           Text(
-                                            'A publicar fotos…',
+                                            'A publicar fotos?',
                                             style: TextStyle(
                                               fontSize: 12,
                                               fontWeight: FontWeight.w600,
@@ -6454,7 +6474,7 @@ class _EventoPostState extends State<_EventoPost>
                                   ),
                                   SizedBox(height: 10),
                                   Text(
-                                    'A publicar fotos…',
+                                    'A publicar fotos?',
                                     style: TextStyle(
                                       fontSize: 13,
                                       fontWeight: FontWeight.w600,
@@ -6745,7 +6765,7 @@ class _EventoPostState extends State<_EventoPost>
                 ),
             ],
           ),
-          // Actions — barra WISDOM unificada (Participar · Comentar · Compartilhar · ♥).
+          // Actions ? barra WISDOM unificada (Participar ? Comentar ? Compartilhar ? ?).
           if (!widget.selectionMode)
             YahwehSocialPostBar(
               tenantId: widget.tenantId,
@@ -6841,7 +6861,7 @@ class _EventoPostState extends State<_EventoPost>
                 }).toList(),
               ),
             ),
-          // Comments — link sem stream para evitar INTERNAL ASSERTION FAILED
+          // Comments ? link sem stream para evitar INTERNAL ASSERTION FAILED
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
             child: GestureDetector(
@@ -6877,9 +6897,9 @@ class _EventoPostState extends State<_EventoPost>
   ][w.clamp(0, 7)];
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Vídeo hospedado: foto/vídeo em destaque + barra fina no topo + toque → teatro → tela cheia
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
+// Vídeo hospedado: foto/vídeo em destaque + barra fina no topo + toque ? teatro ? tela cheia
+// -------------------------------------------------------------------------------
 class _HostedVideoInlinePanel extends StatefulWidget {
   final String videoUrl;
   final String thumbUrl;
@@ -7151,7 +7171,7 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
           padding: const EdgeInsets.only(top: 6, left: 4, right: 4),
           child: Text(
             kIsWeb
-                ? 'Controles do navegador · ícone Tela cheia para ampliar'
+                ? 'Controles do navegador ? ?cone Tela cheia para ampliar'
                 : 'Toque no vídeo para abrir em tela cheia nesta mesma sessão',
             style: TextStyle(
               fontSize: 10,
@@ -7166,9 +7186,9 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Bloco de vídeo do evento — Storage inline; YouTube embed in-app (padrão Cursos)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 class _EventVideoBlock extends StatelessWidget {
   final String title, dateStr;
   final String hostedVideoUrl;
@@ -7207,12 +7227,12 @@ class _EventVideoBlock extends StatelessWidget {
     final safeThumb = sanitizeImageUrl(thumbUrl);
     final useThumb = isValidImageUrl(safeThumb);
 
-    // YouTube — player in-app (capa ▶ embed), padrão módulo Cursos.
+    // YouTube ? player in-app (capa ? embed), padrão módulo Cursos.
     if (ytId != null && ytId.isNotEmpty) {
       final caption = [
         if (title.isNotEmpty) title,
         if (dateStr.isNotEmpty) dateStr,
-      ].join(' · ');
+      ].join(' ? ');
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -7465,9 +7485,9 @@ Widget _eventImageErrorWithOverlay({
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Barra fina sobre foto/vídeo (título + data em uma linha) — estilo avisos / EcoFire
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 class _EventMediaOverlayBar extends StatelessWidget {
   final String title;
   final String dateStr;
@@ -7479,7 +7499,7 @@ class _EventMediaOverlayBar extends StatelessWidget {
     final line = [
       if (title.isNotEmpty) title,
       if (dateStr.isNotEmpty) dateStr,
-    ].join(' · ');
+    ].join(' ? ');
     return ClipRect(
       child: Container(
         width: double.infinity,
@@ -7764,9 +7784,9 @@ class _ResilientGalleryImage extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Full Screen Gallery (zoom/pan)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 class _FullScreenGallery extends StatefulWidget {
   final List<String> images;
   final int initial;
@@ -7864,9 +7884,9 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Skeleton Loading
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 class _FeedSkeleton extends StatelessWidget {
   const _FeedSkeleton();
 
@@ -7879,9 +7899,9 @@ class _FeedSkeleton extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Seletor de recorrência (vários dias da semana + período) — Novo Evento
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 class _EventoRecurrenceSection extends StatelessWidget {
   const _EventoRecurrenceSection({
     required this.recorrente,
@@ -7915,8 +7935,10 @@ class _EventoRecurrenceSection extends StatelessWidget {
   final ValueChanged<TimeOfDay> onStartTimeChanged;
   final ValueChanged<TimeOfDay> onEndTimeChanged;
 
-  static const _weekdayColors = _EventsManagerPageState._eventoFixoWeekdayColors;
-  static const _weekdayLabels = _EventsManagerPageState._eventoFixoWeekdayLabels;
+  static const _weekdayColors =
+      _EventsManagerPageState._eventoFixoWeekdayColors;
+  static const _weekdayLabels =
+      _EventsManagerPageState._eventoFixoWeekdayLabels;
 
   Future<void> _pickDate(
     BuildContext context, {
@@ -7937,7 +7959,7 @@ class _EventoRecurrenceSection extends StatelessWidget {
   }
 
   String _fmtDate(DateTime? d) => d == null
-      ? '—'
+      ? '?'
       : '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
 
   String _fmtTime(TimeOfDay t) =>
@@ -7959,8 +7981,11 @@ class _EventoRecurrenceSection extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.event_repeat_rounded,
-                  size: 20, color: ThemeCleanPremium.primary),
+              Icon(
+                Icons.event_repeat_rounded,
+                size: 20,
+                color: ThemeCleanPremium.primary,
+              ),
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
@@ -7976,7 +8001,11 @@ class _EventoRecurrenceSection extends StatelessWidget {
           ),
           Text(
             'Ex.: toda sexta, de 07/08 até 19/09 — ou sexta, sábado e domingo, até uma data final.',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade600, height: 1.3),
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade600,
+              height: 1.3,
+            ),
           ),
           if (recorrente) ...[
             const SizedBox(height: 12),
@@ -8010,12 +8039,16 @@ class _EventoRecurrenceSection extends StatelessWidget {
                     onPressed: () => _pickDate(
                       context,
                       initial: validFrom,
-                      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                      firstDate: DateTime.now().subtract(
+                        const Duration(days: 1),
+                      ),
                       onChanged: onValidFromChanged,
                     ),
                     icon: const Icon(Icons.event_rounded, size: 18),
-                    label: Text('De: ${_fmtDate(validFrom)}',
-                        overflow: TextOverflow.ellipsis),
+                    label: Text(
+                      'De: ${_fmtDate(validFrom)}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -8028,8 +8061,10 @@ class _EventoRecurrenceSection extends StatelessWidget {
                       onChanged: onValidUntilChanged,
                     ),
                     icon: const Icon(Icons.event_busy_rounded, size: 18),
-                    label: Text('Até: ${_fmtDate(validUntil)}',
-                        overflow: TextOverflow.ellipsis),
+                    label: Text(
+                      'Até: ${_fmtDate(validUntil)}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
               ],
@@ -8056,8 +8091,9 @@ class _EventoRecurrenceSection extends StatelessWidget {
                           context: context,
                           initialTime: startTime,
                           builder: (context, child) => MediaQuery(
-                            data: MediaQuery.of(context)
-                                .copyWith(alwaysUse24HourFormat: true),
+                            data: MediaQuery.of(
+                              context,
+                            ).copyWith(alwaysUse24HourFormat: true),
                             child: child!,
                           ),
                           helpText: 'Horário de início',
@@ -8076,8 +8112,9 @@ class _EventoRecurrenceSection extends StatelessWidget {
                           context: context,
                           initialTime: endTime,
                           builder: (context, child) => MediaQuery(
-                            data: MediaQuery.of(context)
-                                .copyWith(alwaysUse24HourFormat: true),
+                            data: MediaQuery.of(
+                              context,
+                            ).copyWith(alwaysUse24HourFormat: true),
                             child: child!,
                           ),
                           helpText: 'Horário de término',
@@ -8093,7 +8130,11 @@ class _EventoRecurrenceSection extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               'Um evento será publicado em cada dia gerado, com a mesma foto/vídeo, texto e local.',
-              style: TextStyle(fontSize: 11.5, color: Colors.grey.shade500, height: 1.3),
+              style: TextStyle(
+                fontSize: 11.5,
+                color: Colors.grey.shade500,
+                height: 1.3,
+              ),
             ),
           ],
         ],
@@ -8102,9 +8143,9 @@ class _EventoRecurrenceSection extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Formulário de Evento (com múltiplas imagens)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 class _EventoFormPage extends StatefulWidget {
   final String tenantId;
   final String resolvedTenantId;
@@ -8467,7 +8508,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     });
   }
 
-  /// Botão remover (X) — área tátil ≥48px + confirmação.
+  /// Botão remover (X) ? ?rea tátil =48px + confirmação.
   Widget _mediaRemoveButton({
     required VoidCallback onRemove,
     String confirmMessage = 'Remover esta foto?',
@@ -8572,7 +8613,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   bool _allDay = false;
   late DateTime _allDayEndDate;
   late DateTime _endDateTime;
-  // Recorrência (evento em vários dias da semana, ex.: toda sexta 07/08→19/09,
+  // Recorrência (evento em vários dias da semana, ex.: toda sexta 07/08?19/09,
   // ou sexta+sábado+domingo) — reaproveita o mesmo pipeline de publicação do
   // evento único, uma vez por data gerada.
   bool _recorrente = false;
@@ -8593,7 +8634,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   /// Evento já publicado (stub+fotos) enquanto o vídeo ainda sobe — merge ao concluir.
   final bool _publishedAwaitingVideoMerge = false;
 
-  /// null = a comprimir / a preparar; 0–1 = progresso real do upload ao Storage.
+  /// null = a comprimir / a preparar; 0?1 = progresso real do upload ao Storage.
   double? _videoUploadFraction;
   bool _buscandoCep = false;
   bool _loadingChurchAddress = false;
@@ -8637,9 +8678,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final cep = _onlyDigits((data['cep'] ?? '').toString());
     final parts = <String>[];
     if (rua.isNotEmpty) {
-      parts.add(numero.isNotEmpty ? '$rua, Nº $numero' : rua);
+      parts.add(numero.isNotEmpty ? '$rua, N? $numero' : rua);
     } else if (numero.isNotEmpty) {
-      parts.add('Nº $numero');
+      parts.add('N? $numero');
     }
     if (quadra.isNotEmpty) parts.add('Qd/Lt $quadra');
     if (bairro.isNotEmpty) parts.add(bairro);
@@ -8772,9 +8813,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final rua = _logradouro.text.trim();
     final nume = _numero.text.trim();
     if (rua.isNotEmpty) {
-      parts.add(nume.isNotEmpty ? '$rua, Nº $nume' : rua);
+      parts.add(nume.isNotEmpty ? '$rua, N? $nume' : rua);
     } else if (nume.isNotEmpty) {
-      parts.add('Nº $nume');
+      parts.add('N? $nume');
     }
     final qd = _quadraLote.text.trim();
     if (qd.isNotEmpty) parts.add('Qd/Lt $qd');
@@ -9129,14 +9170,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'location': _localSalvo(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
-    final batch = ChurchRepository.batch();
+    final batch = YahwehBatch();
     if (existing.docs.isEmpty) {
-      payload['createdAt'] = FieldValue.serverTimestamp();
+      payload['createdAt'] = YahwehFv.serverTimestamp;
       payload['createdByUid'] = firebaseDefaultAuth.currentUser?.uid ?? '';
       batch.set(agendaCol.doc(), payload);
     } else {
       for (final d in existing.docs) {
-        batch.set(d.reference, payload, SetOptions(merge: true));
+        batch.set(d.reference, payload, merge: true);
       }
     }
     await batch.commit();
@@ -9146,9 +9187,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final q = await ChurchUiCollections.agenda(
       _editorTenantId,
     ).where('noticiaId', isEqualTo: noticiaId).get();
-    final batch = ChurchRepository.batch();
+    final batch = YahwehBatch();
     for (final d in q.docs) {
-      batch.delete(d.reference);
+      batch.deleteDoc(d.reference);
     }
     await batch.commit();
   }
@@ -9225,6 +9266,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final startTs = Timestamp.fromDate(start);
     final out = <String, dynamic>{
       'allDay': _allDay,
+      'publicSite': _publicSite,
       'startAt': startTs,
       'endAt': Timestamp.fromDate(end),
       // dataEvento: índice da Agenda (sidebar); alinhado ao início do evento no mural.
@@ -9282,7 +9324,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   /// [allowDeleteSentinels] só pode ser true com `set(..., SetOptions(merge: true))` ou `update`.
-  /// `add()` / `set` sem merge rejeitam [FieldValue.delete] — causa [cloud_firestore/invalid-argument].
+  /// `add()` / `set` sem merge rejeitam [FieldValue.delete] ? causa [cloud_firestore/invalid-argument].
   Map<String, dynamic> _locationFieldsForSave({
     required bool allowDeleteSentinels,
   }) {
@@ -9574,7 +9616,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     );
   }
 
-  /// Slot 0/1 explícito no path (`_v0.mp4`); legado sem sufixo → `null` (apenas apagar por URL).
+  /// Slot 0/1 explícito no path (`_v0.mp4`); legado sem sufixo ? `null` (apenas apagar por URL).
   int? _hostedVideoStorageSlotFromUrl(String videoUrl) {
     final u = sanitizeImageUrl(videoUrl.trim());
     if (u.isEmpty || !isFirebaseStorageHttpUrl(u)) return null;
@@ -9793,7 +9835,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Fotos: recorte + JPEG (1920 px · 85%). Vídeo: até $_maxVideoSeconds s, máx. 15 MB no celular.',
+                    'Fotos: recorte + JPEG (1920 px ? 85%). Vídeo: até $_maxVideoSeconds s, máx. 15 MB no celular.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12.5,
@@ -9826,7 +9868,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     subtitle: Text(
                       photosFull
                           ? 'Limite de $_maxPhotosPerEvent fotos atingido'
-                          : 'Várias imagens · recorte por foto',
+                          : 'Várias imagens ? recorte por foto',
                       style: TextStyle(
                         fontSize: 12,
                         color: photosFull
@@ -9869,7 +9911,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     subtitle: Text(
                       photosFull
                           ? 'Limite de fotos atingido'
-                          : 'Câmera · uma foto com recorte',
+                          : 'Câmera ? uma foto com recorte',
                       style: TextStyle(
                         fontSize: 12,
                         color: photosFull
@@ -9911,7 +9953,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     ),
                     subtitle: Text(
                       _uploadingVideo
-                          ? 'Aguarde o envio em andamento…'
+                          ? 'Aguarde o envio em andamento?'
                           : videosFull
                           ? 'Máx. $_maxVideosPerEvent vídeos por evento'
                           : 'Até $_maxVideoSeconds s — MP4 leve envia direto; senão 720p HD',
@@ -10086,7 +10128,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     } catch (_) {}
   }
 
-  /// Reconexão após INTERNAL ASSERTION — mesmo pipeline linear (upload → Firestore).
+  /// Reconexão após INTERNAL ASSERTION ? mesmo pipeline linear (upload ? Firestore).
   Future<void> _retryEventPublishFirestoreFirst() async {
     await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
     final ctx = await _prepareEventoPublishContext();
@@ -10146,7 +10188,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
-  /// Fotos pendentes — sempre bytes (Web = Android = iOS). Sem paths no publish.
+  /// Fotos pendentes ? sempre bytes (Web = Android = iOS). Sem paths no publish.
   ({List<Uint8List>? bytes, List<String>? paths})
   _pendingEventPhotosForPublish() {
     if (_newImages.isNotEmpty) {
@@ -10163,7 +10205,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       return out;
     }
-    // Último recurso: ler temp estável (preview) → bytes — nunca publish por path.
+    // ?ltimo recurso: ler temp estável (preview) ? bytes ? nunca publish por path.
     if (!kIsWeb) {
       for (final path in FeedEditorMediaService.existingValidPaths(
         _newImagePaths,
@@ -10266,7 +10308,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   /// Evento recorrente: publica um post completo (mesma foto/vídeo/texto) para
   /// cada data gerada a partir dos dias da semana + período escolhidos.
-  /// A 1ª data sobe a mídia normalmente; as seguintes reaproveitam a mesma
+  /// A 1? data sobe a mídia normalmente; as seguintes reaproveitam a mesma
   /// mídia já enviada (sem novo upload) — ver [EventoPublishService.publish].
   Future<void> _publishRecurringSeries() async {
     if (_saving) return;
@@ -10286,9 +10328,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     if (_recorrenteWeekdays.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Selecione ao menos um dia da semana.'),
-        ),
+        const SnackBar(content: Text('Selecione ao menos um dia da semana.')),
       );
       return;
     }
@@ -10350,7 +10390,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'Publicando ${dates.length} eventos…',
+          'Publicando ${dates.length} eventos?',
         ),
       );
     }
@@ -10382,11 +10422,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final publishTenantId = ctx.igrejaId;
       final localVideoPath = _pendingLocalVideoPath();
       final hasVideo = _eventHasHostedVideoForPublish(publishTenantId);
-      final videoPathForPublish = _videoStoragePathForPublish(
-        publishTenantId,
-      );
+      final videoPathForPublish = _videoStoragePathForPublish(publishTenantId);
 
-      // 1ª ocorrência: pipeline normal (sobe foto/vídeo de verdade).
+      // 1? ocorrência: pipeline normal (sobe foto/vídeo de verdade).
       final firstDt = dates.first;
       _date = firstDt;
       _endDateTime = _allDay ? firstDt : firstDt.add(eventDuration());
@@ -10506,7 +10544,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       return;
     }
-    // Offline: permite publicar (fila local → sync automático).
+    // Offline: permite publicar (fila local ? sync automático).
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(
         context,
@@ -10517,7 +10555,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     try {
       await DirectStorageUrlPublish.ensureReady(requireAuth: true);
     } catch (e) {
-      // Offline / bootstrap frágil → segue para compressão + fila local.
+      // Offline / bootstrap fr?gil ? segue para compressão + fila local.
       if (!EcoFireResilientPublish.shouldQueueFeedPublish(e) &&
           AppConnectivityService.instance.isOnline) {
         if (mounted) {
@@ -11144,7 +11182,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               localActive: _mediaPicking || _uploadingVideo,
               localLabel: _uploadingVideo
                   ? 'A preparar vídeo…'
-                  : 'A preparar fotos…',
+                  : 'A preparar fotos?',
             ),
             if (_firebaseBootstrapError != null) ...[
               const SizedBox(height: 10),
@@ -11209,8 +11247,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   const SizedBox(height: 6),
                   Text(
                     kIsWeb
-                        ? 'Fotos comprimidas no dispositivo (1920 px · 85%). Vídeos até $_maxVideoSeconds s.'
-                        : 'Fotos nítidas no celular (1920 px · 85%). Vídeos até $_maxVideoSeconds s e máx. 15 MB — acima disso o app bloqueia para não travar.',
+                        ? 'Fotos comprimidas no dispositivo (1920 px ? 85%). Vídeos até $_maxVideoSeconds s.'
+                        : 'Fotos nítidas no celular (1920 px ? 85%). Vídeos até $_maxVideoSeconds s e máx. 15 MB ? acima disso o app bloqueia para não travar.',
                     style: TextStyle(
                       fontSize: 12,
                       height: 1.35,
@@ -11305,7 +11343,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Texto simples — sem negrito nem cores no editor. '
+                        'Texto simples ? sem negrito nem cores no editor. '
                         'O mural e o site continuam a mostrar o conteúdo normalmente.',
                         style: TextStyle(
                           fontSize: 12,
@@ -11518,232 +11556,232 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     const SizedBox(height: 8),
                   ],
                   if (!_recorrente) ...[
-                  SwitchListTile.adaptive(
-                    contentPadding: EdgeInsets.zero,
-                    value: _allDay,
-                    onChanged: (v) => setState(() {
-                      _allDay = v;
-                      if (v) {
-                        _allDayEndDate = DateTime(
-                          _date.year,
-                          _date.month,
-                          _date.day,
-                        );
-                      }
-                    }),
-                    title: const Text('Dia inteiro'),
-                    subtitle: Text(
-                      'Marca o(s) dia(s) completo(s) na agenda colorida.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                    secondary: const Icon(Icons.calendar_view_day_rounded),
-                  ),
-                  if (_allDay) ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () async {
-                              final d = await showDatePicker(
-                                context: context,
-                                initialDate: _date,
-                                firstDate: DateTime.now().subtract(
-                                  const Duration(days: 365),
-                                ),
-                                lastDate: DateTime.now().add(
-                                  const Duration(days: 730),
-                                ),
-                                locale: const Locale('pt', 'BR'),
-                              );
-                              if (d != null && mounted) {
-                                setState(() {
-                                  _date = DateTime(
-                                    d.year,
-                                    d.month,
-                                    d.day,
-                                    12,
-                                    0,
-                                  );
-                                  final startDay = DateTime(
-                                    d.year,
-                                    d.month,
-                                    d.day,
-                                  );
-                                  if (_allDayEndDate.isBefore(startDay)) {
-                                    _allDayEndDate = startDay;
-                                  }
-                                });
-                              }
-                            },
-                            icon: const Icon(Icons.event_rounded, size: 18),
-                            label: Text(
-                              'Início: ${_date.day.toString().padLeft(2, '0')}/${_date.month.toString().padLeft(2, '0')}/${_date.year}',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      value: _allDay,
+                      onChanged: (v) => setState(() {
+                        _allDay = v;
+                        if (v) {
+                          _allDayEndDate = DateTime(
+                            _date.year,
+                            _date.month,
+                            _date.day,
+                          );
+                        }
+                      }),
+                      title: const Text('Dia inteiro'),
+                      subtitle: Text(
+                        'Marca o(s) dia(s) completo(s) na agenda colorida.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () async {
-                              final first = DateTime(
-                                _date.year,
-                                _date.month,
-                                _date.day,
-                              );
-                              final d = await showDatePicker(
-                                context: context,
-                                initialDate: _allDayEndDate.isBefore(first)
-                                    ? first
-                                    : _allDayEndDate,
-                                firstDate: first,
-                                lastDate: DateTime.now().add(
-                                  const Duration(days: 730),
-                                ),
-                                locale: const Locale('pt', 'BR'),
-                              );
-                              if (d != null && mounted) {
-                                setState(
-                                  () => _allDayEndDate = DateTime(
-                                    d.year,
-                                    d.month,
-                                    d.day,
+                      ),
+                      secondary: const Icon(Icons.calendar_view_day_rounded),
+                    ),
+                    if (_allDay) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final d = await showDatePicker(
+                                  context: context,
+                                  initialDate: _date,
+                                  firstDate: DateTime.now().subtract(
+                                    const Duration(days: 365),
                                   ),
+                                  lastDate: DateTime.now().add(
+                                    const Duration(days: 730),
+                                  ),
+                                  locale: const Locale('pt', 'BR'),
                                 );
-                              }
-                            },
-                            icon: const Icon(
-                              Icons.event_repeat_rounded,
-                              size: 18,
+                                if (d != null && mounted) {
+                                  setState(() {
+                                    _date = DateTime(
+                                      d.year,
+                                      d.month,
+                                      d.day,
+                                      12,
+                                      0,
+                                    );
+                                    final startDay = DateTime(
+                                      d.year,
+                                      d.month,
+                                      d.day,
+                                    );
+                                    if (_allDayEndDate.isBefore(startDay)) {
+                                      _allDayEndDate = startDay;
+                                    }
+                                  });
+                                }
+                              },
+                              icon: const Icon(Icons.event_rounded, size: 18),
+                              label: Text(
+                              'Início: ${_date.day.toString().padLeft(2, '0')}/${_date.month.toString().padLeft(2, '0')}/${_date.year}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                            label: Text(
-                              'Fim: ${_allDayEndDate.day.toString().padLeft(2, '0')}/${_allDayEndDate.month.toString().padLeft(2, '0')}/${_allDayEndDate.year}',
-                              overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () async {
+                                final first = DateTime(
+                                  _date.year,
+                                  _date.month,
+                                  _date.day,
+                                );
+                                final d = await showDatePicker(
+                                  context: context,
+                                  initialDate: _allDayEndDate.isBefore(first)
+                                      ? first
+                                      : _allDayEndDate,
+                                  firstDate: first,
+                                  lastDate: DateTime.now().add(
+                                    const Duration(days: 730),
+                                  ),
+                                  locale: const Locale('pt', 'BR'),
+                                );
+                                if (d != null && mounted) {
+                                  setState(
+                                    () => _allDayEndDate = DateTime(
+                                      d.year,
+                                      d.month,
+                                      d.day,
+                                    ),
+                                  );
+                                }
+                              },
+                              icon: const Icon(
+                                Icons.event_repeat_rounded,
+                                size: 18,
+                              ),
+                              label: Text(
+                                'Fim: ${_allDayEndDate.day.toString().padLeft(2, '0')}/${_allDayEndDate.month.toString().padLeft(2, '0')}/${_allDayEndDate.year}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ] else ...[
-                    GestureDetector(
-                      onTap: () async {
-                        final d = await showDatePicker(
-                          context: context,
-                          initialDate: _date,
-                          firstDate: DateTime.now().subtract(
-                            const Duration(days: 365),
-                          ),
-                          lastDate: DateTime.now().add(
-                            const Duration(days: 730),
-                          ),
-                          locale: const Locale('pt', 'BR'),
+                        ],
+                      ),
+                    ] else ...[
+                      GestureDetector(
+                        onTap: () async {
+                          final d = await showDatePicker(
+                            context: context,
+                            initialDate: _date,
+                            firstDate: DateTime.now().subtract(
+                              const Duration(days: 365),
+                            ),
+                            lastDate: DateTime.now().add(
+                              const Duration(days: 730),
+                            ),
+                            locale: const Locale('pt', 'BR'),
                           helpText: 'Data de início',
-                          cancelText: 'Cancelar',
-                          confirmText: 'OK',
-                        );
-                        if (d != null && mounted) {
-                          final t = await showTimePicker(
-                            context: context,
-                            initialTime: TimeOfDay.fromDateTime(_date),
-                            builder: (context, child) => MediaQuery(
-                              data: MediaQuery.of(
-                                context,
-                              ).copyWith(alwaysUse24HourFormat: true),
-                              child: child!,
-                            ),
+                            cancelText: 'Cancelar',
+                            confirmText: 'OK',
+                          );
+                          if (d != null && mounted) {
+                            final t = await showTimePicker(
+                              context: context,
+                              initialTime: TimeOfDay.fromDateTime(_date),
+                              builder: (context, child) => MediaQuery(
+                                data: MediaQuery.of(
+                                  context,
+                                ).copyWith(alwaysUse24HourFormat: true),
+                                child: child!,
+                              ),
                             helpText: 'Horário de início',
-                            cancelText: 'Cancelar',
-                            confirmText: 'OK',
-                          );
-                          if (t != null && mounted) {
-                            setState(
-                              () => _date = DateTime(
-                                d.year,
-                                d.month,
-                                d.day,
-                                t.hour,
-                                t.minute,
-                              ),
+                              cancelText: 'Cancelar',
+                              confirmText: 'OK',
                             );
+                            if (t != null && mounted) {
+                              setState(
+                                () => _date = DateTime(
+                                  d.year,
+                                  d.month,
+                                  d.day,
+                                  t.hour,
+                                  t.minute,
+                                ),
+                              );
+                            }
                           }
-                        }
-                      },
-                      child: InputDecorator(
-                        decoration: const InputDecoration(
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
                           labelText: 'Início',
-                          prefixIcon: Icon(Icons.calendar_month_rounded),
-                          border: OutlineInputBorder(),
-                        ),
-                        child: Text(
-                          '${_date.day.toString().padLeft(2, '0')}/${_date.month.toString().padLeft(2, '0')}/${_date.year} ${_date.hour.toString().padLeft(2, '0')}:${_date.minute.toString().padLeft(2, '0')}',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
+                            prefixIcon: Icon(Icons.calendar_month_rounded),
+                            border: OutlineInputBorder(),
+                          ),
+                          child: Text(
+                            '${_date.day.toString().padLeft(2, '0')}/${_date.month.toString().padLeft(2, '0')}/${_date.year} ${_date.hour.toString().padLeft(2, '0')}:${_date.minute.toString().padLeft(2, '0')}',
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    GestureDetector(
-                      onTap: () async {
-                        final d = await showDatePicker(
-                          context: context,
-                          initialDate: _endDateTime,
-                          firstDate: _date,
-                          lastDate: DateTime.now().add(
-                            const Duration(days: 730),
-                          ),
-                          locale: const Locale('pt', 'BR'),
-                          helpText: 'Data de término',
-                          cancelText: 'Cancelar',
-                          confirmText: 'OK',
-                        );
-                        if (d != null && mounted) {
-                          final t = await showTimePicker(
+                      const SizedBox(height: 10),
+                      GestureDetector(
+                        onTap: () async {
+                          final d = await showDatePicker(
                             context: context,
-                            initialTime: TimeOfDay.fromDateTime(_endDateTime),
-                            builder: (context, child) => MediaQuery(
-                              data: MediaQuery.of(
-                                context,
-                              ).copyWith(alwaysUse24HourFormat: true),
-                              child: child!,
+                            initialDate: _endDateTime,
+                            firstDate: _date,
+                            lastDate: DateTime.now().add(
+                              const Duration(days: 730),
                             ),
-                            helpText: 'Horário de término',
+                            locale: const Locale('pt', 'BR'),
+                          helpText: 'Data de término',
                             cancelText: 'Cancelar',
                             confirmText: 'OK',
                           );
-                          if (t != null && mounted) {
-                            setState(
-                              () => _endDateTime = DateTime(
-                                d.year,
-                                d.month,
-                                d.day,
-                                t.hour,
-                                t.minute,
+                          if (d != null && mounted) {
+                            final t = await showTimePicker(
+                              context: context,
+                              initialTime: TimeOfDay.fromDateTime(_endDateTime),
+                              builder: (context, child) => MediaQuery(
+                                data: MediaQuery.of(
+                                  context,
+                                ).copyWith(alwaysUse24HourFormat: true),
+                                child: child!,
                               ),
+                            helpText: 'Horário de término',
+                              cancelText: 'Cancelar',
+                              confirmText: 'OK',
                             );
+                            if (t != null && mounted) {
+                              setState(
+                                () => _endDateTime = DateTime(
+                                  d.year,
+                                  d.month,
+                                  d.day,
+                                  t.hour,
+                                  t.minute,
+                                ),
+                              );
+                            }
                           }
-                        }
-                      },
-                      child: InputDecorator(
-                        decoration: const InputDecoration(
+                        },
+                        child: InputDecorator(
+                          decoration: const InputDecoration(
                           labelText: 'Término',
-                          prefixIcon: Icon(Icons.event_available_rounded),
-                          border: OutlineInputBorder(),
-                        ),
-                        child: Text(
-                          '${_endDateTime.day.toString().padLeft(2, '0')}/${_endDateTime.month.toString().padLeft(2, '0')}/${_endDateTime.year} ${_endDateTime.hour.toString().padLeft(2, '0')}:${_endDateTime.minute.toString().padLeft(2, '0')}',
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
+                            prefixIcon: Icon(Icons.event_available_rounded),
+                            border: OutlineInputBorder(),
+                          ),
+                          child: Text(
+                            '${_endDateTime.day.toString().padLeft(2, '0')}/${_endDateTime.month.toString().padLeft(2, '0')}/${_endDateTime.year} ${_endDateTime.hour.toString().padLeft(2, '0')}:${_endDateTime.minute.toString().padLeft(2, '0')}',
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
                   ],
                   const SizedBox(height: 8),
                   Container(
@@ -12023,7 +12061,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       controller: _logradouro,
                       onChanged: (_) => _notifyAddressPreview(),
                       decoration: InputDecoration(
-                        labelText: 'Logradouro (rua, avenida…)',
+                        labelText: 'Logradouro (rua, avenida?)',
                         prefixIcon: const Icon(Icons.signpost_outlined),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -12303,9 +12341,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Período personalizado na lista «Próximos na programação» — digitar e/ou calendário.
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _UpcomingCustomPeriodDialog extends StatefulWidget {
   final DateTime initialStart;
@@ -12500,9 +12538,9 @@ class _UpcomingCustomPeriodDialogState
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Aba Eventos Fixos — leitura pontual para evitar INTERNAL ASSERTION FAILED.
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
+// Aba Eventos Fixos ? leitura pontual para evitar INTERNAL ASSERTION FAILED.
+// -------------------------------------------------------------------------------
 class _FixosTab extends StatefulWidget {
   final String tenantId;
   final CollectionReference<Map<String, dynamic>> templates;
@@ -12672,7 +12710,7 @@ class _FixosTabState extends State<_FixosTab> {
           );
         } catch (_) {}
       }
-      // Caminho direto — sem runWithWebRecovery (evita INTERNAL ASSERTION / sync).
+      // Caminho direto ? sem runWithWebRecovery (evita INTERNAL ASSERTION / sync).
       final queryCap = kIsWeb
           ? const Duration(seconds: 12)
           : PanelResilientLoad.queryCap;
@@ -12880,7 +12918,7 @@ class _FixosTabState extends State<_FixosTab> {
     final dt = startTs.toDate();
     if (data['allDay'] == true) {
       final w = dt.weekday >= 1 && dt.weekday <= 7 ? _wdEvento[dt.weekday] : '';
-      return '$w ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} — dia inteiro';
+      return '$w ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} ? dia inteiro';
     }
     final w = dt.weekday >= 1 && dt.weekday <= 7 ? _wdEvento[dt.weekday] : '';
     return '$w ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
@@ -13119,7 +13157,7 @@ class _FixosTabState extends State<_FixosTab> {
             const SizedBox(height: 6),
             Text(
               'Período: ${_upcomingCustomStart!.day.toString().padLeft(2, '0')}/${_upcomingCustomStart!.month.toString().padLeft(2, '0')}/${_upcomingCustomStart!.year} '
-              '– ${_upcomingCustomEnd!.day.toString().padLeft(2, '0')}/${_upcomingCustomEnd!.month.toString().padLeft(2, '0')}/${_upcomingCustomEnd!.year}',
+              '? ${_upcomingCustomEnd!.day.toString().padLeft(2, '0')}/${_upcomingCustomEnd!.month.toString().padLeft(2, '0')}/${_upcomingCustomEnd!.year}',
               style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
             ),
           ],
@@ -13279,8 +13317,8 @@ class _FixosTabState extends State<_FixosTab> {
     );
     if (ok != true || !mounted) return;
 
-    final tid = widget.templates.parent?.id ?? widget.tenantId;
     final ids = refs.map((r) => r.id).toList();
+    final tid = widget.templates.parent?.id ?? widget.tenantId;
     TenantDeletedDocTombstones.mark(tid, 'event_templates', ids);
     _EventTemplatesRamCache.removeIds(tid, ids);
     final prev = _lastGoodTemplatesSnap;
@@ -13295,14 +13333,19 @@ class _FixosTabState extends State<_FixosTab> {
 
     try {
       const int chunkSize = 400;
+      final ids = refs.map((r) => r.id).toList();
+      final tid = widget.templates.parent?.id ?? widget.tenantId;
+      // A lápide vem antes do commit para fechar a corrida com streams/cache.
+      TenantDeletedDocTombstones.mark(tid, 'event_templates', ids);
+      _EventTemplatesRamCache.removeIds(tid, ids);
       for (var i = 0; i < refs.length; i += chunkSize) {
-        final batch = ChurchRepository.batch();
+        final batch = YahwehBatch();
         final chunk = refs.sublist(
           i,
           i + chunkSize > refs.length ? refs.length : i + chunkSize,
         );
         for (final r in chunk) {
-          batch.delete(r);
+          batch.deleteDoc(r);
         }
         await batch.commit();
       }
@@ -14312,7 +14355,7 @@ class _EventoFixoDetailPage extends StatelessWidget {
     final time = (m['time'] ?? '19:30').toString();
     final location = (m['location'] ?? '').toString();
     final rec = (m['recurrence'] ?? 'weekly').toString();
-    final dayName = weekday > 0 && weekday < 8 ? _wn[weekday] : '—';
+    final dayName = weekday > 0 && weekday < 8 ? _wn[weekday] : '?';
     final recLabel = rec == 'weekly'
         ? 'Semanal'
         : rec == 'biweekly'
@@ -14423,7 +14466,7 @@ class _EventoFixoDetailPage extends StatelessWidget {
                       Icons.event_available_rounded,
                       'Agenda e programação pública',
                       eventTemplateIncludeInAgenda(m)
-                          ? 'Sim — datas na agenda e «Gerar no feed»'
+                          ? 'Sim ? datas na agenda e ?Gerar no feed?'
                           : 'Não — só no resumo de horários do site',
                     ),
                   ],
@@ -14516,9 +14559,9 @@ class _EventoFixoDetailPage extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Dashboard Eventos — gráficos de confirmações, curtidas e comentários por evento
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 class _DashboardEventosTab extends StatefulWidget {
   final CollectionReference<Map<String, dynamic>> noticias;
   final bool canWrite;
@@ -14924,7 +14967,7 @@ class _DashboardTotalsRow extends StatelessWidget {
       return Expanded(child: chip(icon, label, value, color));
     }
 
-    // Os 3 cards SEMPRE lado a lado numa linha reta (celular e web) — pedido
+    // Os 3 cards SEMPRE lado a lado numa linha reta (celular e web) ? pedido
     // do usuário. Espaçamento menor no celular para caber sem estourar.
     final gap = narrow ? 8.0 : 10.0;
     return Row(
@@ -14955,7 +14998,7 @@ class _DashboardTotalsRow extends StatelessWidget {
   }
 }
 
-/// Barras horizontais — nomes completos, sem tooltips sobrepostos (web / iOS / Android).
+/// Barras horizontais ? nomes completos, sem tooltips sobrepostos (web / iOS / Android).
 class _EventMetricBars extends StatelessWidget {
   final List<_EventStats> stats;
   final int Function(_EventStats) valueOf;
@@ -14991,7 +15034,7 @@ class _EventMetricBars extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          'Top ${top.length} — maior valor primeiro',
+          'Top ${top.length} ? maior valor primeiro',
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w700,
@@ -15310,8 +15353,10 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
 
   /// Remove uids da curtida/RSVP (arrayRemove — preciso, não apaga o resto).
   /// [all] esvazia a lista inteira. Recarrega ao terminar.
-  Future<void> _clearEngagement(List<String> uidsToRemove,
-      {bool all = false}) async {
+  Future<void> _clearEngagement(
+    List<String> uidsToRemove, {
+    bool all = false,
+  }) async {
     if (widget.type == 'comments') return; // comentários têm fluxo próprio
     if (!all && uidsToRemove.isEmpty) return;
     setState(() => _clearing = true);
@@ -15320,9 +15365,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
       if (all) {
         await ref.update({_arrayField: <String>[]});
       } else {
-        await ref.update({
-          _arrayField: FieldValue.arrayRemove(uidsToRemove),
-        });
+        await ref.update({_arrayField: FieldValue.arrayRemove(uidsToRemove)});
       }
       if (!mounted) return;
       setState(() {
@@ -15335,9 +15378,9 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
       if (!mounted) return;
       setState(() => _clearing = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Não foi possível limpar: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Não foi possível limpar: $e')));
       }
     }
   }
@@ -15356,7 +15399,8 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
           FilledButton(
             onPressed: () => Navigator.of(dctx).pop(true),
             style: FilledButton.styleFrom(
-                backgroundColor: ThemeCleanPremium.error),
+              backgroundColor: ThemeCleanPremium.error,
+            ),
             child: const Text('Limpar'),
           ),
         ],
@@ -15371,13 +15415,14 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
   /// Exclui comentários (docs) em lote — gestor/pastor/secretário/adm/líder
   /// (canDeleteComments). Usa batch. O StreamBuilder atualiza sozinho.
   Future<void> _deleteCommentRefs(
-      List<DocumentReference<Map<String, dynamic>>> refs) async {
+    List<DocumentReference<Map<String, dynamic>>> refs,
+  ) async {
     if (refs.isEmpty) return;
     setState(() => _clearing = true);
     try {
-      final batch = firebaseDefaultFirestore.batch();
+      final batch = YahwehBatch();
       for (final r in refs) {
-        batch.delete(r);
+        batch.deleteDoc(r);
       }
       await batch.commit();
       if (!mounted) return;
@@ -15390,9 +15435,9 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
       if (!mounted) return;
       setState(() => _clearing = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Não foi possível limpar: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Não foi possível limpar: $e')));
       }
     }
   }
@@ -15559,15 +15604,19 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                 TextButton.icon(
                   onPressed: () => Navigator.of(ctx).maybePop(),
                   icon: const Icon(Icons.arrow_back_rounded, size: 22),
-                  label: const Text('Voltar',
-                      style: TextStyle(fontWeight: FontWeight.w800)),
+                  label: const Text(
+                    'Voltar',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
                 ),
                 Expanded(
                   child: Text(
                     _titleLabel,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w800),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 64),
@@ -15672,25 +15721,29 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                     onPressed: _clearing
                                         ? null
                                         : () => setState(() {
-                                              _selectionMode = !_selectionMode;
-                                              if (!_selectionMode) {
-                                                _selectedUids.clear();
-                                              }
-                                            }),
+                                            _selectionMode = !_selectionMode;
+                                            if (!_selectionMode) {
+                                              _selectedUids.clear();
+                                            }
+                                          }),
                                     icon: Icon(
-                                        _selectionMode
-                                            ? Icons.close_rounded
-                                            : Icons.checklist_rounded,
-                                        size: 20),
-                                    label: Text(_selectionMode
-                                        ? 'Cancelar'
-                                        : 'Selecionar'),
+                                      _selectionMode
+                                          ? Icons.close_rounded
+                                          : Icons.checklist_rounded,
+                                      size: 20,
+                                    ),
+                                    label: Text(
+                                      _selectionMode
+                                          ? 'Cancelar'
+                                          : 'Selecionar',
+                                    ),
                                   ),
                                   if (_selectionMode)
                                     TextButton(
                                       onPressed: () => setState(() {
-                                        final allIds =
-                                            docs.map((d) => d.id).toSet();
+                                        final allIds = docs
+                                            .map((d) => d.id)
+                                            .toSet();
                                         if (_selectedUids.length ==
                                             allIds.length) {
                                           _selectedUids.clear();
@@ -15701,34 +15754,43 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                         }
                                       }),
                                       child: Text(
-                                          _selectedUids.length == docs.length
-                                              ? 'Nenhum'
-                                              : 'Todos'),
+                                        _selectedUids.length == docs.length
+                                            ? 'Nenhum'
+                                            : 'Todos',
+                                      ),
                                     ),
                                   const Spacer(),
                                   if (_selectionMode)
                                     FilledButton.icon(
-                                      onPressed: (_clearing ||
-                                              _selectedUids.isEmpty)
+                                      onPressed:
+                                          (_clearing || _selectedUids.isEmpty)
                                           ? null
                                           : () async {
                                               if (await _confirmClear(
-                                                  'Excluir ${_selectedUids.length} comentário(s) selecionado(s)?')) {
-                                                await _deleteCommentRefs(docs
-                                                    .where((d) => _selectedUids
-                                                        .contains(d.id))
-                                                    .map((d) => d.reference)
-                                                    .toList());
+                                                'Excluir ${_selectedUids.length} comentário(s) selecionado(s)?',
+                                              )) {
+                                                await _deleteCommentRefs(
+                                                  docs
+                                                      .where(
+                                                        (d) => _selectedUids
+                                                            .contains(d.id),
+                                                      )
+                                                      .map((d) => d.reference)
+                                                      .toList(),
+                                                );
                                               }
                                             },
                                       icon: const Icon(
-                                          Icons.delete_sweep_rounded,
-                                          size: 20),
-                                      label:
-                                          Text('Limpar (${_selectedUids.length})'),
+                                        Icons.delete_sweep_rounded,
+                                        size: 20,
+                                      ),
+                                      label: Text(
+                                        'Limpar (${_selectedUids.length})',
+                                      ),
                                       style: FilledButton.styleFrom(
-                                          backgroundColor:
-                                              ThemeCleanPremium.error),
+                                        backgroundColor:
+                                            ThemeCleanPremium.error,
+                                      ),
                                     )
                                   else
                                     TextButton.icon(
@@ -15736,18 +15798,24 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                           ? null
                                           : () async {
                                               if (await _confirmClear(
-                                                  'Excluir TODOS os comentários deste evento?')) {
-                                                await _deleteCommentRefs(docs
-                                                    .map((d) => d.reference)
-                                                    .toList());
+                                                'Excluir TODOS os comentários deste evento?',
+                                              )) {
+                                                await _deleteCommentRefs(
+                                                  docs
+                                                      .map((d) => d.reference)
+                                                      .toList(),
+                                                );
                                               }
                                             },
                                       icon: const Icon(
-                                          Icons.delete_outline_rounded,
-                                          size: 20,
-                                          color: Colors.red),
-                                      label: const Text('Limpar tudo',
-                                          style: TextStyle(color: Colors.red)),
+                                        Icons.delete_outline_rounded,
+                                        size: 20,
+                                        color: Colors.red,
+                                      ),
+                                      label: const Text(
+                                        'Limpar tudo',
+                                        style: TextStyle(color: Colors.red),
+                                      ),
                                     ),
                                 ],
                               ),
@@ -15787,18 +15855,19 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                   child: ListTile(
                                     onTap: (_selectionMode && canDelete)
                                         ? () => setState(() {
-                                              final id = docs[i].id;
-                                              if (_selectedUids.contains(id)) {
-                                                _selectedUids.remove(id);
-                                              } else {
-                                                _selectedUids.add(id);
-                                              }
-                                            })
+                                            final id = docs[i].id;
+                                            if (_selectedUids.contains(id)) {
+                                              _selectedUids.remove(id);
+                                            } else {
+                                              _selectedUids.add(id);
+                                            }
+                                          })
                                         : null,
                                     leading: (_selectionMode && canDelete)
                                         ? Checkbox(
-                                            value: _selectedUids
-                                                .contains(docs[i].id),
+                                            value: _selectedUids.contains(
+                                              docs[i].id,
+                                            ),
                                             onChanged: (v) => setState(() {
                                               final id = docs[i].id;
                                               if (v == true) {
@@ -15914,18 +15983,20 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                 onPressed: _clearing
                                     ? null
                                     : () => setState(() {
-                                          _selectionMode = !_selectionMode;
-                                          if (!_selectionMode) {
-                                            _selectedUids.clear();
-                                          }
-                                        }),
+                                        _selectionMode = !_selectionMode;
+                                        if (!_selectionMode) {
+                                          _selectedUids.clear();
+                                        }
+                                      }),
                                 icon: Icon(
-                                    _selectionMode
-                                        ? Icons.close_rounded
-                                        : Icons.checklist_rounded,
-                                    size: 20),
+                                  _selectionMode
+                                      ? Icons.close_rounded
+                                      : Icons.checklist_rounded,
+                                  size: 20,
+                                ),
                                 label: Text(
-                                    _selectionMode ? 'Cancelar' : 'Selecionar'),
+                                  _selectionMode ? 'Cancelar' : 'Selecionar',
+                                ),
                               ),
                               if (_selectionMode)
                                 TextButton(
@@ -15939,28 +16010,36 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                     }
                                   }),
                                   child: Text(
-                                      _selectedUids.length == _uids.length
-                                          ? 'Nenhum'
-                                          : 'Todos'),
+                                    _selectedUids.length == _uids.length
+                                        ? 'Nenhum'
+                                        : 'Todos',
+                                  ),
                                 ),
                               const Spacer(),
                               if (_selectionMode)
                                 FilledButton.icon(
                                   onPressed:
                                       (_clearing || _selectedUids.isEmpty)
-                                          ? null
-                                          : () async {
-                                              if (await _confirmClear(
-                                                  'Remover ${_selectedUids.length} selecionado(s) deste evento?')) {
-                                                await _clearEngagement(
-                                                    _selectedUids.toList());
-                                              }
-                                            },
-                                  icon: const Icon(Icons.delete_sweep_rounded,
-                                      size: 20),
-                                  label: Text('Limpar (${_selectedUids.length})'),
+                                      ? null
+                                      : () async {
+                                          if (await _confirmClear(
+                                            'Remover ${_selectedUids.length} selecionado(s) deste evento?',
+                                          )) {
+                                            await _clearEngagement(
+                                              _selectedUids.toList(),
+                                            );
+                                          }
+                                        },
+                                  icon: const Icon(
+                                    Icons.delete_sweep_rounded,
+                                    size: 20,
+                                  ),
+                                  label: Text(
+                                    'Limpar (${_selectedUids.length})',
+                                  ),
                                   style: FilledButton.styleFrom(
-                                      backgroundColor: ThemeCleanPremium.error),
+                                    backgroundColor: ThemeCleanPremium.error,
+                                  ),
                                 )
                               else
                                 TextButton.icon(
@@ -15968,15 +16047,23 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                       ? null
                                       : () async {
                                           if (await _confirmClear(
-                                              'Limpar TODA a lista deste evento? Esta ação remove todos os registros.')) {
-                                            await _clearEngagement(const [],
-                                                all: true);
+                                            'Limpar TODA a lista deste evento? Esta ação remove todos os registros.',
+                                          )) {
+                                            await _clearEngagement(
+                                              const [],
+                                              all: true,
+                                            );
                                           }
                                         },
-                                  icon: const Icon(Icons.delete_outline_rounded,
-                                      size: 20, color: Colors.red),
-                                  label: const Text('Limpar tudo',
-                                      style: TextStyle(color: Colors.red)),
+                                  icon: const Icon(
+                                    Icons.delete_outline_rounded,
+                                    size: 20,
+                                    color: Colors.red,
+                                  ),
+                                  label: const Text(
+                                    'Limpar tudo',
+                                    style: TextStyle(color: Colors.red),
+                                  ),
                                 ),
                             ],
                           ),
@@ -16001,35 +16088,42 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                     ),
                                     itemCount: _names.length,
                                     itemBuilder: (_, i) {
-                                      final uid =
-                                          i < _uids.length ? _uids[i] : '';
-                                      final selected =
-                                          _selectedUids.contains(uid);
+                                      final uid = i < _uids.length
+                                          ? _uids[i]
+                                          : '';
+                                      final selected = _selectedUids.contains(
+                                        uid,
+                                      );
                                       return Card(
                                         elevation: 0,
                                         margin: const EdgeInsets.symmetric(
-                                            vertical: 3),
+                                          vertical: 3,
+                                        ),
                                         shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(14),
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
                                           side: BorderSide(
-                                              color: selected
-                                                  ? ThemeCleanPremium.primary
-                                                  : Colors.grey.shade200),
+                                            color: selected
+                                                ? ThemeCleanPremium.primary
+                                                : Colors.grey.shade200,
+                                          ),
                                         ),
                                         child: ListTile(
                                           shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(14)),
-                                          onTap: (_selectionMode &&
-                                                  uid.isNotEmpty)
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
+                                          ),
+                                          onTap:
+                                              (_selectionMode && uid.isNotEmpty)
                                               ? () => setState(() {
-                                                    if (selected) {
-                                                      _selectedUids.remove(uid);
-                                                    } else {
-                                                      _selectedUids.add(uid);
-                                                    }
-                                                  })
+                                                  if (selected) {
+                                                    _selectedUids.remove(uid);
+                                                  } else {
+                                                    _selectedUids.add(uid);
+                                                  }
+                                                })
                                               : null,
                                           leading: _selectionMode
                                               ? Checkbox(
@@ -16037,48 +16131,57 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                                   onChanged: uid.isEmpty
                                                       ? null
                                                       : (v) => setState(() {
-                                                            if (v == true) {
-                                                              _selectedUids
-                                                                  .add(uid);
-                                                            } else {
-                                                              _selectedUids
-                                                                  .remove(uid);
-                                                            }
-                                                          }),
+                                                          if (v == true) {
+                                                            _selectedUids.add(
+                                                              uid,
+                                                            );
+                                                          } else {
+                                                            _selectedUids
+                                                                .remove(uid);
+                                                          }
+                                                        }),
                                                 )
                                               : CircleAvatar(
                                                   backgroundColor:
                                                       ThemeCleanPremium.primary
                                                           .withValues(
-                                                              alpha: 0.12),
+                                                            alpha: 0.12,
+                                                          ),
                                                   child: Text(
                                                     _names[i].isNotEmpty
                                                         ? _names[i][0]
-                                                            .toUpperCase()
+                                                              .toUpperCase()
                                                         : '?',
                                                     style: const TextStyle(
-                                                        fontWeight:
-                                                            FontWeight.w700),
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
                                                   ),
                                                 ),
-                                          title: Text(_names[i],
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis),
-                                          trailing: (!_selectionMode &&
+                                          title: Text(
+                                            _names[i],
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          trailing:
+                                              (!_selectionMode &&
                                                   uid.isNotEmpty)
                                               ? IconButton(
                                                   icon: const Icon(
-                                                      Icons.close_rounded,
-                                                      size: 20,
-                                                      color: Colors.red),
+                                                    Icons.close_rounded,
+                                                    size: 20,
+                                                    color: Colors.red,
+                                                  ),
                                                   tooltip: 'Remover',
                                                   onPressed: _clearing
                                                       ? null
                                                       : () async {
                                                           if (await _confirmClear(
-                                                              'Remover "${_names[i]}" desta lista?')) {
+                                                            'Remover "${_names[i]}" desta lista?',
+                                                          )) {
                                                             await _clearEngagement(
-                                                                [uid]);
+                                                              [uid],
+                                                            );
                                                           }
                                                         },
                                                 )
@@ -16092,8 +16195,8 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                       child: ColoredBox(
                                         color: Color(0x66FFFFFF),
                                         child: Center(
-                                            child:
-                                                CircularProgressIndicator()),
+                                          child: CircularProgressIndicator(),
+                                        ),
                                       ),
                                     ),
                                 ],

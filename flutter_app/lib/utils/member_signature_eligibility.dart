@@ -1,7 +1,7 @@
 // Regras compartilhadas: campo de assinatura e signatários oficiais (certificados, carteirinha, PDFs).
 // Apenas pastor, gestor, secretário, tesoureiro, administrador ou líder de departamento.
 
-/// Normaliza chave de função para comparação (minúsculas, trim, espaços → `_`).
+/// Normaliza chave de função para comparação (minúsculas, trim, espaços ? `_`).
 String normalizeMemberRoleKey(String raw) {
   return raw
       .toLowerCase()
@@ -109,7 +109,7 @@ bool _roleKeyCanSignDocuments(String normalizedKey) {
 bool memberHasLeadershipForAssinatura(Map<String, dynamic> d) =>
     memberCanSignChurchDocuments(d);
 
-/// Prioridade na lista de assinantes — menor = mais alto (pastor primeiro).
+/// Prioridade na lista de assinantes ? menor = mais alto (pastor primeiro).
 int signatoryRoleSortPriority(Map<String, dynamic> d) {
   final keys = extractMemberFuncoesKeys(d)
       .map(normalizeMemberRoleKey)

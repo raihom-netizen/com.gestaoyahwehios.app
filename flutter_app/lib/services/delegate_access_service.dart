@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/utils/user_profile_email_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Acesso delegado: e-mail autorizado pelo titular usa os dados do UID principal.
 class DelegateAccessService {
@@ -635,30 +636,30 @@ class DelegateAccessService {
       final oldEmail = emailDocKey(
           (userSnap.data()?['authorizedDelegateEmail'] as String?) ?? '');
 
-      final batch = db.batch();
+      final batch = YahwehBatch();
       batch.set(userRef, {
         'authorizedDelegateEmail': clean,
         'delegateSharingEnabled': true,
-        'authorizedDelegateUpdatedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+        'authorizedDelegateUpdatedAt': YahwehFv.serverTimestamp,
+        'updatedAt': YahwehFv.serverTimestamp,
+      }, merge: true);
       batch.set(indexRef, {
         'principalUid': uid,
         'principalEmail': own,
         'active': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+        'updatedAt': YahwehFv.serverTimestamp,
+      }, merge: true);
       if (oldEmail.isNotEmpty && oldEmail != clean) {
         batch.set(
           db.collection('delegate_email_index').doc(oldEmail),
           {
             'active': false,
-            'revokedAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
+            'revokedAt': YahwehFv.serverTimestamp,
+            'updatedAt': YahwehFv.serverTimestamp,
           },
-          SetOptions(merge: true),
+          merge: true,
         );
-        batch.delete(db.collection('delegate_email_index').doc(oldEmail));
+        batch.deleteDoc(db.collection('delegate_email_index').doc(oldEmail));
       }
       await batch.commit();
       return null;
@@ -674,24 +675,24 @@ class DelegateAccessService {
     final oldEmail =
         emailDocKey((userSnap.data()?['authorizedDelegateEmail'] as String?) ?? '');
 
-    final batch = db.batch();
+    final batch = YahwehBatch();
     batch.set(userRef, {
-      'authorizedDelegateEmail': FieldValue.delete(),
+      'authorizedDelegateEmail': YahwehFv.deleteField,
       'delegateSharingEnabled': false,
-      'authorizedDelegateUpdatedAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+      'authorizedDelegateUpdatedAt': YahwehFv.serverTimestamp,
+      'updatedAt': YahwehFv.serverTimestamp,
+    }, merge: true);
     if (oldEmail.isNotEmpty) {
       batch.set(
         db.collection('delegate_email_index').doc(oldEmail),
         {
           'active': false,
-          'revokedAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'revokedAt': YahwehFv.serverTimestamp,
+          'updatedAt': YahwehFv.serverTimestamp,
         },
-        SetOptions(merge: true),
+        merge: true,
       );
-      batch.delete(db.collection('delegate_email_index').doc(oldEmail));
+      batch.deleteDoc(db.collection('delegate_email_index').doc(oldEmail));
     }
     await batch.commit();
   }

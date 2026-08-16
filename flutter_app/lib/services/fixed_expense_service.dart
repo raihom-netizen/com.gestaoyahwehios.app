@@ -8,11 +8,13 @@ import 'package:gestao_yahweh/utils/finance_transaction_status_resolver.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'finance_month_cache.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Despesas fixas: todo mês o sistema cria um lançamento automaticamente no período definido pelo usuário.
 /// [uid] em todos os métodos é o `churchId` — por igreja, não por login.
 class FixedExpenseService {
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  // _db saiu: os lotes passaram a ser YahwehBatch (REST no Web) e já não há
+  // nenhuma escrita direta pelo SDK neste serviço.
 
   /// Limite do Firestore por WriteBatch (não alterar sem conferir documentação).
   static const int batchLimit = 500;
@@ -241,14 +243,14 @@ class FixedExpenseService {
       final accId = (financeAccountId ?? '').trim();
       var updated = 0;
       for (var i = 0; i < snap.docs.length; i += batchLimit) {
-        final batch = _db.batch();
+        final batch = YahwehBatch();
         for (final doc in snap.docs.skip(i).take(batchLimit)) {
           batch.update(doc.reference, {
             if (accId.isNotEmpty)
               'financeAccountId': accId
             else
-              'financeAccountId': FieldValue.delete(),
-            'updatedAt': FieldValue.serverTimestamp(),
+              'financeAccountId': YahwehFv.deleteField,
+            'updatedAt': YahwehFv.serverTimestamp,
           });
           updated++;
         }
@@ -284,12 +286,12 @@ class FixedExpenseService {
       }
       if (toUpdate.isEmpty) return;
       for (var i = 0; i < toUpdate.length; i += batchLimit) {
-        final batch = _db.batch();
+        final batch = YahwehBatch();
         for (final doc in toUpdate.skip(i).take(batchLimit)) {
           batch.update(doc.reference, {
             'addToCalendar': addToCalendar,
             if (addToCalendar)
-              'hideFromCalendar': FieldValue.delete()
+              'hideFromCalendar': YahwehFv.deleteField
             else
               'hideFromCalendar': true,
             if (addToCalendar &&
@@ -297,8 +299,8 @@ class FixedExpenseService {
                 calendarColorHex.trim().isNotEmpty)
               'calendarColorHex': calendarColorHex.trim()
             else
-              'calendarColorHex': FieldValue.delete(),
-            'updatedAt': FieldValue.serverTimestamp(),
+              'calendarColorHex': YahwehFv.deleteField,
+            'updatedAt': YahwehFv.serverTimestamp,
           });
         }
         await batch.commit();
@@ -335,7 +337,7 @@ class FixedExpenseService {
     }
     int updated = 0;
     for (var i = 0; i < toUpdate.length; i += batchLimit) {
-      final batch = _db.batch();
+      final batch = YahwehBatch();
       for (final doc in toUpdate.skip(i).take(batchLimit)) {
         final d = doc.data();
         final dateTs = d['date'];
@@ -349,7 +351,7 @@ class FixedExpenseService {
         final newDate = DateTime(date.year, date.month, day);
         batch.update(doc.reference, {
           'date': Timestamp.fromDate(newDate),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         });
         updated++;
       }
@@ -385,9 +387,9 @@ class FixedExpenseService {
     }
     if (toDelete.isEmpty) return 0;
     for (var i = 0; i < toDelete.length; i += batchLimit) {
-      final batch = _db.batch();
+      final batch = YahwehBatch();
       for (final doc in toDelete.skip(i).take(batchLimit)) {
-        batch.delete(doc.reference);
+        batch.deleteDoc(doc.reference);
       }
       await batch.commit();
     }
@@ -421,7 +423,7 @@ class FixedExpenseService {
       }
       if (toUpdate.isEmpty) return;
       for (var i = 0; i < toUpdate.length; i += batchLimit) {
-        final batch = _db.batch();
+        final batch = YahwehBatch();
         for (final doc in toUpdate.skip(i).take(batchLimit)) {
           final dateTs = doc.data()['date'];
           final date = dateTs is Timestamp ? dateTs.toDate() : DateTime.now();
@@ -434,7 +436,7 @@ class FixedExpenseService {
               date: date,
               paidAt: paidAt,
             ),
-            'updatedAt': FieldValue.serverTimestamp(),
+            'updatedAt': YahwehFv.serverTimestamp,
           });
         }
         await batch.commit();
@@ -454,9 +456,9 @@ class FixedExpenseService {
       if (snap.docs.isEmpty) return 0;
       int deleted = 0;
       for (var i = 0; i < snap.docs.length; i += batchLimit) {
-        final batch = _db.batch();
+        final batch = YahwehBatch();
         for (final doc in snap.docs.skip(i).take(batchLimit)) {
-          batch.delete(doc.reference);
+          batch.deleteDoc(doc.reference);
           deleted++;
         }
         await batch.commit();
@@ -645,9 +647,9 @@ class FixedExpenseService {
     if (docsToDelete.isNotEmpty) {
       try {
         for (var j = 0; j < docsToDelete.length; j += batchLimit) {
-          final batch = _db.batch();
+          final batch = YahwehBatch();
           for (final doc in docsToDelete.skip(j).take(batchLimit)) {
-            batch.delete(doc.reference);
+            batch.deleteDoc(doc.reference);
           }
           await batch.commit();
         }
@@ -659,7 +661,7 @@ class FixedExpenseService {
     int created = 0;
     try {
       for (var j = 0; j < toCreate.length; j += batchLimit) {
-        final batch = _db.batch();
+        final batch = YahwehBatch();
         for (final data in toCreate.skip(j).take(batchLimit)) {
           batch.set(_txRef(uid).doc(), data);
           created++;

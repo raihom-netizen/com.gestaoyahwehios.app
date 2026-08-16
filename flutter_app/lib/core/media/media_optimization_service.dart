@@ -26,7 +26,7 @@ class OptimizedMediaPayload {
   final String fullFileName;
   final Uint8List? thumbBytes;
 
-  /// Miniatura leve para bolha instantânea (≤320px).
+  /// Miniatura leve para bolha instantânea (=320px).
   final Uint8List? previewBytes;
 
   /// Path local do vídeo já comprimido (mobile).
@@ -121,7 +121,7 @@ abstract final class MediaOptimizationService {
     );
   }
 
-  /// Comprovante financeiro / foto patrimonial — 1280px, 75% (isolate em mobile).
+  /// Comprovante financeiro / foto patrimonial ? 1280px, 75% (isolate em mobile).
   static Future<Uint8List> optimizeForReceipt(Uint8List raw) async {
     if (raw.isEmpty) return raw;
     return optimizeImageBytes(raw, profile: MediaOptimizationProfile.receipt);

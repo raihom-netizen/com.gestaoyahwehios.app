@@ -555,7 +555,7 @@ abstract final class ChurchPatrimonioLoadService {
       return 'Tempo esgotado ao carregar patrimônio. Verifique a conexão.';
     }
     final s = e.toString();
-    if (s.length > 180) return '${s.substring(0, 177)}…';
+    if (s.length > 180) return '${s.substring(0, 177)}?';
     return s;
   }
 

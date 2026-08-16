@@ -17,23 +17,12 @@ abstract final class ChurchCorpoAdminRoles {
   static String foldFuncaoKey(String raw) {
     var s = raw.trim().toLowerCase();
     const pairs = <String, String>{
-      'ã': 'a',
-      'â': 'a',
-      'á': 'a',
-      'à': 'a',
-      'ä': 'a',
-      'é': 'e',
-      'ê': 'e',
-      'è': 'e',
-      'í': 'i',
-      'ì': 'i',
-      'ó': 'o',
-      'ô': 'o',
-      'õ': 'o',
-      'ò': 'o',
-      'ú': 'u',
-      'ü': 'u',
-      'ç': 'c',
+      '\u00e1': 'a', '\u00e0': 'a', '\u00e3': 'a', '\u00e2': 'a', '\u00e4': 'a',
+      '\u00e9': 'e', '\u00e8': 'e', '\u00ea': 'e', '\u00eb': 'e',
+      '\u00ed': 'i', '\u00ec': 'i', '\u00ee': 'i', '\u00ef': 'i',
+      '\u00f3': 'o', '\u00f2': 'o', '\u00f5': 'o', '\u00f4': 'o', '\u00f6': 'o',
+      '\u00fa': 'u', '\u00f9': 'u', '\u00fb': 'u', '\u00fc': 'u',
+      '\u00e7': 'c', '\u00f1': 'n',
     };
     pairs.forEach((a, b) => s = s.replaceAll(a, b));
     return s;
@@ -90,7 +79,7 @@ abstract final class ChurchCorpoAdminRoles {
     return out;
   }
 
-  /// Pastor → gestor/admin → secretário → tesoureiro → outros (config).
+  /// Pastor ? gestor/admin ? secretário ? tesoureiro ? outros (config).
   static int sortRank(String foldedKey) {
     final k = foldFuncaoKey(foldedKey);
     if (k.startsWith('pastor')) return 300;

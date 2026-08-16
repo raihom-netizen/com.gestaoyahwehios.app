@@ -17,7 +17,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 ///
 /// **Não** use [Image.network] nem [CachedNetworkImage] **só** com URLs `firebasestorage.googleapis.com`:
 /// no **web** costuma falhar (CORS/CanvasKit); no **Android/iOS** URLs tokenizadas do Storage
-/// frequentemente travam no loading. Este widget usa [SafeMemberProfilePhoto] → [FirebaseStorageMemoryImage],
+/// frequentemente travam no loading. Este widget usa [SafeMemberProfilePhoto] ? [FirebaseStorageMemoryImage],
 /// cache de bytes em RAM com chave estável por **path** do objeto (30 dias) e [memCacheWidth] para não
 /// descodificar 4K na lista. Miniaturas `thumb_foto_perfil.jpg` (extensão Resize Images):
 /// `ChurchStorageLayout.memberProfileResizeThumbPath`.

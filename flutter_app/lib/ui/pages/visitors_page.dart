@@ -20,7 +20,8 @@ import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/services/church_member_contact_chat.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
 import 'package:gestao_yahweh/pdf/visitantes_relatorio_pdf.dart';
-import 'package:gestao_yahweh/utils/pdf_actions_helper.dart' show showPdfActions;
+import 'package:gestao_yahweh/utils/pdf_actions_helper.dart'
+    show showPdfActions;
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
@@ -103,7 +104,7 @@ String _kpiDrillTitle(_VisitorKpiDrill d) {
   }
 }
 
-// ─── Gráfico "Relatório & evolução" — granularidade + drill-down ──────────
+// --- Gráfico "Relatório & evolução" ? granularidade + drill-down ----------
 
 /// Granularidade do gráfico de evolução no fim da tela de Visitantes.
 enum _VisitorsChartPeriodMode { semana, mes, ano, periodo }
@@ -113,16 +114,16 @@ enum _VisitorChartSeries { visitantes, convertidos, acompanhados }
 
 extension on _VisitorChartSeries {
   String get label => switch (this) {
-        _VisitorChartSeries.visitantes => 'Visitantes',
-        _VisitorChartSeries.convertidos => 'Convertidos',
-        _VisitorChartSeries.acompanhados => 'Acompanhados',
-      };
+    _VisitorChartSeries.visitantes => 'Visitantes',
+    _VisitorChartSeries.convertidos => 'Convertidos',
+    _VisitorChartSeries.acompanhados => 'Acompanhados',
+  };
 
   Color get color => switch (this) {
-        _VisitorChartSeries.visitantes => const Color(0xFF3B82F6),
-        _VisitorChartSeries.convertidos => const Color(0xFF16A34A),
-        _VisitorChartSeries.acompanhados => const Color(0xFFF59E0B),
-      };
+    _VisitorChartSeries.visitantes => const Color(0xFF3B82F6),
+    _VisitorChartSeries.convertidos => const Color(0xFF16A34A),
+    _VisitorChartSeries.acompanhados => const Color(0xFFF59E0B),
+  };
 }
 
 /// Um intervalo de tempo (bucket) do gráfico — ex.: um mês, uma semana, um ano.
@@ -130,7 +131,7 @@ class _ChartBucket {
   final String label;
   final DateTime start;
 
-  /// Fim exclusivo — filtragem usa `[start, endExclusive)`.
+  /// Fim exclusivo ? filtragem usa `[start, endExclusive)`.
   final DateTime endExclusive;
 
   const _ChartBucket({
@@ -193,7 +194,12 @@ class _VisitantesPdfPeriodSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget tile(IconData icon, String label, String sub, _VisitantesPdfPeriod p) {
+    Widget tile(
+      IconData icon,
+      String label,
+      String sub,
+      _VisitantesPdfPeriod p,
+    ) {
       return ListTile(
         leading: CircleAvatar(
           backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.12),
@@ -351,14 +357,14 @@ Future<void> openChurchVisitorFichaFromDashboard(
 abstract final class _VisitorsPremiumTheme {
   _VisitorsPremiumTheme._();
 
-  static const orange = Color(0xFFF97316);
-  static const amber = Color(0xFFFBBF24);
-  static const deepOrange = Color(0xFFEA580C);
+  static const orange = Color(0xFF2563EB);
+  static const amber = Color(0xFF60A5FA);
+  static const deepOrange = Color(0xFF1D4ED8);
 
   static const heroGradient = LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFFF97316), Color(0xFFFBBF24), Color(0xFFFB923C)],
+    colors: [Color(0xFF1D4ED8), Color(0xFF2563EB), Color(0xFF60A5FA)],
   );
 
   static Color statusAccent(String status) {
@@ -408,7 +414,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
   int _visitantesLoadGen = 0;
   bool _visitantesLoadPending = true;
 
-  /// Doc operacional (slug/alias) — resolve em background sem bloquear a lista.
+  /// Doc operacional (slug/alias) ? resolve em background sem bloquear a lista.
   String _effectiveTenantId = '';
 
   /// Painel: lista filtrada ao tocar em Este mês / Novos / Acompanhamento / Convertidos.
@@ -424,7 +430,8 @@ class _VisitorsPageState extends State<VisitorsPage> {
   DateTimeRange? _reportCustomRange;
 
   /// Alguma seção de drill-down (card ou gráfico) ocupando a tela em vez do painel normal.
-  bool get _showingDrillDown => _kpiDrill != _VisitorKpiDrill.none || _chartDrill != null;
+  bool get _showingDrillDown =>
+      _kpiDrill != _VisitorKpiDrill.none || _chartDrill != null;
 
   void _closeDrillDown() {
     setState(() {
@@ -447,9 +454,6 @@ class _VisitorsPageState extends State<VisitorsPage> {
       : ChurchRepository.churchId(widget.tenantId);
 
   String get _churchId => ChurchRepository.churchId(_tid);
-
-  CollectionReference<Map<String, dynamic>> get _visitantesRef =>
-      ChurchUiCollections.visitantes(_churchId);
 
   CollectionReference<Map<String, dynamic>> get _membersRef =>
       ChurchUiCollections.membros(_churchId);
@@ -606,7 +610,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
       switch (period) {
         case _VisitantesPdfPeriod.dia:
           start = DateTime(now.year, now.month, now.day);
-          label = 'Hoje — ${DateFormat('dd/MM/yyyy', 'pt_BR').format(now)}';
+          label = 'Hoje ? ${DateFormat('dd/MM/yyyy', 'pt_BR').format(now)}';
           break;
         case _VisitantesPdfPeriod.mes:
           start = DateTime(now.year, now.month);
@@ -636,9 +640,8 @@ class _VisitorsPageState extends State<VisitorsPage> {
         );
       }
       rows.sort(
-        (a, b) => (b.createdAt ?? DateTime(0)).compareTo(
-          a.createdAt ?? DateTime(0),
-        ),
+        (a, b) =>
+            (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)),
       );
 
       final cid = ChurchRepository.churchId(_churchId);
@@ -656,9 +659,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
       );
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao gerar PDF: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao gerar PDF: $e')));
       }
     } finally {
       if (mounted) setState(() => _exportingPdf = false);
@@ -1235,6 +1238,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
       }
       return;
     }
+    if (!context.mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1288,7 +1292,11 @@ class _VisitorsPageState extends State<VisitorsPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erro ao excluir: $e'),
+            content: Text(
+              FirestoreWebGuard.isInternalAssertionError(e)
+                  ? 'O registro não pôde ser atualizado agora. Tente novamente em alguns segundos.'
+                  : 'Não foi possível excluir este registro.',
+            ),
             backgroundColor: ThemeCleanPremium.error,
           ),
         );
@@ -1503,7 +1511,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
       child: TextField(
         onChanged: _scheduleSearchNome,
         decoration: InputDecoration(
-          hintText: 'Buscar por nome ou telefone…',
+          hintText: 'Buscar por nome ou telefone?',
           prefixIcon: const Icon(
             Icons.search_rounded,
             color: ThemeCleanPremium.onSurfaceVariant,
@@ -1635,7 +1643,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
     final endOfToday = startOfToday.add(const Duration(days: 1));
 
     if (_tab == _TabVisitante.doDia) {
-      // Sem data (Timestamp ainda a sincronizar) → mostra no dia para não “sumir”.
+      // Sem data (Timestamp ainda a sincronizar) ? mostra no dia para não ?sumir?.
       result = result.where((v) {
         final d = v.createdAt;
         if (d == null) return true;
@@ -1693,11 +1701,13 @@ class _VisitorsPageState extends State<VisitorsPage> {
   List<_VisitorData> _filteredVisitors(List<_VisitorData> all) {
     List<_VisitorData>? drillResult;
     if (_chartDrill != null) {
-      drillResult =
-          all.where((v) => _visitorMatchesChartDrill(v, _chartDrill!)).toList();
+      drillResult = all
+          .where((v) => _visitorMatchesChartDrill(v, _chartDrill!))
+          .toList();
     } else if (_kpiDrill != _VisitorKpiDrill.none) {
-      drillResult =
-          all.where((v) => _visitorMatchesKpiDrill(v, _kpiDrill)).toList();
+      drillResult = all
+          .where((v) => _visitorMatchesKpiDrill(v, _kpiDrill))
+          .toList();
     }
     if (drillResult != null) {
       var result = drillResult;
@@ -1713,7 +1723,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
     return _applyFilters(all);
   }
 
-  // ─── Cadastro / Edição ──────────────────────────────────────────────────────
+  // --- Cadastro / Edição ------------------------------------------------------
   void _openVisitorForm(BuildContext context, {_VisitorData? visitor}) {
     Navigator.of(context)
         .push<bool>(
@@ -1737,7 +1747,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
         });
   }
 
-  // ─── Detalhes ───────────────────────────────────────────────────────────────
+  // --- Detalhes ---------------------------------------------------------------
   void _openVisitorDetails(BuildContext context, _VisitorData visitor) {
     final isMobile = ThemeCleanPremium.isMobile(context);
     if (isMobile) {
@@ -1779,7 +1789,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
     }
   }
 
-  // ─── Excluir ────────────────────────────────────────────────────────────────
+  // --- Excluir ----------------------------------------------------------------
   Future<void> _confirmDelete(
     BuildContext context,
     _VisitorData visitor,
@@ -1831,7 +1841,11 @@ class _VisitorsPageState extends State<VisitorsPage> {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Erro ao excluir: $e'),
+              content: Text(
+                FirestoreWebGuard.isInternalAssertionError(e)
+                    ? 'O registro não pôde ser atualizado agora. Tente novamente em alguns segundos.'
+                    : 'Não foi possível excluir este registro.',
+              ),
               backgroundColor: ThemeCleanPremium.error,
             ),
           );
@@ -1841,9 +1855,9 @@ class _VisitorsPageState extends State<VisitorsPage> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Data model
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _VisitorData {
   final String id;
@@ -1869,13 +1883,13 @@ class _VisitorData {
       createdAt;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Summary Cards
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Hero + tabs premium
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _VisitorsHeroHeader extends StatelessWidget {
   const _VisitorsHeroHeader({
@@ -2336,9 +2350,9 @@ class _VisitorTabChip extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Summary Cards
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _SummaryCards extends StatelessWidget {
   final List<_VisitorData> visitors;
@@ -2616,7 +2630,7 @@ class _KpiDrillHeader extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '$count ${count == 1 ? "visitante" : "visitantes"} · linhas modernas com editar e excluir',
+                      '$count ${count == 1 ? "visitante" : "visitantes"} ? linhas modernas com editar e excluir',
                       style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -2728,11 +2742,11 @@ class _VisitorsReportPanel extends StatelessWidget {
         });
       case _VisitorsChartPeriodMode.semana:
         final todayMidnight = DateTime(now.year, now.month, now.day);
-        final startOfThisWeek =
-            todayMidnight.subtract(Duration(days: now.weekday % 7));
+        final startOfThisWeek = todayMidnight.subtract(
+          Duration(days: now.weekday % 7),
+        );
         return List.generate(8, (i) {
-          final start =
-              startOfThisWeek.subtract(Duration(days: (7 - i) * 7));
+          final start = startOfThisWeek.subtract(Duration(days: (7 - i) * 7));
           return _ChartBucket(
             label: 'S${i + 1}',
             start: start,
@@ -2753,9 +2767,16 @@ class _VisitorsReportPanel extends StatelessWidget {
       case _VisitorsChartPeriodMode.periodo:
         final range = customRange;
         if (range == null) return const [];
-        final start = DateTime(range.start.year, range.start.month, range.start.day);
-        final endInclusive =
-            DateTime(range.end.year, range.end.month, range.end.day);
+        final start = DateTime(
+          range.start.year,
+          range.start.month,
+          range.start.day,
+        );
+        final endInclusive = DateTime(
+          range.end.year,
+          range.end.month,
+          range.end.day,
+        );
         final totalDays = endInclusive.difference(start).inDays + 1;
         if (totalDays <= 14) {
           return List.generate(totalDays, (i) {
@@ -2806,7 +2827,8 @@ class _VisitorsReportPanel extends StatelessWidget {
       context: context,
       firstDate: DateTime(2020, 1, 1),
       lastDate: DateTime(now.year + 1, 12, 31),
-      initialDateRange: customRange ??
+      initialDateRange:
+          customRange ??
           DateTimeRange(
             start: now.subtract(const Duration(days: 30)),
             end: now,
@@ -2827,7 +2849,9 @@ class _VisitorsReportPanel extends StatelessWidget {
       for (final b in buckets)
         [
           for (final s in series)
-            visitors.where((v) => _visitorMatchesSeriesInBucket(v, s, b)).length,
+            visitors
+                .where((v) => _visitorMatchesSeriesInBucket(v, s, b))
+                .length,
         ],
     ];
     final totalPeriod = counts.fold<int>(
@@ -2942,17 +2966,18 @@ class _VisitorsReportPanel extends StatelessWidget {
                             ),
                           ),
                         ),
-                        items: List<int>.generate(
-                          DateTime.now().year - 2019,
-                          (i) => 2020 + i,
-                        )
-                            .map(
-                              (y) => DropdownMenuItem(
-                                value: y,
-                                child: Text('$y'),
-                              ),
-                            )
-                            .toList(),
+                        items:
+                            List<int>.generate(
+                                  DateTime.now().year - 2019,
+                                  (i) => 2020 + i,
+                                )
+                                .map(
+                                  (y) => DropdownMenuItem(
+                                    value: y,
+                                    child: Text('$y'),
+                                  ),
+                                )
+                                .toList(),
                         onChanged: (y) {
                           if (y != null) onYearChanged(y);
                         },
@@ -2965,7 +2990,7 @@ class _VisitorsReportPanel extends StatelessWidget {
                       label: Text(
                         customRange == null
                             ? 'Escolher datas'
-                            : '${_dd(customRange!.start)} – ${_dd(customRange!.end)}',
+                            : '${_dd(customRange!.start)} ? ${_dd(customRange!.end)}',
                       ),
                     ),
                 ],
@@ -3079,7 +3104,7 @@ class _VisitorsReportPanel extends StatelessWidget {
                               series: s,
                               start: bucket.start,
                               endExclusive: bucket.endExclusive,
-                              label: '${s.label} · ${bucket.label}',
+                              label: '${s.label} ? ${bucket.label}',
                             ),
                           );
                         },
@@ -3170,9 +3195,9 @@ class _VisitorsReportPanel extends StatelessWidget {
 String _dd(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}';
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Visitor Card
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _VisitorCard extends StatelessWidget {
   final _VisitorData visitor;
@@ -3564,14 +3589,14 @@ class _VisitorCard extends StatelessWidget {
   }
 
   static String _formatDate(DateTime? dt) {
-    if (dt == null) return '—';
+    if (dt == null) return '?';
     return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Visitor Form — tela premium com voltar (Web / Android / iOS)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
+// Visitor Form ? tela premium com voltar (Web / Android / iOS)
+// -------------------------------------------------------------------------------
 
 class _VisitorFormPage extends StatefulWidget {
   final String churchId;
@@ -3962,9 +3987,9 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Visitor Details Page (Full page mobile / Dialog desktop)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _VisitorDetailsPage extends StatefulWidget {
   final String tenantId;
@@ -4247,17 +4272,17 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
           _infoRow(
             Icons.phone_outlined,
             'Telefone',
-            v.telefone.isEmpty ? '—' : brPhoneMaskLive(v.telefone),
+            v.telefone.isEmpty ? '?' : brPhoneMaskLive(v.telefone),
           ),
           _infoRow(
             Icons.email_outlined,
             'E-mail',
-            v.email.isEmpty ? '—' : v.email,
+            v.email.isEmpty ? '?' : v.email,
           ),
           _infoRow(
             Icons.info_outline_rounded,
             'Como conheceu',
-            v.comoConheceu.isEmpty ? '—' : v.comoConheceu,
+            v.comoConheceu.isEmpty ? '?' : v.comoConheceu,
           ),
           _infoRow(
             Icons.calendar_today_outlined,
@@ -4545,7 +4570,7 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
     );
   }
 
-  // ─── Ações ────────────────────────────────────────────────────────────────
+  // --- Ações ----------------------------------------------------------------
 
   Future<void> _changeStatus(BuildContext context, _VisitorData v) async {
     const statuses = ['Novo', 'Em acompanhamento', 'Convertido', 'Desistente'];
@@ -4866,9 +4891,9 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Follow-up Timeline Item
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _FollowupTimelineItem extends StatelessWidget {
   final Map<String, dynamic> data;
@@ -4886,7 +4911,7 @@ class _FollowupTimelineItem extends StatelessWidget {
     final dt = ts is Timestamp ? ts.toDate() : null;
     final dateStr = dt != null
         ? '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}'
-        : '—';
+        : '?';
 
     final tipoIcon = _tipoIcon(tipo);
     final tipoColor = _tipoColor(tipo);

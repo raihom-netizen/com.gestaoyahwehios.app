@@ -32,6 +32,7 @@ import 'package:gestao_yahweh/ui/widgets/church_payment_receiving_settings_secti
 import 'package:gestao_yahweh/ui/widgets/version_footer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Chaves SharedPreferences para notificações
 const String _keyNotifAvisos = 'notif_avisos';
@@ -1451,7 +1452,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       final resolvedTenantId = await _resolveEffectiveTenantId();
       final data = jsonDecode(ctrl.text.trim()) as Map<String, dynamic>;
       final members = (data['members'] as List?) ?? [];
-      final batch = ChurchRepository.batch();
+      final batch = YahwehBatch();
       final op = ChurchRepository.churchId(resolvedTenantId.trim());
       final col = ChurchUiCollections.membros(op);
       for (final m in members) {
@@ -1459,7 +1460,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
         final id = (map['id'] ?? '').toString();
         final docData = map['data'] as Map<String, dynamic>?;
         if (id.isEmpty || docData == null) continue;
-        batch.set(col.doc(id), docData, SetOptions(merge: true));
+        batch.set(col.doc(id), docData, merge: true);
       }
       await batch.commit();
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Importados ${members.length} registros.')));

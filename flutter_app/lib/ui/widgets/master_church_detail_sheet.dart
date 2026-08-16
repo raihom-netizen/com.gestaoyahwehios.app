@@ -17,6 +17,9 @@ import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/ui/widgets/master_plan_usage_card.dart';
+import 'package:gestao_yahweh/ui/widgets/master_church_360_metrics.dart';
+import 'package:gestao_yahweh/ui/pages/master_module_detail_page.dart';
 
 /// Ficha Super Premium da igreja (ações, saúde, timeline, notas internas).
 class MasterChurchDetailSheet extends StatefulWidget {
@@ -45,9 +48,7 @@ class MasterChurchDetailSheet extends StatefulWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(ctx).bottom,
-        ),
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
         child: SizedBox(
           height: MediaQuery.sizeOf(ctx).height * 0.85,
           child: MasterChurchDetailSheet(
@@ -61,7 +62,8 @@ class MasterChurchDetailSheet extends StatefulWidget {
   }
 
   @override
-  State<MasterChurchDetailSheet> createState() => _MasterChurchDetailSheetState();
+  State<MasterChurchDetailSheet> createState() =>
+      _MasterChurchDetailSheetState();
 }
 
 class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
@@ -80,7 +82,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
   }
 
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _loadAuditTimeline() async {
+  _loadAuditTimeline() async {
     await FirestoreWebGuard.ensurePanelReadReady().catchError((e, st) {
       debugPrint(
         'MasterChurchDetail _loadAuditTimeline ensurePanelReadReady: $e\n$st',
@@ -95,7 +97,9 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
           .get();
       return snap.docs;
     } catch (e, st) {
-      debugPrint('MasterChurchDetail _loadAuditTimeline index fallback: $e\n$st');
+      debugPrint(
+        'MasterChurchDetail _loadAuditTimeline index fallback: $e\n$st',
+      );
       final snap = await firebaseDefaultFirestore
           .collection('auditoria')
           .limit(24)
@@ -115,8 +119,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
   Future<void> _loadTechnicalHealth() async {
     try {
       final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
-      final snap = await           ChurchUiCollections.churchDoc(op)
-          .get();
+      final snap = await ChurchUiCollections.churchDoc(op).get();
       final data = snap.data() ?? widget.churchData;
       final total = data['membersTotalCount'] ?? data['totalMembros'];
       int? members;
@@ -187,11 +190,10 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
   }
 
   Future<void> _openChurchWeb() async {
-    final slug = (widget.churchData['slug'] ??
-            widget.churchData['slugId'] ??
-            '')
-        .toString()
-        .trim();
+    final slug =
+        (widget.churchData['slug'] ?? widget.churchData['slugId'] ?? '')
+            .toString()
+            .trim();
     final url = slug.isNotEmpty
         ? Uri.parse('${AppConstants.effectivePublicWebBaseUrl}/igreja/$slug')
         : Uri.parse(AppConstants.effectivePublicWebBaseUrl);
@@ -207,7 +209,9 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
   }
 
   String get _nome =>
-      (widget.churchData['nome'] ?? widget.churchData['name'] ?? widget.tenantId)
+      (widget.churchData['nome'] ??
+              widget.churchData['name'] ??
+              widget.tenantId)
           .toString();
 
   MasterChurchHealth _health() {
@@ -244,9 +248,11 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
         await BillingLicenseService().setTenantFreeMaster(widget.tenantId);
       } else {
         final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
-        await             ChurchUiCollections.churchDoc(op)
-            .set({
-          'license': {'isFree': false, 'updatedAt': FieldValue.serverTimestamp()},
+        await ChurchUiCollections.churchDoc(op).set({
+          'license': {
+            'isFree': false,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
         }, SetOptions(merge: true));
       }
       await _audit('master_set_free', 'free=$free');
@@ -260,9 +266,9 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('Erro: $e'),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(ThemeCleanPremium.feedbackSnackBar('Erro: $e'));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -273,8 +279,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
     setState(() => _busy = true);
     try {
       final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
-      await           ChurchUiCollections.churchDoc(op)
-          .set({
+      await ChurchUiCollections.churchDoc(op).set({
         'masterNotes': _notesCtrl.text.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
@@ -289,12 +294,25 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
     }
   }
 
+  void _open360Module(String label) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MasterModuleDetailPage(
+          tenantId: widget.tenantId,
+          moduleLabel: label,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final df = DateFormat('dd/MM/yyyy');
-    final plano = (widget.churchData['plano'] ?? widget.churchData['planId'] ?? '—')
-        .toString();
-    final dv = widget.churchData['dataVencimento'] ?? widget.churchData['vencimento'];
+    final plano =
+        (widget.churchData['plano'] ?? widget.churchData['planId'] ?? '—')
+            .toString();
+    final dv =
+        widget.churchData['dataVencimento'] ?? widget.churchData['vencimento'];
     String venc = '—';
     if (dv is Timestamp) venc = df.format(dv.toDate());
 
@@ -303,6 +321,13 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          MasterPlanUsageCard(plan: plano, memberCount: _membersTotal),
+          const SizedBox(height: 16),
+          MasterChurch360Metrics(
+            tenantId: widget.tenantId,
+            churchData: widget.churchData,
+            onOpenModule: _open360Module,
+          ),
           Center(
             child: Container(
               width: 40,
@@ -333,8 +358,10 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
             widget.tenantId,
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
-          Text('Plano: $plano · Venc.: $venc',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+          Text(
+            'Plano: $plano · Venc.: $venc',
+            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+          ),
           if (_membersTotal != null)
             Text(
               'Membros (resumo): $_membersTotal',
@@ -434,60 +461,71 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
             ),
           ),
           const SizedBox(height: 8),
-          const Text('Timeline recente',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const Text(
+            'Timeline recente',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+          ),
           const SizedBox(height: 8),
           Expanded(
-            child: FutureBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
-              future: _loadAuditTimeline(),
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  );
-                }
-                final docs = snap.data ?? const [];
-                if (docs.isEmpty) {
-                  return Text(
-                    'Sem eventos de auditoria para este tenant.',
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                  );
-                }
-                return ListView.separated(
-                  itemCount: docs.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (_, i) {
-                    final d = docs[i].data();
-                    final ts = d['data'];
-                    final when = ts is Timestamp
-                        ? df.format(ts.toDate())
-                        : '';
-                    return ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        (d['acao'] ?? d['action'] ?? 'evento').toString(),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
+            child:
+                FutureBuilder<
+                  List<QueryDocumentSnapshot<Map<String, dynamic>>>
+                >(
+                  future: _loadAuditTimeline(),
+                  builder: (context, snap) {
+                    if (snap.connectionState == ConnectionState.waiting) {
+                      return const Center(
+                        child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      );
+                    }
+                    final docs = snap.data ?? const [];
+                    if (docs.isEmpty) {
+                      return Text(
+                        'Sem eventos de auditoria para este tenant.',
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
                           fontSize: 13,
                         ),
-                      ),
-                      subtitle: Text(
-                        '${d['details'] ?? ''}',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      trailing: Text(when, style: const TextStyle(fontSize: 11)),
+                      );
+                    }
+                    return ListView.separated(
+                      itemCount: docs.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (_, i) {
+                        final d = docs[i].data();
+                        final ts = d['data'];
+                        final when = ts is Timestamp
+                            ? df.format(ts.toDate())
+                            : '';
+                        return ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            (d['acao'] ?? d['action'] ?? 'evento').toString(),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${d['details'] ?? ''}',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          trailing: Text(
+                            when,
+                            style: const TextStyle(fontSize: 11),
+                          ),
+                        );
+                      },
                     );
                   },
-                );
-              },
-            ),
+                ),
           ),
         ],
       ),

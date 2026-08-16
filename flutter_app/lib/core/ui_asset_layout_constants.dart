@@ -24,7 +24,7 @@ class UiAssetLayoutConstants {
   static double get patrimonioPhotoAspectRatio =>
       patrimonioPhotoAspectW / patrimonioPhotoAspectH;
 
-  /// Largura máxima para decode/cache de logo de cliente em ecrãs Retina (≈ 200×DPR).
+  /// Largura máxima para decode/cache de logo de cliente em ecrãs Retina (? 200?DPR).
   static int marketingClientLogoMemCacheWidth(BuildContext context) {
     final dpr = MediaQuery.devicePixelRatioOf(context);
     return (marketingClientLogoLogicalPx * dpr).round().clamp(96, 800);

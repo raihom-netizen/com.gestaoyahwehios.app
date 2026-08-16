@@ -17,9 +17,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/install_pwa_button.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show
-        churchTenantLogoHttpsUrl,
-        memCacheExtentForLogicalSize;
+    show churchTenantLogoHttpsUrl, memCacheExtentForLogicalSize;
 import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
     show ChurchPublicSiteMobileFrame, kChurchPublicSiteMobileFrameWidth;
 import 'package:gestao_yahweh/ui/widgets/church_public_social_gallery.dart'
@@ -53,12 +51,17 @@ String churchPublicFormattedAddress(Map<String, dynamic> data) {
 
   final rua = s(data['rua'] ?? data['address'] ?? data['logradouro']);
   final qd = s(data['quadraLoteNumero'] ?? data['quadra_lote_numero']);
-  final ruaCompleta =
-      rua.isEmpty ? qd : (qd.isEmpty ? rua : '$rua, $qd');
+  final ruaCompleta = rua.isEmpty ? qd : (qd.isEmpty ? rua : '$rua, $qd');
   final bairro = s(data['bairro'] ?? data['BAIRRO']);
-  final cidade =
-      s(data['cidade'] ?? data['CIDADE'] ?? data['localidade'] ?? data['LOCALIDADE']);
-  final estado = s(data['estado'] ?? data['ESTADO'] ?? data['uf'] ?? data['UF']);
+  final cidade = s(
+    data['cidade'] ??
+        data['CIDADE'] ??
+        data['localidade'] ??
+        data['LOCALIDADE'],
+  );
+  final estado = s(
+    data['estado'] ?? data['ESTADO'] ?? data['uf'] ?? data['UF'],
+  );
   final cep = s(data['cep'] ?? data['CEP']);
 
   final cidadeEstado = cidade.isNotEmpty && estado.isNotEmpty
@@ -81,23 +84,25 @@ String churchPublicFormattedAddress(Map<String, dynamic> data) {
 
 /// Telefone/WhatsApp público da igreja (com fallback ao gestor).
 String? churchPublicFormattedPhone(Map<String, dynamic> data) {
-  final whatsapp = (data['whatsappIgreja'] ??
-          data['whatsapp_igreja'] ??
-          data['whatsapp'] ??
-          data['telefoneIgreja'] ??
-          data['telefone'] ??
-          data['phone'] ??
-          '')
-      .toString()
-      .trim();
-  final gestorTelefone = (data['whatsappGestor'] ??
-          data['whatsapp_gestor'] ??
-          data['gestorWhatsapp'] ??
-          data['gestorTelefone'] ??
-          data['gestor_telefone'] ??
-          '')
-      .toString()
-      .trim();
+  final whatsapp =
+      (data['whatsappIgreja'] ??
+              data['whatsapp_igreja'] ??
+              data['whatsapp'] ??
+              data['telefoneIgreja'] ??
+              data['telefone'] ??
+              data['phone'] ??
+              '')
+          .toString()
+          .trim();
+  final gestorTelefone =
+      (data['whatsappGestor'] ??
+              data['whatsapp_gestor'] ??
+              data['gestorWhatsapp'] ??
+              data['gestorTelefone'] ??
+              data['gestor_telefone'] ??
+              '')
+          .toString()
+          .trim();
   final raw = whatsapp.isNotEmpty ? whatsapp : gestorTelefone;
   if (raw.isEmpty) return null;
   return raw;
@@ -105,28 +110,26 @@ String? churchPublicFormattedPhone(Map<String, dynamic> data) {
 
 /// Valor do cadastro: URL (`https://wa.me/...`) ou **só dígitos** (DDI + número).
 String? churchPublicWhatsappDirectUrl(Map<String, dynamic> data) {
-  final u = (data['whatsappChatUrl'] ??
-          data['socialWhatsappUrl'] ??
-          data['whatsappLink'] ??
-          data['linkWhatsapp'] ??
-          '')
-      .toString()
-      .trim();
+  final u =
+      (data['whatsappChatUrl'] ??
+              data['socialWhatsappUrl'] ??
+              data['whatsappLink'] ??
+              data['linkWhatsapp'] ??
+              '')
+          .toString()
+          .trim();
   return u.isEmpty ? null : u;
 }
 
 /// Instagram, YouTube ou Facebook — mesmas chaves alternativas que [IgrejaCadastroPage] (`instagramUrl`, etc.).
-Uri? churchPublicSocialHttpUri(
-  Map<String, dynamic> data,
-  List<String> keys,
-) {
+Uri? churchPublicSocialHttpUri(Map<String, dynamic> data, List<String> keys) {
   for (final k in keys) {
     final raw = (data[k] ?? '').toString().trim();
     if (raw.isEmpty) continue;
     final normalized =
         raw.startsWith(RegExp(r'https?://', caseSensitive: false))
-            ? raw
-            : 'https://$raw';
+        ? raw
+        : 'https://$raw';
     final u = Uri.tryParse(normalized);
     if (u != null &&
         (u.scheme == 'http' || u.scheme == 'https') &&
@@ -152,16 +155,13 @@ Uri? churchPublicWhatsappLaunchUri(
       final msg = safeChurch.isEmpty
           ? 'Olá! Vi o site no Gestão YAHWEH e gostaria de mais informações.'
           : 'Olá! Vi o site da $safeChurch no Gestão YAHWEH e gostaria de mais informações.';
-      return Uri.parse(
-          'https://wa.me/$phone?text=${Uri.encodeComponent(msg)}');
+      return Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(msg)}');
     }
-    final normalized =
-        t.startsWith(RegExp(r'https?://', caseSensitive: false))
-            ? t
-            : 'https://$t';
+    final normalized = t.startsWith(RegExp(r'https?://', caseSensitive: false))
+        ? t
+        : 'https://$t';
     final uri = Uri.tryParse(normalized);
-    if (uri != null &&
-        (uri.scheme == 'http' || uri.scheme == 'https')) {
+    if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
       return uri;
     }
   }
@@ -172,8 +172,7 @@ Uri? churchPublicWhatsappLaunchUri(
   final msg = safeChurch.isEmpty
       ? 'Olá! Vi o site no Gestão YAHWEH e gostaria de mais informações.'
       : 'Olá! Vi o site da $safeChurch no Gestão YAHWEH e gostaria de mais informações.';
-  return Uri.parse(
-      'https://wa.me/$phone?text=${Uri.encodeComponent(msg)}');
+  return Uri.parse('https://wa.me/$phone?text=${Uri.encodeComponent(msg)}');
 }
 
 /// FAB “pedido de oração”: prioriza telefone; se houver só link `wa.me` no cadastro, reusa o número do path com texto de oração.
@@ -190,24 +189,24 @@ Uri? churchPublicWhatsappPrayerUri(
     if (RegExp(r'^[0-9]+$').hasMatch(t)) {
       final phone = t.startsWith('55') ? t : '55$t';
       return Uri.parse(
-          'https://wa.me/$phone?text=${Uri.encodeComponent(prayer)}');
+        'https://wa.me/$phone?text=${Uri.encodeComponent(prayer)}',
+      );
     }
-    final normalized =
-        t.startsWith(RegExp(r'https?://', caseSensitive: false))
-            ? t
-            : 'https://$t';
+    final normalized = t.startsWith(RegExp(r'https?://', caseSensitive: false))
+        ? t
+        : 'https://$t';
     final u = Uri.tryParse(normalized);
     if (u != null && u.scheme.startsWith('http')) {
       final host = u.host.toLowerCase();
       if (host.contains('wa.me')) {
-        final pathDigits =
-            u.path.replaceAll(RegExp(r'[^0-9]'), '');
+        final pathDigits = u.path.replaceAll(RegExp(r'[^0-9]'), '');
         if (pathDigits.isNotEmpty) {
           final phone = pathDigits.startsWith('55')
               ? pathDigits
               : '55$pathDigits';
           return Uri.parse(
-              'https://wa.me/$phone?text=${Uri.encodeComponent(prayer)}');
+            'https://wa.me/$phone?text=${Uri.encodeComponent(prayer)}',
+          );
         }
       }
       return u;
@@ -218,7 +217,8 @@ Uri? churchPublicWhatsappPrayerUri(
     if (d.isNotEmpty) {
       final phone = d.startsWith('55') ? d : '55$d';
       return Uri.parse(
-          'https://wa.me/$phone?text=${Uri.encodeComponent(prayer)}');
+        'https://wa.me/$phone?text=${Uri.encodeComponent(prayer)}',
+      );
     }
   }
   return null;
@@ -230,8 +230,10 @@ class ChurchPublicSiteLogoBadge extends StatelessWidget {
   final Map<String, dynamic>? churchData;
   final double size;
   final double borderRadius;
+
   /// Preenchimento do quadrado sem bandas vazias grandes (contain deixa “moldura” larga).
   final BoxFit logoFit;
+
   /// Spinner enquanto resolve URL/bytes (ex.: cabeçalho escuro).
   final Widget? loadingPlaceholder;
 
@@ -249,14 +251,21 @@ class ChurchPublicSiteLogoBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final dpr = MediaQuery.devicePixelRatioOf(context);
     // Decode proporcional ao badge — evita decodificar resolução desnecessária na web.
-    final cache = memCacheExtentForLogicalSize(size, dpr, maxPx: 512, oversample: 2.25);
+    final cache = memCacheExtentForLogicalSize(
+      size,
+      dpr,
+      maxPx: 512,
+      oversample: 2.25,
+    );
     final tid = tenantId.trim();
     final path = churchData != null
         ? (ChurchImageFields.logoStoragePath(churchData, churchIdHint: tid) ??
-            (tid.isNotEmpty
-                ? ChurchStorageLayout.churchIdentityLogoPath(tid)
-                : null))
-        : (tid.isNotEmpty ? ChurchStorageLayout.churchIdentityLogoPath(tid) : null);
+              (tid.isNotEmpty
+                  ? ChurchStorageLayout.churchIdentityLogoPath(tid)
+                  : null))
+        : (tid.isNotEmpty
+              ? ChurchStorageLayout.churchIdentityLogoPath(tid)
+              : null);
     final https = churchData != null
         ? churchTenantLogoHttpsUrl(churchData!)
         : '';
@@ -309,6 +318,7 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
   final String tenantId;
   final Map<String, dynamic> churchData;
   final VoidCallback onAcessar;
+
   /// Dízimos/Ofertas PIX/cartão (Mercado Pago) — site público.
   final VoidCallback? onDoacao;
   final Color accentColor;
@@ -352,7 +362,7 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
     final hasPhone = phoneLine != null && phoneLine.isNotEmpty;
     final hasAddress = address.isNotEmpty && !kIsWeb;
     final nameMaxLines = layoutCompact ? 2 : 4;
-    final nameFontSize = layoutCompact ? 14.0 : 14.0;
+    final nameFontSize = layoutCompact ? 15.0 : 14.0;
     final charsPerLine = layoutCompact ? 22.0 : 34.0;
     final estNameLines = displayName.isEmpty
         ? 1
@@ -360,18 +370,23 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
     final nameBlockH = estNameLines * (nameFontSize * 1.28);
 
     var metaH = 0.0;
-    if (hasPhone) metaH += 6 + 22;
+    // 26 (e nao 22) porque o telefone passou a ser uma pilula com padding.
+    if (hasPhone) metaH += 6 + 26;
     if (hasAddress) metaH += (hasPhone ? 4 : 6) + 40;
 
     final textColH = nameBlockH + metaH;
     final row1H = textColH > logoSize ? textColH : logoSize;
-    final toolbarH = layoutCompact
-        ? row1H + 6 + 44 + 12
-        : (row1H + 12.0);
+    final toolbarH = layoutCompact ? row1H + 6 + 44 + 12 : (row1H + 12.0);
     final inAppBack = churchPublicSiteInAppBackLeading(context);
     final hasInAppBack = inAppBack != null;
-    final toolbarClamped = (toolbarH + (hasInAppBack ? 4.0 : 0.0))
-        .clamp(logoSize + 12.0, kIsWeb ? 118.0 : 152.0);
+    // O teto NUNCA pode ficar abaixo do que o conteudo precisa: com o antigo
+    // limite de 94 na web o cabecalho pedia ~126 e o nome/telefone da igreja
+    // ficavam cortados ("os dados da igreja nao saem"). O limite alto aqui e
+    // so uma travessa de seguranca para casos patologicos.
+    final toolbarClamped = (toolbarH + (hasInAppBack ? 4.0 : 0.0)).clamp(
+      logoSize + 8.0,
+      220.0,
+    );
 
     final metaStyle = TextStyle(
       fontSize: 12.5,
@@ -385,8 +400,7 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
     );
 
     final navBar = ThemeCleanPremium.navSidebar;
-    final gradientMid =
-        Color.lerp(navBar, ThemeCleanPremium.primary, 0.14)!;
+    final gradientMid = Color.lerp(navBar, ThemeCleanPremium.primary, 0.14)!;
     final gradientEnd = Color.lerp(
       Color.lerp(accentColor, navBar, 0.38)!,
       const Color(0xFF0A1628),
@@ -408,8 +422,12 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
       ),
     );
 
+    // Na web/mobile o bloco de identificação da igreja fica CENTRADO; no
+    // desktop largo continua alinhado à esquerda, ao lado do logo.
     final infoColumn = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: layoutCompact
+          ? CrossAxisAlignment.center
+          : CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -417,6 +435,7 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
           displayName.isEmpty ? 'Igreja' : displayName,
           maxLines: nameMaxLines,
           overflow: TextOverflow.ellipsis,
+          textAlign: layoutCompact ? TextAlign.center : TextAlign.start,
           style: TextStyle(
             fontSize: nameFontSize,
             fontWeight: FontWeight.w800,
@@ -436,18 +455,31 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
           const SizedBox(height: 6),
           IconTheme(
             data: iconMeta,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.only(top: 1),
-                  child: Icon(Icons.phone_rounded),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 4, 12, 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.phone_rounded),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        phoneLine,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: metaStyle,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(phoneLine, style: metaStyle),
-                ),
-              ],
+              ),
             ),
           ),
         ],
@@ -599,13 +631,18 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
                   ],
                 ),
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.volunteer_activism_rounded,
-                          color: Colors.white, size: 20),
+                      const Icon(
+                        Icons.volunteer_activism_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                       const SizedBox(width: 9),
                       Text(
                         layoutCompact
@@ -634,7 +671,7 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
           );
 
     return SliverAppBar(
-      pinned: true,
+      pinned: false,
       stretch: true,
       toolbarHeight: toolbarClamped,
       // Opaco: evita o corpo do scroll “vazar” por trás da AppBar na web.
@@ -653,11 +690,7 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              navBar,
-              gradientMid,
-              gradientEnd,
-            ],
+            colors: [navBar, gradientMid, gradientEnd],
             stops: const [0.0, 0.48, 1.0],
           ),
           boxShadow: [
@@ -693,22 +726,33 @@ class ChurchPublicSiteSliverAppBar extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // O botão Voltar fica encostado à esquerda e o conjunto
+                    // logo + dados da igreja é centrado no espaço restante.
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         if (inAppBack != null) ...[
                           inAppBack,
                           const SizedBox(width: 4),
                         ],
-                        ChurchPublicSiteLogoBadge(
-                          tenantId: tenantId,
-                          churchData: churchData,
-                          size: logoSize,
-                          borderRadius: logoRadius,
-                          loadingPlaceholder: logoLoading,
+                        Expanded(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              ChurchPublicSiteLogoBadge(
+                                tenantId: tenantId,
+                                churchData: churchData,
+                                size: logoSize,
+                                borderRadius: logoRadius,
+                                loadingPlaceholder: logoLoading,
+                              ),
+                              const SizedBox(width: 12),
+                              Flexible(child: infoColumn),
+                            ],
+                          ),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(child: infoColumn),
                       ],
                     ),
                     const SizedBox(height: 6),
@@ -799,8 +843,9 @@ class ChurchPublicAppDownloadBanner extends StatelessWidget {
           stream: MarketingPublicSiteService.watchAppDownloads(),
           builder: (context, snap) {
             final data = snap.data?.data() ?? {};
-            final androidUrl =
-                AppConstants.effectiveAppDownloadsAndroidUrl(data);
+            final androidUrl = AppConstants.effectiveAppDownloadsAndroidUrl(
+              data,
+            );
             final iosUrl = AppConstants.effectiveAppDownloadsIosUrl(data);
 
             return Column(
@@ -858,10 +903,7 @@ class ChurchPublicAppDownloadBanner extends StatelessWidget {
                       label: 'Google Play',
                       subtitle: 'Android',
                       icon: Icons.android_rounded,
-                      gradient: const [
-                        Color(0xFF01875F),
-                        Color(0xFF00A86B),
-                      ],
+                      gradient: const [Color(0xFF01875F), Color(0xFF00A86B)],
                       onTap: () {
                         onAnalytics?.call('download_android_top');
                         unawaited(_open(androidUrl));
@@ -871,10 +913,7 @@ class ChurchPublicAppDownloadBanner extends StatelessWidget {
                       label: 'TestFlight',
                       subtitle: 'iPhone / iPad',
                       icon: Icons.apple_rounded,
-                      gradient: const [
-                        Color(0xFF1C1C1E),
-                        Color(0xFF3A3A3C),
-                      ],
+                      gradient: const [Color(0xFF1C1C1E), Color(0xFF3A3A3C)],
                       enabled: iosUrl.isNotEmpty,
                       onTap: iosUrl.isEmpty
                           ? null
@@ -909,8 +948,14 @@ class ChurchPublicWelcomeStrip extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = churchName.trim();
     final deep = Color.lerp(accentColor, const Color(0xFF0F172A), 0.38)!;
+    final isDesktop = MediaQuery.sizeOf(context).width >= 900;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      padding: EdgeInsets.fromLTRB(
+        isDesktop ? 28 : 12,
+        0,
+        isDesktop ? 28 : 12,
+        isDesktop ? 20 : 12,
+      ),
       child: YahwehWisdomSectionCard(
         margin: EdgeInsets.zero,
         padding: EdgeInsets.zero,
@@ -953,8 +998,9 @@ class ChurchPublicWelcomeStrip extends StatelessWidget {
                       child: Text(
                         'Seja bem-vindo(a)',
                         style: GoogleFonts.poppins(
-                          fontSize:
-                              MediaQuery.sizeOf(context).width < 400 ? 22 : 26,
+                          fontSize: MediaQuery.sizeOf(context).width < 400
+                              ? 22
+                              : 26,
                           fontWeight: FontWeight.w800,
                           color: Colors.white,
                           height: 1.12,
@@ -1130,16 +1176,10 @@ class ChurchPublicContactBar extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Colors.white,
-            subtle,
-            const Color(0xFFF8FAFC),
-          ],
+          colors: [Colors.white, subtle, const Color(0xFFF8FAFC)],
           stops: const [0.0, 0.55, 1.0],
         ),
-        border: Border.all(
-          color: accentColor.withValues(alpha: 0.18),
-        ),
+        border: Border.all(color: accentColor.withValues(alpha: 0.18)),
         boxShadow: [
           BoxShadow(
             color: accentColor.withValues(alpha: 0.10),
@@ -1187,20 +1227,19 @@ class ChurchPublicContactBar extends StatelessWidget {
                               gradient: const LinearGradient(
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
-                                colors: [
-                                  Color(0xFFECFDF5),
-                                  Color(0xFFD1FAE5),
-                                ],
+                                colors: [Color(0xFFECFDF5), Color(0xFFD1FAE5)],
                               ),
                               border: Border.all(
-                                color: const Color(0xFF6EE7B7)
-                                    .withValues(alpha: 0.65),
+                                color: const Color(
+                                  0xFF6EE7B7,
+                                ).withValues(alpha: 0.65),
                                 width: 1.15,
                               ),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFF047857)
-                                      .withValues(alpha: 0.12),
+                                  color: const Color(
+                                    0xFF047857,
+                                  ).withValues(alpha: 0.12),
                                   blurRadius: 20,
                                   offset: const Offset(0, 8),
                                 ),
@@ -1291,13 +1330,18 @@ class ChurchPublicContactBar extends StatelessWidget {
                     if (onEmail != null)
                       TextButton.icon(
                         onPressed: onEmail,
-                        icon: Icon(Icons.email_outlined,
-                            size: 18, color: accentColor),
+                        icon: Icon(
+                          Icons.email_outlined,
+                          size: 18,
+                          color: accentColor,
+                        ),
                         label: const Text('E-mail'),
                         style: TextButton.styleFrom(
                           foregroundColor: deep,
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 8),
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
                         ),
                       ),
                     if (onInstagram != null)
@@ -1328,8 +1372,11 @@ class ChurchPublicContactBar extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.place_rounded,
-                              size: 20, color: accentColor),
+                          Icon(
+                            Icons.place_rounded,
+                            size: 20,
+                            color: accentColor,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'Contato e localização',
@@ -1349,8 +1396,11 @@ class ChurchPublicContactBar extends StatelessWidget {
                           children: [
                             Padding(
                               padding: const EdgeInsets.only(top: 1),
-                              child: Icon(Icons.phone_in_talk_rounded,
-                                  size: 18, color: Colors.grey.shade600),
+                              child: Icon(
+                                Icons.phone_in_talk_rounded,
+                                size: 18,
+                                color: Colors.grey.shade600,
+                              ),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
@@ -1374,8 +1424,11 @@ class ChurchPublicContactBar extends StatelessWidget {
                           children: [
                             Padding(
                               padding: const EdgeInsets.only(top: 1),
-                              child: Icon(Icons.location_on_outlined,
-                                  size: 18, color: Colors.grey.shade600),
+                              child: Icon(
+                                Icons.location_on_outlined,
+                                size: 18,
+                                color: Colors.grey.shade600,
+                              ),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
@@ -1443,6 +1496,7 @@ class ChurchPublicContactBar extends StatelessWidget {
 class ChurchPublicSiteHero extends StatelessWidget {
   final Color accentColor;
   final VoidCallback onMemberSignup;
+
   /// Entrada explícita para quem já é membro (login / app), em paralelo ao cadastro público.
   final VoidCallback onMemberLogin;
   final VoidCallback? onTalkChurch;
@@ -1487,8 +1541,10 @@ class ChurchPublicSiteHero extends StatelessWidget {
                     foregroundColor: Colors.white,
                     minimumSize: minTouch,
                     elevation: 0,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 14,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
@@ -1498,7 +1554,8 @@ class ChurchPublicSiteHero extends StatelessWidget {
             );
             final ctaMembro = Semantics(
               button: true,
-              label: 'Já sou membro. Entrar no sistema ou aplicativo da igreja.',
+              label:
+                  'Já sou membro. Entrar no sistema ou aplicativo da igreja.',
               child: SizedBox(
                 width: narrow ? double.infinity : null,
                 child: FilledButton.tonalIcon(
@@ -1510,8 +1567,10 @@ class ChurchPublicSiteHero extends StatelessWidget {
                     backgroundColor: const Color(0xFFF1F5F9),
                     minimumSize: minTouch,
                     elevation: 0,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 14,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                       side: BorderSide(
@@ -1596,7 +1655,10 @@ class ChurchPublicSiteHero extends StatelessWidget {
                               foregroundColor: Colors.white,
                               minimumSize: minTouch,
                               elevation: 0,
-                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                                vertical: 12,
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16),
                               ),
@@ -1609,13 +1671,21 @@ class ChurchPublicSiteHero extends StatelessWidget {
                           label: 'Abrir localização da igreja no mapa.',
                           child: OutlinedButton.icon(
                             onPressed: onOpenMaps,
-                            icon: const Icon(Icons.location_on_rounded, size: 20),
+                            icon: const Icon(
+                              Icons.location_on_rounded,
+                              size: 20,
+                            ),
                             label: const Text('Ver localização'),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: accentColor,
                               minimumSize: minTouch,
-                              side: BorderSide(color: accentColor.withValues(alpha: 0.5)),
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              side: BorderSide(
+                                color: accentColor.withValues(alpha: 0.5),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16),
                               ),
@@ -1623,7 +1693,8 @@ class ChurchPublicSiteHero extends StatelessWidget {
                           ),
                         ),
                       Semantics(
-                        label: 'Instalar o site como aplicativo no celular ou computador.',
+                        label:
+                            'Instalar o site como aplicativo no celular ou computador.',
                         child: const InstallPwaButton(),
                       ),
                     ],
@@ -1636,7 +1707,8 @@ class ChurchPublicSiteHero extends StatelessWidget {
                     runSpacing: 10,
                     children: [
                       Semantics(
-                        label: 'Instalar o site como aplicativo no celular ou computador.',
+                        label:
+                            'Instalar o site como aplicativo no celular ou computador.',
                         child: const InstallPwaButton(),
                       ),
                     ],
@@ -1737,9 +1809,21 @@ class _ChurchPublicSitePremiumLoaderState
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Color.lerp(const Color(0xFFF8FAFC), violet.withValues(alpha: 0.08), t)!,
-                      Color.lerp(const Color(0xFFEFF6FF), sky.withValues(alpha: 0.12), t)!,
-                      Color.lerp(const Color(0xFFFFF1F2), rose.withValues(alpha: 0.08), t)!,
+                      Color.lerp(
+                        const Color(0xFFF8FAFC),
+                        violet.withValues(alpha: 0.08),
+                        t,
+                      )!,
+                      Color.lerp(
+                        const Color(0xFFEFF6FF),
+                        sky.withValues(alpha: 0.12),
+                        t,
+                      )!,
+                      Color.lerp(
+                        const Color(0xFFFFF1F2),
+                        rose.withValues(alpha: 0.08),
+                        t,
+                      )!,
                     ],
                   ),
                 ),

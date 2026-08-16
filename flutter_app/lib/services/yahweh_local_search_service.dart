@@ -1,7 +1,7 @@
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/yahweh_local_snapshot_store.dart';
 
-/// Busca local primeiro → Firestore depois (pesquisa instantânea).
+/// Busca local primeiro ? Firestore depois (pesquisa instantânea).
 abstract final class YahwehLocalSearchService {
   YahwehLocalSearchService._();
 

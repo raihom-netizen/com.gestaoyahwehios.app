@@ -13,7 +13,7 @@ export 'package:gestao_yahweh/services/legal_documents_defaults.dart'
         kLegalSupportWhatsAppDisplay,
         kLegalSupportWhatsAppWaMe;
 
-/// Alias legado — preferir [LegalDocumentsService] / `lastUpdatedLabel` remoto.
+/// Alias legado ? preferir [LegalDocumentsService] / `lastUpdatedLabel` remoto.
 const String kLegalDocumentsLastUpdated = kLegalDocumentsLastUpdatedDefault;
 
 // --- Termos de Uso ---
@@ -583,7 +583,7 @@ class _LegalPreviewHeader extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Documento oficial — leitura integral',
+                        'Documento oficial ? leitura integral',
                         style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600,

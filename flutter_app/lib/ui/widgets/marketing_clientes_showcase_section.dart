@@ -50,7 +50,9 @@ List<InlineSpan> lightMarkdownInlineSpans(String input, TextStyle base) {
   var start = 0;
   for (final m in reBold.allMatches(input)) {
     if (m.start > start) {
-      out.addAll(italicSpans(input.substring(start, m.start), base, italicMerge));
+      out.addAll(
+        italicSpans(input.substring(start, m.start), base, italicMerge),
+      );
     }
     final inner = m.group(1)!;
     out.addAll(italicSpans(inner, boldMerge, boldItalicMerge));
@@ -182,7 +184,8 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
     final t = raw.trim();
     if (t.isEmpty) return null;
     final low = t.toLowerCase();
-    final isUrl = low.startsWith('http://') ||
+    final isUrl =
+        low.startsWith('http://') ||
         low.startsWith('https://') ||
         (low.contains('google.') && low.contains('maps')) ||
         low.contains('maps.app.goo.gl') ||
@@ -219,8 +222,9 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
     Map<String, dynamic> item,
   ) async {
     // 1) Capa de marketing (path/URL do item).
-    final capa = await resolveCapaImageUrl(item)
-        .timeout(const Duration(seconds: 8), onTimeout: () => null);
+    final capa = await resolveCapaImageUrl(
+      item,
+    ).timeout(const Duration(seconds: 8), onTimeout: () => null);
     if (resolvedUrlLooksUsable(capa)) {
       return (url: capa!, logoContain: false);
     }
@@ -249,18 +253,19 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
     }
 
     // 3) Logo canónica da igreja (`igrejas/{tid}` + Storage `configuracoes/`).
-    final tid =
-        (item['igrejaTenantId'] ?? item['tenantId'] ?? '').toString().trim();
+    final tid = (item['igrejaTenantId'] ?? item['tenantId'] ?? '')
+        .toString()
+        .trim();
     if (tid.isEmpty) return (url: '', logoContain: false);
 
     Map<String, dynamic>? tenantData;
     try {
       final op = ChurchPanelTenantGateway.churchId(tid);
       final doc = await ChurchRepository.churchDoc(op).get().timeout(
-            const Duration(seconds: 5),
-            onTimeout: () =>
-                throw TimeoutException('igrejas/$tid', const Duration(seconds: 5)),
-          );
+        const Duration(seconds: 5),
+        onTimeout: () =>
+            throw TimeoutException('igrejas/$tid', const Duration(seconds: 5)),
+      );
       if (doc.exists && doc.data() != null) tenantData = doc.data();
     } catch (_) {}
 
@@ -289,8 +294,7 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
     final path = MarketingStorageLayout.resolveClienteCapaStoragePath(item);
     final primary = primaryImageUrlFromItem(item);
     final hasPath = path.isNotEmpty;
-    final hasPrimary =
-        primary != null && resolvedUrlLooksUsable(primary);
+    final hasPrimary = primary != null && resolvedUrlLooksUsable(primary);
 
     String? bust(String? url) {
       if (url == null || url.isEmpty) return url;
@@ -303,9 +307,7 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
           storagePath: path,
           imageUrl: null,
         ),
-        AppStorageImageService.instance.resolveImageUrl(
-          imageUrl: primary,
-        ),
+        AppStorageImageService.instance.resolveImageUrl(imageUrl: primary),
       ]);
       final byPath = both[0];
       final byUrl = both[1];
@@ -375,8 +377,9 @@ class _MarketingClienteCapaThumbState extends State<MarketingClienteCapaThumb> {
   void initState() {
     super.initState();
     _itemSig = _itemSigOf(widget.item);
-    _future =
-        MarketingClientesShowcaseSection.resolveShowcaseImage(widget.item);
+    _future = MarketingClientesShowcaseSection.resolveShowcaseImage(
+      widget.item,
+    );
   }
 
   @override
@@ -385,16 +388,18 @@ class _MarketingClienteCapaThumbState extends State<MarketingClienteCapaThumb> {
     final next = _itemSigOf(widget.item);
     if (next != _itemSig) {
       _itemSig = next;
-      _future =
-          MarketingClientesShowcaseSection.resolveShowcaseImage(widget.item);
+      _future = MarketingClientesShowcaseSection.resolveShowcaseImage(
+        widget.item,
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    final maxDecode =
-        UiAssetLayoutConstants.marketingClientLogoMemCacheWidth(context);
+    final maxDecode = UiAssetLayoutConstants.marketingClientLogoMemCacheWidth(
+      context,
+    );
     final logicalW = math.min(
       widget.width,
       UiAssetLayoutConstants.marketingClientLogoLogicalPx,
@@ -416,7 +421,9 @@ class _MarketingClienteCapaThumbState extends State<MarketingClienteCapaThumb> {
         }
         final img = marketingClienteShowcaseImage(
           imageUrl: u!,
-          webpUrl: MarketingClientesShowcaseSection.webpUrlFromItem(widget.item),
+          webpUrl: MarketingClientesShowcaseSection.webpUrlFromItem(
+            widget.item,
+          ),
           width: widget.width,
           height: widget.height,
           fit: r!.logoContain ? BoxFit.contain : widget.fit,
@@ -437,11 +444,7 @@ class _MarketingClienteCapaThumbState extends State<MarketingClienteCapaThumb> {
     if (widget.borderRadius != null) {
       core = ClipRRect(borderRadius: widget.borderRadius!, child: core);
     }
-    return SizedBox(
-      width: widget.width,
-      height: widget.height,
-      child: core,
-    );
+    return SizedBox(width: widget.width, height: widget.height, child: core);
   }
 }
 
@@ -505,7 +508,9 @@ class _MarketingClientesShowcaseSectionState
           );
         }
         final data = snap.data?.data();
-        final firestoreItems = MarketingClientesShowcaseSection._parseItems(data);
+        final firestoreItems = MarketingClientesShowcaseSection._parseItems(
+          data,
+        );
         if (firestoreItems.isEmpty && !_fallbackTried && !_fallbackLoading) {
           unawaited(_ensureFallbackItems());
         }
@@ -531,8 +536,8 @@ class _MarketingClientesShowcaseSectionState
         final crossAxisCount = w >= 1100
             ? 3
             : w >= 700
-                ? 2
-                : 1;
+            ? 2
+            : 1;
 
         final cap = MarketingClientesShowcaseSection.publicPreviewCount;
         final expanded = _showAllClientes;
@@ -557,8 +562,8 @@ class _MarketingClientesShowcaseSectionState
               const _PremiumGaleriaIgrejasLead(),
               const SizedBox(height: ThemeCleanPremium.spaceLg),
             ],
-            Align(
-              alignment: Alignment.center,
+            SizedBox(
+              width: double.infinity,
               child: GridView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -566,7 +571,7 @@ class _MarketingClientesShowcaseSectionState
                   crossAxisCount: crossAxisCount,
                   mainAxisSpacing: ThemeCleanPremium.spaceLg,
                   crossAxisSpacing: ThemeCleanPremium.spaceLg,
-                  childAspectRatio: crossAxisCount == 1 ? 0.88 : 0.70,
+                  mainAxisExtent: crossAxisCount == 1 ? 600 : 540,
                 ),
                 itemCount: shown.length,
                 itemBuilder: (context, i) {
@@ -596,7 +601,9 @@ class _MarketingClientesShowcaseSectionState
                   style: FilledButton.styleFrom(
                     foregroundColor: const Color(0xFF0A3D91),
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 22, vertical: 14),
+                      horizontal: 22,
+                      vertical: 14,
+                    ),
                   ),
                 ),
               ),
@@ -632,8 +639,8 @@ class _EmptyClientesPlaceholder extends StatelessWidget {
           child: Text(
             message ??
                 'Nenhuma igreja em destaque no momento. '
-                'As logos aparecem aqui quando cadastradas em Divulgação → Clientes '
-                'ou em ${MarketingStorageLayout.clientesRootPrefix}/ no Storage.',
+                    'As logos aparecem aqui quando cadastradas em Divulgação → Clientes '
+                    'ou em ${MarketingStorageLayout.clientesRootPrefix}/ no Storage.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
@@ -768,7 +775,11 @@ class _PremiumGaleriaIgrejasLead extends StatelessWidget {
           ),
         ],
       ),
-      child: const Icon(Icons.collections_rounded, color: Colors.white, size: 26),
+      child: const Icon(
+        Icons.collections_rounded,
+        color: Colors.white,
+        size: 26,
+      ),
     );
 
     final richText = Text.rich(
@@ -825,13 +836,7 @@ class _PremiumGaleriaIgrejasLead extends StatelessWidget {
           ],
         ),
         child: isNarrow
-            ? Column(
-                children: [
-                  iconBox,
-                  const SizedBox(height: 16),
-                  richText,
-                ],
-              )
+            ? Column(children: [iconBox, const SizedBox(height: 16), richText])
             : Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -903,10 +908,7 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFE8EEF9),
-            Color(0xFFF8FAFC),
-          ],
+          colors: [Color(0xFFE8EEF9), Color(0xFFF8FAFC)],
         ),
       ),
       child: const Center(
@@ -922,10 +924,7 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFE8EEF9),
-            Color(0xFFF1F5F9),
-          ],
+          colors: [Color(0xFFE8EEF9), Color(0xFFF1F5F9)],
         ),
       ),
       child: const Center(
@@ -941,7 +940,8 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
           if (snap.hasError) {
             return err;
           }
-          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          if (snap.connectionState == ConnectionState.waiting &&
+              !snap.hasData) {
             return ph;
           }
           final data = snap.data;
@@ -950,7 +950,9 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
           }
           final u = data.url;
           final logoMode = data.logoContain;
-          final webp = MarketingClientesShowcaseSection.webpUrlFromItem(widget.item);
+          final webp = MarketingClientesShowcaseSection.webpUrlFromItem(
+            widget.item,
+          );
           return Stack(
             fit: StackFit.expand,
             children: [
@@ -974,7 +976,7 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
                         webpUrl: webp,
                         width: double.infinity,
                         height: double.infinity,
-                        fit: BoxFit.cover,
+                        fit: BoxFit.contain,
                         placeholder: ph,
                         errorWidget: err,
                       ),
@@ -1024,18 +1026,41 @@ class _ClienteCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final nome = _str('nomeIgreja');
     final corpo = _str('corpo');
-    final pastor = _str('pastor');
-    final gestor = _str('gestor');
-    final loc = _str('localizacao');
-    final whatsapp = _str('whatsapp');
-    final site = _str('sitePublico');
+    final pastor = _str('pastor').isNotEmpty
+        ? _str('pastor')
+        : (_str('pastorNome').isNotEmpty
+              ? _str('pastorNome')
+              : _str('responsavel'));
+    final gestor = _str('gestor').isNotEmpty
+        ? _str('gestor')
+        : (_str('gestorNome').isNotEmpty
+              ? _str('gestorNome')
+              : _str('responsavel'));
+    final loc = _str('localizacao').isNotEmpty
+        ? _str('localizacao')
+        : (_str('enderecoCompleto').isNotEmpty
+              ? _str('enderecoCompleto')
+              : (_str('endereco').isNotEmpty
+                    ? _str('endereco')
+                    : _str('address')));
+    final whatsapp = _str('whatsapp').isNotEmpty
+        ? _str('whatsapp')
+        : (_str('telefone').isNotEmpty ? _str('telefone') : _str('phone'));
+    final site = _str('sitePublico').isNotEmpty
+        ? _str('sitePublico')
+        : (_str('site').isNotEmpty
+              ? _str('site')
+              : (_str('siteUrl').isNotEmpty
+                    ? _str('siteUrl')
+                    : _str('website')));
 
     final wa = MarketingClientesShowcaseSection._waUrl(whatsapp);
     final siteUri = site.isNotEmpty
         ? MarketingClientesShowcaseSection._httpUrl(site)
         : null;
-    final locUri =
-        loc.isNotEmpty ? MarketingClientesShowcaseSection._locationLaunchUrl(loc) : null;
+    final locUri = loc.isNotEmpty
+        ? MarketingClientesShowcaseSection._locationLaunchUrl(loc)
+        : null;
     final locHint = MarketingClientesShowcaseSection._locationDisplayHint(loc);
 
     const radius = ThemeCleanPremium.radiusLg;
@@ -1127,17 +1152,18 @@ class _ClienteCard extends StatelessWidget {
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.place_outlined,
-                              size: 17, color: ThemeCleanPremium.primary),
+                          Icon(
+                            Icons.place_outlined,
+                            size: 17,
+                            color: ThemeCleanPremium.primary,
+                          ),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               locHint,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
+                              style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(
                                     color: ThemeCleanPremium.onSurfaceVariant,
                                     height: 1.3,
@@ -1148,7 +1174,7 @@ class _ClienteCard extends StatelessWidget {
                         ],
                       ),
                     ],
-                    const Spacer(),
+                    const SizedBox(height: 12),
                     _ClienteActionRow(
                       wa: wa,
                       siteUri: siteUri,
@@ -1181,7 +1207,8 @@ class _ClienteActionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final actions = <({String url, String label, IconData icon, Color color})>[];
+    final actions =
+        <({String url, String label, IconData icon, Color color})>[];
     if (wa != null) {
       actions.add((
         url: wa!,
@@ -1320,9 +1347,9 @@ class _InfoRow extends StatelessWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: ThemeCleanPremium.onSurfaceVariant,
-                  height: 1.25,
-                ),
+              color: ThemeCleanPremium.onSurfaceVariant,
+              height: 1.25,
+            ),
           ),
         ),
       ],

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -81,7 +81,7 @@ abstract final class UtilitariosVideoDownloaderService {
         u.contains('tiktokv.com')) {
       return VideoDownPlatform.tiktok;
     }
-    // Qualquer URL http/https → genérico (tenta extrair vídeo automaticamente)
+    // Qualquer URL http/https ? genérico (tenta extrair vídeo automaticamente)
     if (u.startsWith('http://') || u.startsWith('https://')) {
       return VideoDownPlatform.generic;
     }
@@ -328,7 +328,7 @@ abstract final class UtilitariosVideoDownloaderService {
         isAudioOnly: false,
       );
     } catch (e) {
-      debugPrint('[VideoDown] YouTube explode error: $e — tentando Cobalt…');
+      debugPrint('[VideoDown] YouTube explode error: $e ? tentando Cobalt?');
       // Fallback rápido via Cobalt quando o player do YouTube muda.
       final cobaltUrl = await _cobaltExtract(cleanUrl);
       if (cobaltUrl != null && cobaltUrl.isNotEmpty) {
@@ -797,7 +797,7 @@ abstract final class UtilitariosVideoDownloaderService {
       videoUrl = _decodeMediaUrl(videoUrl);
       if (!videoUrl.startsWith('http')) return null;
       debugPrint(
-        '[VideoDown] Cobalt OK ($base): ${videoUrl.substring(0, videoUrl.length > 70 ? 70 : videoUrl.length)}…',
+        '[VideoDown] Cobalt OK ($base): ${videoUrl.substring(0, videoUrl.length > 70 ? 70 : videoUrl.length)}?',
       );
       return videoUrl;
     } catch (e) {
@@ -806,7 +806,7 @@ abstract final class UtilitariosVideoDownloaderService {
     }
   }
 
-  /// Download Facebook — Cobalt + scrape em paralelo.
+  /// Download Facebook ? Cobalt + scrape em paralelo.
   static Future<VideoDownloadResult> _downloadFacebook(
     String url,
     bool audioOnly,
@@ -1100,7 +1100,7 @@ abstract final class UtilitariosVideoDownloaderService {
     }
   }
 
-  /// Scrape TikTok HTML (mobile + desktop) — downloadAddr / playAddr / og:video.
+  /// Scrape TikTok HTML (mobile + desktop) ? downloadAddr / playAddr / og:video.
   static Future<String?> _tikTokScrapeVideoUrl(String url) async {
     Future<String?> tryOnce(Map<String, String> headers) async {
       try {

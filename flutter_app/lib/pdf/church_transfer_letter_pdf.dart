@@ -19,7 +19,7 @@ class ChurchLetterMemberLine {
   const ChurchLetterMemberLine({required this.name, this.cpfDigits});
 }
 
-/// Corpo da carta: ~2 cm de recuo na 1.ª linha (normas cultas).
+/// Corpo da carta: ~2 cm de recuo na 1.? linha (normas cultas).
 const double _kLetterFirstLineIndentPt = 57;
 
 pw.Font? _cachedSerifBodyFont;
@@ -135,7 +135,7 @@ Future<Uint8List> buildChurchTransferLetterPdf({
             children: [
               pw.Expanded(
                 child: pw.Text(
-                  left.isEmpty ? 'Carta ministerial' : '$left · Carta ministerial',
+                  left.isEmpty ? 'Carta ministerial' : '$left ? Carta ministerial',
                   style: pw.TextStyle(fontSize: 7.8, color: muted),
                 ),
               ),
@@ -161,7 +161,7 @@ String _oficioDateLineExtensa(Map<String, dynamic> data) {
   final uf = (data['estado'] ?? data['UF'] ?? data['uf'] ?? '').toString().trim();
   String local = '';
   if (cidade.isNotEmpty && uf.isNotEmpty) {
-    local = '$cidade–$uf';
+    local = '$cidade?$uf';
   } else if (cidade.isNotEmpty) {
     local = cidade;
   } else if (uf.isNotEmpty) {
@@ -185,8 +185,8 @@ int? _signatureBlockStartIndex(String body) {
 }
 
 bool _looksLikeMemberLine(String raw) {
-  final x = raw.startsWith('•') ? raw.substring(1).trim() : raw;
-  if (x.contains('—')) return true;
+  final x = raw.startsWith('?') ? raw.substring(1).trim() : raw;
+  if (x.contains('?')) return true;
   if (x.toUpperCase().contains('CPF')) return true;
   if (RegExp(r'\d{3}\.\d{3}\.\d{3}-\d{2}').hasMatch(x)) return true;
   final d = x.replaceAll(RegExp(r'\D'), '');
@@ -214,11 +214,11 @@ bool _chunkIsSalutationOrQuoteOrList(String chunk) {
   if (fl.startsWith('À')) return true;
   if (fl.startsWith('Graça')) return true;
   if (fl.startsWith('Prezado')) return true;
-  if (fl.startsWith('"') || fl.startsWith('“') || fl.startsWith('«')) return true;
+  if (fl.startsWith('"') || fl.startsWith('?') || fl.startsWith('?')) return true;
   if (fl.startsWith('Membros apresentados')) return true;
   if (fl.startsWith('E no demais')) return true;
   if (fl.startsWith('Para que o mundo')) return true;
-  if (lines.every((l) => l.startsWith('•') || l.startsWith('-'))) {
+  if (lines.every((l) => l.startsWith('?') || l.startsWith('-'))) {
     return true;
   }
   return false;
@@ -237,7 +237,7 @@ pw.Widget _normaCultaBodyParagraph(String chunk, {required pw.TextStyle bodyStyl
         .split('\n')
         .map((l) {
           var t = l.trim();
-          if (t.startsWith('•')) t = t.substring(1).trim();
+          if (t.startsWith('?')) t = t.substring(1).trim();
           if (t.startsWith('-') && t.length > 1 && t[1] == ' ') {
             t = t.substring(1).trim();
           }
@@ -509,9 +509,9 @@ String churchLetterMembersBlock(Iterable<ChurchLetterMemberLine> members) {
     if (n.isEmpty) continue;
     final c = (m.cpfDigits ?? '').replaceAll(RegExp(r'\D'), '');
     if (c.length == 11) {
-      buf.writeln('$n — CPF ${_formatCpf(c)}');
+      buf.writeln('$n ? CPF ${_formatCpf(c)}');
     } else if (c.isNotEmpty) {
-      buf.writeln('$n — CPF $c');
+      buf.writeln('$n ? CPF $c');
     } else {
       buf.writeln(n);
     }
@@ -712,7 +712,7 @@ String applyChurchLetterPlaceholders({
   rep('[Cargo 2 - ex: Pastor, Líder, etc.]', issuer2Role.trim());
   rep('[Cargo 2 – ex: Pastor, Líder, etc.]', issuer2Role.trim());
   rep('[Contato - telefone/WhatsApp/e-mail]', issuerContact.trim());
-  rep('[Contato – telefone/WhatsApp/e-mail]', issuerContact.trim());
+  rep('[Contato ? telefone/WhatsApp/e-mail]', issuerContact.trim());
   rep('[Igreja Nome]', issuerChurchLine.trim());
   return s;
 }

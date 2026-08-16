@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// ✅ Painel Master (Super Admin)
 /// - Lista todas as igrejas (collection: igrejas)
@@ -166,10 +167,10 @@ class _SuperAdminConsolePageState extends State<SuperAdminConsolePage> {
   }
 
   Future<void> _seedDefaultPlans() async {
-    final batch = MasterAdminFirestore.db.batch();
+    final batch = YahwehBatch();
 
     void up(String id, Map<String, dynamic> data) {
-      batch.set(_plans.doc(id), data, SetOptions(merge: true));
+      batch.set(_plans.doc(id), data, merge: true);
     }
 
     // ✅ Valores e limites base (podem ser editados no painel)

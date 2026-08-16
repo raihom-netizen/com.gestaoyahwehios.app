@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -8,10 +8,11 @@ import 'package:gestao_yahweh/models/shift_location.dart';
 import 'package:gestao_yahweh/utils/scale_entry_hours.dart';
 import 'package:gestao_yahweh/utils/scale_entry_sei_ocorrencia.dart';
 import 'scale_rates_service.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Corrige plantões ligados a pré-cadastro com financeiro ativo mas salvos com
 /// `totalValue` zero (legado / falha na geração). Restaura valores no resumo
-/// Estado · Município · Particular sem afetar plantão ordinário sem financeiro.
+/// Estado ? Município ? Particular sem afetar plantão ordinário sem financeiro.
 class ScaleEntryFinancialValueRepair {
   static final Set<String> _repairedSessions = {};
   static final Set<String> _fullRepairUids = {};
@@ -209,7 +210,7 @@ class ScaleEntryFinancialValueRepair {
       final flagKey = 'scale_fin_full_repair_v1_$uid';
       if (prefs.getBool(flagKey) == true) return;
 
-      // Adiar — não compete com 1º paint do calendário.
+      // Adiar ? não compete com 1? paint do calendário.
       await Future<void>.delayed(const Duration(seconds: 30));
       if (locations.isEmpty) return;
 
@@ -287,7 +288,7 @@ class ScaleEntryFinancialValueRepair {
       const batchLimit = 400;
       final entries = patches.entries.toList();
       for (var i = 0; i < entries.length; i += batchLimit) {
-        final batch = FirebaseFirestore.instance.batch();
+        final batch = YahwehBatch();
         for (final e in entries.skip(i).take(batchLimit)) {
           batch.update(e.key, e.value);
         }

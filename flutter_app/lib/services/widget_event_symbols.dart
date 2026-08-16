@@ -10,33 +10,33 @@ class WidgetEventSymbols {
     final t = type.toLowerCase().trim();
     final hay = _normalize('$title $abbreviation');
 
-    if (t == 'finance') return '💳';
-    if (t == 'audiencia' || _matches(hay, _audienciaKeys)) return '⚖️';
+    if (t == 'finance') return '??';
+    if (t == 'audiencia' || _matches(hay, _audienciaKeys)) return '??';
 
-    if (_matches(hay, _birthdayKeys)) return '🎂';
-    if (_matches(hay, _dentistKeys)) return '🦷';
-    if (_matches(hay, _doctorKeys)) return '🩺';
-    if (_matches(hay, _churchKeys)) return '⛪';
-    if (_matches(hay, _weddingKeys)) return '💒';
-    if (_matches(hay, _meetingKeys)) return '👥';
-    if (_matches(hay, _schoolKeys)) return '🎓';
-    if (_matches(hay, _shoppingKeys)) return '🛒';
-    if (_matches(hay, _travelKeys)) return '✈️';
-    if (_matches(hay, _gymKeys)) return '💪';
-    if (_matches(hay, _operationKeys)) return '⚡';
-    if (_matches(hay, _vtrKeys)) return '🚓';
+    if (_matches(hay, _birthdayKeys)) return '??';
+    if (_matches(hay, _dentistKeys)) return '??';
+    if (_matches(hay, _doctorKeys)) return '??';
+    if (_matches(hay, _churchKeys)) return '?';
+    if (_matches(hay, _weddingKeys)) return '??';
+    if (_matches(hay, _meetingKeys)) return '??';
+    if (_matches(hay, _schoolKeys)) return '??';
+    if (_matches(hay, _shoppingKeys)) return '??';
+    if (_matches(hay, _travelKeys)) return '??';
+    if (_matches(hay, _gymKeys)) return '??';
+    if (_matches(hay, _operationKeys)) return '?';
+    if (_matches(hay, _vtrKeys)) return '??';
 
     if (t == 'scale' || t == 'plantao' || t == 'plantão') {
-      if (_matches(hay, _patrolKeys)) return '👮';
-      return '🚔';
+      if (_matches(hay, _patrolKeys)) return '??';
+      return '??';
     }
 
     if (t == 'compromisso') {
       // Gestão Yahweh não tem presets de compromisso do Controle Total —
       // emoji direto por palavra-chave já coberta acima; padrão calendário.
-      return '📅';
+      return '??';
     }
-    return '📌';
+    return '??';
   }
 
   /// Cor da barra lateral quando o evento não traz accent próprio.
@@ -46,31 +46,31 @@ class WidgetEventSymbols {
     required bool isToday,
   }) {
     switch (symbol) {
-      case '🎂':
+      case '??':
         return '#FFEC407A';
-      case '🩺':
+      case '??':
         return '#FF26A69A';
-      case '🦷':
+      case '??':
         return '#FF42A5F5';
-      case '⚖️':
+      case '??':
         return '#FF7C4DFF';
-      case '🚓':
+      case '??':
         return '#FF2563EB';
-      case '👮':
+      case '??':
         return '#FF00BCD4';
-      case '⚡':
+      case '?':
         return '#FFFFB300';
-      case '⛪':
+      case '?':
         return '#FF8D6E63';
-      case '💒':
+      case '??':
         return '#FFE91E63';
-      case '👥':
+      case '??':
         return '#FF1E88E5';
-      case '🎓':
+      case '??':
         return '#FF5C6BC0';
-      case '💳':
+      case '??':
         return '#FFFF8A50';
-      case '📅':
+      case '??':
         return '#FF12B5A5';
       default:
         break;

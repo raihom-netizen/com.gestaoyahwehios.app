@@ -198,9 +198,10 @@ class _ChurchDepartmentMemberPickerPageState
 
   List<ChurchDepartmentMemberRow> get _visibleMembers {
     final sorted = List<ChurchDepartmentMemberRow>.from(_members)
-      ..sort((a, b) => a.displayName
-          .toLowerCase()
-          .compareTo(b.displayName.toLowerCase()));
+      ..sort(
+        (a, b) =>
+            a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
+      );
     return sorted.where(_memberMatchesFilters).toList();
   }
 
@@ -240,14 +241,14 @@ class _ChurchDepartmentMemberPickerPageState
             child: Ink(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: _cA.withValues(alpha: 0.14),
-                ),
+                border: Border.all(color: _cA.withValues(alpha: 0.14)),
                 boxShadow: ThemeCleanPremium.softUiCardShadow,
               ),
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 child: Row(
                   children: [
                     Stack(
@@ -270,10 +271,7 @@ class _ChurchDepartmentMemberPickerPageState
                             padding: const EdgeInsets.all(4),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
-                                colors: [
-                                  const Color(0xFFF59E0B),
-                                  _cA,
-                                ],
+                                colors: [const Color(0xFFF59E0B), _cA],
                               ),
                               shape: BoxShape.circle,
                               border: Border.all(color: Colors.white, width: 2),
@@ -364,8 +362,7 @@ class _ChurchDepartmentMemberPickerPageState
               boxShadow: ThemeCleanPremium.softUiCardShadow,
             ),
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               child: Row(
                 children: [
                   Checkbox(
@@ -619,39 +616,38 @@ class _ChurchDepartmentMemberPickerPageState
                 child: _loading
                     ? Center(child: CircularProgressIndicator(color: _cA))
                     : _loadError != null && _members.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(_loadError!, textAlign: TextAlign.center),
-                                const SizedBox(height: 12),
-                                FilledButton.icon(
-                                  onPressed: _loadMembers,
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: _cA,
-                                  ),
-                                  icon: const Icon(Icons.refresh_rounded),
-                                  label: const Text('Tentar novamente'),
-                                ),
-                              ],
-                            ),
-                          )
-                        : visible.isEmpty
-                            ? Center(
-                                child: Text(
-                                  'Nenhum membro corresponde aos filtros.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              )
-                            : ListView.builder(
-                                itemCount: visible.length,
-                                itemBuilder: (_, i) =>
-                                    _memberTile(visible[i]),
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(_loadError!, textAlign: TextAlign.center),
+                            const SizedBox(height: 12),
+                            FilledButton.icon(
+                              onPressed: _loadMembers,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: _cA,
                               ),
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('Tentar novamente'),
+                            ),
+                          ],
+                        ),
+                      )
+                    : visible.isEmpty
+                    ? Center(
+                        child: Text(
+                          'Nenhum membro corresponde aos filtros.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: visible.length,
+                        itemBuilder: (_, i) => _memberTile(visible[i]),
+                      ),
               ),
               if (!_singleLeader) ...[
                 const SizedBox(height: 10),

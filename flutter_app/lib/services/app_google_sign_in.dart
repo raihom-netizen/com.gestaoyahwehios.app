@@ -5,13 +5,13 @@ import 'package:flutter/services.dart' show PlatformException;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
-/// OAuth 2.0 **Web client** do projeto Firebase (`google-services.json` →
+/// OAuth 2.0 **Web client** do projeto Firebase (`google-services.json` ?
 /// `client_type` 3). Necessário no Android para o Google Play Services emitir
 /// `idToken` compatível com [FirebaseAuth] e evitar `ApiException: 10`
 /// (DEVELOPER_ERROR) em `sign_in_failed`.
 ///
 /// Se ainda falhar após isso, registre o SHA-1 do keystore (debug/release) em
-/// Firebase Console → Configurações do projeto → Seu app Android.
+/// Firebase Console ? Configurações do projeto ? Seu app Android.
 const String kFirebaseGoogleOAuthWebClientId =
     '157235497908-93osahk8novc7i2n6jq2fotimfmhefi3.apps.googleusercontent.com';
 
@@ -21,7 +21,7 @@ const String kFirebaseIosGoogleClientId =
 
 /// [FirebaseAuth] na web (`signInWithPopup` / `signInWithRedirect`).
 ///
-/// [forceAccountPicker] só após Configurações → «Trocar conta»; caso contrário o
+/// [forceAccountPicker] só após Configurações ? ?Trocar conta?; caso contrário o
 /// navegador reutiliza a conta já autorizada (sem `select_account` em todo login).
 GoogleAuthProvider firebaseWebGoogleAuthProvider({
   bool forceAccountPicker = false,
@@ -55,7 +55,7 @@ Future<void> ensureAppGoogleSignInInitialized() async {
   _googleSignInInitialized = true;
 }
 
-/// Silencioso / leve — substitui `signInSilently` (v6).
+/// Silencioso / leve ? substitui `signInSilently` (v6).
 Future<GoogleSignInAccount?> appGoogleSignInSilently() async {
   await ensureAppGoogleSignInInitialized();
   final attempt = GoogleSignIn.instance.attemptLightweightAuthentication();
@@ -63,7 +63,7 @@ Future<GoogleSignInAccount?> appGoogleSignInSilently() async {
   return attempt;
 }
 
-/// Seletor Google nativo — substitui `signIn` (v6).
+/// Seletor Google nativo ? substitui `signIn` (v6).
 Future<GoogleSignInAccount?> appGoogleSignInInteractive() async {
   await ensureAppGoogleSignInInitialized();
   if (!GoogleSignIn.instance.supportsAuthenticate()) {
@@ -104,7 +104,7 @@ Future<void> appGoogleSignOutForAccountPicker() async {
   } catch (_) {}
 }
 
-/// `sign_in_failed` com DEVELOPER_ERROR (10) — costuma ser SHA-1 ausente/errado no Firebase
+/// `sign_in_failed` com DEVELOPER_ERROR (10) ? costuma ser SHA-1 ausente/errado no Firebase
 /// ou keystore diferente; também variações da mensagem entre versões do Play Services.
 bool isGoogleSignInAndroidConfigError(PlatformException e) {
   if (e.code != 'sign_in_failed') return false;
@@ -160,11 +160,11 @@ String? googleAuthErrorMessagePt(FirebaseAuthException e) {
   }
   if (code.contains('unauthorized-domain')) {
     return 'Este domínio não está autorizado para login Google. '
-        'Em Firebase Console → Authentication → Settings, adicione o domínio em «Authorized domains».';
+        'Em Firebase Console ? Authentication ? Settings, adicione o domínio em ?Authorized domains?.';
   }
   if (code.contains('operation-not-allowed')) {
     return 'Login com Google não está ativado no projeto. '
-        'Ative o provedor Google em Firebase Console → Authentication → Sign-in method.';
+        'Ative o provedor Google em Firebase Console ? Authentication ? Sign-in method.';
   }
   if (code.contains('web-storage-unsupported') ||
       code.contains('storage-unsupported')) {

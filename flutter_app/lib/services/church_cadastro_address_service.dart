@@ -54,9 +54,9 @@ abstract final class ChurchCadastroAddressService {
 
     final parts = <String>[];
     if (rua.isNotEmpty) {
-      parts.add(numero.isNotEmpty ? '$rua, Nº $numero' : rua);
+      parts.add(numero.isNotEmpty ? '$rua, N? $numero' : rua);
     } else if (numero.isNotEmpty) {
-      parts.add('Nº $numero');
+      parts.add('N? $numero');
     }
     if (quadra.isNotEmpty) parts.add('Qd/Lt $quadra');
     if (bairro.isNotEmpty) parts.add(bairro);
@@ -105,7 +105,7 @@ abstract final class ChurchCadastroAddressService {
     return null;
   }
 
-  /// Cache-first → doc directo (1 GET) → fallback load completo.
+  /// Cache-first ? doc directo (1 GET) ? fallback load completo.
   static Future<ChurchCadastroAddressResult> load({
     required String seedTenantId,
     bool forceRefresh = false,

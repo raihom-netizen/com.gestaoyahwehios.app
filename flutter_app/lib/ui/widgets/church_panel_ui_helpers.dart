@@ -122,7 +122,7 @@ class ChurchPanelOfflineStaleBanner extends StatelessWidget {
 class ChurchPanelSyncBanner extends StatelessWidget {
   const ChurchPanelSyncBanner({
     super.key,
-    this.message = 'Sincronizando… a mostrar dados guardados enquanto atualiza.',
+    this.message = 'Sincronizando? a mostrar dados guardados enquanto atualiza.',
   });
 
   final String message;
@@ -163,7 +163,7 @@ class ChurchPanelSyncBanner extends StatelessWidget {
 }
 
 /// Erro bloqueante só quando não há dados locais **e** o erro não é transitório.
-/// Sync/INTERNAL ASSERTION → faixa suave (lista vazia estável nos módulos).
+/// Sync/INTERNAL ASSERTION ? faixa suave (lista vazia estável nos módulos).
 class ChurchPanelResilientLoadBanner extends StatelessWidget {
   const ChurchPanelResilientLoadBanner({
     super.key,
@@ -193,7 +193,7 @@ class ChurchPanelResilientLoadBanner extends StatelessWidget {
         return ChurchPanelSyncBanner(
           message: (syncMessage != null && syncMessage!.isNotEmpty)
               ? syncMessage!
-              : 'Sincronizando… a mostrar dados guardados enquanto atualiza.',
+              : 'Sincronizando? a mostrar dados guardados enquanto atualiza.',
         );
       }
       if (showStaleCache) {
@@ -209,7 +209,7 @@ class ChurchPanelResilientLoadBanner extends StatelessWidget {
       return ChurchPanelSyncBanner(
         message: (syncMessage != null && syncMessage!.isNotEmpty)
             ? syncMessage!
-            : 'Sincronizando…',
+            : 'Sincronizando?',
       );
     }
     // Erro transitório Web (assert/sync/timeout): NÃO derruba o módulo.
@@ -305,7 +305,7 @@ class _ResilientPanelQueryFutureBuilderState
               ],
             );
           }
-          // Erro transitório → lista vazia estável (não banner vermelho bloqueante).
+          // Erro transitório ? lista vazia estável (não banner vermelho bloqueante).
           if (FirestoreWebGuard.isTransientPanelReadError(snap.error)) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -438,7 +438,7 @@ class ChurchPanelPeriodDaysChip extends StatelessWidget {
   }
 }
 
-/// Orientação do PDF (retrato / paisagem): segmentos largos, borda visível e toque ≥ 48dp.
+/// Orientação do PDF (retrato / paisagem): segmentos largos, borda visível e toque = 48dp.
 ///
 /// Substitui [FilterChip] fraco usado antes nos relatórios.
 class PremiumPdfOrientationBar extends StatelessWidget {
@@ -515,7 +515,7 @@ class PremiumPdfOrientationBar extends StatelessWidget {
   }
 }
 
-/// Onde a faixa de abas “pill” se assenta: azul (AppBar) vs branco (corpo / shell).
+/// Onde a faixa de abas ?pill? se assenta: azul (AppBar) vs branco (corpo / shell).
 enum ChurchPanelPillTabBarStyle {
   /// Trilho semitransparente em faixa **primária** — rótulos brancos, selecionado = branco + texto primário.
   onPrimary,
@@ -852,7 +852,7 @@ class ChurchPanelPillPair extends StatelessWidget {
   }
 }
 
-/// FutureBuilder com timeout Web (10s) — nunca skeleton infinito.
+/// FutureBuilder com timeout Web (10s) ? nunca skeleton infinito.
 class ChurchPanelTimedFutureBuilder<T> extends StatefulWidget {
   const ChurchPanelTimedFutureBuilder({
     super.key,

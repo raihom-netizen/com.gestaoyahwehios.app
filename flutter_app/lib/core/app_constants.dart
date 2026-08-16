@@ -11,19 +11,21 @@ class AppConstants {
   /// URL canónica de marketing (e-mail, functions). Na web, [effectivePublicWebBaseUrl] usa o host actual.
   static const String publicWebBaseUrl = PublicWebOrigin.canonicalBaseUrl;
 
-  /// Base efectiva na web (`gestaoyahweh.com.br` ou `gestaoyahweh-21e23.web.app`); nativo → canónico.
+  /// Base efectiva na web (`gestaoyahweh.com.br` ou `gestaoyahweh-21e23.web.app`); nativo ? canónico.
   static String get effectivePublicWebBaseUrl =>
       kIsWeb ? PublicWebOrigin.effectiveBaseUrl : publicWebBaseUrl;
 
   /// Marca Gestão YAHWEH (PNG no deploy web, `web/brand/`) — notificações in-app e materiais.
-  static String get gestaoBrandLogoUrl => '$publicWebBaseUrl/brand/gestao_yahweh_mark.png';
+  static String get gestaoBrandLogoUrl =>
+      '$publicWebBaseUrl/brand/gestao_yahweh_mark.png';
 
   /// Canais oficiais (site de divulgação + login Android/iOS). String vazia = botão oculto.
-  /// Ajuste para os links reais do projeto (handles @… ou URLs completas).
+  /// Ajuste para os links reais do projeto (handles @? ou URLs completas).
   static const String marketingOfficialYoutubeUrl =
       'https://www.youtube.com/@gestaoyahweh';
   static const String marketingOfficialInstagramUrl =
       'https://www.instagram.com/gestaoyahweh';
+
   /// Apenas dígitos com DDI (ex.: 5562987654321) ou URL `https://wa.me/...`.
   static const String marketingOfficialWhatsAppDigits = '';
 
@@ -40,13 +42,13 @@ class AppConstants {
   /// Texto curto para a secção de downloads (web / site público).
   static const String marketingDownloadIosTestFlightHint =
       'iPhone: toque no botão Apple (iOS) abaixo. Abre-se o convite do '
-      'TestFlight — aceite na App Store, instale o app TestFlight se for pedido e, '
+      'TestFlight ? aceite na App Store, instale o app TestFlight se for pedido e, '
       'em seguida, instale Gestão Yahweh - Igrejas.';
 
-  /// Alias legado — mesmo destino que [gestaoYahwehPlayStoreUrl].
+  /// Alias legado ? mesmo destino que [gestaoYahwehPlayStoreUrl].
   static const String marketingPlayStoreAndroidUrl = gestaoYahwehPlayStoreUrl;
 
-  /// `config/appDownloads` — URL efetiva Android (Firestore ou Play Store Controle Total).
+  /// `config/appDownloads` ? URL efetiva Android (Firestore ou Play Store Controle Total).
   static String effectiveAppDownloadsAndroidUrl(Map<String, dynamic>? data) {
     final raw = (data?['androidUrl'] ?? '').toString().trim();
     return raw.isNotEmpty ? raw : marketingPlayStoreAndroidUrl;
@@ -62,8 +64,12 @@ class AppConstants {
 
   /// `config/appDownloads` — Windows: `windowsUrl` (zip do executável no Storage).
   /// Sem loja/fallback: vazio = botão Windows escondido.
+  static const String gestaoYahwehWindowsInstallerUrl =
+      'https://firebasestorage.googleapis.com/v0/b/gestaoyahweh-21e23.firebasestorage.app/o/downloads%2Fwindows%2FGestaoYahweh-Setup-11.2.305-2199.exe?alt=media&token=185078c5-0cf1-488e-a824-bd368101cbf9';
+
   static String effectiveAppDownloadsWindowsUrl(Map<String, dynamic>? data) {
-    return (data?['windowsUrl'] ?? '').toString().trim();
+    final configured = (data?['windowsUrl'] ?? '').toString().trim();
+    return configured.isNotEmpty ? configured : gestaoYahwehWindowsInstallerUrl;
   }
 
   /// Base https normalizada (sem path final). [raw] pode ser `dominio.com` ou URL completa.
@@ -75,8 +81,12 @@ class AppConstants {
     if (!t.toLowerCase().startsWith('http')) t = 'https://$t';
     final u = Uri.tryParse(t);
     if (u == null || u.host.isEmpty) return null;
-    final port = u.hasPort && u.port != 443 && u.scheme == 'https' ? ':${u.port}' : '';
-    final portHttp = u.hasPort && u.port != 80 && u.scheme == 'http' ? ':${u.port}' : '';
+    final port = u.hasPort && u.port != 443 && u.scheme == 'https'
+        ? ':${u.port}'
+        : '';
+    final portHttp = u.hasPort && u.port != 80 && u.scheme == 'http'
+        ? ':${u.port}'
+        : '';
     if (u.scheme == 'http') return 'http://${u.host}$portHttp';
     return 'https://${u.host}$port';
   }
@@ -197,8 +207,11 @@ class AppConstants {
     return publicWebBaseUrl;
   }
 
-  /// Link “smart” para WhatsApp: `/igreja/{slug}/evento/{id}` → Hosting reescreve para [shareEvento] (OG + imagem).
-  static String shareNoticiaIgrejaEventoUrl(String churchSlug, String noticiaId) {
+  /// Link ?smart? para WhatsApp: `/igreja/{slug}/evento/{id}` ? Hosting reescreve para [shareEvento] (OG + imagem).
+  static String shareNoticiaIgrejaEventoUrl(
+    String churchSlug,
+    String noticiaId,
+  ) {
     final s = churchSlug.trim();
     final e = noticiaId.trim();
     if (s.isEmpty || e.isEmpty) return publicWebBaseUrl;
@@ -220,7 +233,7 @@ class AppConstants {
     return '$publicWebBaseUrl/s/evento?s=$s&e=$e';
   }
 
-  /// Mesmo destino que [shareNoticiaCardUrl] — preview social (tenantId).
+  /// Mesmo destino que [shareNoticiaCardUrl] ? preview social (tenantId).
   static String publicNoticiaSharePageUrl(String tenantId, String noticiaId) =>
       shareNoticiaCardUrl(tenantId, noticiaId);
 
@@ -245,9 +258,10 @@ class AppConstants {
     return '$publicWebBaseUrl/convite-departamento?tid=$t&did=$d';
   }
 
-  // ——— Assinatura / Trial ———
+  // ??? Assinatura / Trial ???
   /// Dias de carência após o vencimento antes de bloquear o acesso (igual Controle Total).
   static const int subscriptionGraceDays = 3;
+
   /// WhatsApp do suporte master (somente dígitos com DDI/DDD). Ex.: 5562999999999
   static const String masterSupportWhatsApp = '5562991705247';
 
@@ -259,7 +273,8 @@ class AppConstants {
 
   /// Conta master do produto: vê/gerencia todas as igrejas (bypass de isolamento multi-tenant).
   static const String productMasterEmail = 'raihom@gmail.com';
-  /// E-mails com acesso ao Painel Master (escudo na barra — paridade Controle Total).
+
+  /// E-mails com acesso ao Painel Master (escudo na barra ? paridade Controle Total).
   static const List<String> productMasterEmails = [
     'raihom@gmail.com',
     'isabellecardoso@gmail.com',
@@ -292,18 +307,19 @@ class AppConstants {
     return d.isNotEmpty && d == productMasterCpfDigits;
   }
 
-  // ——— Limite de membros por plano ———
-  /// Liberdade de membros a mais após o limite do plano antes de travar inclusão.
-  static const int membersGraceOverLimit = 5;
+  // ??? Limite de membros por plano ???
+  /// Toler?ncia de até três membros excedentes após o limite do plano antes de bloquear novas inclus?es.
+  static const int membersGraceOverLimit = 3;
 
   // ——— Paginação ———
   /// Quantidade de itens por página em listas (membros, eventos, etc.).
   /// Alinhado a [YahwehPerformanceV4.defaultPageSize].
   static const int pageSize = 20;
 
-  // ——— UX ———
+  // ??? UX ???
   /// Duração padrão de SnackBar (segundos).
   static const int snackBarDurationSeconds = 3;
+
   /// Timeout de chamadas HTTP/Cloud Functions (segundos).
   static const int callableTimeoutSeconds = 25;
 }

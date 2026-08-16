@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -22,7 +22,7 @@ import 'package:gestao_yahweh/web_resume_repaint_stub.dart'
 ///
 /// - Não desloga ao trocar de aba / voltar do background (só «Sair» explícito).
 /// - Renova token Firebase sem `reconnect()` pesado.
-/// - Cache de acesso master e utilizador «sticky» para evitar tela branca.
+/// - Cache de acesso master e utilizador ?sticky? para evitar tela branca.
 abstract final class AppSessionStability {
   AppSessionStability._();
 
@@ -98,7 +98,7 @@ abstract final class AppSessionStability {
     }
   }
 
-  /// Volta da rede (modo avião / Wi‑Fi) — recuperação completa sem throttle de resume.
+  /// Volta da rede (modo avião / Wi-Fi) ? recuperação completa sem throttle de resume.
   static void onConnectivityRestored() => onGlobalResume(force: true);
 
   /// Chamado ao voltar do background / foco na aba (web + mobile).
@@ -160,7 +160,7 @@ abstract final class AppSessionStability {
     _stickyUser = null;
   }
 
-  /// Utilizador efetivo para [StreamBuilder] de auth — evita logout fantasma.
+  /// Utilizador efetivo para [StreamBuilder] de auth ? evita logout fantasma.
   static User? effectiveAuthUser(
     User? streamUser, {
     ConnectionState connectionState = ConnectionState.active,
@@ -196,7 +196,7 @@ abstract final class AppSessionStability {
     return PersistentAuthSessionService.currentPersistedUser();
   }
 
-  // â”€â”€â”€ Painel Master (/admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // --- Painel Master (/admin) ---------------------------------------------
 
   /// 0 = sem login, 1 = logado sem ADM, 2 = ADM/master.
   static int? peekCachedMasterAccessLevel() {

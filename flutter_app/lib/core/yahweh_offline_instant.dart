@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/services/yahweh_local_snapshot_store.dart';
 
 /// Modo instantâneo (offline-first leve) — Hive + SharedPreferences + Firestore offline.
 ///
-/// Fluxo: gravar local → UI imediata → sync em background → Firestore.
+/// Fluxo: gravar local ? UI imediata ? sync em background ? Firestore.
 abstract final class YahwehOfflineInstant {
   YahwehOfflineInstant._();
 

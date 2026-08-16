@@ -1,6 +1,6 @@
 import 'package:gestao_yahweh/services/legal_document_models.dart';
 
-/// Contato e metadados padrão (fallback offline / 1.ª publicação).
+/// Contato e metadados padrão (fallback offline / 1.? publicação).
 const String kLegalDocumentsLastUpdatedDefault = 'Junho de 2026';
 const String kLegalSupportEmail = 'raihom@gmail.com';
 const String kLegalSupportWhatsAppDisplay = '(62) 9 9170-5247';
@@ -26,7 +26,7 @@ abstract final class LegalDocumentsDefaults {
         'Leia atentamente estes Termos de Uso antes de utilizar o Gestão YAHWEH. '
         'Documento elaborado em observância à legislação brasileira aplicável, '
         'incluindo a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD), '
-        'o Marco Civil da Internet (Lei nº 12.965/2014) e demais normas pertinentes.',
+        'o Marco Civil da Internet (Lei n? 12.965/2014) e demais normas pertinentes.',
     sections: [
       LegalSectionEntry(
         title: '1. Aceitação',
@@ -139,8 +139,8 @@ abstract final class LegalDocumentsDefaults {
             'cumprir obrigações legais; e melhorar a experiência no painel.\n\n'
             'As bases legais incluem, conforme o caso: execução de contrato ou procedimentos '
             'preliminares (art. 7º, V); legítimo interesse do controlador ou do titular, '
-            'respeitados direitos fundamentais (art. 7º, IX); cumprimento de obrigação legal '
-            '(art. 7º, II); e consentimento, quando exigido (art. 7º, I), por exemplo para '
+            'respeitados direitos fundamentais (art. 7?, IX); cumprimento de obrigação legal '
+            '(art. 7?, II); e consentimento, quando exigido (art. 7?, I), por exemplo para '
             'recursos opcionais.\n\n'
             'O produto é voltado à gestão da igreja e não exibe anúncios de terceiros.',
       ),
@@ -151,7 +151,7 @@ abstract final class LegalDocumentsDefaults {
             'organizados por igreja (identificador único no Firestore e no Storage). '
             'Aplicamos medidas técnicas e administrativas compatíveis com o risco — controle de '
             'acesso, criptografia em trânsito (HTTPS/TLS), autenticação e regras de segurança '
-            'no banco de dados — em conformidade com a LGPD.\n\n'
+            'no banco de dados ? em conformidade com a LGPD.\n\n'
             'Cada igreja é responsável pelos dados que cadastra sobre seus membros e colaboradores, '
             'atuando como controladora em relação a esses cadastros; o Gestão YAHWEH atua como '
             'operador de tratamento na prestação da plataforma, salvo quando indicado de forma diversa.',

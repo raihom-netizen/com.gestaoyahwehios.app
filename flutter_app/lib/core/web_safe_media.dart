@@ -6,7 +6,7 @@ import 'package:image_picker/image_picker.dart';
 /// Mídia compatível com **Flutter Web** — nunca depender de `dart:io` [File] na UI.
 ///
 /// - Seleção: [XFile] (`image_picker`, `file_picker` com `withData: true` na web).
-/// - Upload: `readAsBytes()` → `putData` / [StorageService.uploadBytes].
+/// - Upload: `readAsBytes()` ? `putData` / [StorageService.uploadBytes].
 abstract final class WebSafeMedia {
   WebSafeMedia._();
 

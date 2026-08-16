@@ -10,7 +10,7 @@ import 'package:gestao_yahweh/services/crashlytics_service.dart';
 
 /// Upload patrimônio — `igrejas/{churchId}/patrimonio/{itemId}/foto_N.jpg`.
 ///
-/// Pipeline único (Controle Total): 1 compress no editor → putData → URL → Firestore.
+/// Pipeline ?nico (Controle Total): 1 compress no editor ? putData ? URL ? Firestore.
 abstract final class PatrimonioMediaUpload {
   PatrimonioMediaUpload._();
 
@@ -32,7 +32,7 @@ abstract final class PatrimonioMediaUpload {
       throw ArgumentError('churchId e itemDocId são obrigatórios.');
     }
     if (rawBytes.isEmpty) {
-      throw StateError('Imagem vazia — selecione outra foto.');
+      throw StateError('Imagem vazia ? selecione outra foto.');
     }
     if (slotIndex < 0 || slotIndex >= kMaxPatrimonioPhotosPerItem) {
       throw StateError(

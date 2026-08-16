@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Grava assinatura da carteirinha no cadastro do membro (`igrejas/{churchId}/membros`).
 abstract final class MemberCardSignService {
@@ -93,7 +94,7 @@ abstract final class MemberCardSignService {
 
     final col = ChurchUiCollections.membros(churchId);
     // Timestamp concreto (não serverTimestamp): grava já no doc e aparece
-    // na carteirinha sem null no cache local — data/hora corretas Web/Android/iOS.
+    // na carteirinha sem null no cache local ? data/hora corretas Web/Android/iOS.
     final signedAt = Timestamp.now();
     final opUid = (operatorUid ?? '').trim();
     final opNome = (operatorNome ?? '').trim();
@@ -122,7 +123,7 @@ abstract final class MemberCardSignService {
 
     void report() => onProgress?.call(ok + fail, total);
 
-    /// Escrita leve — sem hard recover por documento (evita ca9/b815 na web).
+    /// Escrita leve ? sem hard recover por documento (evita ca9/b815 na web).
     Future<void> writeOneLight(String id) async {
       await col
           .doc(id)
@@ -131,9 +132,9 @@ abstract final class MemberCardSignService {
     }
 
     Future<void> writeChunkBatch(List<String> chunk) async {
-      final batch = col.firestore.batch();
+      final batch = YahwehBatch();
       for (final id in chunk) {
-        batch.set(col.doc(id), payload, SetOptions(merge: true));
+        batch.set(col.doc(id), payload, merge: true);
       }
       await runFirestorePublishWithRecovery(
         () => batch.commit(),
@@ -324,9 +325,9 @@ abstract final class MemberCardSignService {
     }
 
     Future<void> writeChunkBatch(List<String> chunk) async {
-      final batch = col.firestore.batch();
+      final batch = YahwehBatch();
       for (final id in chunk) {
-        batch.set(col.doc(id), payload, SetOptions(merge: true));
+        batch.set(col.doc(id), payload, merge: true);
       }
       await runFirestorePublishWithRecovery(
         () => batch.commit(),

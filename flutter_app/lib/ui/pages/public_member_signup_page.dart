@@ -689,7 +689,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                 sliver: SliverToBoxAdapter(
                   child: Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 500),
+                      constraints: BoxConstraints(
+                        maxWidth: MediaQuery.sizeOf(context).width >= 900
+                            ? 760
+                            : 560,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -1599,7 +1603,11 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                 padding: ThemeCleanPremium.pagePadding(context),
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 500),
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.sizeOf(context).width >= 900
+                          ? 760
+                          : 560,
+                    ),
                     child: AbsorbPointer(
                       absorbing: _loading || _saving,
                       child: Opacity(

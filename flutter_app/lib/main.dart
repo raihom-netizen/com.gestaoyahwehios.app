@@ -107,7 +107,7 @@ bool _crashlyticsFlutterErrorLikelyBenign(FlutterErrorDetails details) {
   }
   if (msg.contains('sessão expirada')) return true;
   if (msg.contains('firebasebootstrapexception')) return true;
-  // Isolate serialization (compute boundary) — benigno.
+  // Isolate serialization (compute boundary) ? benigno.
   if (msg.contains('converting object to an encodable object')) return true;
   // Null-check em decode/dados de rede — tratado com fallback no código.
   if (msg.contains('null check operator used on a null value')) return true;
@@ -160,7 +160,7 @@ String _resolveIgrejaLoginAfterRoute(Uri loginUri) {
     return target;
   }
   // `/igreja/login/apple` sem `after`: renovação/planos — evita pós-login em `/painel`
-  // (que reativa a escolha «Sou membro / gestor» na web).
+  // (que reativa a escolha ?Sou membro / gestor? na web).
   final loginPath = loginUri.path;
   if (loginPath.endsWith('/igreja/login/apple')) {
     return fromIosApp ? '/atualizar-plano?from=ios_app' : '/atualizar-plano';
@@ -428,15 +428,29 @@ void main() async {
 
   // 2. Firebase — init único/canônico (app [DEFAULT] + options da plataforma).
   //    Obrigatório antes de Firestore/Auth/Storage ou runApp (evita core/no-app).
-  await FirebaseBootstrap.ensureInitialized();
-  FirebaseBootstrapService.refreshCachedApp();
-
-  // 3. Health + settings Firestore/Auth/Storage — exige app [DEFAULT] pronto.
-  final firebaseBoot = await FirebaseBootstrapService.initialize();
 
   // 3b/4. Offline/Hive — init local (disco), rápido. Fica sozinho no caminho
   // crítico: o antigo `await` da credencial TDLib (leitura de rede no Firestore,
   // sem timeout) que travava a tela azul/spinner foi REMOVIDO junto com o chat.
+  // Inicialização limitada por tempo: o Web não pode ficar preso na tela de loading
+  // quando uma sonda Firebase/Firestore fica pendente por rede, service worker ou sessão.
+  late FirebaseBootstrapResult firebaseBoot;
+  try {
+    await FirebaseBootstrap.ensureInitialized().timeout(
+      const Duration(seconds: 10),
+    );
+    FirebaseBootstrapService.refreshCachedApp();
+    firebaseBoot = await FirebaseBootstrapService.initialize().timeout(
+      const Duration(seconds: 15),
+      onTimeout: () => FirebaseBootstrapResult.unavailable(
+        TimeoutException('Firebase Web não respondeu durante a inicialização.'),
+        StackTrace.current,
+      ),
+    );
+  } catch (e, st) {
+    firebaseBoot = FirebaseBootstrapResult.unavailable(e, st);
+  }
+
   if (firebaseBoot.isReady) {
     await OfflineFirstCoordinator.initialize().catchError((e, st) {
       if (kDebugMode) {
@@ -498,7 +512,7 @@ void main() async {
     AppShellSessionCache.warmUp(),
     AuthProfileCacheService.warmUpForStartup(),
     YahwehCacheBootstrap.warmUpPrefs(),
-  ]);
+  ]).timeout(const Duration(seconds: 4), onTimeout: () => <void>[]);
 
   if (!firebaseBoot.isReady) {
     runApp(
@@ -533,7 +547,7 @@ String _normalizeWebAppPath(String raw) {
   return path;
 }
 
-/// Rota inicial web **sem** SharedPreferences nem poll de sessão — 1.º frame rápido.
+/// Rota inicial web **sem** SharedPreferences nem poll de sessão ? 1.? frame rápido.
 String _resolveWebInitialRouteFast() {
   var initialRoute = Uri.base.path.isNotEmpty
       ? _normalizeWebAppPath(Uri.base.path)
@@ -599,7 +613,7 @@ Future<String> _resolveWebInitialRouteWithSession(String bootRoute) async {
   return initialRoute;
 }
 
-/// Android/iOS: 1.º frame rápido — sem poll de sessão nem SharedPreferences.
+/// Android/iOS: 1.? frame rápido ? sem poll de sessão nem SharedPreferences.
 String _resolveNativeInitialRouteFast() {
   if (LoginPreferences.startupAccountSwitchPending == true) {
     return AppStartupRoute.nativeLoginRoute;
@@ -716,7 +730,7 @@ Future<void> _finalizeWebStartupAfterFirstFrame(String bootRoute) async {
   );
 }
 
-/// Crashlytics nativo — pode correr após o 1.º frame (não bloquear [runApp]).
+/// Crashlytics nativo ? pode correr após o 1.? frame (não bloquear [runApp]).
 Future<void> _bindNativeCrashlyticsHandlers() async {
   try {
     await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(
@@ -1108,7 +1122,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
     super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
       AppSessionStability.onGlobalResume();
-      // Web: repaint via visibility hook — evita setState duplo no [MaterialApp].
+      // Web: repaint via visibility hook ? evita setState duplo no [MaterialApp].
       if (!kIsWeb) _repaintAfterWebResume();
     }
   }
@@ -1174,7 +1188,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
               ? <String>[]
               : path.split('/').where((s) => s.isNotEmpty).toList();
 
-          // ── iOS nativo: landing pública → login; planos/checkout = paridade Web/Android.
+          // -- iOS nativo: landing pública ? login; planos/checkout = paridade Web/Android.
           if (IosPaymentsGate.isIosNative) {
             if (path == '/') {
               final em = uri.queryParameters['email']?.trim();
@@ -1324,14 +1338,14 @@ class _AppWithThemeState extends State<_AppWithTheme>
               case '/igreja/login':
                 {
                   final em = uri.queryParameters['email']?.trim();
-                  // App iOS nativo: só login → painel; plano/licença no Safari (3.1.1).
+                  // App iOS nativo: só login ? painel; plano/licença no Safari (3.1.1).
                   final afterLogin = IosPaymentsGate.isIosNative
                       ? '/painel'
                       : _resolveIgrejaLoginAfterRoute(uri);
                   pagina = LoginPage(
                     title: IosPaymentsGate.isIosNative
                         ? 'Entrar com conta existente'
-                        : 'Entrar — Painel da Igreja',
+                        : 'Entrar ? Painel da Igreja',
                     afterLoginRoute: afterLogin,
                     showFleetBranding: false,
                     backRoute: '/',
@@ -1349,7 +1363,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
                   pagina = LoginPage(
                     title: IosPaymentsGate.isIosNative
                         ? 'Entrar com conta existente'
-                        : 'Entrar — Painel da Igreja',
+                        : 'Entrar ? Painel da Igreja',
                     afterLoginRoute: afterLogin,
                     showFleetBranding: false,
                     backRoute: '/',
@@ -1379,7 +1393,7 @@ class _AppWithThemeState extends State<_AppWithTheme>
                 break;
               case '/atualizar-plano':
                 {
-                  // Fluxo «Atualizar plano expresso» — login + checkout MP (Web/Android/iOS).
+                  // Fluxo ?Atualizar plano expresso? ? login + checkout MP (Web/Android/iOS).
                   final em = uri.queryParameters['email']?.trim();
                   final fromIos =
                       uri.queryParameters['from']?.toLowerCase() == 'ios_app';
@@ -1602,7 +1616,7 @@ Widget? _explicitStartupPage(String rawRoute) {
       return LoginPage(
         title: IosPaymentsGate.isIosNative
             ? 'Entrar com conta existente'
-            : 'Entrar — Painel da Igreja',
+            : 'Entrar ? Painel da Igreja',
         afterLoginRoute: IosPaymentsGate.isIosNative
             ? '/painel'
             : _resolveIgrejaLoginAfterRoute(uri),

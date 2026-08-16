@@ -107,7 +107,7 @@ class _DebugChurchPageState extends State<DebugChurchPage> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'Prova ${s.platform} publicada — abra DEBUG CHURCH nas outras plataformas.',
+          'Prova ${s.platform} publicada ? abra DEBUG CHURCH nas outras plataformas.',
         ),
       );
     } catch (e) {
@@ -212,7 +212,7 @@ class _DebugChurchPageState extends State<DebugChurchPage> {
           for (final p in s.probes) _probeTile(p),
         ]),
         if (s.legacyHitsInLogs.isNotEmpty)
-          _section('LEGADO DETECTADO NOS LOGS — REPROVADO', [
+          _section('LEGADO DETECTADO NOS LOGS ? REPROVADO', [
             for (final l in s.legacyHitsInLogs)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
@@ -255,7 +255,7 @@ class _DebugChurchPageState extends State<DebugChurchPage> {
             _row(
               key,
               proof.byPlatform[key] == null
-                  ? '(ausente — publicar nesta plataforma)'
+                  ? '(ausente ? publicar nesta plataforma)'
                   : proof.byPlatform[key]!.capturedAt.toIso8601String(),
             ),
           const SizedBox(height: 12),
@@ -270,7 +270,7 @@ class _DebugChurchPageState extends State<DebugChurchPage> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.cloud_upload_rounded),
-              label: Text(_publishing ? 'Publicando…' : 'Publicar prova ${_snap?.platform ?? ""}'),
+              label: Text(_publishing ? 'Publicando?' : 'Publicar prova ${_snap?.platform ?? ""}'),
             ),
           ),
           const SizedBox(height: 8),
@@ -283,7 +283,7 @@ class _DebugChurchPageState extends State<DebugChurchPage> {
           OutlinedButton.icon(
             onPressed: _copyMandatoryProof,
             icon: const Icon(Icons.fact_check_outlined),
-            label: const Text('Copiar prova PATH (WEB:… ANDROID:… IOS:…)'),
+            label: const Text('Copiar prova PATH (WEB:? ANDROID:? IOS:?)'),
           ),
           const SizedBox(height: 12),
           for (final row in proof.moduleRows)

@@ -47,6 +47,8 @@ const List<String> kDefaultExpenseCategories = [
 
 // ==================== RECEITAS ====================
 const List<String> kDefaultIncomeCategories = [
+  'Dízimos',
+  'Ofertas',
   'Salários',
   'Horas extras',
   'Bônus',

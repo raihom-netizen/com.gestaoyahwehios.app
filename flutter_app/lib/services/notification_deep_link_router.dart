@@ -16,7 +16,7 @@ abstract final class NotificationDeepLinkRouter {
   NotificationDeepLinkRouter._();
 
   static final _pathRe = RegExp(
-    r'^/igreja/([^/]+)(?:/(chat|evento|membro|aprovacoes|aniversariantes)(?:/([^/?#]+))?)?',
+    r'^/igreja/([^/]+)(?:/(chat|evento|membro|aprovacoes|aniversariantes|oracoes)(?:/([^/?#]+))?)?',
     caseSensitive: false,
   );
 
@@ -41,16 +41,18 @@ abstract final class NotificationDeepLinkRouter {
     switch (screen) {
       case 'chat':
         // Módulo Yahweh Chat removido — links antigos de chat caem no Painel.
-        ChurchPanelNavigationBridge.instance
-            .requestNavigateToShellIndex(kChurchShellIndexPainel);
+        ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(
+          kChurchShellIndexPainel,
+        );
         return true;
       case 'evento':
         final eventoId = resourceId.isNotEmpty ? resourceId : query['eventoId'];
         if (eventoId != null && eventoId.isNotEmpty) {
           ChurchPanelNavigationBridge.instance.requestOpenEventDocId(eventoId);
         } else {
-          ChurchPanelNavigationBridge.instance
-              .requestNavigateToShellIndex(kChurchShellIndexEvents);
+          ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(
+            kChurchShellIndexEvents,
+          );
         }
         return true;
       case 'membro':
@@ -58,8 +60,9 @@ abstract final class NotificationDeepLinkRouter {
         if (memberId != null && memberId.isNotEmpty) {
           ChurchPanelNavigationBridge.instance.requestOpenMemberDocId(memberId);
         } else {
-          ChurchPanelNavigationBridge.instance
-              .requestNavigateToShellIndex(kChurchShellIndexMembers);
+          ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(
+            kChurchShellIndexMembers,
+          );
         }
         return true;
       case 'aprovacoes':
@@ -70,13 +73,20 @@ abstract final class NotificationDeepLinkRouter {
             publicSignup: true,
           );
         } else {
-          ChurchPanelNavigationBridge.instance
-              .requestNavigateToShellIndex(kChurchShellIndexAprovacoes);
+          ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(
+            kChurchShellIndexAprovacoes,
+          );
         }
         return true;
+      case 'oracoes':
+        ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(
+          ChurchShellIndices.pedidosOracao,
+        );
+        return true;
       case 'aniversariantes':
-        ChurchPanelNavigationBridge.instance
-            .requestNavigateToShellIndex(kChurchShellIndexPainel);
+        ChurchPanelNavigationBridge.instance.requestNavigateToShellIndex(
+          kChurchShellIndexPainel,
+        );
         return true;
       default:
         return false;

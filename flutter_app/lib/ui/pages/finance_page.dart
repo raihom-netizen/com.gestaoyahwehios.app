@@ -123,7 +123,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
   static const Color _kPdfActionOrange = Color(0xFFEA580C);
 
   /// Filtro de período simples: Mensal, Anual ou Por período.
-  static const List<String> _periods = ['Mensal', 'Anual', 'Por período'];
+  static const List<String> _periods = [
+    'Mensal',
+    'Anual',
+    'Por período',
+  ];
   String _selectedPeriod = 'Mensal';
   DateTime? _customRangeStart;
   DateTime? _customRangeEnd;
@@ -252,7 +256,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
   Stream<QuerySnapshot<Map<String, dynamic>>>? _pendingTransactionsStreamCache;
   String? _pendingStreamsUid;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
-      _pendingTransactionsTrackerSub;
+  _pendingTransactionsTrackerSub;
   QuerySnapshot<Map<String, dynamic>>? _lastPendingTransactionsSnap;
 
   /// Uma query `status`+`date` (índice já no projeto) — filtra `type` em memória nas faixas.
@@ -272,17 +276,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
     final s = FirestoreWebGuard.disableLiveSnapshotsOnWeb
         ? _pollPendingTransactions().asBroadcastStream()
         : _txRefPendingAll()
-            .snapshots(includeMetadataChanges: true)
-            .asBroadcastStream();
+              .snapshots(includeMetadataChanges: true)
+              .asBroadcastStream();
     _pendingTransactionsStreamCache = s;
-    _pendingTransactionsTrackerSub = s
-        .listen((snap) => _lastPendingTransactionsSnap = snap, onError: (_) {});
+    _pendingTransactionsTrackerSub = s.listen(
+      (snap) => _lastPendingTransactionsSnap = snap,
+      onError: (_) {},
+    );
     return _pendingTransactionsStreamCache!;
   }
 
   /// Poll leve (1ª leitura imediata, depois a cada 45s) — substitui o listener
   /// ao vivo no Web para não somar alvo de watch ao Financeiro.
-  Stream<QuerySnapshot<Map<String, dynamic>>> _pollPendingTransactions() async* {
+  Stream<QuerySnapshot<Map<String, dynamic>>>
+  _pollPendingTransactions() async* {
     while (true) {
       try {
         yield await _txRefPendingAll().get();
@@ -311,8 +318,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
           .watch(widget.uid.trim())
           .asBroadcastStream();
       _fixedIncomePrefsStreamCache = s;
-      _fixedIncomePrefsTrackerSub =
-          s.listen((v) => _lastFixedIncomePrefs = v, onError: (_) {});
+      _fixedIncomePrefsTrackerSub = s.listen(
+        (v) => _lastFixedIncomePrefs = v,
+        onError: (_) {},
+      );
     }
     return _fixedIncomePrefsStreamCache!;
   }
@@ -323,8 +332,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
           .watch(widget.uid.trim())
           .asBroadcastStream();
       _fixedExpensePrefsStreamCache = s;
-      _fixedExpensePrefsTrackerSub =
-          s.listen((v) => _lastFixedExpensePrefs = v, onError: (_) {});
+      _fixedExpensePrefsTrackerSub = s.listen(
+        (v) => _lastFixedExpensePrefs = v,
+        onError: (_) {},
+      );
     }
     return _fixedExpensePrefsStreamCache!;
   }
@@ -358,18 +369,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   void _scheduleFinanceSessionBootstrap() {
     _financeSessionBootstrapTimer?.cancel();
-    _financeSessionBootstrapTimer =
-        Timer(const Duration(milliseconds: 350), () async {
-      if (!mounted || _effectiveFinanceSessionUid != null) return;
-      await FirestoreSessionGuard.waitForCurrentUser();
-      await FirestoreSessionGuard.refreshAuthSession();
-      if (!mounted) return;
-      setState(() {});
-      final sid = _effectiveFinanceSessionUid;
-      if (sid != null && widget.isShellVisible) {
-        _requestMainPeriodReload();
-      }
-    });
+    _financeSessionBootstrapTimer = Timer(
+      const Duration(milliseconds: 350),
+      () async {
+        if (!mounted || _effectiveFinanceSessionUid != null) return;
+        await FirestoreSessionGuard.waitForCurrentUser();
+        await FirestoreSessionGuard.refreshAuthSession();
+        if (!mounted) return;
+        setState(() {});
+        final sid = _effectiveFinanceSessionUid;
+        if (sid != null && widget.isShellVisible) {
+          _requestMainPeriodReload();
+        }
+      },
+    );
   }
 
   /// Só recarrega saldo de abertura quando o lançamento pode alterá-lo (antes do período).
@@ -410,12 +423,16 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }
 
   Future<void> _loadSaldoAberturaIntoState(DateTime periodStart) async {
-    final fast =
-        await _loadSaldoAberturaBundle(periodStart, withAccounts: false);
+    final fast = await _loadSaldoAberturaBundle(
+      periodStart,
+      withAccounts: false,
+    );
     if (!mounted) return;
     setState(() => _saldoAberturaCached = fast);
-    final full =
-        await _loadSaldoAberturaBundle(periodStart, withAccounts: true);
+    final full = await _loadSaldoAberturaBundle(
+      periodStart,
+      withAccounts: true,
+    );
     if (!mounted) return;
     setState(() => _saldoAberturaCached = full);
   }
@@ -423,12 +440,16 @@ class _FinanceScreenState extends State<FinanceScreen> {
   /// Insere na lista do período os docs recém-gravados (cache local) para saldos na hora.
   /// Retorna true se atualizou a lista sem precisar recarregar o período inteiro.
   Future<bool> _mergeSavedTransactionsIntoMainPeriod(
-      Iterable<String> docIds) async {
+    Iterable<String> docIds,
+  ) async {
     final uid = _effectiveFinanceSessionUid;
     if (uid == null || docIds.isEmpty || !mounted) return false;
     final col = ChurchUiCollections.financeiro(uid);
-    final ids =
-        docIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList();
+    final ids = docIds
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList();
     if (ids.isEmpty) return false;
     final incoming = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     for (var i = 0; i < ids.length; i += 30) {
@@ -485,7 +506,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }) async {
     if (!mounted) return;
     _invalidateRealtimeBalances(
-        transactionEffectiveDate: transactionEffectiveDate);
+      transactionEffectiveDate: transactionEffectiveDate,
+    );
 
     // ⭐ WEB: recarrega TODO o período por REST após salvar/editar/excluir. O
     // merge por-id abaixo usa `.get()` do SDK (falha/pendura no cliente
@@ -497,8 +519,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
         _mainPeriodLoadGeneration++;
         final g = _mainPeriodLoadGeneration;
         await _executeMainPeriodLoad(g, uid, preserveExistingDocs: false);
-        if (mounted) _notifyFinanceTransactionsChanged(
-            effectiveDate: transactionEffectiveDate);
+        if (mounted)
+          _notifyFinanceTransactionsChanged(
+            effectiveDate: transactionEffectiveDate,
+          );
       }
       return;
     }
@@ -598,10 +622,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   @override
   void dispose() {
-    DelegateAccessService.sessionRevision
-        .removeListener(_onDelegateSessionChanged);
-    FinanceShellNavigation.pendingAccountId
-        .removeListener(_onShellFinanceAccountFilterRequest);
+    DelegateAccessService.sessionRevision.removeListener(
+      _onDelegateSessionChanged,
+    );
+    FinanceShellNavigation.pendingAccountId.removeListener(
+      _onShellFinanceAccountFilterRequest,
+    );
     _authStateSub?.cancel();
     _financeAccSub?.cancel();
     _stripHideZeroSub?.cancel();
@@ -675,7 +701,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
     final uid = _effectiveFinanceSessionUid;
     if (uid == null) return;
     unawaited(
-        _refreshMainPeriodStripAccountNets(uid, _mainPeriodLoadGeneration));
+      _refreshMainPeriodStripAccountNets(uid, _mainPeriodLoadGeneration),
+    );
   }
 
   /// Toque no cartão: crédito abre preview isolado (sem filtrar a lista principal).
@@ -759,15 +786,18 @@ class _FinanceScreenState extends State<FinanceScreen> {
             };
           }
           _invalidateRealtimeBalances(
-              transactionEffectiveDate: result.paymentDate);
+            transactionEffectiveDate: result.paymentDate,
+          );
         });
       } else {
         setState(() {});
       }
-      unawaited(_applyFinanceMutationSync(
-        docIds: unique,
-        transactionEffectiveDate: result.paymentDate,
-      ));
+      unawaited(
+        _applyFinanceMutationSync(
+          docIds: unique,
+          transactionEffectiveDate: result.paymentDate,
+        ),
+      );
       HapticFeedback.mediumImpact();
       if (context.mounted) {
         final df = DateFormat('dd/MM/yyyy');
@@ -776,11 +806,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
             content: Text(
               isScheduledFuture
                   ? (result.faturaSchedule!.autoDebitOnDueDate
-                      ? 'Fechamento agendado: débito automático em ${df.format(result.paymentDate)}.'
-                      : 'Fechamento registrado: confirme o pagamento em ${df.format(result.paymentDate)}.')
+                        ? 'Fechamento agendado: débito automático em ${df.format(result.paymentDate)}.'
+                        : 'Fechamento registrado: confirme o pagamento em ${df.format(result.paymentDate)}.')
                   : (unique.length > 1
-                      ? 'Fatura: ${unique.length} lançamentos pagos.'
-                      : 'Pagamento da fatura confirmado.'),
+                        ? 'Fatura: ${unique.length} lançamentos pagos.'
+                        : 'Pagamento da fatura confirmado.'),
             ),
             behavior: SnackBarBehavior.floating,
             duration: const Duration(seconds: 5),
@@ -796,8 +826,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content:
-                Text('Erro ao pagar fatura: ${e.toString().split('\n').first}'),
+            content: Text(
+              'Erro ao pagar fatura: ${e.toString().split('\n').first}',
+            ),
             backgroundColor: AppColors.error,
           ),
         );
@@ -878,14 +909,18 @@ class _FinanceScreenState extends State<FinanceScreen> {
           docs,
           creditCardIds: _creditCardAccountIds,
         );
-        final total =
-            FinanceAccountBalanceUtils.totalFaturaEmAberto(faturaByCard);
+        final total = FinanceAccountBalanceUtils.totalFaturaEmAberto(
+          faturaByCard,
+        );
         final ccIds = _creditCardAccountIds;
         final count =
             FinanceAccountBalanceUtils.countPendingExpensesOnCreditCards(
-                docs, ccIds);
-        final cards =
-            FinanceAccountBalanceUtils.creditCardProducts(_financeAccounts);
+              docs,
+              ccIds,
+            );
+        final cards = FinanceAccountBalanceUtils.creditCardProducts(
+          _financeAccounts,
+        );
         return FinanceFaturaEmAbertoBand(
           totalFatura: total,
           lancamentoCount: count,
@@ -902,12 +937,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
   /// Mesmas ações da lista principal, reutilizadas na rota em tela cheia (uma instância por ciclo de vida do State).
   late final FinanceFullscreenHandlers _fullscreenTxHandlers =
       FinanceFullscreenHandlers.fromFinanceScreen(
-    editTx: _editTx,
-    deleteTx: _deleteTx,
-    confirmarPagamento: _confirmarPagamento,
-    attachReceipt: _attachReceipt,
-    deleteTxBatch: _deleteTxBatch,
-  );
+        editTx: _editTx,
+        deleteTx: _deleteTx,
+        confirmarPagamento: _confirmarPagamento,
+        attachReceipt: _attachReceipt,
+        deleteTxBatch: _deleteTxBatch,
+      );
 
   void _bindFinanceUserDataStreams() {
     if (!mounted) return;
@@ -941,38 +976,40 @@ class _FinanceScreenState extends State<FinanceScreen> {
     _lastBoundFinanceAuthUid = cu.uid;
     _lastBoundFinanceDataUid = fsUid;
     unawaited(FinanceAccountsService().ensureVaultAccount(fsUid));
-    _financeAccSub = FinanceAccountsService().streamAccounts(fsUid).listen(
-      (list) {
-        if (!mounted) return;
-        setState(() {
-          _financeAccounts = list;
-          _financeAccountsStreamPrimed = true;
-          if (_financeAccountFilterId != null &&
-              !list.any((a) => a.id == _financeAccountFilterId)) {
-            _financeAccountFilterId = null;
-          }
-        });
-      },
-      onError: (Object e, StackTrace st) {
-        debugPrint('FinanceAccountsStream: $e\n$st');
-        if (!mounted) return;
-        setState(() {
-          _financeAccounts = const [];
-          _financeAccountsStreamPrimed = true;
-        });
-      },
-    );
+    _financeAccSub = FinanceAccountsService()
+        .streamAccounts(fsUid)
+        .listen(
+          (list) {
+            if (!mounted) return;
+            setState(() {
+              _financeAccounts = list;
+              _financeAccountsStreamPrimed = true;
+              if (_financeAccountFilterId != null &&
+                  !list.any((a) => a.id == _financeAccountFilterId)) {
+                _financeAccountFilterId = null;
+              }
+            });
+          },
+          onError: (Object e, StackTrace st) {
+            debugPrint('FinanceAccountsStream: $e\n$st');
+            if (!mounted) return;
+            setState(() {
+              _financeAccounts = const [];
+              _financeAccountsStreamPrimed = true;
+            });
+          },
+        );
     _stripHideZeroSub = FinanceAdvancedSettingsService()
         .watchStripHideZeroBalances(fsUid)
         .listen(
-      (v) {
-        if (!mounted) return;
-        setState(() => _stripHideZeroBalances = v);
-      },
-      onError: (Object e, StackTrace st) {
-        debugPrint('FinanceAdvancedSettingsStream: $e\n$st');
-      },
-    );
+          (v) {
+            if (!mounted) return;
+            setState(() => _stripHideZeroBalances = v);
+          },
+          onError: (Object e, StackTrace st) {
+            debugPrint('FinanceAdvancedSettingsStream: $e\n$st');
+          },
+        );
   }
 
   String _mainPeriodLoadScheduleKey(String sessionUid) {
@@ -1035,8 +1072,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
     try {
       final results = await Future.wait<Object>([
         FinanceAccountsService().listOnce(widget.uid),
-        FinanceAdvancedSettingsService()
-            .getStripHideZeroBalancesOnce(widget.uid),
+        FinanceAdvancedSettingsService().getStripHideZeroBalancesOnce(
+          widget.uid,
+        ),
       ]);
       final accounts = results[0] as List<FinanceAccount>;
       final stripHide = results[1] as bool;
@@ -1098,8 +1136,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
     // Firestore/KPIs no frame seguinte — pinta o módulo antes do trabalho pesado.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !widget.isShellVisible) return;
-      unawaited(FinanceOpeningBalanceService.ensureServerBucketsRebuildIfNeeded(
-          widget.uid));
+      unawaited(
+        FinanceOpeningBalanceService.ensureServerBucketsRebuildIfNeeded(
+          widget.uid,
+        ),
+      );
       unawaited(_primeMainPeriodFromFirestoreCache());
       unawaited(_processDueFaturaScheduledPayments());
       _requestMainPeriodReload();
@@ -1153,10 +1194,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
   @override
   void initState() {
     super.initState();
-    DelegateAccessService.sessionRevision
-        .addListener(_onDelegateSessionChanged);
-    FinanceShellNavigation.pendingAccountId
-        .addListener(_onShellFinanceAccountFilterRequest);
+    DelegateAccessService.sessionRevision.addListener(
+      _onDelegateSessionChanged,
+    );
+    FinanceShellNavigation.pendingAccountId.addListener(
+      _onShellFinanceAccountFilterRequest,
+    );
     final (f, t) = _rangeForPeriod();
     _from = f;
     _to = t;
@@ -1183,9 +1226,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
         return;
       }
       // Auth null transitório (resume) — não apagar lista; refrescar token.
-      unawaited(FirestoreSessionGuard.refreshAuthSession().then((_) {
-        if (mounted) setState(() {});
-      }));
+      unawaited(
+        FirestoreSessionGuard.refreshAuthSession().then((_) {
+          if (mounted) setState(() {});
+        }),
+      );
     });
     _categoryFilterOptionsFuture = Future.value(const <String>[]);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1216,8 +1261,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }
 
   Future<List<String>> _loadCategoryFilterOptions() async {
-    final x = await UserCategoriesService()
-        .load(widget.uid.trim());
+    final x = await UserCategoriesService().load(widget.uid.trim());
     return UserCategoriesService.sortedWithoutIncluirNova([
       ...x.income,
       ...x.expense,
@@ -1232,7 +1276,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }
 
   InputDecoration _financeFilterDropdownDecoration(
-      String label, IconData icon) {
+    String label,
+    IconData icon,
+  ) {
     return InputDecoration(
       labelText: label,
       labelStyle: TextStyle(
@@ -1240,24 +1286,31 @@ class _FinanceScreenState extends State<FinanceScreen> {
         fontSize: 13,
         color: context.appTextPrimary.withValues(alpha: 0.9),
       ),
-      prefixIcon: Icon(icon,
-          size: 20, color: AppColors.primary.withValues(alpha: 0.85)),
+      prefixIcon: Icon(
+        icon,
+        size: 20,
+        color: AppColors.primary.withValues(alpha: 0.85),
+      ),
       filled: true,
       fillColor: Theme.of(context).inputDecorationTheme.fillColor,
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide:
-            BorderSide(color: AppColors.primary.withValues(alpha: 0.12)),
+        borderSide: BorderSide(
+          color: AppColors.primary.withValues(alpha: 0.12),
+        ),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide:
-            BorderSide(color: AppColors.primary.withValues(alpha: 0.12)),
+        borderSide: BorderSide(
+          color: AppColors.primary.withValues(alpha: 0.12),
+        ),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide(
-            color: AppColors.primary.withValues(alpha: 0.45), width: 1.5),
+          color: AppColors.primary.withValues(alpha: 0.45),
+          width: 1.5,
+        ),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     );
@@ -1283,26 +1336,26 @@ class _FinanceScreenState extends State<FinanceScreen> {
   void _openFullscreenLancamentos(BuildContext context) {
     Navigator.of(context)
         .push<FinanceFullscreenFilterSnapshot?>(
-      MaterialPageRoute<FinanceFullscreenFilterSnapshot?>(
-        builder: (ctx) => FinanceTransactionsFullscreenPage(
-          uid: widget.uid.trim(),
-          profile: widget.profile,
-          initialFrom: _from,
-          initialTo: _to,
-          initialStatusFilter: _statusFilter,
-          initialTypeFilter: _typeFilter,
-          initialCategory: _categoryFilter,
-          initialSearch: _searchCtrl.text,
-          initialFinanceAccountId: _financeAccountFilterId,
-          initialSort: _gridSortMode,
-          handlers: _fullscreenTxHandlers,
-        ),
-      ),
-    )
+          MaterialPageRoute<FinanceFullscreenFilterSnapshot?>(
+            builder: (ctx) => FinanceTransactionsFullscreenPage(
+              uid: widget.uid.trim(),
+              profile: widget.profile,
+              initialFrom: _from,
+              initialTo: _to,
+              initialStatusFilter: _statusFilter,
+              initialTypeFilter: _typeFilter,
+              initialCategory: _categoryFilter,
+              initialSearch: _searchCtrl.text,
+              initialFinanceAccountId: _financeAccountFilterId,
+              initialSort: _gridSortMode,
+              handlers: _fullscreenTxHandlers,
+            ),
+          ),
+        )
         .then((snap) {
-      if (!mounted || snap == null) return;
-      _applyFullscreenFilterSnapshot(snap);
-    });
+          if (!mounted || snap == null) return;
+          _applyFullscreenFilterSnapshot(snap);
+        });
   }
 
   void _applyFullscreenFilterSnapshot(FinanceFullscreenFilterSnapshot snap) {
@@ -1334,8 +1387,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
     if (_financeAccountFilterId == null) return null;
     for (final a in _financeAccounts) {
       if (a.id == _financeAccountFilterId) {
-        var s =
-            a.displayName.replaceAll(RegExp(r'[<>:"/\\|?*\n\r]'), '_').trim();
+        var s = a.displayName
+            .replaceAll(RegExp(r'[<>:"/\\|?*\n\r]'), '_')
+            .trim();
         if (s.isEmpty) s = 'conta';
         return s.length > 48 ? s.substring(0, 48) : s;
       }
@@ -1413,7 +1467,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Não foi possível salvar a nova ordem: $e')),
+        SnackBar(
+          content: Text(
+            'Não foi possível salvar a nova ordem: $e',
+          ),
+        ),
       );
     }
   }
@@ -1434,31 +1492,40 @@ class _FinanceScreenState extends State<FinanceScreen> {
       useSafeArea: true,
       builder: (ctx) => Padding(
         padding: EdgeInsets.fromLTRB(
-            20, 16, 20, 16 + MediaQuery.paddingOf(ctx).bottom),
+          20,
+          16,
+          20,
+          16 + MediaQuery.paddingOf(ctx).bottom,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Opções do painel de contas',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+            Text(
+              'Opções do painel de contas',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+            ),
             SizedBox(height: 12),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: Text('Ocultar contas com saldo zero'),
-              subtitle: Text('No período atual, no carrossel de contas.'),
+              subtitle: Text(
+                'No período atual, no carrossel de contas.',
+              ),
               value: _stripHideZeroBalances,
               onChanged: widget.profile.hasActiveLicense
                   ? (v) async {
                       await FinanceAdvancedSettingsService()
-                          .setStripHideZeroBalances(
-                              widget.uid.trim(), v);
+                          .setStripHideZeroBalances(widget.uid.trim(), v);
                       if (mounted) setState(() {});
                       if (ctx.mounted) Navigator.pop(ctx);
                     }
                   : null,
             ),
             TextButton(
-                onPressed: () => Navigator.pop(ctx), child: Text('Fechar')),
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Fechar'),
+            ),
           ],
         ),
       ),
@@ -1473,13 +1540,13 @@ class _FinanceScreenState extends State<FinanceScreen> {
         // Mês completo (1º ao último dia) para incluir despesas com data futura no mês (paga antecipada).
         return (
           DateTime(now.year, now.month, 1),
-          DateTime(now.year, now.month + 1, 0, 23, 59, 59)
+          DateTime(now.year, now.month + 1, 0, 23, 59, 59),
         );
       case 'Anual':
         // Ano completo para incluir despesas com data no ano (ex.: paga antecipada); alinhado ao painel inicial.
         return (
           DateTime(now.year, 1, 1),
-          DateTime(now.year, 12, 31, 23, 59, 59)
+          DateTime(now.year, 12, 31, 23, 59, 59),
         );
       case 'Por período':
         final start = _customRangeStart ?? DateTime(now.year, now.month, 1);
@@ -1487,12 +1554,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
         final endNorm = end.isBefore(start) ? start : end;
         return (
           DateTime(start.year, start.month, start.day),
-          DateTime(endNorm.year, endNorm.month, endNorm.day, 23, 59, 59)
+          DateTime(endNorm.year, endNorm.month, endNorm.day, 23, 59, 59),
         );
       default:
         return (
           DateTime(now.year, 1, 1),
-          DateTime(now.year, now.month + 1, 0, 23, 59, 59)
+          DateTime(now.year, now.month + 1, 0, 23, 59, 59),
         );
     }
   }
@@ -1593,8 +1660,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
         );
         final firstPageQuery = q.limit(_kMainPeriodFirestorePageSize);
         try {
-          final cachedSnap =
-              await firstPageQuery.get(const GetOptions(source: Source.cache));
+          final cachedSnap = await firstPageQuery.get(
+            const GetOptions(source: Source.cache),
+          );
           if (mounted &&
               myGen == _mainPeriodLoadGeneration &&
               cachedSnap.docs.isNotEmpty) {
@@ -1612,9 +1680,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
         try {
           QuerySnapshot<Map<String, dynamic>> snap;
           try {
-            snap = await firstPageQuery
-                .get()
-                .timeout(const Duration(seconds: 8));
+            snap = await firstPageQuery.get().timeout(
+              const Duration(seconds: 8),
+            );
           } catch (e) {
             if (!financeIsMissingIndexError(e)) rethrow;
             debugPrint(
@@ -1654,10 +1722,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
             }
             setState(() {
               _mainPeriodDocs = docs;
-              _mainPeriodFirestoreCursor =
-                  snap.docs.isEmpty ? null : snap.docs.last;
+              _mainPeriodFirestoreCursor = snap.docs.isEmpty
+                  ? null
+                  : snap.docs.last;
               _mainPeriodHasMoreServer =
-                snap.docs.length >= _kMainPeriodFirestorePageSize;
+                  snap.docs.length >= _kMainPeriodFirestorePageSize;
               _mainPeriodLoadedCount = docs.length;
               _mainPeriodLoading = false;
               _mainPeriodServerPagingActive = false;
@@ -1665,19 +1734,18 @@ class _FinanceScreenState extends State<FinanceScreen> {
             });
             unawaited(_refreshMainPeriodServerKpis());
             unawaited(_refreshMainPeriodStripAccountNets(sessionUid, myGen));
-            unawaited(
-              _mergeMainPeriodDocsFromEffectiveDate(sessionUid, myGen),
-            );
+            unawaited(_mergeMainPeriodDocsFromEffectiveDate(sessionUid, myGen));
             _notifyFinanceTransactionsChanged();
             return;
           }
           if (!mounted || myGen != _mainPeriodLoadGeneration) return;
           setState(() {
             _mainPeriodDocs = snap.docs;
-            _mainPeriodFirestoreCursor =
-                snap.docs.isEmpty ? null : snap.docs.last;
+            _mainPeriodFirestoreCursor = snap.docs.isEmpty
+                ? null
+                : snap.docs.last;
             _mainPeriodHasMoreServer =
-              snap.docs.length >= _kMainPeriodFirestorePageSize;
+                snap.docs.length >= _kMainPeriodFirestorePageSize;
             _mainPeriodLoadedCount = snap.docs.length;
             _mainPeriodLoading = false;
             _pruneOptimisticEditedTxAgainstDocs(_mainPeriodDocs);
@@ -1788,7 +1856,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   /// Completa a lista paginada por [date] com lançamentos cuja [effectiveDate] cai no período.
   Future<void> _mergeMainPeriodDocsFromEffectiveDate(
-      String sessionUid, int generation) async {
+    String sessionUid,
+    int generation,
+  ) async {
     if (!mounted || generation != _mainPeriodLoadGeneration) return;
     try {
       final merged = await financePeriodMergedDocumentsCollect(
@@ -1822,7 +1892,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   /// Saldo líquido **pago** por conta no período (evita 2ª varredura quando 1 página cobre o período).
   Future<void> _refreshMainPeriodStripAccountNets(
-      String sessionUid, int generation) async {
+    String sessionUid,
+    int generation,
+  ) async {
     if (!mounted) return;
     if (generation != _mainPeriodLoadGeneration) return;
     try {
@@ -1843,8 +1915,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
         });
         return;
       }
-      final m =
-          _netByFinanceAccountIdPaidEffective(_mainPeriodDocs, _from, _to);
+      final m = _netByFinanceAccountIdPaidEffective(
+        _mainPeriodDocs,
+        _from,
+        _to,
+      );
       setState(() {
         _serverPagingStripPaidNetByAccount = m;
         _serverPagingStripNetForGen = generation;
@@ -1873,8 +1948,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       if (!mounted || gen != _mainPeriodLoadGeneration) return;
       setState(() {
         _mainPeriodDocs = [..._mainPeriodDocs, ...snap.docs];
-        _mainPeriodFirestoreCursor =
-            snap.docs.isEmpty ? cursor : snap.docs.last;
+        _mainPeriodFirestoreCursor = snap.docs.isEmpty
+            ? cursor
+            : snap.docs.last;
         _mainPeriodHasMoreServer =
             snap.docs.length >= _kMainPeriodFirestorePageSize;
         _mainPeriodLoadedCount = _mainPeriodDocs.length;
@@ -1887,8 +1963,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
         setState(() => _mainPeriodLoadingMore = false);
         ScaffoldMessenger.maybeOf(context)?.showSnackBar(
           SnackBar(
-            content:
-                Text('Não foi possível carregar mais: ${friendlyMessage(e)}'),
+            content: Text(
+              'Não foi possível carregar mais: ${friendlyMessage(e)}',
+            ),
             backgroundColor: AppColors.error,
           ),
         );
@@ -1898,7 +1975,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   /// PDF/CSV com período = tela e filtros «servidor»: se a lista ainda tem mais páginas no Firestore, lê o período completo uma vez.
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _resolveExportTxSnapshots(
+  _resolveExportTxSnapshots(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     DateTime from,
     DateTime to,
@@ -1953,10 +2030,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
     DateTime? transactionEffectiveDate,
     Iterable<String>? savedDocIds,
   }) {
-    unawaited(_applyFinanceMutationSync(
-      docIds: savedDocIds,
-      transactionEffectiveDate: transactionEffectiveDate,
-    ));
+    unawaited(
+      _applyFinanceMutationSync(
+        docIds: savedDocIds,
+        transactionEffectiveDate: transactionEffectiveDate,
+      ),
+    );
   }
 
   void _scheduleMainPeriodReloadAfterMutationDebounced({
@@ -2006,8 +2085,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
   /// Mantém último valor conhecido durante reload — saldo não «pula» no pull.
   Map<String, double>? get _stripPeriodNetPaidOverride =>
       _serverPagingStripPaidNetByAccount.isNotEmpty
-          ? _serverPagingStripPaidNetByAccount
-          : null;
+      ? _serverPagingStripPaidNetByAccount
+      : null;
 
   Map<String, dynamic> _txDataForMainPeriodDoc(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
@@ -2018,7 +2097,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }
 
   static bool _financeTxOptimisticFieldEqual(
-      dynamic serverVal, dynamic patchVal) {
+    dynamic serverVal,
+    dynamic patchVal,
+  ) {
     if (serverVal == patchVal) return true;
     if (serverVal is Timestamp && patchVal is Timestamp) {
       return serverVal.seconds == patchVal.seconds &&
@@ -2034,7 +2115,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   /// Remove patches quando o snapshot já reflete o que foi gravado (evita overlay eterno).
   void _pruneOptimisticEditedTxAgainstDocs(
-      Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
     if (_optimisticEditedTxById.isEmpty) return;
     final byId = <String, Map<String, dynamic>>{
       for (final d in docs) d.id: d.data(),
@@ -2064,7 +2146,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   /// IDs selecionados na grelha que ainda estão pendentes (para confirmar em lote).
   List<String> _gridSelectedPendingIdsAmong(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docsVisible) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docsVisible,
+  ) {
     final out = <String>[];
     for (final doc in docsVisible) {
       if (!_gridSelectedIds.contains(doc.id)) continue;
@@ -2089,17 +2172,21 @@ class _FinanceScreenState extends State<FinanceScreen> {
     final t = DateTime(_to.year, _to.month, _to.day, 23, 59, 59);
     final prevEnd = f.subtract(const Duration(days: 1));
     final days = t.difference(f).inDays + 1;
-    final prevStart = DateTime(prevEnd.year, prevEnd.month, prevEnd.day)
-        .subtract(Duration(days: days - 1));
+    final prevStart = DateTime(
+      prevEnd.year,
+      prevEnd.month,
+      prevEnd.day,
+    ).subtract(Duration(days: days - 1));
     return (
       prevStart,
-      DateTime(prevEnd.year, prevEnd.month, prevEnd.day, 23, 59, 59)
+      DateTime(prevEnd.year, prevEnd.month, prevEnd.day, 23, 59, 59),
     );
   }
 
   List<MapEntry<String, double>> _topExpenseCategories(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-      {int n = 3}) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    int n = 3,
+  }) {
     final m = <String, double>{};
     final rs = DateTime(_from.year, _from.month, _from.day);
     final re = DateTime(_to.year, _to.month, _to.day, 23, 59, 59);
@@ -2107,7 +2194,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       final d = doc.data();
       if ((d['type'] ?? 'expense').toString() != 'expense') continue;
       final effective = FinanceLineOpening.effectiveDateTimeFromMap(d);
-      if (effective == null || effective.isBefore(rs) || effective.isAfter(re)) {
+      if (effective == null ||
+          effective.isBefore(rs) ||
+          effective.isAfter(re)) {
         continue;
       }
       final cat = (d['category'] ?? '').toString().trim();
@@ -2118,8 +2207,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
     return list.take(n).toList();
   }
 
-  List<double> _sparklineForAccount(String accountId,
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+  List<double> _sparklineForAccount(
+    String accountId,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
     final byDay = <DateTime, double>{};
     for (final doc in docs) {
       final d = doc.data();
@@ -2250,8 +2341,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       final cat = (e['category'] ?? '').toString().trim();
       final desc = (e['description'] ?? '').toString().trim();
       final isInc = (e['type'] ?? 'expense').toString() == 'income';
-      final tituloLinha =
-          desc.isNotEmpty ? desc : (isInc ? 'Receita' : 'Despesa');
+      final tituloLinha = desc.isNotEmpty
+          ? desc
+          : (isInc ? 'Receita' : 'Despesa');
       txRows.add({
         'sortMs': _sortMsForExport(e['date']),
         'data': _dataStrExport(e['date']),
@@ -2305,7 +2397,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
     if (docs.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nenhum lançamento para exportar.')),
+          const SnackBar(
+            content: Text('Nenhum lançamento para exportar.'),
+          ),
         );
       }
       return;
@@ -2317,7 +2411,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
     if (resolved.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nenhum lançamento para exportar.')),
+          const SnackBar(
+            content: Text('Nenhum lançamento para exportar.'),
+          ),
         );
       }
       return;
@@ -2359,7 +2455,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
     try {
       final (bytes, filenameBase, heavyExport) = showProgressOverlay
           ? await _runWithBlockingDialog(
-              message: 'Gerando PDF…\nAguarde um instante.',
+              message:
+                  'Gerando PDF…\nAguarde um instante.',
               action: () => _buildFinancePdfBytes(
                 docs: resolved,
                 saldoAbertura: saldoAbertura,
@@ -2385,7 +2482,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                  'O PDF ficou vazio — verifique filtros ou tente novamente.'),
+                'O PDF ficou vazio — verifique filtros ou tente novamente.',
+              ),
               backgroundColor: AppColors.error,
             ),
           );
@@ -2404,8 +2502,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erro ao exportar PDF: ${friendlyMessage(e)}'),
-              backgroundColor: AppColors.error),
+            content: Text('Erro ao exportar PDF: ${friendlyMessage(e)}'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
     }
@@ -2428,7 +2527,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
     if (docs.isEmpty) {
       if (sheetContext.mounted) {
         ScaffoldMessenger.of(sheetContext).showSnackBar(
-            const SnackBar(content: Text('Nenhum lançamento para exportar.')));
+          const SnackBar(
+            content: Text('Nenhum lançamento para exportar.'),
+          ),
+        );
       }
       return;
     }
@@ -2457,8 +2559,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erro ao exportar PDF: ${friendlyMessage(e)}'),
-              backgroundColor: AppColors.error),
+            content: Text('Erro ao exportar PDF: ${friendlyMessage(e)}'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
     }
@@ -2467,7 +2570,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
   static const String _kRelatorioSemCategoria = '__sem_categoria__';
 
   bool _docMatchesExportCategory(
-      Map<String, dynamic> d, String? categoryExact) {
+    Map<String, dynamic> d,
+    String? categoryExact,
+  ) {
     if (categoryExact == null || categoryExact.isEmpty) return true;
     final cat = (d['category'] ?? '').toString().trim();
     if (categoryExact == _kRelatorioSemCategoria) return cat.isEmpty;
@@ -2543,17 +2648,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
             'A preparar o PDF…\nPeríodo da tela: ${_formatPeriodLabelForExport(f, tEnd)}. Filtros de status, tipo, categoria, pesquisa e conta aplicados.',
         action: () async {
           final saldoAbertura = await _loadSaldoAberturaFor(f);
-          final allDocs = await firestoreQueryCollectDocumentsBatched(
-            baseRangeQuery(),
-          ).timeout(
-            const Duration(minutes: 3),
-            onTimeout: () => throw TimeoutException(
-              'Lançamentos do período: tempo esgotado. Verifique a conexão.',
-            ),
-          );
+          final allDocs =
+              await firestoreQueryCollectDocumentsBatched(
+                baseRangeQuery(),
+              ).timeout(
+                const Duration(minutes: 3),
+                onTimeout: () => throw TimeoutException(
+                  'Lançamentos do período: tempo esgotado. Verifique a conexão.',
+                ),
+              );
           final docs = allDocs.where((doc) {
-            return _txMatchesPdfFilters(doc.data(),
-                categoryExact: categoryExact);
+            return _txMatchesPdfFilters(
+              doc.data(),
+              categoryExact: categoryExact,
+            );
           }).toList();
           if (docs.length > kFinancePdfCsvExportMaxDocs) {
             if (mounted) {
@@ -2573,7 +2681,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text(
-                      'Nenhum lançamento para o PDF: ajuste o período ou os filtros da tela.'),
+                    'Nenhum lançamento para o PDF: ajuste o período ou os filtros da tela.',
+                  ),
                 ),
               );
             }
@@ -2613,8 +2722,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erro ao preparar o PDF: ${friendlyMessage(e)}'),
-              backgroundColor: AppColors.error),
+            content: Text('Erro ao preparar o PDF: ${friendlyMessage(e)}'),
+            backgroundColor: AppColors.error,
+          ),
         );
       }
     }
@@ -2663,13 +2773,18 @@ class _FinanceScreenState extends State<FinanceScreen> {
       }
       if (docs.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Nenhum lançamento para exportar.')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Nenhum lançamento para exportar.'),
+            ),
+          );
         }
         return;
       }
-      final csv = FinanceExportCsv.buildFromFirestoreDocs(docs,
-          accounts: _financeAccounts);
+      final csv = FinanceExportCsv.buildFromFirestoreDocs(
+        docs,
+        accounts: _financeAccounts,
+      );
       final accSuf = _filenameAccountSuffix();
       final base = RelatorioService.reportFilenameFromPeriod(
         'despesa_receita',
@@ -2679,14 +2794,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
       );
       await FinanceExportCsv.saveOrShare('$base.csv', csv);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('CSV gerado. Escolha onde salvar ou compartilhar.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('CSV gerado. Escolha onde salvar ou compartilhar.'),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
             content: Text('Erro CSV: ${friendlyMessage(e)}'),
-            backgroundColor: AppColors.error));
+            backgroundColor: AppColors.error,
+          ),
+        );
       }
     }
   }
@@ -2711,16 +2832,23 @@ class _FinanceScreenState extends State<FinanceScreen> {
           semCategoriaToken: _kRelatorioSemCategoria,
           onExportPdf: (opts) {
             Navigator.of(ctx).pop();
-            unawaited(_exportFinancialReportForRange(
-              opts.from,
-              opts.to,
-              categoryExact: opts.categoryExact,
-            ));
+            unawaited(
+              _exportFinancialReportForRange(
+                opts.from,
+                opts.to,
+                categoryExact: opts.categoryExact,
+              ),
+            );
           },
           onExportCsv: (opts) {
             Navigator.of(ctx).pop();
-            unawaited(_exportCsvFinancialReportForRange(opts.from, opts.to,
-                categoryExact: opts.categoryExact));
+            unawaited(
+              _exportCsvFinancialReportForRange(
+                opts.from,
+                opts.to,
+                categoryExact: opts.categoryExact,
+              ),
+            );
           },
         );
       },
@@ -2735,7 +2863,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   /// Saldo de abertura: total rápido via [finance_month_buckets] (servidor); contas em 2ª fase se necessário.
   Future<({double total, Map<String, double> byAccount})>
-      _loadSaldoAberturaBundle(
+  _loadSaldoAberturaBundle(
     DateTime periodStart, {
     bool withAccounts = false,
   }) async {
@@ -2756,10 +2884,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
   /// Pendentes (receitas + despesas) — índice `status`+`date` em [firestore.indexes.json].
   static const int _kPendingStreamLimit = 500;
 
-  Query<Map<String, dynamic>> _txRefPendingAll() => _txRef()
-      .where('status', isEqualTo: 'pending')
-      .orderBy('date', descending: false)
-      .limit(_kPendingStreamLimit);
+  Query<Map<String, dynamic>> _txRefPendingAll() =>
+      _txRef().limit(_kPendingStreamLimit);
 
   /// Mesma rota do painel inicial: colar SMS / texto inteligente (evita duplicar blocos gigantes na árvore).
   Future<void> _abrirLancamentoInteligente() async {
@@ -2771,8 +2897,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content:
-              Text('Sessão a carregar — aguarde um instante e toque de novo.'),
+          content: Text(
+            'Sessão a carregar — aguarde um instante e toque de novo.',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -2780,10 +2907,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
     }
     final result = await Navigator.of(context).push<SmartInputPopResult?>(
       MaterialPageRoute<SmartInputPopResult?>(
-        builder: (_) => SmartInputScreen(
-          uid: widget.uid.trim(),
-          profile: widget.profile,
-        ),
+        builder: (_) =>
+            SmartInputScreen(uid: widget.uid.trim(), profile: widget.profile),
         fullscreenDialog: true,
       ),
     );
@@ -2796,7 +2921,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-              n > 1 ? '$n lançamentos guardados.' : 'Lançamento guardado.'),
+            n > 1
+                ? '$n lançamentos guardados.'
+                : 'Lançamento guardado.',
+          ),
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 6),
           action: SnackBarAction(
@@ -2850,8 +2978,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
     final financeAccounts = _financeAccounts.isNotEmpty
         ? List<FinanceAccount>.from(_financeAccounts)
-        : await FinanceAccountsService()
-            .listOnce(widget.uid.trim());
+        : await FinanceAccountsService().listOnce(widget.uid.trim());
     if (!context.mounted) return;
 
     final result = await showFinanceConfirmPaymentBatchSheet(
@@ -2895,16 +3022,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
           };
         }
       });
-      unawaited(_applyFinanceMutationSync(
-        docIds: unique,
-        transactionEffectiveDate: result.paymentDate,
-      ));
+      unawaited(
+        _applyFinanceMutationSync(
+          docIds: unique,
+          transactionEffectiveDate: result.paymentDate,
+        ),
+      );
       HapticFeedback.mediumImpact();
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(successSnackBar),
-          behavior: SnackBarBehavior.floating,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(successSnackBar),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -2913,10 +3044,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
             _optimisticPaidIds.remove(id);
           }
         });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Erro: ${e.toString().split('\n').first}'),
-          backgroundColor: AppColors.error,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro: ${e.toString().split('\n').first}'),
+            backgroundColor: AppColors.error,
+          ),
+        );
       }
     }
   }
@@ -2929,25 +3062,25 @@ class _FinanceScreenState extends State<FinanceScreen> {
     }
     final result = await Navigator.of(context, rootNavigator: true)
         .push<Map<String, dynamic>>(
-      MaterialPageRoute(
-        builder: (_) => NovoLancamentoPage(
-          uid: widget.uid.trim(),
-          initialType: type,
-          canAttachReceipt: widget.profile.temAcessoPremium,
-          hasActiveLicense: widget.profile.hasActiveLicense,
-        ),
-        fullscreenDialog: true,
-      ),
-    );
+          MaterialPageRoute(
+            builder: (_) => NovoLancamentoPage(
+              uid: widget.uid.trim(),
+              initialType: type,
+              canAttachReceipt: widget.profile.temAcessoPremium,
+              hasActiveLicense: widget.profile.hasActiveLicense,
+            ),
+            fullscreenDialog: true,
+          ),
+        );
 
     if (result == null || !context.mounted) return;
     try {
       final saveResult =
           await TransactionSaveService.saveFromNovoLancamentoResult(
-        uid: widget.uid.trim(),
-        data: result,
-        context: context,
-      );
+            uid: widget.uid.trim(),
+            data: result,
+            context: context,
+          );
       if (saveResult == null || !mounted) return;
       final date = result['date'] is DateTime
           ? result['date'] as DateTime
@@ -2968,7 +3101,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                'Erro ao salvar lançamento: ${e.toString().replaceFirst(RegExp(r'^Exception:?\s*'), '')}'),
+              'Erro ao salvar lançamento: ${e.toString().replaceFirst(RegExp(r'^Exception:?\s*'), '')}',
+            ),
             backgroundColor: AppColors.error,
             duration: const Duration(seconds: 5),
           ),
@@ -2987,8 +3121,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text(
-                  'Cadastre ao menos duas contas para transferir valores.')),
+            content: Text(
+              'Cadastre ao menos duas contas para transferir valores.',
+            ),
+          ),
         );
       }
       return;
@@ -3007,7 +3143,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
     final fromAcc = _financeAccounts.firstWhere((a) => a.id == result.fromId);
     final toAcc = _financeAccounts.firstWhere((a) => a.id == result.toId);
     final transferAt = FinanceTransactionDatetime.mergeCalendarDayWithClockNow(
-        result.selectedCalendarDay);
+      result.selectedCalendarDay,
+    );
 
     try {
       await FinanceTransferService.instance.createTransfer(
@@ -3025,8 +3162,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content:
-                Text('Erro ao transferir: ${e.toString().split('\n').first}'),
+            content: Text(
+              'Erro ao transferir: ${e.toString().split('\n').first}',
+            ),
             backgroundColor: AppColors.error,
           ),
         );
@@ -3036,7 +3174,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
     if (mounted) {
       _scheduleMainPeriodReloadAfterMutation(
-          transactionEffectiveDate: transferAt);
+        transactionEffectiveDate: transferAt,
+      );
     }
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -3063,11 +3202,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
     final isIncome = txType == 'income';
     final preEffectiveDate =
         FinanceLineOpening.effectiveDateTimeFromMap(preData) ??
-            (preData['date'] as Timestamp?)?.toDate();
+        (preData['date'] as Timestamp?)?.toDate();
     final financeAccounts = _financeAccounts.isNotEmpty
         ? List<FinanceAccount>.from(_financeAccounts)
-        : await FinanceAccountsService()
-            .listOnce(widget.uid.trim());
+        : await FinanceAccountsService().listOnce(widget.uid.trim());
     final rawAid = (preData['financeAccountId'] ?? '').toString().trim();
     FinanceAccount? cardAccount;
     for (final a in financeAccounts) {
@@ -3076,15 +3214,17 @@ class _FinanceScreenState extends State<FinanceScreen> {
         break;
       }
     }
-    final isCardFatura = !isIncome &&
+    final isCardFatura =
+        !isIncome &&
         cardAccount != null &&
         (preData['status'] ?? 'paid').toString() == 'pending';
     if (!context.mounted) return false;
 
     final FinanceConfirmPaymentSheetResult? result;
     if (isCardFatura) {
-      final debitBanks =
-          FinanceAccountBalanceUtils.debitBankAccounts(financeAccounts);
+      final debitBanks = FinanceAccountBalanceUtils.debitBankAccounts(
+        financeAccounts,
+      );
       result = await showFinanceConfirmPaymentBatchSheet(
         context: context,
         isIncome: false,
@@ -3142,30 +3282,42 @@ class _FinanceScreenState extends State<FinanceScreen> {
               preEffectiveDate ?? paymentResult.paymentDate,
         );
       });
-      unawaited(_applyFinanceMutationSync(
-        docIds: [docId],
-        transactionEffectiveDate: paymentResult.paymentDate,
-      ));
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            isIncome ? 'Recebimento confirmado.' : 'Pagamento confirmado.'),
-        behavior: SnackBarBehavior.floating,
-      ));
+      unawaited(
+        _applyFinanceMutationSync(
+          docIds: [docId],
+          transactionEffectiveDate: paymentResult.paymentDate,
+        ),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isIncome ? 'Recebimento confirmado.' : 'Pagamento confirmado.',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
       return true;
     } catch (e) {
       if (mounted) {
         setState(() => _optimisticPaidIds.remove(docId));
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Erro ao confirmar: ${e.toString().split('\n').first}'),
-          backgroundColor: AppColors.error,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Erro ao confirmar: ${e.toString().split('\n').first}',
+            ),
+            backgroundColor: AppColors.error,
+          ),
+        );
       }
       return false;
     }
   }
 
-  Future<void> _editTx(BuildContext context, String docId,
-      Map<String, dynamic> current, String type, {
+  Future<void> _editTx(
+    BuildContext context,
+    String docId,
+    Map<String, dynamic> current,
+    String type, {
     void Function(String id)? onPendingRemoved,
     void Function(String id, Map<String, dynamic> patch)? onPendingPatched,
   }) async {
@@ -3177,8 +3329,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     if (pairId.isNotEmpty) {
       final accounts = _financeAccounts.isNotEmpty
           ? List<FinanceAccount>.from(_financeAccounts)
-          : await FinanceAccountsService()
-              .listOnce(widget.uid.trim());
+          : await FinanceAccountsService().listOnce(widget.uid.trim());
       if (!context.mounted) return;
       final saved = await FinanceTransferBottomSheet.showEdit(
         context,
@@ -3191,9 +3342,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
       if (saved && mounted) {
         final effectiveDate =
             FinanceLineOpening.effectiveDateTimeFromMap(current) ??
-                (current['date'] as Timestamp?)?.toDate();
+            (current['date'] as Timestamp?)?.toDate();
         unawaited(
-            _applyFinanceMutationSync(transactionEffectiveDate: effectiveDate));
+          _applyFinanceMutationSync(transactionEffectiveDate: effectiveDate),
+        );
       }
       return;
     }
@@ -3214,10 +3366,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
           _invalidateRealtimeBalances(transactionEffectiveDate: effectiveDate);
           _optimisticEditedTxById[id] = patch;
         });
-        unawaited(_applyFinanceMutationSync(
-          docIds: [id],
-          transactionEffectiveDate: effectiveDate,
-        ));
+        unawaited(
+          _applyFinanceMutationSync(
+            docIds: [id],
+            transactionEffectiveDate: effectiveDate,
+          ),
+        );
         final st = (patch['status'] ?? '').toString();
         if (st != 'pending') {
           onPendingRemoved?.call(id);
@@ -3230,10 +3384,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
         setState(() {
           _mainPeriodDocs.removeWhere((d) => d.id == id);
         });
-        unawaited(_applyFinanceMutationSync(
-          removedDocIds: [id],
-          transactionEffectiveDate: effectiveDate,
-        ));
+        unawaited(
+          _applyFinanceMutationSync(
+            removedDocIds: [id],
+            transactionEffectiveDate: effectiveDate,
+          ),
+        );
         onPendingRemoved?.call(id);
       },
     );
@@ -3281,7 +3437,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
     final type = (data['type'] ?? 'expense').toString();
     final amount = (data['amount'] ?? 0).toDouble();
     final category = (data['category'] ?? '').toString();
-    final effectiveDate = FinanceLineOpening.effectiveDateTimeFromMap(data) ??
+    final effectiveDate =
+        FinanceLineOpening.effectiveDateTimeFromMap(data) ??
         (data['date'] as Timestamp?)?.toDate();
     // OTIMISTA: some da grid/preview IMEDIATAMENTE (antes do write) — pedido
     // do usuário. Assim não depende do write terminar (que pode travar no web).
@@ -3289,10 +3446,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
       setState(() {
         _mainPeriodDocs.removeWhere((d) => d.id == docId);
       });
-      unawaited(_applyFinanceMutationSync(
-        removedDocIds: [docId],
-        transactionEffectiveDate: effectiveDate,
-      ));
+      unawaited(
+        _applyFinanceMutationSync(
+          removedDocIds: [docId],
+          transactionEffectiveDate: effectiveDate,
+        ),
+      );
     }
     // Delete no servidor (o item já sumiu da UI). Se o write falhar por causa
     // do SDK, a auto-recuperação recarrega e o item reaparece só se não gravou.
@@ -3313,7 +3472,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
       modulo: 'Financeiro',
       acao: type == 'income' ? 'Excluiu receita' : 'Excluiu despesa',
       detalhes:
-          '${category.isEmpty ? 'Categoria' : category} • ${CurrencyFormats.formatBRL(amount)}',
+          '${category.isEmpty ? 'Categoria' : category} … ${CurrencyFormats.formatBRL(amount)}',
     );
     if (context.mounted) {
       final extra = metaInfo?.hasWeeksImpact == true
@@ -3376,17 +3535,22 @@ class _FinanceScreenState extends State<FinanceScreen> {
     }
     if (context.mounted) {
       HapticFeedback.lightImpact();
-      final extra =
-          metaInfos.isNotEmpty ? ' Metas vinculadas atualizadas.' : '';
+      final extra = metaInfos.isNotEmpty
+          ? ' Metas vinculadas atualizadas.'
+          : '';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$deleted lançamento(s) excluído(s).$extra')),
+        SnackBar(
+          content: Text(
+            '$deleted lançamento(s) excluído(s).$extra',
+          ),
+        ),
       );
     }
   }
 
   /// Remove duplicatas por docId (proteção extra se algum reload acumular chunks).
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>
-      _dedupeMainPeriodDocs(
+  _dedupeMainPeriodDocs(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
     final byId = <String, QueryDocumentSnapshot<Map<String, dynamic>>>{};
@@ -3412,7 +3576,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       final d = _txDataForMainPeriodDoc(doc);
       if (sf != 'all' && (d['status'] ?? 'paid').toString() != sf) continue;
       final effective = FinanceLineOpening.effectiveDateTimeFromMap(d);
-      if (effective == null || effective.isBefore(rs) || effective.isAfter(re)) {
+      if (effective == null ||
+          effective.isBefore(rs) ||
+          effective.isAfter(re)) {
         continue;
       }
       final amount = _financeAmountToDouble(d['amount']);
@@ -3478,11 +3644,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
   static Map<String, double> _mergeAccountBalances(
     Map<String, double> openingByAccount,
     Map<String, double> periodByAccount,
-  ) =>
-      FinanceAccountBalanceUtils.mergeOpeningAndPeriodBalances(
-        openingByAccount,
-        periodByAccount,
-      );
+  ) => FinanceAccountBalanceUtils.mergeOpeningAndPeriodBalances(
+    openingByAccount,
+    periodByAccount,
+  );
 
   /// Botões `FilledButton.tonal*` na barra de lançamentos: fundo + contorno explícitos para o rótulo e o ícone
   /// permanecerem legíveis (Material 3 sem `backgroundColor` pode fundir cor do texto com o preenchimento).
@@ -3500,7 +3665,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
         side: BorderSide(
-            color: AppColors.primary.withValues(alpha: 0.26), width: 1),
+          color: AppColors.primary.withValues(alpha: 0.26),
+          width: 1,
+        ),
       ),
       visualDensity: visualDensity ?? VisualDensity.compact,
       padding:
@@ -3540,16 +3707,19 @@ class _FinanceScreenState extends State<FinanceScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               gradient: LinearGradient(
-                  colors: gradient,
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight),
+                colors: gradient,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
               border: Border.all(
-                  color: selected ? Colors.white : Colors.white24,
-                  width: selected ? 2.4 : 0.8),
+                color: selected ? Colors.white : Colors.white24,
+                width: selected ? 2.4 : 0.8,
+              ),
               boxShadow: [
                 BoxShadow(
-                  color:
-                      gradient.first.withValues(alpha: selected ? 0.45 : 0.22),
+                  color: gradient.first.withValues(
+                    alpha: selected ? 0.45 : 0.22,
+                  ),
                   blurRadius: selected ? 12 : 7,
                   offset: const Offset(0, 3),
                 ),
@@ -3578,15 +3748,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
                         ),
                         const Spacer(),
                         if (selected)
-                          Icon(Icons.check_circle_rounded,
-                              color: Colors.white, size: 18),
+                          Icon(
+                            Icons.check_circle_rounded,
+                            color: Colors.white,
+                            size: 18,
+                          ),
                       ],
                     ),
                     if (typeBadge != null) ...[
                       SizedBox(height: 4),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: creditCardStyle
                               ? const Color(0xFFFBBF24).withValues(alpha: 0.22)
@@ -3594,8 +3769,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
                             color: creditCardStyle
-                                ? const Color(0xFFFDE68A)
-                                    .withValues(alpha: 0.45)
+                                ? const Color(
+                                    0xFFFDE68A,
+                                  ).withValues(alpha: 0.45)
                                 : Colors.white.withValues(alpha: 0.28),
                           ),
                         ),
@@ -3633,10 +3809,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                         fontSize: 12.5,
                       ),
                     ),
-                    if (footer != null) ...[
-                      SizedBox(height: 5),
-                      footer,
-                    ],
+                    if (footer != null) ...[SizedBox(height: 5), footer],
                   ],
                 ),
               ],
@@ -3647,8 +3820,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
     );
   }
 
-  void _openBulkAssignFromStrip(BuildContext context,
-      {required int semContaNoPainel}) {
+  void _openBulkAssignFromStrip(
+    BuildContext context, {
+    required int semContaNoPainel,
+  }) {
     if (!widget.profile.hasActiveLicense) {
       mostrarAvisoSeLicencaInativa(context, widget.profile);
       return;
@@ -3669,7 +3844,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   /// Painel por conta: gráficos por categoria + edição / exclusão (toque no cartão banco/cartão).
   void _openFinanceAccountCategoryBreakdown(
-      BuildContext context, FinanceAccount account) {
+    BuildContext context,
+    FinanceAccount account,
+  ) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -3733,7 +3910,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }
 
   List<double> _sparklineTodasContas(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
     final byDay = <DateTime, double>{};
     for (final doc in docs) {
       final d = doc.data();
@@ -3758,11 +3936,14 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }
 
   Widget? _sparklineFooterTodas(
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
     final sp = _sparklineTodasContas(docs);
     if (sp.length < 2) return null;
     return FinanceSparkline(
-        values: sp, color: Colors.white.withValues(alpha: 0.92));
+      values: sp,
+      color: Colors.white.withValues(alpha: 0.92),
+    );
   }
 
   Widget _buildFinanceAccountsStrip(
@@ -3777,7 +3958,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
     /// Quando a lista usa paginação no servidor, saldos por conta vêm deste mapa (período completo).
     Map<String, double>? stripPeriodNetPaidOverride,
   }) {
-    final byAccPeriod = stripPeriodNetPaidOverride ??
+    final byAccPeriod =
+        stripPeriodNetPaidOverride ??
         _netByFinanceAccountIdPaidEffective(docs, _from, _to);
     final byAcc = _mergeAccountBalances(openingByAccount, byAccPeriod);
     return Container(
@@ -3795,15 +3977,18 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   gradient: LinearGradient(
                     colors: [
                       AppColors.primary,
-                      Color.lerp(AppColors.primary, AppColors.accent, 0.5)!
+                      Color.lerp(AppColors.primary, AppColors.accent, 0.5)!,
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(Icons.pie_chart_outline_rounded,
-                    color: Colors.white, size: 20),
+                child: Icon(
+                  Icons.pie_chart_outline_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
               ),
               SizedBox(width: 10),
               Expanded(
@@ -3812,8 +3997,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   children: [
                     Text(
                       'Saldos por conta',
-                      style:
-                          TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                      ),
                     ),
                     if (_mainPeriodServerPagingActive &&
                         _mainPeriodHasMoreServer)
@@ -3822,10 +4009,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
                         child: Text(
                           'A lista mostra os lançamentos em páginas — use «Carregar mais do servidor» para ver mais linhas. Os saldos por conta são atualizados com todos os movimentos pagos do período.',
                           style: TextStyle(
-                              fontSize: 11,
-                              height: 1.3,
-                              color: Colors.orange.shade900,
-                              fontWeight: FontWeight.w600),
+                            fontSize: 11,
+                            height: 1.3,
+                            color: Colors.orange.shade900,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     if (semContaCount > 0) ...[
@@ -3835,17 +4023,23 @@ class _FinanceScreenState extends State<FinanceScreen> {
                         borderRadius: BorderRadius.circular(20),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(20),
-                          onTap: () => _openBulkAssignFromStrip(context,
-                              semContaNoPainel: semContaCount),
+                          onTap: () => _openBulkAssignFromStrip(
+                            context,
+                            semContaNoPainel: semContaCount,
+                          ),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 6),
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 2),
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: Colors.orange.shade800,
                                     borderRadius: BorderRadius.circular(10),
@@ -3853,21 +4047,26 @@ class _FinanceScreenState extends State<FinanceScreen> {
                                   child: Text(
                                     '$semContaCount',
                                     style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 12),
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ),
                                 SizedBox(width: 8),
                                 Text(
                                   'sem conta',
                                   style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 12,
-                                      color: Colors.orange.shade900),
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 12,
+                                    color: Colors.orange.shade900,
+                                  ),
                                 ),
-                                Icon(Icons.chevron_right_rounded,
-                                    size: 18, color: Colors.orange.shade800),
+                                Icon(
+                                  Icons.chevron_right_rounded,
+                                  size: 18,
+                                  color: Colors.orange.shade800,
+                                ),
                               ],
                             ),
                           ),
@@ -3892,14 +4091,16 @@ class _FinanceScreenState extends State<FinanceScreen> {
                           Navigator.of(context).push<void>(
                             MaterialPageRoute<void>(
                               builder: (_) => FinanceAccountsScreen(
-                                  uid:
-                                      widget.uid.trim(),
-                                  profile: widget.profile),
+                                uid: widget.uid.trim(),
+                                profile: widget.profile,
+                              ),
                             ),
                           );
                         }
-                      : () =>
-                          mostrarAvisoSeLicencaInativa(context, widget.profile),
+                      : () => mostrarAvisoSeLicencaInativa(
+                          context,
+                          widget.profile,
+                        ),
                   icon: Icon(Icons.add_card_rounded, size: 18),
                   label: Text('Bancos e cartões'),
                 ),
@@ -3908,26 +4109,33 @@ class _FinanceScreenState extends State<FinanceScreen> {
                       ? () {
                           Navigator.of(context)
                               .push<void>(
-                            MaterialPageRoute<void>(
-                              builder: (_) => CategoriesConfigScreen(
-                                  uid: widget.uid.trim()),
-                            ),
-                          )
+                                MaterialPageRoute<void>(
+                                  builder: (_) => CategoriesConfigScreen(
+                                    uid: widget.uid.trim(),
+                                  ),
+                                ),
+                              )
                               .then((_) {
-                            if (mounted) _refreshCategoryFilterOptions();
-                          });
+                                if (mounted) _refreshCategoryFilterOptions();
+                              });
                         }
-                      : () =>
-                          mostrarAvisoSeLicencaInativa(context, widget.profile),
+                      : () => mostrarAvisoSeLicencaInativa(
+                          context,
+                          widget.profile,
+                        ),
                   icon: Icon(Icons.category_rounded, size: 18),
                   label: Text('Categorias'),
                 ),
                 TextButton.icon(
                   onPressed: widget.profile.hasActiveLicense
-                      ? () => _openBulkAssignFromStrip(context,
-                          semContaNoPainel: semContaCount)
-                      : () =>
-                          mostrarAvisoSeLicencaInativa(context, widget.profile),
+                      ? () => _openBulkAssignFromStrip(
+                          context,
+                          semContaNoPainel: semContaCount,
+                        )
+                      : () => mostrarAvisoSeLicencaInativa(
+                          context,
+                          widget.profile,
+                        ),
                   icon: Icon(Icons.link_rounded, size: 18),
                   label: Text('Atribuir em massa'),
                 ),
@@ -3938,10 +4146,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
           Text(
             'Toque em Todas as contas ou num banco/cartão para ver gráficos e lançamentos. Segure e arraste um banco para reordenar — Todas as contas fica sempre primeiro.',
             style: TextStyle(
-                fontSize: 12,
-                color: context.appTextMuted,
-                fontWeight: FontWeight.w500,
-                height: 1.35),
+              fontSize: 12,
+              color: context.appTextMuted,
+              fontWeight: FontWeight.w500,
+              height: 1.35,
+            ),
           ),
           SizedBox(height: 14),
           if (!_financeAccountsStreamPrimed && _financeAccounts.isEmpty)
@@ -3986,13 +4195,16 @@ class _FinanceScreenState extends State<FinanceScreen> {
                             Navigator.of(context).push<void>(
                               MaterialPageRoute<void>(
                                 builder: (_) => FinanceAccountsScreen(
-                                    uid: widget.uid.trim(),
-                                    profile: widget.profile),
+                                  uid: widget.uid.trim(),
+                                  profile: widget.profile,
+                                ),
                               ),
                             );
                           }
                         : () => mostrarAvisoSeLicencaInativa(
-                            context, widget.profile),
+                            context,
+                            widget.profile,
+                          ),
                     icon: Icon(Icons.playlist_add_rounded),
                     label: Text('Cadastrar agora'),
                   ),
@@ -4008,11 +4220,13 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 builder: (context, pendingSnap) {
                   final faturaByCard =
                       FinanceAccountBalanceUtils.faturaAbertaByCardId(
-                    pendingSnap.data?.docs ?? const [],
-                    creditCardIds: _creditCardAccountIds,
+                        pendingSnap.data?.docs ?? const [],
+                        creditCardIds: _creditCardAccountIds,
+                      );
+                  final accountsStrip = _visibleAccountsForStrip(
+                    byAcc,
+                    faturaByCard: faturaByCard,
                   );
-                  final accountsStrip = _visibleAccountsForStrip(byAcc,
-                      faturaByCard: faturaByCard);
                   return ReorderableListView.builder(
                     scrollDirection: Axis.horizontal,
                     physics: const BouncingScrollPhysics(),
@@ -4025,8 +4239,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
                           return Material(
                             color: Colors.transparent,
                             elevation: 8 * t,
-                            shadowColor:
-                                Colors.black.withValues(alpha: 0.35 * t),
+                            shadowColor: Colors.black.withValues(
+                              alpha: 0.35 * t,
+                            ),
                             borderRadius: BorderRadius.circular(18),
                             child: child,
                           );
@@ -4037,8 +4252,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
                       context,
                       selected: _financeAccountFilterId == null,
                       title: 'Todas as contas',
-                      subtitle:
-                          CurrencyFormats.formatBRL(saldoAcumuladoConsolidado),
+                      subtitle: CurrencyFormats.formatBRL(
+                        saldoAcumuladoConsolidado,
+                      ),
                       gradient: [AppColors.primary, AppColors.deepBlue],
                       icon: Icons.dashboard_rounded,
                       bankPreset: null,
@@ -4054,7 +4270,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
                       if (newIndex > oldIndex) newIndex--;
                       if (oldIndex == newIndex) return;
                       await _reorderFinanceAccountsStrip(
-                          accountsStrip, oldIndex, newIndex);
+                        accountsStrip,
+                        oldIndex,
+                        newIndex,
+                      );
                     },
                     itemBuilder: (ctx, i) {
                       final a = accountsStrip[i];
@@ -4079,16 +4298,14 @@ class _FinanceScreenState extends State<FinanceScreen> {
                         footer: sp.length >= 2
                             ? FinanceSparkline(
                                 values: sp,
-                                color: Colors.white.withValues(alpha: 0.92))
+                                color: Colors.white.withValues(alpha: 0.92),
+                              )
                             : null,
                       );
                       return ReorderableDelayedDragStartListener(
                         key: ValueKey<String>('strip_${a.id}'),
                         index: i,
-                        child: Material(
-                          color: Colors.transparent,
-                          child: card,
-                        ),
+                        child: Material(color: Colors.transparent, child: card),
                       );
                     },
                   );
@@ -4101,8 +4318,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
               spacing: 8,
               children: [
                 ActionChip(
-                  avatar: Icon(Icons.filter_alt_off_rounded,
-                      size: 18, color: AppColors.primary),
+                  avatar: Icon(
+                    Icons.filter_alt_off_rounded,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
                   label: Text('Limpar filtro de conta'),
                   onPressed: () => _applyFinanceAccountFilter(null),
                 ),
@@ -4229,8 +4449,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
     double amountSize,
     double hGap,
     double radius,
-    double shadowBlur
-  }) _pendingBandStyle(BuildContext context) {
+    double shadowBlur,
+  })
+  _pendingBandStyle(BuildContext context) {
     final compact = kIsWeb;
     return (
       padding: EdgeInsets.symmetric(
@@ -4257,12 +4478,15 @@ class _FinanceScreenState extends State<FinanceScreen> {
         final showInPending = prefsSnap.data?['showInPending'] as bool? ?? true;
         final monthsAhead =
             (prefsSnap.data?['pendingMonthsAhead'] as int?)?.clamp(0, 12) ??
-                AppBusinessRules.pendingMonthsAheadDefault;
+            AppBusinessRules.pendingMonthsAheadDefault;
         // Limite exclusivo: 1º dia do mês APÓS o último mês incluído.
         // Ex.: julho + monthsAhead=1 → inclui julho e agosto → exclusiveEnd = 01/09.
         // monthsAhead=0 → só mês atual → exclusiveEnd = 1º do mês seguinte.
         final exclusiveEnd = DateTime(
-            DateTime.now().year, DateTime.now().month + monthsAhead + 1, 1);
+          DateTime.now().year,
+          DateTime.now().month + monthsAhead + 1,
+          1,
+        );
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: _pendingIncomesStream,
           initialData: _lastPendingTransactionsSnap,
@@ -4273,13 +4497,33 @@ class _FinanceScreenState extends State<FinanceScreen> {
             double total = 0;
             final list = <Map<String, dynamic>>[];
             final today = DateTime(
-                DateTime.now().year, DateTime.now().month, DateTime.now().day);
+              DateTime.now().year,
+              DateTime.now().month,
+              DateTime.now().day,
+            );
             for (final doc in snap.data?.docs ?? []) {
               final d = Map<String, dynamic>.from(doc.data());
+              final pendingStatus =
+                  (d['status'] ?? d['paymentStatus'] ?? d['situacao'] ?? '')
+                      .toString()
+                      .trim()
+                      .toLowerCase();
+              if (!(pendingStatus.isEmpty ||
+                  const {
+                    'pending',
+                    'open',
+                    'unpaid',
+                    'aberto',
+                    'em_aberto',
+                    'pendente',
+                  }.contains(pendingStatus)))
+                continue;
               if ((d['type'] ?? '').toString() != 'income') continue;
               d['id'] = doc.id;
               if (FinanceAccountBalanceUtils.isOnCreditCardAccount(
-                  d, _creditCardAccountIds)) {
+                d,
+                _creditCardAccountIds,
+              )) {
                 continue;
               }
               if (!showInPending &&
@@ -4342,8 +4586,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
                           color: Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Icon(Icons.schedule_rounded,
-                            color: Colors.white, size: band.iconSize),
+                        child: Icon(
+                          Icons.schedule_rounded,
+                          color: Colors.white,
+                          size: band.iconSize,
+                        ),
                       ),
                       SizedBox(width: band.hGap),
                       Expanded(
@@ -4407,12 +4654,15 @@ class _FinanceScreenState extends State<FinanceScreen> {
         final showInPending = prefsSnap.data?['showInPending'] as bool? ?? true;
         final monthsAhead =
             (prefsSnap.data?['pendingMonthsAhead'] as int?)?.clamp(0, 12) ??
-                AppBusinessRules.pendingMonthsAheadDefault;
+            AppBusinessRules.pendingMonthsAheadDefault;
         // Limite exclusivo: 1º dia do mês APÓS o último mês incluído.
         // Ex.: julho + monthsAhead=1 → inclui julho e agosto → exclusiveEnd = 01/09.
         // monthsAhead=0 → só mês atual → exclusiveEnd = 1º do mês seguinte.
         final exclusiveEnd = DateTime(
-            DateTime.now().year, DateTime.now().month + monthsAhead + 1, 1);
+          DateTime.now().year,
+          DateTime.now().month + monthsAhead + 1,
+          1,
+        );
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: _pendingExpensesStream,
           initialData: _lastPendingTransactionsSnap,
@@ -4423,13 +4673,33 @@ class _FinanceScreenState extends State<FinanceScreen> {
             double total = 0;
             final list = <Map<String, dynamic>>[];
             final today = DateTime(
-                DateTime.now().year, DateTime.now().month, DateTime.now().day);
+              DateTime.now().year,
+              DateTime.now().month,
+              DateTime.now().day,
+            );
             for (final doc in snap.data?.docs ?? []) {
               final d = Map<String, dynamic>.from(doc.data());
+              final pendingStatus =
+                  (d['status'] ?? d['paymentStatus'] ?? d['situacao'] ?? '')
+                      .toString()
+                      .trim()
+                      .toLowerCase();
+              if (!(pendingStatus.isEmpty ||
+                  const {
+                    'pending',
+                    'open',
+                    'unpaid',
+                    'aberto',
+                    'em_aberto',
+                    'pendente',
+                  }.contains(pendingStatus)))
+                continue;
               if ((d['type'] ?? '').toString() != 'expense') continue;
               d['id'] = doc.id;
               if (FinanceAccountBalanceUtils.isOnCreditCardAccount(
-                  d, _creditCardAccountIds)) {
+                d,
+                _creditCardAccountIds,
+              )) {
                 continue;
               }
               if (!showInPending &&
@@ -4490,8 +4760,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
                           color: Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Icon(Icons.schedule_rounded,
-                            color: Colors.white, size: band.iconSize),
+                        child: Icon(
+                          Icons.schedule_rounded,
+                          color: Colors.white,
+                          size: band.iconSize,
+                        ),
                       ),
                       SizedBox(width: band.hGap),
                       Expanded(
@@ -4545,8 +4818,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
 
   /// Card "Dica do dia" (rotacionada pelo dia do ano) para educação financeira.
   Widget _buildDicaDoDiaCard() {
-    final dayOfYear =
-        DateTime.now().difference(DateTime(DateTime.now().year, 1, 1)).inDays;
+    final dayOfYear = DateTime.now()
+        .difference(DateTime(DateTime.now().year, 1, 1))
+        .inDays;
     final dica = kFinanceTips[dayOfYear % kFinanceTips.length];
     return Container(
       padding: const EdgeInsets.all(14),
@@ -4558,26 +4832,35 @@ class _FinanceScreenState extends State<FinanceScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.lightbulb_outline_rounded,
-              color: AppColors.primary, size: 22),
+          Icon(
+            Icons.lightbulb_outline_rounded,
+            color: AppColors.primary,
+            size: 22,
+          ),
           SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('Dica do dia',
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary)),
+                Text(
+                  'Dica do dia',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.primary,
+                  ),
+                ),
                 SizedBox(height: 4),
-                Text(dica,
-                    style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: context.appTextPrimary,
-                        height: 1.45)),
+                Text(
+                  dica,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: context.appTextPrimary,
+                    height: 1.45,
+                  ),
+                ),
               ],
             ),
           ),
@@ -4587,35 +4870,43 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }
 
   void _abrirListaReceitasPendentes(
-      BuildContext context, List<Map<String, dynamic>> list) {
+    BuildContext context,
+    List<Map<String, dynamic>> list,
+  ) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
       builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        minChildSize: 0.3,
-        maxChildSize: 0.92,
-        expand: false,
+        initialChildSize: 1.0,
+        minChildSize: 1.0,
+        maxChildSize: 1.0,
+        expand: true,
         builder: (ctx, scrollController) => _PendingListSheetContent(
           title: 'Receitas pendentes',
           iconColor: AppColors.financeReceita,
           list: list,
           scrollController: scrollController,
           emptyMessage: 'Nenhuma receita pendente',
-          buildItem: (c, e,
-                  {selectionMode = false,
-                  isSelected = false,
-                  onToggleSelect,
-                  required removeFromSheet,
-                  required patchInSheet}) =>
-              _buildReceitaPendenteListItem(c, e,
-                  selectionMode: selectionMode,
-                  isSelected: isSelected,
-                  onToggleSelect: onToggleSelect,
-                  onPendingRemoved: removeFromSheet,
-                  onPendingPatched: patchInSheet),
+          buildItem:
+              (
+                c,
+                e, {
+                selectionMode = false,
+                isSelected = false,
+                onToggleSelect,
+                required removeFromSheet,
+                required patchInSheet,
+              }) => _buildReceitaPendenteListItem(
+                c,
+                e,
+                selectionMode: selectionMode,
+                isSelected: isSelected,
+                onToggleSelect: onToggleSelect,
+                onPendingRemoved: removeFromSheet,
+                onPendingPatched: patchInSheet,
+              ),
           batchConfirmShortLabel: 'Confirmar recebimento',
           onConfirmBatch: (sheetCtx, ids) async {
             await _confirmarPagamentoEmLote(
@@ -4655,11 +4946,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
         : '—';
     final docId = (e['id'] ?? '').toString();
     final receipt = Map<String, dynamic>.from(e['receipt'] ?? {});
-    final link = (receipt['webViewLink'] ??
-            receipt['webContentLink'] ??
-            receipt['downloadUrl'] ??
-            '')
-        .toString();
+    final link =
+        (receipt['webViewLink'] ??
+                receipt['webContentLink'] ??
+                receipt['downloadUrl'] ??
+                '')
+            .toString();
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -4668,9 +4960,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
           children: [
             if (selectionMode) ...[
               Checkbox(
-                  value: isSelected,
-                  onChanged: (_) => onToggleSelect?.call(),
-                  materialTapTargetSize: MaterialTapTargetSize.padded),
+                value: isSelected,
+                onChanged: (_) => onToggleSelect?.call(),
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+              ),
               SizedBox(width: 8),
             ],
             Container(
@@ -4680,8 +4973,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 color: AppColors.financeReceita.withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(Icons.arrow_downward_rounded,
-                  color: AppColors.financeReceita, size: 24),
+              child: Icon(
+                Icons.arrow_downward_rounded,
+                color: AppColors.financeReceita,
+                size: 24,
+              ),
             ),
             SizedBox(width: 14),
             Expanded(
@@ -4691,25 +4987,32 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   Text(
                     cat.isNotEmpty ? cat : 'Receita',
                     style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: context.appTextPrimary),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: context.appTextPrimary,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (desc.isNotEmpty)
-                    Text(desc,
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                            color: context.appTextSecondary),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis),
-                  Text(dateStr,
+                    Text(
+                      desc,
                       style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: context.appTextMuted)),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: context.appTextSecondary,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  Text(
+                    dateStr,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: context.appTextMuted,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -4717,9 +5020,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
               Text(
                 CurrencyFormats.formatBRL(amount),
                 style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.financeReceita),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.financeReceita,
+                ),
               ),
               PopupMenuButton<String>(
                 icon: Icon(Icons.more_vert_rounded),
@@ -4727,12 +5031,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 tooltip: 'Ações do lançamento',
                 onSelected: (v) async {
                   if (v == 'edit') {
-                    await _editTx(context, docId, e, 'income',
-                        onPendingRemoved: onPendingRemoved,
-                        onPendingPatched: onPendingPatched);
+                    await _editTx(
+                      context,
+                      docId,
+                      e,
+                      'income',
+                      onPendingRemoved: onPendingRemoved,
+                      onPendingPatched: onPendingPatched,
+                    );
                   } else if (v == 'view' && link.isNotEmpty)
-                    mostrarAnexoNaMesmaTela(context,
-                        url: link, fileName: 'Comprovante');
+                    mostrarAnexoNaMesmaTela(
+                      context,
+                      url: link,
+                      fileName: 'Comprovante',
+                    );
                   else if (v == 'attach')
                     _attachReceipt(context, docId);
                   else if (v == 'delete') {
@@ -4742,34 +5054,46 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 },
                 itemBuilder: (_) => [
                   const PopupMenuItem(
-                      value: 'edit',
-                      child: Row(children: [
+                    value: 'edit',
+                    child: Row(
+                      children: [
                         Icon(Icons.edit_rounded, size: 20),
                         SizedBox(width: 8),
-                        Text('Editar')
-                      ])),
+                        Text('Editar'),
+                      ],
+                    ),
+                  ),
                   if (link.isNotEmpty)
                     const PopupMenuItem(
-                        value: 'view',
-                        child: Row(children: [
+                      value: 'view',
+                      child: Row(
+                        children: [
                           Icon(Icons.visibility_rounded, size: 20),
                           SizedBox(width: 8),
-                          Text('Ver anexo')
-                        ])),
+                          Text('Ver anexo'),
+                        ],
+                      ),
+                    ),
                   const PopupMenuItem(
-                      value: 'attach',
-                      child: Row(children: [
+                    value: 'attach',
+                    child: Row(
+                      children: [
                         Icon(Icons.attach_file_rounded, size: 20),
                         SizedBox(width: 8),
-                        Text('Anexar comprovante')
-                      ])),
+                        Text('Anexar comprovante'),
+                      ],
+                    ),
+                  ),
                   const PopupMenuItem(
-                      value: 'delete',
-                      child: Row(children: [
+                    value: 'delete',
+                    child: Row(
+                      children: [
                         Icon(Icons.delete_outline_rounded, size: 20),
                         SizedBox(width: 8),
-                        Text('Excluir')
-                      ])),
+                        Text('Excluir'),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ] else
@@ -4777,9 +5101,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 child: Text(
                   CurrencyFormats.formatBRL(amount),
                   style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.financeReceita),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.financeReceita,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -4800,17 +5125,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
                     if (ok) onPendingRemoved?.call(docId);
                   },
                   icon: Icon(Icons.check_circle_rounded, size: 18),
-                  label: Text('Confirmar recebimento',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  label: Text(
+                    'Confirmar recebimento',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
                   style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 10),
-                      minimumSize: const Size(48, 48),
-                      tapTargetSize: MaterialTapTargetSize.padded,
-                      backgroundColor:
-                          AppColors.success.withValues(alpha: 0.15),
-                      foregroundColor: AppColors.success),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    minimumSize: const Size(48, 48),
+                    tapTargetSize: MaterialTapTargetSize.padded,
+                    backgroundColor: AppColors.success.withValues(alpha: 0.15),
+                    foregroundColor: AppColors.success,
+                  ),
                 ),
                 SizedBox(width: 8),
                 OutlinedButton.icon(
@@ -4819,15 +5147,18 @@ class _FinanceScreenState extends State<FinanceScreen> {
                     if (ok) onPendingRemoved?.call(docId);
                   },
                   icon: Icon(Icons.delete_outline_rounded, size: 18),
-                  label: Text('Excluir',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  label: Text(
+                    'Excluir',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
                   style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.error,
-                      side: BorderSide(
-                          color: AppColors.error.withValues(alpha: 0.5)),
-                      minimumSize: const Size(48, 48),
-                      tapTargetSize: MaterialTapTargetSize.padded),
+                    foregroundColor: AppColors.error,
+                    side: BorderSide(
+                      color: AppColors.error.withValues(alpha: 0.5),
+                    ),
+                    minimumSize: const Size(48, 48),
+                    tapTargetSize: MaterialTapTargetSize.padded,
+                  ),
                 ),
               ],
             ),
@@ -4843,50 +5174,62 @@ class _FinanceScreenState extends State<FinanceScreen> {
         color: AppColors.financeReceita.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-            color: AppColors.financePendente.withValues(alpha: 0.28)),
+          color: AppColors.financePendente.withValues(alpha: 0.28),
+        ),
       ),
       child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 56), child: content),
+        constraints: const BoxConstraints(minHeight: 56),
+        child: content,
+      ),
     );
     if (selectionMode && onToggleSelect != null) {
       return InkWell(
-          onTap: onToggleSelect,
-          borderRadius: BorderRadius.circular(16),
-          child: container);
+        onTap: onToggleSelect,
+        borderRadius: BorderRadius.circular(16),
+        child: container,
+      );
     }
     return container;
   }
 
   void _abrirListaDespesasPendentes(
-      BuildContext context, List<Map<String, dynamic>> list) {
+    BuildContext context,
+    List<Map<String, dynamic>> list,
+  ) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
       builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        minChildSize: 0.3,
-        maxChildSize: 0.92,
-        expand: false,
+        initialChildSize: 1.0,
+        minChildSize: 1.0,
+        maxChildSize: 1.0,
+        expand: true,
         builder: (ctx, scrollController) => _PendingListSheetContent(
           title: 'Despesas pendentes',
           iconColor: AppColors.financeDespesa,
           list: list,
           scrollController: scrollController,
           emptyMessage: 'Nenhuma despesa pendente',
-          buildItem: (c, e,
-                  {selectionMode = false,
-                  isSelected = false,
-                  onToggleSelect,
-                  required removeFromSheet,
-                  required patchInSheet}) =>
-              _buildDespesaPendenteListItem(c, e,
-                  selectionMode: selectionMode,
-                  isSelected: isSelected,
-                  onToggleSelect: onToggleSelect,
-                  onPendingRemoved: removeFromSheet,
-                  onPendingPatched: patchInSheet),
+          buildItem:
+              (
+                c,
+                e, {
+                selectionMode = false,
+                isSelected = false,
+                onToggleSelect,
+                required removeFromSheet,
+                required patchInSheet,
+              }) => _buildDespesaPendenteListItem(
+                c,
+                e,
+                selectionMode: selectionMode,
+                isSelected: isSelected,
+                onToggleSelect: onToggleSelect,
+                onPendingRemoved: removeFromSheet,
+                onPendingPatched: patchInSheet,
+              ),
           batchConfirmShortLabel: 'Confirmar pagamento',
           onConfirmBatch: (sheetCtx, ids) async {
             await _confirmarPagamentoEmLote(
@@ -4926,11 +5269,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
         : '—';
     final docId = (e['id'] ?? '').toString();
     final receipt = Map<String, dynamic>.from(e['receipt'] ?? {});
-    final link = (receipt['webViewLink'] ??
-            receipt['webContentLink'] ??
-            receipt['downloadUrl'] ??
-            '')
-        .toString();
+    final link =
+        (receipt['webViewLink'] ??
+                receipt['webContentLink'] ??
+                receipt['downloadUrl'] ??
+                '')
+            .toString();
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -4939,9 +5283,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
           children: [
             if (selectionMode) ...[
               Checkbox(
-                  value: isSelected,
-                  onChanged: (_) => onToggleSelect?.call(),
-                  materialTapTargetSize: MaterialTapTargetSize.padded),
+                value: isSelected,
+                onChanged: (_) => onToggleSelect?.call(),
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+              ),
               SizedBox(width: 8),
             ],
             Container(
@@ -4951,8 +5296,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 color: AppColors.financeDespesa.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(Icons.arrow_upward_rounded,
-                  color: AppColors.financeDespesa, size: 24),
+              child: Icon(
+                Icons.arrow_upward_rounded,
+                color: AppColors.financeDespesa,
+                size: 24,
+              ),
             ),
             SizedBox(width: 14),
             Expanded(
@@ -4962,25 +5310,32 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   Text(
                     cat.isNotEmpty ? cat : 'Despesa',
                     style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: context.appTextPrimary),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: context.appTextPrimary,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (desc.isNotEmpty)
-                    Text(desc,
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                            color: context.appTextSecondary),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis),
-                  Text(dateStr,
+                    Text(
+                      desc,
                       style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: context.appTextMuted)),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: context.appTextSecondary,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  Text(
+                    dateStr,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: context.appTextMuted,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -4988,9 +5343,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
               Text(
                 CurrencyFormats.formatBRL(amount),
                 style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.financeDespesa),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.financeDespesa,
+                ),
               ),
               PopupMenuButton<String>(
                 icon: Icon(Icons.more_vert_rounded),
@@ -4998,12 +5354,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 tooltip: 'Ações do lançamento',
                 onSelected: (v) async {
                   if (v == 'edit') {
-                    await _editTx(context, docId, e, 'expense',
-                        onPendingRemoved: onPendingRemoved,
-                        onPendingPatched: onPendingPatched);
+                    await _editTx(
+                      context,
+                      docId,
+                      e,
+                      'expense',
+                      onPendingRemoved: onPendingRemoved,
+                      onPendingPatched: onPendingPatched,
+                    );
                   } else if (v == 'view' && link.isNotEmpty)
-                    mostrarAnexoNaMesmaTela(context,
-                        url: link, fileName: 'Comprovante');
+                    mostrarAnexoNaMesmaTela(
+                      context,
+                      url: link,
+                      fileName: 'Comprovante',
+                    );
                   else if (v == 'attach')
                     _attachReceipt(context, docId);
                   else if (v == 'delete') {
@@ -5013,34 +5377,46 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 },
                 itemBuilder: (_) => [
                   const PopupMenuItem(
-                      value: 'edit',
-                      child: Row(children: [
+                    value: 'edit',
+                    child: Row(
+                      children: [
                         Icon(Icons.edit_rounded, size: 20),
                         SizedBox(width: 8),
-                        Text('Editar')
-                      ])),
+                        Text('Editar'),
+                      ],
+                    ),
+                  ),
                   if (link.isNotEmpty)
                     const PopupMenuItem(
-                        value: 'view',
-                        child: Row(children: [
+                      value: 'view',
+                      child: Row(
+                        children: [
                           Icon(Icons.visibility_rounded, size: 20),
                           SizedBox(width: 8),
-                          Text('Ver anexo')
-                        ])),
+                          Text('Ver anexo'),
+                        ],
+                      ),
+                    ),
                   const PopupMenuItem(
-                      value: 'attach',
-                      child: Row(children: [
+                    value: 'attach',
+                    child: Row(
+                      children: [
                         Icon(Icons.attach_file_rounded, size: 20),
                         SizedBox(width: 8),
-                        Text('Anexar comprovante')
-                      ])),
+                        Text('Anexar comprovante'),
+                      ],
+                    ),
+                  ),
                   const PopupMenuItem(
-                      value: 'delete',
-                      child: Row(children: [
+                    value: 'delete',
+                    child: Row(
+                      children: [
                         Icon(Icons.delete_outline_rounded, size: 20),
                         SizedBox(width: 8),
-                        Text('Excluir')
-                      ])),
+                        Text('Excluir'),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ] else
@@ -5048,9 +5424,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 child: Text(
                   CurrencyFormats.formatBRL(amount),
                   style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.financeDespesa),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.financeDespesa,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -5071,17 +5448,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
                     if (ok) onPendingRemoved?.call(docId);
                   },
                   icon: Icon(Icons.check_circle_rounded, size: 18),
-                  label: Text('Confirmar pagamento',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  label: Text(
+                    'Confirmar pagamento',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
                   style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 10),
-                      minimumSize: const Size(48, 48),
-                      tapTargetSize: MaterialTapTargetSize.padded,
-                      backgroundColor:
-                          AppColors.success.withValues(alpha: 0.15),
-                      foregroundColor: AppColors.success),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    minimumSize: const Size(48, 48),
+                    tapTargetSize: MaterialTapTargetSize.padded,
+                    backgroundColor: AppColors.success.withValues(alpha: 0.15),
+                    foregroundColor: AppColors.success,
+                  ),
                 ),
                 OutlinedButton.icon(
                   onPressed: () async {
@@ -5089,15 +5469,18 @@ class _FinanceScreenState extends State<FinanceScreen> {
                     if (ok) onPendingRemoved?.call(docId);
                   },
                   icon: Icon(Icons.delete_outline_rounded, size: 18),
-                  label: Text('Excluir',
-                      style:
-                          TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                  label: Text(
+                    'Excluir',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
                   style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.error,
-                      side: BorderSide(
-                          color: AppColors.error.withValues(alpha: 0.5)),
-                      minimumSize: const Size(48, 48),
-                      tapTargetSize: MaterialTapTargetSize.padded),
+                    foregroundColor: AppColors.error,
+                    side: BorderSide(
+                      color: AppColors.error.withValues(alpha: 0.5),
+                    ),
+                    minimumSize: const Size(48, 48),
+                    tapTargetSize: MaterialTapTargetSize.padded,
+                  ),
                 ),
               ],
             ),
@@ -5113,16 +5496,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
         color: AppColors.financeDespesa.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-            color: AppColors.financePendente.withValues(alpha: 0.28)),
+          color: AppColors.financePendente.withValues(alpha: 0.28),
+        ),
       ),
       child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 56), child: content),
+        constraints: const BoxConstraints(minHeight: 56),
+        child: content,
+      ),
     );
     if (selectionMode && onToggleSelect != null) {
       return InkWell(
-          onTap: onToggleSelect,
-          borderRadius: BorderRadius.circular(16),
-          child: container);
+        onTap: onToggleSelect,
+        borderRadius: BorderRadius.circular(16),
+        child: container,
+      );
     }
     return container;
   }
@@ -5140,7 +5527,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
     if (!allowed.contains(ext)) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Arquivo inválido. Use PDF/PNG/JPG.')),
+          const SnackBar(
+            content: Text('Arquivo inválido. Use PDF/PNG/JPG.'),
+          ),
         );
       }
       return;
@@ -5170,10 +5559,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
     if (mounted) {
       setState(() {
         final prev = _optimisticEditedTxById[txId];
-        _optimisticEditedTxById[txId] = {
-          ...?prev,
-          'hasReceipt': true,
-        };
+        _optimisticEditedTxById[txId] = {...?prev, 'hasReceipt': true};
       });
     }
   }
@@ -5217,16 +5603,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
               ],
             ),
             borderRadius: BorderRadius.circular(12),
-            border:
-                Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.15),
+            ),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.calendar_today_rounded,
-                    size: 16, color: AppColors.primary),
+                Icon(
+                  Icons.calendar_today_rounded,
+                  size: 16,
+                  color: AppColors.primary,
+                ),
                 SizedBox(width: 8),
                 Text(
                   day == null ? 'Sem data' : DateTimeFormats.dateBR.format(day),
@@ -5245,8 +5635,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
     );
   }
 
-  Widget _buildPremiumReceitaButton(BuildContext context,
-      {required bool dense}) {
+  Widget _buildPremiumReceitaButton(
+    BuildContext context, {
+    required bool dense,
+  }) {
     final padV = dense ? 10.0 : 14.0;
     final iconSize = dense ? 20.0 : 22.0;
     final fontSize = dense ? 12.5 : 14.0;
@@ -5271,18 +5663,20 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 colors: [
                   Color(0xFF4ADE80),
                   AppColors.success,
-                  Color(0xFF166534)
+                  Color(0xFF166534),
                 ],
               ),
               boxShadow: [
                 BoxShadow(
-                    color: const Color(0xFF166534).withValues(alpha: 0.35),
-                    blurRadius: 14,
-                    offset: const Offset(0, 6)),
+                  color: const Color(0xFF166534).withValues(alpha: 0.35),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
                 BoxShadow(
-                    color: const Color(0xFF4ADE80).withValues(alpha: 0.25),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2)),
+                  color: const Color(0xFF4ADE80).withValues(alpha: 0.25),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
               ],
             ),
             child: Padding(
@@ -5290,8 +5684,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.add_card_rounded,
-                      color: Colors.white, size: iconSize),
+                  Icon(
+                    Icons.add_card_rounded,
+                    color: Colors.white,
+                    size: iconSize,
+                  ),
                   SizedBox(width: dense ? 4 : 6),
                   Flexible(
                     child: FittedBox(
@@ -5316,8 +5713,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
     );
   }
 
-  Widget _buildPremiumDespesaButton(BuildContext context,
-      {required bool dense}) {
+  Widget _buildPremiumDespesaButton(
+    BuildContext context, {
+    required bool dense,
+  }) {
     final padV = dense ? 10.0 : 14.0;
     final iconSize = dense ? 20.0 : 22.0;
     final fontSize = dense ? 12.5 : 14.0;
@@ -5343,13 +5742,15 @@ class _FinanceScreenState extends State<FinanceScreen> {
               ),
               boxShadow: [
                 BoxShadow(
-                    color: const Color(0xFF991B1B).withValues(alpha: 0.35),
-                    blurRadius: 14,
-                    offset: const Offset(0, 6)),
+                  color: const Color(0xFF991B1B).withValues(alpha: 0.35),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
+                ),
                 BoxShadow(
-                    color: const Color(0xFFF87171).withValues(alpha: 0.28),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2)),
+                  color: const Color(0xFFF87171).withValues(alpha: 0.28),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
               ],
             ),
             child: Padding(
@@ -5357,8 +5758,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.receipt_long_rounded,
-                      color: Colors.white, size: iconSize),
+                  Icon(
+                    Icons.receipt_long_rounded,
+                    color: Colors.white,
+                    size: iconSize,
+                  ),
                   SizedBox(width: dense ? 4 : 6),
                   Flexible(
                     child: FittedBox(
@@ -5384,20 +5788,23 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }
 
   /// Despesas fixas — gradiente logo + sombra (padrão super premium).
-  Widget _buildDespesasFixasButtonCompact(BuildContext context,
-      {bool dense = false}) {
+  Widget _buildDespesasFixasButtonCompact(
+    BuildContext context, {
+    bool dense = false,
+  }) {
     final onTap = widget.profile.hasActiveLicense
         ? () => Navigator.of(context)
-                .push(
-              MaterialPageRoute(
-                  builder: (_) => DespesasFixasScreen(
-                      uid: widget.uid.trim())),
-            )
-                .then((_) {
-              if (!mounted) return;
-              setState(
-                  () {}); // Atualiza lista ao voltar da tela Despesas fixas
-            })
+              .push(
+                MaterialPageRoute(
+                  builder: (_) => DespesasFixasScreen(uid: widget.uid.trim()),
+                ),
+              )
+              .then((_) {
+                if (!mounted) return;
+                setState(
+                  () {},
+                ); // Atualiza lista ao voltar da tela Despesas fixas
+              })
         : () => mostrarAvisoSeLicencaInativa(context, widget.profile);
     final padV = dense ? 10.0 : 14.0;
     final iconSize = dense ? 20.0 : 22.0;
@@ -5410,13 +5817,15 @@ class _FinanceScreenState extends State<FinanceScreen> {
           borderRadius: radius,
           boxShadow: [
             BoxShadow(
-                color: AppColors.deepBlueDark.withValues(alpha: 0.45),
-                blurRadius: 16,
-                offset: const Offset(0, 7)),
+              color: AppColors.deepBlueDark.withValues(alpha: 0.45),
+              blurRadius: 16,
+              offset: const Offset(0, 7),
+            ),
             BoxShadow(
-                color: AppColors.accent.withValues(alpha: 0.22),
-                blurRadius: 8,
-                offset: const Offset(0, 3)),
+              color: AppColors.accent.withValues(alpha: 0.22),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
           ],
         ),
         child: Material(
@@ -5431,7 +5840,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   colors: [
                     AppColors.deepBlueDark,
                     AppColors.primary,
-                    AppColors.accent
+                    AppColors.accent,
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -5445,8 +5854,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.event_repeat_rounded,
-                        color: Colors.white, size: iconSize),
+                    Icon(
+                      Icons.event_repeat_rounded,
+                      color: Colors.white,
+                      size: iconSize,
+                    ),
                     SizedBox(width: dense ? 4 : 6),
                     Flexible(
                       child: FittedBox(
@@ -5473,19 +5885,21 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }
 
   /// Receitas fixas — mesmo padrão visual compacto, cores de receita.
-  Widget _buildReceitasFixasButtonCompact(BuildContext context,
-      {bool dense = false}) {
+  Widget _buildReceitasFixasButtonCompact(
+    BuildContext context, {
+    bool dense = false,
+  }) {
     final onTap = widget.profile.hasActiveLicense
         ? () => Navigator.of(context)
-                .push(
-              MaterialPageRoute(
-                  builder: (_) => ReceitasFixasScreen(
-                      uid: widget.uid.trim())),
-            )
-                .then((_) {
-              if (!mounted) return;
-              setState(() {});
-            })
+              .push(
+                MaterialPageRoute(
+                  builder: (_) => ReceitasFixasScreen(uid: widget.uid.trim()),
+                ),
+              )
+              .then((_) {
+                if (!mounted) return;
+                setState(() {});
+              })
         : () => mostrarAvisoSeLicencaInativa(context, widget.profile);
     final padV = dense ? 10.0 : 14.0;
     final iconSize = dense ? 20.0 : 22.0;
@@ -5498,13 +5912,15 @@ class _FinanceScreenState extends State<FinanceScreen> {
           borderRadius: radius,
           boxShadow: [
             BoxShadow(
-                color: const Color(0xFF14532D).withValues(alpha: 0.4),
-                blurRadius: 16,
-                offset: const Offset(0, 7)),
+              color: const Color(0xFF14532D).withValues(alpha: 0.4),
+              blurRadius: 16,
+              offset: const Offset(0, 7),
+            ),
             BoxShadow(
-                color: const Color(0xFF22C55E).withValues(alpha: 0.22),
-                blurRadius: 8,
-                offset: const Offset(0, 3)),
+              color: const Color(0xFF22C55E).withValues(alpha: 0.22),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
           ],
         ),
         child: Material(
@@ -5519,7 +5935,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   colors: [
                     Color(0xFF14532D),
                     Color(0xFF15803D),
-                    Color(0xFF22C55E)
+                    Color(0xFF22C55E),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -5533,8 +5949,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.savings_outlined,
-                        color: Colors.white, size: iconSize),
+                    Icon(
+                      Icons.savings_outlined,
+                      color: Colors.white,
+                      size: iconSize,
+                    ),
                     SizedBox(width: dense ? 4 : 6),
                     Flexible(
                       child: FittedBox(
@@ -5582,16 +6001,17 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 colors: [
                   Color(0xFF2563EB),
                   Color(0xFF1D4ED8),
-                  Color(0xFF1E40AF)
+                  Color(0xFF1E40AF),
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               boxShadow: [
                 BoxShadow(
-                    color: const Color(0xFF1E40AF).withValues(alpha: 0.28),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4)),
+                  color: const Color(0xFF1E40AF).withValues(alpha: 0.28),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
               ],
             ),
             child: Padding(
@@ -5599,17 +6019,21 @@ class _FinanceScreenState extends State<FinanceScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.swap_horiz_rounded,
-                      color: Colors.white, size: dense ? 19 : 20),
+                  Icon(
+                    Icons.swap_horiz_rounded,
+                    color: Colors.white,
+                    size: dense ? 19 : 20,
+                  ),
                   SizedBox(width: 6),
                   Flexible(
                     child: Text(
                       'Transferência',
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: fontSize),
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: fontSize,
+                      ),
                     ),
                   ),
                 ],
@@ -5660,8 +6084,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon,
-                  size: 17, color: selected ? accent : context.appTextMuted),
+              Icon(
+                icon,
+                size: 17,
+                color: selected ? accent : context.appTextMuted,
+              ),
               SizedBox(width: 6),
               Text(
                 label,
@@ -5700,7 +6127,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                     colors: [
                       AppColors.deepBlueDark,
                       AppColors.primary,
-                      AppColors.accent
+                      AppColors.accent,
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -5751,23 +6178,27 @@ class _FinanceScreenState extends State<FinanceScreen> {
         if (totalExpense > 0.0001) ...[
           Row(
             children: [
-              Icon(Icons.pie_chart_outline_rounded,
-                  size: 18, color: AppColors.financeDespesa),
+              Icon(
+                Icons.pie_chart_outline_rounded,
+                size: 18,
+                color: AppColors.financeDespesa,
+              ),
               SizedBox(width: 6),
               Expanded(
                 child: Text(
                   'Onde foi o dinheiro (despesas)',
                   style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                      color: context.appTextPrimary),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: context.appTextPrimary,
+                  ),
                 ),
               ),
               TextButton(
                 onPressed: widget.profile.hasActiveLicense
                     ? _openFinanceCategoriesFullscreen
                     : () =>
-                        mostrarAvisoSeLicencaInativa(context, widget.profile),
+                          mostrarAvisoSeLicencaInativa(context, widget.profile),
                 style: TextButton.styleFrom(
                   visualDensity: VisualDensity.compact,
                   minimumSize: const Size(48, 40),
@@ -5820,10 +6251,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
         ],
         FutureBuilder<List<List<Map<String, dynamic>>>>(
           future: Future.wait([
-            FixedExpenseService()
-                .list(widget.uid.trim()),
-            FixedIncomeService()
-                .list(widget.uid.trim()),
+            FixedExpenseService().list(widget.uid.trim()),
+            FixedIncomeService().list(widget.uid.trim()),
           ]),
           builder: (context, snap) {
             if (!snap.hasData) return const SizedBox.shrink();
@@ -5858,18 +6287,24 @@ class _FinanceScreenState extends State<FinanceScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color:
-                            AppColors.financePendente.withValues(alpha: 0.06),
+                        color: AppColors.financePendente.withValues(
+                          alpha: 0.06,
+                        ),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                            color: AppColors.financePendente
-                                .withValues(alpha: 0.28)),
+                          color: AppColors.financePendente.withValues(
+                            alpha: 0.28,
+                          ),
+                        ),
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.home_work_outlined,
-                              color: AppColors.financePendente, size: 22),
+                          Icon(
+                            Icons.home_work_outlined,
+                            color: AppColors.financePendente,
+                            size: 22,
+                          ),
                           SizedBox(width: 10),
                           Expanded(
                             child: Text(
@@ -5898,14 +6333,19 @@ class _FinanceScreenState extends State<FinanceScreen> {
                         color: AppColors.financeReceita.withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                            color: AppColors.financeReceita
-                                .withValues(alpha: 0.35)),
+                          color: AppColors.financeReceita.withValues(
+                            alpha: 0.35,
+                          ),
+                        ),
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.savings_outlined,
-                              color: AppColors.financeReceita, size: 22),
+                          Icon(
+                            Icons.savings_outlined,
+                            color: AppColors.financeReceita,
+                            size: 22,
+                          ),
                           SizedBox(width: 10),
                           Expanded(
                             child: Text(
@@ -5974,11 +6414,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
           balancePeriod: balancePeriod,
           onOpenAssistantPanel: widget.profile.hasActiveLicense
               ? () => _openFinanceAssistantInsightsPage(
-                    docs: docs,
-                    totalIncome: totalIncome,
-                    totalExpense: totalExpense,
-                    balancePeriod: balancePeriod,
-                  )
+                  docs: docs,
+                  totalIncome: totalIncome,
+                  totalExpense: totalExpense,
+                  balancePeriod: balancePeriod,
+                )
               : () => mostrarAvisoSeLicencaInativa(context, widget.profile),
         ),
       ],
@@ -5990,8 +6430,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
   ) {
     if (_gridListTypeFilter == 'all') return docs;
     return docs.where((doc) {
-      final type =
-          (_txDataForMainPeriodDoc(doc)['type'] ?? 'expense').toString();
+      final type = (_txDataForMainPeriodDoc(doc)['type'] ?? 'expense')
+          .toString();
       return type == _gridListTypeFilter;
     }).toList();
   }
@@ -6012,12 +6452,14 @@ class _FinanceScreenState extends State<FinanceScreen> {
       onOpenAssistantPanel: widget.profile.hasActiveLicense
           ? () {
               Navigator.pop(context);
-              unawaited(_openFinanceAssistantInsightsPage(
-                docs: docs,
-                totalIncome: totalIncome,
-                totalExpense: totalExpense,
-                balancePeriod: balancePeriod,
-              ));
+              unawaited(
+                _openFinanceAssistantInsightsPage(
+                  docs: docs,
+                  totalIncome: totalIncome,
+                  totalExpense: totalExpense,
+                  balancePeriod: balancePeriod,
+                ),
+              );
             }
           : () => mostrarAvisoSeLicencaInativa(context, widget.profile),
     );
@@ -6142,20 +6584,36 @@ class _FinanceScreenState extends State<FinanceScreen> {
       child: Row(
         children: [
           _buildGridTypeButton(
-              'all', 'Todos', Icons.layers_rounded, AppColors.deepBlue),
+            'all',
+            'Todos',
+            Icons.layers_rounded,
+            AppColors.deepBlue,
+          ),
           SizedBox(width: 8),
-          _buildGridTypeButton('expense', 'Despesas', Icons.north_east_rounded,
-              AppColors.financeDespesa),
+          _buildGridTypeButton(
+            'expense',
+            'Despesas',
+            Icons.north_east_rounded,
+            AppColors.financeDespesa,
+          ),
           SizedBox(width: 8),
-          _buildGridTypeButton('income', 'Receitas', Icons.south_west_rounded,
-              AppColors.financeReceita),
+          _buildGridTypeButton(
+            'income',
+            'Receitas',
+            Icons.south_west_rounded,
+            AppColors.financeReceita,
+          ),
         ],
       ),
     );
   }
 
   Widget _buildGridTypeButton(
-      String value, String label, IconData icon, Color accent) {
+    String value,
+    String label,
+    IconData icon,
+    Color accent,
+  ) {
     final selected = _gridListTypeFilter == value;
     return Expanded(
       child: Material(
@@ -6186,8 +6644,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 color: selected
                     ? accent.withValues(alpha: 0.55)
                     : (context.isDarkMode
-                        ? context.appTextMuted.withValues(alpha: 0.35)
-                        : const Color(0xFFE2E8F0)),
+                          ? context.appTextMuted.withValues(alpha: 0.35)
+                          : const Color(0xFFE2E8F0)),
                 width: selected ? 1.5 : 1,
               ),
               boxShadow: selected
@@ -6203,9 +6661,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon,
-                    size: 20,
-                    color: selected ? Colors.white : AppColors.textMuted),
+                Icon(
+                  icon,
+                  size: 20,
+                  color: selected ? Colors.white : AppColors.textMuted,
+                ),
                 SizedBox(height: 4),
                 Text(
                   label,
@@ -6225,769 +6685,732 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }
 
   /// Topo de ações/filtros — rola com a lista (paridade Agenda/Compromissos).
-  Widget _buildFinanceTopChrome(BuildContext context, {required bool isNarrow}) {
+  Widget _buildFinanceTopChrome(
+    BuildContext context, {
+    required bool isNarrow,
+  }) {
     return AnimatedCrossFade(
-                  firstChild: Padding(
-                        padding:
-                            EdgeInsets.fromLTRB(12, isNarrow ? 4 : 2, 12, 0),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                children: [
-                                  // Receita | Despesa | Despesas fixas — gradientes e sombras (super premium)
-                                  Row(children: [
-                                    Expanded(
-                                        child: _buildPremiumReceitaButton(
-                                            context,
-                                            dense: false)),
-                                    SizedBox(width: 8),
-                                    Expanded(
-                                        child: _buildPremiumDespesaButton(
-                                            context,
-                                            dense: false)),
-                                  ]),
-                                  SizedBox(height: 8),
-                                  Row(children: [
-                                    Expanded(
-                                        child: _buildDespesasFixasButtonCompact(
-                                            context,
-                                            dense: false)),
-                                    SizedBox(width: 8),
-                                    Expanded(
-                                        child: _buildReceitasFixasButtonCompact(
-                                            context,
-                                            dense: false)),
-                                  ]),
-                                  SizedBox(height: 8),
-                                  _buildTransferenciaButton(context,
-                                      dense: false),
-                                  SizedBox(height: 10),
-                                  Material(
-                                    color: Colors.transparent,
-                                    borderRadius: BorderRadius.circular(16),
-                                    clipBehavior: Clip.antiAlias,
-                                    child: InkWell(
-                                      onTap: widget.profile.hasActiveLicense
-                                          ? () => unawaited(
-                                              _abrirLancamentoInteligente())
-                                          : () => mostrarAvisoSeLicencaInativa(
-                                              context, widget.profile),
-                                      borderRadius: BorderRadius.circular(16),
-                                      child: Ink(
-                                        decoration: BoxDecoration(
-                                          borderRadius:
-                                              BorderRadius.circular(16),
-                                          gradient: const LinearGradient(
-                                            begin: Alignment.centerLeft,
-                                            end: Alignment.centerRight,
-                                            colors: [
-                                              AppColors.deepBlueDark,
-                                              AppColors.deepBlue,
-                                              AppColors.primary
-                                            ],
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: AppColors.primary
-                                                  .withValues(alpha: 0.35),
-                                              blurRadius: 14,
-                                              offset: const Offset(0, 5),
-                                            ),
-                                          ],
-                                        ),
-                                        child: Padding(
-                                          padding: EdgeInsets.symmetric(
-                                              vertical: 13, horizontal: 12),
-                                          child: Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            children: [
-                                              Icon(
-                                                  Icons
-                                                      .content_paste_go_rounded,
-                                                  size: 22,
-                                                  color: Colors.white),
-                                              SizedBox(width: 8),
-                                              Flexible(
-                                                child: Text(
-                                                  'Lançamento inteligente (texto / SMS)',
-                                                  textAlign: TextAlign.center,
-                                                  maxLines: 2,
-                                                  style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.w800,
-                                                    fontSize: 13.5,
-                                                    height: 1.2,
-                                                    letterSpacing: 0.1,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  SizedBox(height: 10),
-                                  // Filtros: só período/status/pesquisa; barra compacta do topo usa ícone à direita
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
-                                      Expanded(
-                                        child: Material(
-                                          color: Colors.transparent,
-                                          child: InkWell(
-                                            onTap: () => setState(() =>
-                                                _filtrosPainelAberto =
-                                                    !_filtrosPainelAberto),
-                                            borderRadius:
-                                                BorderRadius.circular(16),
-                                            child: Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      vertical: 12,
-                                                      horizontal: 14),
-                                              decoration: context.isDarkMode
-                                                  ? context.appPanelDecoration(
-                                                      radius: 16,
-                                                      borderAccent:
-                                                          AppColors.primary,
-                                                    )
-                                                  : BoxDecoration(
-                                                      color: Colors.white,
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              16),
-                                                      border: Border.all(
-                                                          color: AppColors
-                                                              .primary
-                                                              .withValues(
-                                                                  alpha: 0.12)),
-                                                      boxShadow: [
-                                                        BoxShadow(
-                                                          color: AppColors
-                                                              .deepBlueDark
-                                                              .withValues(
-                                                                  alpha: 0.07),
-                                                          blurRadius: 16,
-                                                          offset: const Offset(
-                                                              0, 6),
-                                                        ),
-                                                        BoxShadow(
-                                                          color: Colors.black
-                                                              .withValues(
-                                                                  alpha: 0.04),
-                                                          blurRadius: 8,
-                                                          offset: const Offset(
-                                                              0, 2),
-                                                        ),
-                                                      ],
-                                                    ),
-                                              child: Row(
-                                                children: [
-                                                  Container(
-                                                    padding:
-                                                        const EdgeInsets.all(8),
-                                                    decoration: BoxDecoration(
-                                                      gradient: LinearGradient(
-                                                        colors: [
-                                                          AppColors.primary
-                                                              .withValues(
-                                                                  alpha: 0.15),
-                                                          AppColors.accent
-                                                              .withValues(
-                                                                  alpha: 0.12),
-                                                        ],
-                                                        begin:
-                                                            Alignment.topLeft,
-                                                        end: Alignment
-                                                            .bottomRight,
-                                                      ),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              12),
-                                                    ),
-                                                    child: Icon(
-                                                      _filtrosPainelAberto
-                                                          ? Icons.tune_rounded
-                                                          : Icons
-                                                              .filter_alt_rounded,
-                                                      color: AppColors.primary,
-                                                      size: 22,
-                                                    ),
-                                                  ),
-                                                  SizedBox(width: 12),
-                                                  Expanded(
-                                                    child: Text(
-                                                      _filtrosPainelAberto
-                                                          ? 'Recolher filtros'
-                                                          : 'Filtros e pesquisa',
-                                                      style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.w800,
-                                                          color: context
-                                                              .appTextPrimary,
-                                                          fontSize: 14,
-                                                          letterSpacing: 0.1),
-                                                    ),
-                                                  ),
-                                                  Icon(
-                                                    _filtrosPainelAberto
-                                                        ? Icons
-                                                            .expand_less_rounded
-                                                        : Icons
-                                                            .expand_more_rounded,
-                                                    color: AppColors.primary
-                                                        .withValues(
-                                                            alpha: 0.85),
-                                                    size: 22,
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      SizedBox(width: 6),
-                                      Tooltip(
-                                        message:
-                                            'Modo compacto (mais espaço para a lista)',
-                                        child: IconButton.filledTonal(
-                                          onPressed: () => setState(() {
-                                            _topoExpandido = false;
-                                            _filtrosPainelAberto = false;
-                                          }),
-                                          icon: Icon(Icons.unfold_less_rounded,
-                                              size: 22),
-                                          style: IconButton.styleFrom(
-                                            foregroundColor: AppColors.primary,
-                                            backgroundColor: AppColors.primary
-                                                .withValues(alpha: 0.12),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  if (_filtrosPainelAberto) ...[
-                                    SizedBox(height: 12),
-                                    Container(
-                                      padding: const EdgeInsets.fromLTRB(
-                                          14, 14, 14, 12),
-                                      decoration: context.appPanelDecoration(
-                                          radius: 18,
-                                          borderAccent: AppColors.primary),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Icon(Icons.date_range_rounded,
-                                                  size: 18,
-                                                  color: AppColors.accent
-                                                      .withValues(alpha: 0.95)),
-                                              SizedBox(width: 8),
-                                              Text(
-                                                'Período',
-                                                style: TextStyle(
-                                                    fontSize: 13,
-                                                    fontWeight: FontWeight.w900,
-                                                    color:
-                                                        context.appTextPrimary,
-                                                    letterSpacing: 0.2),
-                                              ),
-                                            ],
-                                          ),
-                                          SizedBox(height: 10),
-                                          Wrap(
-                                            spacing: 8,
-                                            runSpacing: 8,
-                                            children: _periods.map((p) {
-                                              return _financePeriodChip(
-                                                period: p,
-                                                selected: _selectedPeriod == p,
-                                                onSelect: () {
-                                                  setState(() {
-                                                    _selectedPeriod = p;
-                                                    if (p == 'Por período' &&
-                                                        _customRangeStart ==
-                                                            null) {
-                                                      _customRangeStart =
-                                                          DateTime(
-                                                              DateTime.now()
-                                                                  .year,
-                                                              DateTime.now()
-                                                                  .month,
-                                                              1);
-                                                      _customRangeEnd =
-                                                          DateTime.now();
-                                                    }
-                                                    _applyPeriod();
-                                                  });
-                                                },
-                                              );
-                                            }).toList(),
-                                          ),
-                                          if (_selectedPeriod ==
-                                              'Por período') ...[
-                                            SizedBox(height: 12),
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: FilledButton.tonalIcon(
-                                                    onPressed: () async {
-                                                      final picked =
-                                                          await showDatePicker(
-                                                              context: context,
-                                                              initialDate:
-                                                                  _customRangeStart ??
-                                                                      _from,
-                                                              firstDate:
-                                                                  DateTime(
-                                                                      2000),
-                                                              lastDate:
-                                                                  DateTime(
-                                                                      2030));
-                                                      if (picked != null &&
-                                                          mounted) {
-                                                        setState(() {
-                                                          _customRangeStart =
-                                                              picked;
-                                                          _applyPeriod();
-                                                        });
-                                                      }
-                                                    },
-                                                    icon: Icon(
-                                                        Icons
-                                                            .calendar_today_rounded,
-                                                        size: 18),
-                                                    label: Text(
-                                                        'De ${DateFormat('dd/MM/yy').format(_customRangeStart ?? _from)}',
-                                                        style: const TextStyle(
-                                                            fontSize: 12,
-                                                            fontWeight:
-                                                                FontWeight
-                                                                    .w700)),
-                                                    style:
-                                                        FilledButton.styleFrom(
-                                                      foregroundColor:
-                                                          AppColors.primary,
-                                                      backgroundColor: AppColors
-                                                          .primary
-                                                          .withValues(
-                                                              alpha: 0.1),
-                                                      padding: const EdgeInsets
-                                                          .symmetric(
-                                                          vertical: 12,
-                                                          horizontal: 8),
-                                                      shape:
-                                                          RoundedRectangleBorder(
-                                                              borderRadius:
-                                                                  BorderRadius
-                                                                      .circular(
-                                                                          14)),
-                                                    ),
-                                                  ),
-                                                ),
-                                                SizedBox(width: 8),
-                                                Expanded(
-                                                  child: FilledButton.tonalIcon(
-                                                    onPressed: () async {
-                                                      final picked =
-                                                          await showDatePicker(
-                                                              context: context,
-                                                              initialDate:
-                                                                  _customRangeEnd ??
-                                                                      _to,
-                                                              firstDate:
-                                                                  _customRangeStart ??
-                                                                      DateTime(
-                                                                          2000),
-                                                              lastDate:
-                                                                  DateTime(
-                                                                      2030));
-                                                      if (picked != null &&
-                                                          mounted) {
-                                                        setState(() {
-                                                          _customRangeEnd =
-                                                              picked;
-                                                          _applyPeriod();
-                                                        });
-                                                      }
-                                                    },
-                                                    icon: Icon(
-                                                        Icons.event_rounded,
-                                                        size: 18),
-                                                    label: Text(
-                                                        'Até ${DateFormat('dd/MM/yy').format(_customRangeEnd ?? _to)}',
-                                                        style: const TextStyle(
-                                                            fontSize: 12,
-                                                            fontWeight:
-                                                                FontWeight
-                                                                    .w700)),
-                                                    style:
-                                                        FilledButton.styleFrom(
-                                                      foregroundColor:
-                                                          AppColors.primary,
-                                                      backgroundColor: AppColors
-                                                          .primary
-                                                          .withValues(
-                                                              alpha: 0.1),
-                                                      padding: const EdgeInsets
-                                                          .symmetric(
-                                                          vertical: 12,
-                                                          horizontal: 8),
-                                                      shape:
-                                                          RoundedRectangleBorder(
-                                                              borderRadius:
-                                                                  BorderRadius
-                                                                      .circular(
-                                                                          14)),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                    SizedBox(height: 12),
-                                    RepaintBoundary(
-                                      child: LightFilterPicker<String>(
-                                        value: _statusFilter,
-                                        decoration:
-                                            _financeFilterDropdownDecoration(
-                                                'Status do lançamento',
-                                                Icons.filter_list_rounded),
-                                        label: 'Status do lançamento',
-                                        options: const [
-                                          LightFilterOption(
-                                              value: 'all',
-                                              label: 'Todos os status'),
-                                          LightFilterOption(
-                                              value: 'paid', label: 'Pago'),
-                                          LightFilterOption(
-                                              value: 'pending',
-                                              label: 'Pendente'),
-                                        ],
-                                        onChanged: (v) {
-                                          setState(() {
-                                            _statusFilter = v;
-                                            _resetTxPagination();
-                                          });
-                                          _requestMainPeriodReload();
-                                        },
-                                      ),
-                                    ),
-                                    SizedBox(height: 12),
-                                    RepaintBoundary(
-                                      child: Builder(
-                                        builder: (context) {
-                                          final accountFilterValid =
-                                              _financeAccountFilterId == null ||
-                                                  _financeAccounts.any((a) =>
-                                                      a.id ==
-                                                      _financeAccountFilterId);
-                                          final accountValue =
-                                              accountFilterValid
-                                                  ? _financeAccountFilterId
-                                                  : null;
-                                          final loadingAccounts =
-                                              !_financeAccountsStreamPrimed &&
-                                                  _financeAccounts.isEmpty;
-                                          return LightFilterPicker<String?>(
-                                            key: ValueKey<String?>(
-                                                'acct-$accountValue-${_financeAccounts.length}'),
-                                            value: accountValue,
-                                            enabled: !loadingAccounts,
-                                            label: 'Conta (banco ou cartão)',
-                                            decoration:
-                                                _financeFilterDropdownDecoration(
-                                                    'Conta (banco ou cartão)',
-                                                    Icons
-                                                        .account_balance_rounded),
-                                            options: [
-                                              const LightFilterOption<String?>(
-                                                value: null,
-                                                label: 'Todas as contas',
-                                              ),
-                                              if (loadingAccounts)
-                                                const LightFilterOption<
-                                                    String?>(
-                                                  enabled: false,
-                                                  value: '__loading__',
-                                                  label: 'A carregar contas…',
-                                                )
-                                              else
-                                                ..._financeAccounts.map(
-                                                  (a) => LightFilterOption<
-                                                      String?>(
-                                                    value: a.id,
-                                                    label: a.displayName,
-                                                  ),
-                                                ),
-                                            ],
-                                            onChanged: (v) {
-                                              if (v == '__loading__') return;
-                                              _applyFinanceAccountFilter(v);
-                                            },
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                    if (_financeAccountsStreamPrimed &&
-                                        _financeAccounts.isEmpty) ...[
-                                      SizedBox(height: 6),
-                                      Text(
-                                        'Sem contas cadastradas. Use Bancos e cartões para criar contas e filtrar por banco aqui.',
-                                        style: TextStyle(
-                                            fontSize: 11.5,
-                                            color: context.appTextMuted,
-                                            height: 1.35),
-                                      ),
-                                    ],
-                                    SizedBox(height: 12),
-                                    RepaintBoundary(
-                                      child: LightFilterPicker<String>(
-                                        value: _typeFilter,
-                                        label: 'Tipo de lançamento',
-                                        decoration:
-                                            _financeFilterDropdownDecoration(
-                                                'Tipo de lançamento',
-                                                Icons.swap_vert_rounded),
-                                        options: const [
-                                          LightFilterOption(
-                                              value: 'all',
-                                              label: 'Receitas e despesas'),
-                                          LightFilterOption(
-                                              value: 'income',
-                                              label: 'Só receitas'),
-                                          LightFilterOption(
-                                              value: 'expense',
-                                              label: 'Só despesas'),
-                                        ],
-                                        onChanged: (v) {
-                                          setState(() {
-                                            _typeFilter = v;
-                                            _resetTxPagination();
-                                          });
-                                          _requestMainPeriodReload();
-                                        },
-                                      ),
-                                    ),
-                                    SizedBox(height: 12),
-                                    FutureBuilder<List<String>>(
-                                      future: _categoryFilterOptionsFuture,
-                                      builder: (context, catSnap) {
-                                        final loading =
-                                            catSnap.connectionState ==
-                                                    ConnectionState.waiting &&
-                                                !catSnap.hasData;
-                                        String? displayCategory =
-                                            _categoryFilter;
-                                        if (_categoryFilter != null &&
-                                            catSnap.hasData) {
-                                          for (final o in catSnap.data!) {
-                                            if (FinanceCategoryMerger
-                                                .sameCategoryGroup(
-                                                    o, _categoryFilter!)) {
-                                              displayCategory = o;
-                                              break;
-                                            }
-                                          }
-                                        }
-                                        return FinanceCategoryFilterTile(
-                                          selectedCategory: displayCategory,
-                                          loading: loading,
-                                          onTap: _openCategoryFilterPicker,
-                                          onClear: _categoryFilter == null
-                                              ? null
-                                              : () => setState(() {
-                                                    _categoryFilter = null;
-                                                    _resetTxPagination();
-                                                  }),
-                                        );
-                                      },
-                                    ),
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ],
+      firstChild: Padding(
+        padding: EdgeInsets.fromLTRB(12, isNarrow ? 4 : 2, 12, 0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  // Receita | Despesa | Despesas fixas — gradientes e sombras (super premium)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildPremiumReceitaButton(
+                          context,
+                          dense: false,
                         ),
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: _buildPremiumDespesaButton(
+                          context,
+                          dense: false,
+                        ),
+                      ),
+                    ],
                   ),
-                  secondChild: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                                child: _buildPremiumReceitaButton(context,
-                                    dense: true)),
-                            SizedBox(width: 8),
-                            Expanded(
-                                child: _buildPremiumDespesaButton(context,
-                                    dense: true)),
-                          ],
+                  SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildDespesasFixasButtonCompact(
+                          context,
+                          dense: false,
                         ),
-                        SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                                child: _buildDespesasFixasButtonCompact(context,
-                                    dense: true)),
-                            SizedBox(width: 8),
-                            Expanded(
-                                child: _buildReceitasFixasButtonCompact(context,
-                                    dense: true)),
-                            SizedBox(width: 6),
-                            Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () => setState(() {
-                                  _topoExpandido = true;
-                                  _filtrosPainelAberto = true;
-                                }),
-                                borderRadius: BorderRadius.circular(14),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      vertical: 10, horizontal: 12),
-                                  decoration: context.isDarkMode
-                                      ? context.appPanelDecoration(
-                                          radius: 14,
-                                          borderAccent: AppColors.primary,
-                                        )
-                                      : BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius:
-                                              BorderRadius.circular(14),
-                                          border: Border.all(
-                                              color: AppColors.primary
-                                                  .withValues(alpha: 0.12)),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: AppColors.deepBlueDark
-                                                  .withValues(alpha: 0.08),
-                                              blurRadius: 14,
-                                              offset: const Offset(0, 6),
-                                            ),
-                                          ],
-                                        ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(6),
-                                        decoration: BoxDecoration(
-                                          gradient: LinearGradient(
-                                            colors: [
-                                              AppColors.primary
-                                                  .withValues(alpha: 0.85),
-                                              AppColors.accent
-                                                  .withValues(alpha: 0.9),
-                                            ],
-                                            begin: Alignment.topLeft,
-                                            end: Alignment.bottomRight,
-                                          ),
-                                          borderRadius:
-                                              BorderRadius.circular(10),
-                                        ),
-                                        child: Icon(Icons.tune_rounded,
-                                            color: Colors.white, size: 18),
-                                      ),
-                                      SizedBox(width: 8),
-                                      Text(
-                                        'Filtros',
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.w900,
-                                            color: AppColors.primary,
-                                            fontSize: 12,
-                                            letterSpacing: 0.2),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: _buildReceitasFixasButtonCompact(
+                          context,
+                          dense: false,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 8),
+                  _buildTransferenciaButton(context, dense: false),
+                  SizedBox(height: 10),
+                  Material(
+                    color: Colors.transparent,
+                    borderRadius: BorderRadius.circular(16),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: widget.profile.hasActiveLicense
+                          ? () => unawaited(_abrirLancamentoInteligente())
+                          : () => mostrarAvisoSeLicencaInativa(
+                              context,
+                              widget.profile,
+                            ),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Ink(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          gradient: const LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            colors: [
+                              AppColors.deepBlueDark,
+                              AppColors.deepBlue,
+                              AppColors.primary,
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.primary.withValues(alpha: 0.35),
+                              blurRadius: 14,
+                              offset: const Offset(0, 5),
                             ),
                           ],
                         ),
-                        SizedBox(height: 8),
-                        _buildTransferenciaButton(context, dense: true),
-                        SizedBox(height: 8),
-                        Material(
-                          color: Colors.transparent,
-                          borderRadius: BorderRadius.circular(16),
-                          clipBehavior: Clip.antiAlias,
-                          child: InkWell(
-                            onTap: widget.profile.hasActiveLicense
-                                ? () => unawaited(_abrirLancamentoInteligente())
-                                : () => mostrarAvisoSeLicencaInativa(
-                                    context, widget.profile),
-                            borderRadius: BorderRadius.circular(16),
-                            child: Ink(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(16),
-                                gradient: const LinearGradient(
-                                  begin: Alignment.centerLeft,
-                                  end: Alignment.centerRight,
-                                  colors: [
-                                    AppColors.deepBlueDark,
-                                    AppColors.deepBlue,
-                                    AppColors.primary
-                                  ],
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            vertical: 13,
+                            horizontal: 12,
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.content_paste_go_rounded,
+                                size: 22,
+                                color: Colors.white,
+                              ),
+                              SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  'Lançamento inteligente (texto / SMS)',
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13.5,
+                                    height: 1.2,
+                                    letterSpacing: 0.1,
+                                  ),
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AppColors.primary
-                                        .withValues(alpha: 0.32),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: 10),
+                  // Filtros: só período/status/pesquisa; barra compacta do topo usa ícone à direita
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () => setState(
+                              () =>
+                                  _filtrosPainelAberto = !_filtrosPainelAberto,
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 12,
+                                horizontal: 14,
+                              ),
+                              decoration: context.isDarkMode
+                                  ? context.appPanelDecoration(
+                                      radius: 16,
+                                      borderAccent: AppColors.primary,
+                                    )
+                                  : BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(16),
+                                      border: Border.all(
+                                        color: AppColors.primary.withValues(
+                                          alpha: 0.12,
+                                        ),
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: AppColors.deepBlueDark
+                                              .withValues(alpha: 0.07),
+                                          blurRadius: 16,
+                                          offset: const Offset(0, 6),
+                                        ),
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.04,
+                                          ),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
+                                    ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          AppColors.primary.withValues(
+                                            alpha: 0.15,
+                                          ),
+                                          AppColors.accent.withValues(
+                                            alpha: 0.12,
+                                          ),
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(
+                                      _filtrosPainelAberto
+                                          ? Icons.tune_rounded
+                                          : Icons.filter_alt_rounded,
+                                      color: AppColors.primary,
+                                      size: 22,
+                                    ),
+                                  ),
+                                  SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      _filtrosPainelAberto
+                                          ? 'Recolher filtros'
+                                          : 'Filtros e pesquisa',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        color: context.appTextPrimary,
+                                        fontSize: 14,
+                                        letterSpacing: 0.1,
+                                      ),
+                                    ),
+                                  ),
+                                  Icon(
+                                    _filtrosPainelAberto
+                                        ? Icons.expand_less_rounded
+                                        : Icons.expand_more_rounded,
+                                    color: AppColors.primary.withValues(
+                                      alpha: 0.85,
+                                    ),
+                                    size: 22,
                                   ),
                                 ],
                               ),
-                              child: Padding(
-                                padding: EdgeInsets.symmetric(
-                                    vertical: 12, horizontal: 12),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.sms_outlined,
-                                        size: 22, color: Colors.white),
-                                    SizedBox(width: 8),
-                                    Flexible(
-                                      child: Text(
-                                        'Lançamento por mensagem (SMS / banco)',
-                                        textAlign: TextAlign.center,
-                                        maxLines: 2,
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 13,
-                                          height: 1.2,
-                                          letterSpacing: 0.1,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: 6),
+                      Tooltip(
+                        message:
+                            'Modo compacto (mais espaço para a lista)',
+                        child: IconButton.filledTonal(
+                          onPressed: () => setState(() {
+                            _topoExpandido = false;
+                            _filtrosPainelAberto = false;
+                          }),
+                          icon: Icon(Icons.unfold_less_rounded, size: 22),
+                          style: IconButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            backgroundColor: AppColors.primary.withValues(
+                              alpha: 0.12,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_filtrosPainelAberto) ...[
+                    SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+                      decoration: context.appPanelDecoration(
+                        radius: 18,
+                        borderAccent: AppColors.primary,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.date_range_rounded,
+                                size: 18,
+                                color: AppColors.accent.withValues(alpha: 0.95),
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                'Período',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w900,
+                                  color: context.appTextPrimary,
+                                  letterSpacing: 0.2,
                                 ),
                               ),
+                            ],
+                          ),
+                          SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _periods.map((p) {
+                              return _financePeriodChip(
+                                period: p,
+                                selected: _selectedPeriod == p,
+                                onSelect: () {
+                                  setState(() {
+                                    _selectedPeriod = p;
+                                    if (p == 'Por período' &&
+                                        _customRangeStart == null) {
+                                      _customRangeStart = DateTime(
+                                        DateTime.now().year,
+                                        DateTime.now().month,
+                                        1,
+                                      );
+                                      _customRangeEnd = DateTime.now();
+                                    }
+                                    _applyPeriod();
+                                  });
+                                },
+                              );
+                            }).toList(),
+                          ),
+                          if (_selectedPeriod == 'Por período') ...[
+                            SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: FilledButton.tonalIcon(
+                                    onPressed: () async {
+                                      final picked = await showDatePicker(
+                                        context: context,
+                                        initialDate: _customRangeStart ?? _from,
+                                        firstDate: DateTime(2000),
+                                        lastDate: DateTime(2030),
+                                      );
+                                      if (picked != null && mounted) {
+                                        setState(() {
+                                          _customRangeStart = picked;
+                                          _applyPeriod();
+                                        });
+                                      }
+                                    },
+                                    icon: Icon(
+                                      Icons.calendar_today_rounded,
+                                      size: 18,
+                                    ),
+                                    label: Text(
+                                      'De ${DateFormat('dd/MM/yy').format(_customRangeStart ?? _from)}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    style: FilledButton.styleFrom(
+                                      foregroundColor: AppColors.primary,
+                                      backgroundColor: AppColors.primary
+                                          .withValues(alpha: 0.1),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                        horizontal: 8,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: FilledButton.tonalIcon(
+                                    onPressed: () async {
+                                      final picked = await showDatePicker(
+                                        context: context,
+                                        initialDate: _customRangeEnd ?? _to,
+                                        firstDate:
+                                            _customRangeStart ?? DateTime(2000),
+                                        lastDate: DateTime(2030),
+                                      );
+                                      if (picked != null && mounted) {
+                                        setState(() {
+                                          _customRangeEnd = picked;
+                                          _applyPeriod();
+                                        });
+                                      }
+                                    },
+                                    icon: Icon(Icons.event_rounded, size: 18),
+                                    label: Text(
+                                      'Até ${DateFormat('dd/MM/yy').format(_customRangeEnd ?? _to)}',
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    style: FilledButton.styleFrom(
+                                      foregroundColor: AppColors.primary,
+                                      backgroundColor: AppColors.primary
+                                          .withValues(alpha: 0.1),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                        horizontal: 8,
+                                      ),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    RepaintBoundary(
+                      child: LightFilterPicker<String>(
+                        value: _statusFilter,
+                        decoration: _financeFilterDropdownDecoration(
+                          'Status do lançamento',
+                          Icons.filter_list_rounded,
+                        ),
+                        label: 'Status do lançamento',
+                        options: const [
+                          LightFilterOption(
+                            value: 'all',
+                            label: 'Todos os status',
+                          ),
+                          LightFilterOption(value: 'paid', label: 'Pago'),
+                          LightFilterOption(
+                            value: 'pending',
+                            label: 'Pendente',
+                          ),
+                        ],
+                        onChanged: (v) {
+                          setState(() {
+                            _statusFilter = v;
+                            _resetTxPagination();
+                          });
+                          _requestMainPeriodReload();
+                        },
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    RepaintBoundary(
+                      child: Builder(
+                        builder: (context) {
+                          final accountFilterValid =
+                              _financeAccountFilterId == null ||
+                              _financeAccounts.any(
+                                (a) => a.id == _financeAccountFilterId,
+                              );
+                          final accountValue = accountFilterValid
+                              ? _financeAccountFilterId
+                              : null;
+                          final loadingAccounts =
+                              !_financeAccountsStreamPrimed &&
+                              _financeAccounts.isEmpty;
+                          return LightFilterPicker<String?>(
+                            key: ValueKey<String?>(
+                              'acct-$accountValue-${_financeAccounts.length}',
+                            ),
+                            value: accountValue,
+                            enabled: !loadingAccounts,
+                            label: 'Conta (banco ou cartão)',
+                            decoration: _financeFilterDropdownDecoration(
+                              'Conta (banco ou cartão)',
+                              Icons.account_balance_rounded,
+                            ),
+                            options: [
+                              const LightFilterOption<String?>(
+                                value: null,
+                                label: 'Todas as contas',
+                              ),
+                              if (loadingAccounts)
+                                const LightFilterOption<String?>(
+                                  enabled: false,
+                                  value: '__loading__',
+                                  label:
+                                      'A carregar contas…',
+                                )
+                              else
+                                ..._financeAccounts.map(
+                                  (a) => LightFilterOption<String?>(
+                                    value: a.id,
+                                    label: a.displayName,
+                                  ),
+                                ),
+                            ],
+                            onChanged: (v) {
+                              if (v == '__loading__') return;
+                              _applyFinanceAccountFilter(v);
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                    if (_financeAccountsStreamPrimed &&
+                        _financeAccounts.isEmpty) ...[
+                      SizedBox(height: 6),
+                      Text(
+                        'Sem contas cadastradas. Use Bancos e cartões para criar contas e filtrar por banco aqui.',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: context.appTextMuted,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                    SizedBox(height: 12),
+                    RepaintBoundary(
+                      child: LightFilterPicker<String>(
+                        value: _typeFilter,
+                        label: 'Tipo de lançamento',
+                        decoration: _financeFilterDropdownDecoration(
+                          'Tipo de lançamento',
+                          Icons.swap_vert_rounded,
+                        ),
+                        options: const [
+                          LightFilterOption(
+                            value: 'all',
+                            label: 'Receitas e despesas',
+                          ),
+                          LightFilterOption(
+                            value: 'income',
+                            label: 'Só receitas',
+                          ),
+                          LightFilterOption(
+                            value: 'expense',
+                            label: 'Só despesas',
+                          ),
+                        ],
+                        onChanged: (v) {
+                          setState(() {
+                            _typeFilter = v;
+                            _resetTxPagination();
+                          });
+                          _requestMainPeriodReload();
+                        },
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    FutureBuilder<List<String>>(
+                      future: _categoryFilterOptionsFuture,
+                      builder: (context, catSnap) {
+                        final loading =
+                            catSnap.connectionState ==
+                                ConnectionState.waiting &&
+                            !catSnap.hasData;
+                        String? displayCategory = _categoryFilter;
+                        if (_categoryFilter != null && catSnap.hasData) {
+                          for (final o in catSnap.data!) {
+                            if (FinanceCategoryMerger.sameCategoryGroup(
+                              o,
+                              _categoryFilter!,
+                            )) {
+                              displayCategory = o;
+                              break;
+                            }
+                          }
+                        }
+                        return FinanceCategoryFilterTile(
+                          selectedCategory: displayCategory,
+                          loading: loading,
+                          onTap: _openCategoryFilterPicker,
+                          onClear: _categoryFilter == null
+                              ? null
+                              : () => setState(() {
+                                  _categoryFilter = null;
+                                  _resetTxPagination();
+                                }),
+                        );
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      secondChild: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _buildPremiumReceitaButton(context, dense: true),
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: _buildPremiumDespesaButton(context, dense: true),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildDespesasFixasButtonCompact(context, dense: true),
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: _buildReceitasFixasButtonCompact(context, dense: true),
+                ),
+                SizedBox(width: 6),
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => setState(() {
+                      _topoExpandido = true;
+                      _filtrosPainelAberto = true;
+                    }),
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 12,
+                      ),
+                      decoration: context.isDarkMode
+                          ? context.appPanelDecoration(
+                              radius: 14,
+                              borderAccent: AppColors.primary,
+                            )
+                          : BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.12,
+                                ),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.deepBlueDark.withValues(
+                                    alpha: 0.08,
+                                  ),
+                                  blurRadius: 14,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ],
+                            ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  AppColors.primary.withValues(alpha: 0.85),
+                                  AppColors.accent.withValues(alpha: 0.9),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Icon(
+                              Icons.tune_rounded,
+                              color: Colors.white,
+                              size: 18,
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Filtros',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w900,
+                              color: AppColors.primary,
+                              fontSize: 12,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: 8),
+            _buildTransferenciaButton(context, dense: true),
+            SizedBox(height: 8),
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: widget.profile.hasActiveLicense
+                    ? () => unawaited(_abrirLancamentoInteligente())
+                    : () =>
+                          mostrarAvisoSeLicencaInativa(context, widget.profile),
+                borderRadius: BorderRadius.circular(16),
+                child: Ink(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    gradient: const LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        AppColors.deepBlueDark,
+                        AppColors.deepBlue,
+                        AppColors.primary,
+                      ],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primary.withValues(alpha: 0.32),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.sms_outlined, size: 22, color: Colors.white),
+                        SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            'Lançamento por mensagem (SMS / banco)',
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 13,
+                              height: 1.2,
+                              letterSpacing: 0.1,
                             ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  crossFadeState: _topoExpandido
-                      ? CrossFadeState.showFirst
-                      : CrossFadeState.showSecond,
-                  duration: const Duration(milliseconds: 250),
-                );
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      crossFadeState: _topoExpandido
+          ? CrossFadeState.showFirst
+          : CrossFadeState.showSecond,
+      duration: const Duration(milliseconds: 250),
+    );
   }
 
   @override
@@ -7002,8 +7425,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
     final String? sessionUid = _effectiveFinanceSessionUid;
 
     final mq = MediaQuery.of(context);
-    final clampedScaler =
-        mq.textScaler.clamp(minScaleFactor: 0.88, maxScaleFactor: 1.34);
+    final clampedScaler = mq.textScaler.clamp(
+      minScaleFactor: 0.88,
+      maxScaleFactor: 1.34,
+    );
 
     return PopScope(
       canPop: _financeAccountFilterId == null,
@@ -7059,1015 +7484,1119 @@ class _FinanceScreenState extends State<FinanceScreen> {
                     ],
                   );
                 }
-                      return KeyedSubtree(
-                        key: ValueKey(
-                          'txlist_${_txStreamRetryKey}_${_from.millisecondsSinceEpoch}_${_to.millisecondsSinceEpoch}_$_statusFilter|$_typeFilter|${_categoryFilter ?? ''}|${_financeAccountFilterId ?? ''}',
-                        ),
-                        child: Builder(
-                          builder: (context) {
-                            if (_mainPeriodLoadError != null) {
-                              return Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(24),
-                                  child: SingleChildScrollView(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.error_outline_rounded,
-                                            size: 48,
-                                            color: Colors.orange.shade700),
-                                        SizedBox(height: 16),
-                                        Text(
-                                          'Erro ao carregar lançamentos.',
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w600),
+                return KeyedSubtree(
+                  key: ValueKey(
+                    'txlist_${_txStreamRetryKey}_${_from.millisecondsSinceEpoch}_${_to.millisecondsSinceEpoch}_$_statusFilter|$_typeFilter|${_categoryFilter ?? ''}|${_financeAccountFilterId ?? ''}',
+                  ),
+                  child: Builder(
+                    builder: (context) {
+                      if (_mainPeriodLoadError != null) {
+                        return Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.error_outline_rounded,
+                                    size: 48,
+                                    color: Colors.orange.shade700,
+                                  ),
+                                  SizedBox(height: 16),
+                                  Text(
+                                    'Erro ao carregar lançamentos.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  SizedBox(height: 8),
+                                  Text(
+                                    'Os seus dados não foram apagados. Isto costuma ser rede, sessão ou o filtro a esconder movimentos. '
+                                    'Use "Filtro Todos" (estado) e o botão de tentar de novo para recarregar a lista.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: context.appTextSecondary,
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                  SizedBox(height: 14),
+                                  Container(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 480,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade100,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: Colors.grey.shade300,
+                                      ),
+                                    ),
+                                    child: Theme(
+                                      data: Theme.of(context).copyWith(
+                                        dividerColor: Colors.transparent,
+                                      ),
+                                      child: ExpansionTile(
+                                        tilePadding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
                                         ),
-                                        SizedBox(height: 8),
-                                        Text(
-                                          'Os seus dados não foram apagados. Isto costuma ser rede, sessão ou o filtro a esconder movimentos. '
-                                          'Use "Filtro Todos" (estado) e o botão de tentar de novo para recarregar a lista.',
-                                          textAlign: TextAlign.center,
+                                        childrenPadding:
+                                            const EdgeInsets.fromLTRB(
+                                              12,
+                                              0,
+                                              12,
+                                              12,
+                                            ),
+                                        title: Text(
+                                          'Mostrar detalhe técnico (para o suporte)',
                                           style: TextStyle(
-                                              fontSize: 13,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        children: [
+                                          SelectableText(
+                                            _mainPeriodLoadError.toString(),
+                                            style: TextStyle(
+                                              fontSize: 11,
                                               color: context.appTextSecondary,
-                                              height: 1.35),
-                                        ),
-                                        SizedBox(height: 14),
-                                        Container(
-                                          constraints: const BoxConstraints(
-                                              maxWidth: 480),
-                                          decoration: BoxDecoration(
-                                            color: Colors.grey.shade100,
-                                            borderRadius:
-                                                BorderRadius.circular(10),
-                                            border: Border.all(
-                                                color: Colors.grey.shade300),
-                                          ),
-                                          child: Theme(
-                                            data: Theme.of(context).copyWith(
-                                                dividerColor:
-                                                    Colors.transparent),
-                                            child: ExpansionTile(
-                                              tilePadding:
-                                                  const EdgeInsets.symmetric(
-                                                      horizontal: 12),
-                                              childrenPadding:
-                                                  const EdgeInsets.fromLTRB(
-                                                      12, 0, 12, 12),
-                                              title: Text(
-                                                'Mostrar detalhe técnico (para o suporte)',
-                                                style: TextStyle(
-                                                    fontSize: 12,
-                                                    fontWeight:
-                                                        FontWeight.w600),
-                                              ),
-                                              children: [
-                                                SelectableText(
-                                                  _mainPeriodLoadError
-                                                      .toString(),
-                                                  style: TextStyle(
-                                                    fontSize: 11,
-                                                    color: context
-                                                        .appTextSecondary,
-                                                    fontFamily: 'monospace',
-                                                  ),
-                                                ),
-                                              ],
+                                              fontFamily: 'monospace',
                                             ),
                                           ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(height: 20),
+                                  Wrap(
+                                    spacing: 12,
+                                    runSpacing: 12,
+                                    alignment: WrapAlignment.center,
+                                    children: [
+                                      FilledButton.icon(
+                                        onPressed: () => setState(() {
+                                          _statusFilter = 'all';
+                                          _resetTxPagination();
+                                          _txStreamRetryKey++;
+                                        }),
+                                        icon: Icon(Icons.filter_list_rounded),
+                                        label: Text('Filtro Todos'),
+                                      ),
+                                      FilledButton.icon(
+                                        onPressed: _onRetryLoadTransactions,
+                                        icon: Icon(Icons.refresh_rounded),
+                                        label: Text('Tentar novamente'),
+                                      ),
+                                      // Cura definitiva quando a assertion
+                                      // do SDK trava o cliente: clique do
+                                      // usuário recarrega a aba (cliente
+                                      // NOVO). Manual — nada automático.
+                                      if (kIsWeb)
+                                        OutlinedButton.icon(
+                                          onPressed: () =>
+                                              reloadWebPageHard(force: true),
+                                          icon: Icon(Icons.restart_alt_rounded),
+                                          label: Text(
+                                            'Recarregar página',
+                                          ),
                                         ),
-                                        SizedBox(height: 20),
-                                        Wrap(
-                                          spacing: 12,
-                                          runSpacing: 12,
-                                          alignment: WrapAlignment.center,
-                                          children: [
-                                            FilledButton.icon(
-                                              onPressed: () => setState(() {
-                                                _statusFilter = 'all';
-                                                _resetTxPagination();
-                                                _txStreamRetryKey++;
-                                              }),
-                                              icon: Icon(
-                                                  Icons.filter_list_rounded),
-                                              label: Text('Filtro Todos'),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      }
+                      var docs = _dedupeMainPeriodDocs(_mainPeriodDocs).where((
+                        doc,
+                      ) {
+                        final d = _txDataForMainPeriodDoc(doc);
+                        if (!_mainPeriodServerPagingActive) {
+                          // Filtro por status em memória (evita índice composto no Firestore)
+                          if (_statusFilter != 'all') {
+                            final status = (d['status'] ?? 'paid').toString();
+                            if (status != _statusFilter) return false;
+                          }
+                          if (_typeFilter != 'all' &&
+                              (d['type'] ?? 'expense').toString() !=
+                                  _typeFilter) {
+                            return false;
+                          }
+                        }
+                        if (_categoryFilter != null) {
+                          final c = (d['category'] ?? '').toString().trim();
+                          if (!FinanceCategoryMerger.sameCategoryGroup(
+                            c,
+                            _categoryFilter!,
+                          )) {
+                            return false;
+                          }
+                        }
+                        if (_search.isNotEmpty) {
+                          final accLabel = _financeAccountLabelForTx(d) ?? '';
+                          final text =
+                              '${d['category'] ?? ''} ${d['description'] ?? ''} $accLabel'
+                                  .toLowerCase();
+                          if (!text.contains(_search)) return false;
+                        }
+                        if (_financeAccountFilterId != null) {
+                          final aid = (d['financeAccountId'] ?? '')
+                              .toString()
+                              .trim();
+                          if (aid != _financeAccountFilterId) {
+                            return false;
+                          }
+                        }
+                        return true;
+                      }).toList();
+
+                      docs = FinanceFaturaTransactionSort.sortedDocs(
+                        docs,
+                        _gridSortMode,
+                      );
+
+                      if (docs.isEmpty) {
+                        // Mesmo com zero lançamentos no período (ex.: filtro "Pago" e só pendentes), mostra
+                        // pendentes + Saldos por conta + atalhos — paridade com Android/iOS e acesso a PIX/receita a confirmar.
+                        _ensureSaldoAberturaForPeriod(_from);
+                        final saldoAbertura =
+                            _saldoAberturaCached?.total ?? 0.0;
+                        final openingByAccount =
+                            _saldoAberturaCached?.byAccount ??
+                            const <String, double>{};
+                        final saldoAcumulado = _saldoAcumuladoConsolidado(
+                          saldoAbertura: saldoAbertura,
+                          balancePeriodFallback: 0,
+                          periodNetByAccount: _stripPeriodNetPaidOverride,
+                          accountFilterId: _financeAccountFilterId,
+                          openingByAccount: openingByAccount,
+                        );
+                        final bottomPad = homeShellScrollBottomPadding(
+                          context,
+                          embeddedInHomeShell:
+                              widget.shellScrollController != null,
+                          tail: 12,
+                        );
+                        return RefreshIndicator(
+                          onRefresh: () async {
+                            await _reloadMainPeriodDocsPull();
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(AppStrings.refreshUpdated),
+                                  duration: Duration(seconds: 1),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          },
+                          child: ListView(
+                            controller: widget.shellScrollController,
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: EdgeInsets.only(bottom: bottomPad),
+                            children: [
+                              _buildFinanceTopChrome(
+                                context,
+                                isNarrow: isNarrow,
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  8,
+                                  12,
+                                  4,
+                                ),
+                                child: _buildReceitasPendentesBand(context),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  4,
+                                  12,
+                                  8,
+                                ),
+                                child: _buildDespesasPendentesBand(context),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  4,
+                                  12,
+                                  8,
+                                ),
+                                child: _buildFaturaEmAbertoBand(context),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                child: _buildFinanceAccountsStrip(
+                                  context,
+                                  docs:
+                                      const <
+                                        QueryDocumentSnapshot<
+                                          Map<String, dynamic>
+                                        >
+                                      >[],
+                                  openingByAccount: openingByAccount,
+                                  saldoAcumuladoConsolidado: saldoAcumulado,
+                                  semContaCount: 0,
+                                  stripPeriodNetPaidOverride:
+                                      _stripPeriodNetPaidOverride,
+                                ),
+                              ),
+                              FinanceSmartTipsCompactBar(
+                                onVejaMais: () => unawaited(
+                                  _openSmartTipsPreviewSheet(
+                                    docs: const [],
+                                    totalIncome: 0,
+                                    totalExpense: 0,
+                                    balancePeriod: 0,
+                                  ),
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  24,
+                                  8,
+                                  24,
+                                  8,
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (_mainPeriodLoading &&
+                                        _mainPeriodDocs.isEmpty)
+                                      Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          vertical: 24,
+                                        ),
+                                        child: SkeletonListLoader(
+                                          itemCount: 4,
+                                          itemHeight: 72,
+                                        ),
+                                      )
+                                    else ...[
+                                      Icon(
+                                        Icons.account_balance_wallet_rounded,
+                                        size: 64,
+                                        color: Colors.grey.shade400,
+                                      ),
+                                      SizedBox(height: 16),
+                                      Text(
+                                        'Nenhum lançamento no período.',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          color: context.appTextSecondary,
+                                        ),
+                                      ),
+                                      SizedBox(height: 8),
+                                      Text(
+                                        'Adicione sua primeira receita ou despesa para começar.',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: context.appTextSecondary,
+                                        ),
+                                      ),
+                                      SizedBox(height: 24),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          FilledButton.icon(
+                                            icon: Icon(
+                                              Icons.add_rounded,
+                                              size: 20,
                                             ),
-                                            FilledButton.icon(
-                                              onPressed:
-                                                  _onRetryLoadTransactions,
-                                              icon: Icon(Icons.refresh_rounded),
-                                              label: Text('Tentar novamente'),
+                                            label: Text('Receita'),
+                                            onPressed:
+                                                widget.profile.hasActiveLicense
+                                                ? () =>
+                                                      _addTx(context, 'income')
+                                                : () =>
+                                                      mostrarAvisoSeLicencaInativa(
+                                                        context,
+                                                        widget.profile,
+                                                      ),
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor:
+                                                  AppColors.success,
                                             ),
-                                            // Cura definitiva quando a assertion
-                                            // do SDK trava o cliente: clique do
-                                            // usuário recarrega a aba (cliente
-                                            // NOVO). Manual — nada automático.
-                                            if (kIsWeb)
-                                              OutlinedButton.icon(
-                                                onPressed: () =>
-                                                    reloadWebPageHard(
-                                                        force: true),
-                                                icon: Icon(Icons
-                                                    .restart_alt_rounded),
-                                                label: Text('Recarregar página'),
-                                              ),
-                                          ],
+                                          ),
+                                          SizedBox(width: 12),
+                                          FilledButton.icon(
+                                            icon: Icon(
+                                              Icons.remove_rounded,
+                                              size: 20,
+                                            ),
+                                            label: Text('Despesa'),
+                                            onPressed:
+                                                widget.profile.hasActiveLicense
+                                                ? () =>
+                                                      _addTx(context, 'expense')
+                                                : () =>
+                                                      mostrarAvisoSeLicencaInativa(
+                                                        context,
+                                                        widget.profile,
+                                                      ),
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor: AppColors.error,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      final semContaAdv = _countTxSemConta(docs);
+
+                      final paidTotals = _sumPeriodTotalsFromDocs(
+                        docs,
+                        statusFilter: 'paid',
+                      );
+                      double totalIncome = paidTotals.income;
+                      double totalExpense = paidTotals.expense;
+                      final sk = _mainPeriodServerKpis ?? _periodMergedKpis;
+                      if (sk != null) {
+                        totalIncome = sk.income;
+                        totalExpense = sk.expense;
+                      }
+                      final periodNetPaid = _periodNetPaidConsolidated(
+                        fallbackFromVisiblePaidDocs:
+                            paidTotals.income - paidTotals.expense,
+                        serverKpis: sk,
+                      );
+                      final balance = periodNetPaid;
+
+                      _ensureSaldoAberturaForPeriod(_from);
+                      final openingByAccount =
+                          _saldoAberturaCached?.byAccount ??
+                          const <String, double>{};
+                      final accountFilterId = _financeAccountFilterId?.trim();
+                      final saldoAbertura =
+                          accountFilterId != null && accountFilterId.isNotEmpty
+                          ? (openingByAccount[accountFilterId] ?? 0.0)
+                          : (_saldoAberturaCached?.total ?? 0.0);
+                      final saldoAcumulado = _saldoAcumuladoConsolidado(
+                        saldoAbertura: saldoAbertura,
+                        balancePeriodFallback: balance,
+                        periodNetByAccount: _stripPeriodNetPaidOverride,
+                        accountFilterId: accountFilterId,
+                        openingByAccount: openingByAccount,
+                      );
+
+                      final bottomPad = homeShellScrollBottomPadding(
+                        context,
+                        embeddedInHomeShell:
+                            widget.shellScrollController != null,
+                        tail: 12,
+                      );
+                      final gridDocs = _filterDocsForGridListType(docs);
+                      final nShow = gridDocs.length < _txDisplayLimit
+                          ? gridDocs.length
+                          : _txDisplayLimit;
+                      final docsVisible = nShow == gridDocs.length
+                          ? gridDocs
+                          : gridDocs.sublist(0, nShow);
+                      final hasMoreTx = gridDocs.length > docsVisible.length;
+
+                      return RefreshIndicator(
+                        onRefresh: () async {
+                          await _reloadMainPeriodDocsPull();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(AppStrings.refreshUpdated),
+                                duration: Duration(seconds: 1),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
+                        },
+                        child: CustomScrollView(
+                          controller: widget.shellScrollController,
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          slivers: [
+                            SliverList(
+                              delegate: SliverChildListDelegate([
+                                _buildFinanceTopChrome(
+                                  context,
+                                  isNarrow: isNarrow,
+                                ),
+                                if (_mainPeriodPullRefreshing &&
+                                    _mainPeriodLoading)
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      0,
+                                      12,
+                                      10,
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                          child: LinearProgressIndicator(
+                                            minHeight: 4,
+                                            color: AppColors.primary,
+                                          ),
+                                        ),
+                                        SizedBox(height: 6),
+                                        Text(
+                                          'A sincronizar lançamentos… $_mainPeriodLoadedCount',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: context.appTextSecondary,
+                                          ),
                                         ),
                                       ],
                                     ),
                                   ),
+                                // Despesas e receitas pendentes (igual painel)
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    8,
+                                    12,
+                                    4,
+                                  ),
+                                  child: _buildReceitasPendentesBand(context),
                                 ),
-                              );
-                            }
-                            var docs = _dedupeMainPeriodDocs(_mainPeriodDocs)
-                                .where((doc) {
-                              final d = _txDataForMainPeriodDoc(doc);
-                              if (!_mainPeriodServerPagingActive) {
-                                // Filtro por status em memória (evita índice composto no Firestore)
-                                if (_statusFilter != 'all') {
-                                  final status =
-                                      (d['status'] ?? 'paid').toString();
-                                  if (status != _statusFilter) return false;
-                                }
-                                if (_typeFilter != 'all' &&
-                                    (d['type'] ?? 'expense').toString() !=
-                                        _typeFilter) {
-                                  return false;
-                                }
-                              }
-                              if (_categoryFilter != null) {
-                                final c =
-                                    (d['category'] ?? '').toString().trim();
-                                if (!FinanceCategoryMerger.sameCategoryGroup(
-                                    c, _categoryFilter!)) {
-                                  return false;
-                                }
-                              }
-                              if (_search.isNotEmpty) {
-                                final accLabel =
-                                    _financeAccountLabelForTx(d) ?? '';
-                                final text =
-                                    '${d['category'] ?? ''} ${d['description'] ?? ''} $accLabel'
-                                        .toLowerCase();
-                                if (!text.contains(_search)) return false;
-                              }
-                              if (_financeAccountFilterId != null) {
-                                final aid = (d['financeAccountId'] ?? '')
-                                    .toString()
-                                    .trim();
-                                if (aid != _financeAccountFilterId) {
-                                  return false;
-                                }
-                              }
-                              return true;
-                            }).toList();
-
-                            docs = FinanceFaturaTransactionSort.sortedDocs(
-                                docs, _gridSortMode);
-
-                            if (docs.isEmpty) {
-                              // Mesmo com zero lançamentos no período (ex.: filtro "Pago" e só pendentes), mostra
-                              // pendentes + Saldos por conta + atalhos — paridade com Android/iOS e acesso a PIX/receita a confirmar.
-                              _ensureSaldoAberturaForPeriod(_from);
-                              final saldoAbertura =
-                                  _saldoAberturaCached?.total ?? 0.0;
-                              final openingByAccount =
-                                  _saldoAberturaCached?.byAccount ??
-                                      const <String, double>{};
-                              final saldoAcumulado = _saldoAcumuladoConsolidado(
-                                saldoAbertura: saldoAbertura,
-                                balancePeriodFallback: 0,
-                                periodNetByAccount: _stripPeriodNetPaidOverride,
-                                accountFilterId: _financeAccountFilterId,
-                                openingByAccount: openingByAccount,
-                              );
-                              final bottomPad = homeShellScrollBottomPadding(
-                                context,
-                                embeddedInHomeShell:
-                                    widget.shellScrollController != null,
-                                tail: 12,
-                              );
-                              return RefreshIndicator(
-                                onRefresh: () async {
-                                  await _reloadMainPeriodDocsPull();
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context)
-                                        .showSnackBar(const SnackBar(
-                                      content: Text(AppStrings.refreshUpdated),
-                                      duration: Duration(seconds: 1),
-                                      behavior: SnackBarBehavior.floating,
-                                    ));
-                                  }
-                                },
-                                child: ListView(
-                                  controller: widget.shellScrollController,
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  padding: EdgeInsets.only(bottom: bottomPad),
-                                  children: [
-                                    _buildFinanceTopChrome(context, isNarrow: isNarrow),
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                          12, 8, 12, 4),
-                                      child:
-                                          _buildReceitasPendentesBand(context),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                          12, 4, 12, 8),
-                                      child:
-                                          _buildDespesasPendentesBand(context),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                          12, 4, 12, 8),
-                                      child: _buildFaturaEmAbertoBand(context),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 12, vertical: 6),
-                                      child: _buildFinanceAccountsStrip(
-                                        context,
-                                        docs: const <QueryDocumentSnapshot<
-                                            Map<String, dynamic>>>[],
-                                        openingByAccount: openingByAccount,
-                                        saldoAcumuladoConsolidado:
-                                            saldoAcumulado,
-                                        semContaCount: 0,
-                                        stripPeriodNetPaidOverride:
-                                            _stripPeriodNetPaidOverride,
-                                      ),
-                                    ),
-                                    FinanceSmartTipsCompactBar(
-                                      onVejaMais: () =>
-                                          unawaited(_openSmartTipsPreviewSheet(
-                                        docs: const [],
-                                        totalIncome: 0,
-                                        totalExpense: 0,
-                                        balancePeriod: 0,
-                                      )),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                          24, 8, 24, 8),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          if (_mainPeriodLoading &&
-                                              _mainPeriodDocs.isEmpty)
-                                            Padding(
-                                              padding: EdgeInsets.symmetric(
-                                                  vertical: 24),
-                                              child: SkeletonListLoader(
-                                                  itemCount: 4, itemHeight: 72),
-                                            )
-                                          else ...[
-                                            Icon(
-                                                Icons
-                                                    .account_balance_wallet_rounded,
-                                                size: 64,
-                                                color: Colors.grey.shade400),
-                                            SizedBox(height: 16),
-                                            Text(
-                                              'Nenhum lançamento no período.',
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                  fontSize: 16,
-                                                  color:
-                                                      context.appTextSecondary),
-                                            ),
-                                            SizedBox(height: 8),
-                                            Text(
-                                              'Adicione sua primeira receita ou despesa para começar.',
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                  fontSize: 14,
-                                                  color:
-                                                      context.appTextSecondary),
-                                            ),
-                                            SizedBox(height: 24),
-                                            Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment.center,
-                                              children: [
-                                                FilledButton.icon(
-                                                  icon: Icon(Icons.add_rounded,
-                                                      size: 20),
-                                                  label: Text('Receita'),
-                                                  onPressed: widget.profile
-                                                          .hasActiveLicense
-                                                      ? () => _addTx(
-                                                          context, 'income')
-                                                      : () =>
-                                                          mostrarAvisoSeLicencaInativa(
-                                                              context,
-                                                              widget.profile),
-                                                  style: FilledButton.styleFrom(
-                                                      backgroundColor:
-                                                          AppColors.success),
-                                                ),
-                                                SizedBox(width: 12),
-                                                FilledButton.icon(
-                                                  icon: Icon(
-                                                      Icons.remove_rounded,
-                                                      size: 20),
-                                                  label: Text('Despesa'),
-                                                  onPressed: widget.profile
-                                                          .hasActiveLicense
-                                                      ? () => _addTx(
-                                                          context, 'expense')
-                                                      : () =>
-                                                          mostrarAvisoSeLicencaInativa(
-                                                              context,
-                                                              widget.profile),
-                                                  style: FilledButton.styleFrom(
-                                                      backgroundColor:
-                                                          AppColors.error),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                  ],
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    4,
+                                    12,
+                                    8,
+                                  ),
+                                  child: _buildDespesasPendentesBand(context),
                                 ),
-                              );
-                            }
-
-                            final semContaAdv = _countTxSemConta(docs);
-
-                            final paidTotals = _sumPeriodTotalsFromDocs(docs,
-                                statusFilter: 'paid');
-                            double totalIncome = paidTotals.income;
-                            double totalExpense = paidTotals.expense;
-                            final sk =
-                                _mainPeriodServerKpis ?? _periodMergedKpis;
-                            if (sk != null) {
-                              totalIncome = sk.income;
-                              totalExpense = sk.expense;
-                            }
-                            final periodNetPaid = _periodNetPaidConsolidated(
-                              fallbackFromVisiblePaidDocs:
-                                  paidTotals.income - paidTotals.expense,
-                              serverKpis: sk,
-                            );
-                            final balance = periodNetPaid;
-
-                            _ensureSaldoAberturaForPeriod(_from);
-                            final openingByAccount =
-                                _saldoAberturaCached?.byAccount ??
-                                    const <String, double>{};
-                            final accountFilterId =
-                                _financeAccountFilterId?.trim();
-                            final saldoAbertura = accountFilterId != null &&
-                                    accountFilterId.isNotEmpty
-                                ? (openingByAccount[accountFilterId] ?? 0.0)
-                                : (_saldoAberturaCached?.total ?? 0.0);
-                            final saldoAcumulado = _saldoAcumuladoConsolidado(
-                              saldoAbertura: saldoAbertura,
-                              balancePeriodFallback: balance,
-                              periodNetByAccount: _stripPeriodNetPaidOverride,
-                              accountFilterId: accountFilterId,
-                              openingByAccount: openingByAccount,
-                            );
-
-                            final bottomPad = homeShellScrollBottomPadding(
-                              context,
-                              embeddedInHomeShell:
-                                  widget.shellScrollController != null,
-                              tail: 12,
-                            );
-                            final gridDocs = _filterDocsForGridListType(docs);
-                            final nShow = gridDocs.length < _txDisplayLimit
-                                ? gridDocs.length
-                                : _txDisplayLimit;
-                            final docsVisible = nShow == gridDocs.length
-                                ? gridDocs
-                                : gridDocs.sublist(0, nShow);
-                            final hasMoreTx =
-                                gridDocs.length > docsVisible.length;
-
-                            return RefreshIndicator(
-                              onRefresh: () async {
-                                await _reloadMainPeriodDocsPull();
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context)
-                                      .showSnackBar(const SnackBar(
-                                    content: Text(AppStrings.refreshUpdated),
-                                    duration: Duration(seconds: 1),
-                                    behavior: SnackBarBehavior.floating,
-                                  ));
-                                }
-                              },
-                              child: CustomScrollView(
-                                controller: widget.shellScrollController,
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                slivers: [
-                                  SliverList(
-                                    delegate: SliverChildListDelegate([
-                                      _buildFinanceTopChrome(context, isNarrow: isNarrow),
-                                      if (_mainPeriodPullRefreshing &&
-                                          _mainPeriodLoading)
-                                        Padding(
-                                          padding: const EdgeInsets.fromLTRB(
-                                              12, 0, 12, 10),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.stretch,
-                                            children: [
-                                              ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                                child: LinearProgressIndicator(
-                                                    minHeight: 4,
-                                                    color: AppColors.primary),
-                                              ),
-                                              SizedBox(height: 6),
-                                              Text(
-                                                'A sincronizar lançamentos… $_mainPeriodLoadedCount',
-                                                textAlign: TextAlign.center,
-                                                style: TextStyle(
-                                                    fontSize: 12,
-                                                    color: context
-                                                        .appTextSecondary),
-                                              ),
-                                            ],
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    4,
+                                    12,
+                                    8,
+                                  ),
+                                  child: _buildFaturaEmAbertoBand(context),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  child: _buildFinanceAccountsStrip(
+                                    context,
+                                    docs: _mainPeriodDocs,
+                                    openingByAccount: openingByAccount,
+                                    saldoAcumuladoConsolidado: saldoAcumulado,
+                                    semContaCount: semContaAdv,
+                                    stripPeriodNetPaidOverride:
+                                        _stripPeriodNetPaidOverride,
+                                  ),
+                                ),
+                                _buildFinanceMainKpiSection(
+                                  saldoAbertura: saldoAbertura,
+                                  totalIncome: totalIncome,
+                                  totalExpense: totalExpense,
+                                  saldoAcumulado: saldoAcumulado,
+                                ),
+                                _buildFinanceChartsSection(
+                                  docs: docs,
+                                  totalIncome: totalIncome,
+                                  totalExpense: totalExpense,
+                                ),
+                                FinanceSmartTipsCompactBar(
+                                  onVejaMais: () => unawaited(
+                                    _openSmartTipsPreviewSheet(
+                                      docs: docs,
+                                      totalIncome: totalIncome,
+                                      totalExpense: totalExpense,
+                                      balancePeriod: balance,
+                                    ),
+                                  ),
+                                ),
+                                // Filtros (Todos/Receitas/Despesas)
+                                // SEMPRE visíveis. Antes ficavam sob
+                                // `docs.isNotEmpty` → período sem
+                                // lançamentos deixava a tela BRANCA.
+                                KeyedSubtree(
+                                  key: _lancamentosGridKey,
+                                  child: _buildGridListTypeBar(),
+                                ),
+                                if (docs.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      0,
+                                      12,
+                                      8,
+                                    ),
+                                    child: FinanceTransactionSortBar(
+                                      value: _gridSortMode,
+                                      onChanged: (mode) =>
+                                          setState(() => _gridSortMode = mode),
+                                    ),
+                                  ),
+                                // Período sem nenhum lançamento: empty-state
+                                // claro em vez de tela branca.
+                                if (docs.isEmpty && !_mainPeriodLoading)
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      24,
+                                      20,
+                                      24,
+                                      28,
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        Icon(
+                                          Icons.receipt_long_rounded,
+                                          size: 46,
+                                          color: context.appTextMuted,
+                                        ),
+                                        const SizedBox(height: 10),
+                                        Text(
+                                          'Nenhum lançamento neste período.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w800,
+                                            color: context.appTextPrimary,
                                           ),
                                         ),
-                                      // Despesas e receitas pendentes (igual painel)
-                                      Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                            12, 8, 12, 4),
-                                        child: _buildReceitasPendentesBand(
-                                            context),
+                                        const SizedBox(height: 6),
+                                        Text(
+                                          'Troque o período no topo, ou toque em + Receita / + Despesa para adicionar.',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            height: 1.35,
+                                            color: context.appTextSecondary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                if (docs.isNotEmpty && gridDocs.isEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      24,
+                                      16,
+                                      24,
+                                      8,
+                                    ),
+                                    child: Text(
+                                      _gridListTypeFilter == 'income'
+                                          ? 'Nenhuma receita no período com os filtros atuais.'
+                                          : 'Nenhuma despesa no período com os filtros atuais.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: context.appTextMuted,
+                                        fontWeight: FontWeight.w600,
                                       ),
-                                      Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                            12, 4, 12, 8),
-                                        child: _buildDespesasPendentesBand(
-                                            context),
-                                      ),
-                                      Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                            12, 4, 12, 8),
-                                        child:
-                                            _buildFaturaEmAbertoBand(context),
-                                      ),
-                                      Padding(
+                                    ),
+                                  ),
+                                if (gridDocs.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      8,
+                                      12,
+                                      8,
+                                    ),
+                                    child: Material(
+                                      color: context.isDarkMode
+                                          ? context.appDarkModuleSurface
+                                          : Colors.white,
+                                      elevation: context.isDarkMode ? 0 : 2,
+                                      surfaceTintColor: context.isDarkMode
+                                          ? context.appDarkModuleSurface
+                                          : Colors.white,
+                                      shadowColor: AppColors.deepBlueDark
+                                          .withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(16),
+                                      child: Padding(
                                         padding: const EdgeInsets.symmetric(
-                                            horizontal: 12, vertical: 6),
-                                        child: _buildFinanceAccountsStrip(
-                                          context,
-                                          docs: _mainPeriodDocs,
-                                          openingByAccount: openingByAccount,
-                                          saldoAcumuladoConsolidado:
-                                              saldoAcumulado,
-                                          semContaCount: semContaAdv,
-                                          stripPeriodNetPaidOverride:
-                                              _stripPeriodNetPaidOverride,
+                                          horizontal: 8,
+                                          vertical: 6,
                                         ),
-                                      ),
-                                      _buildFinanceMainKpiSection(
-                                        saldoAbertura: saldoAbertura,
-                                        totalIncome: totalIncome,
-                                        totalExpense: totalExpense,
-                                        saldoAcumulado: saldoAcumulado,
-                                      ),
-                                      _buildFinanceChartsSection(
-                                        docs: docs,
-                                        totalIncome: totalIncome,
-                                        totalExpense: totalExpense,
-                                      ),
-                                      FinanceSmartTipsCompactBar(
-                                        onVejaMais: () => unawaited(
-                                            _openSmartTipsPreviewSheet(
-                                          docs: docs,
-                                          totalIncome: totalIncome,
-                                          totalExpense: totalExpense,
-                                          balancePeriod: balance,
-                                        )),
-                                      ),
-                                      // Filtros (Todos/Receitas/Despesas)
-                                      // SEMPRE visíveis. Antes ficavam sob
-                                      // `docs.isNotEmpty` → período sem
-                                      // lançamentos deixava a tela BRANCA.
-                                      KeyedSubtree(
-                                        key: _lancamentosGridKey,
-                                        child: _buildGridListTypeBar(),
-                                      ),
-                                      if (docs.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.fromLTRB(
-                                              12, 0, 12, 8),
-                                          child: FinanceTransactionSortBar(
-                                            value: _gridSortMode,
-                                            onChanged: (mode) => setState(
-                                                () => _gridSortMode = mode),
-                                          ),
-                                        ),
-                                      // Período sem nenhum lançamento: empty-state
-                                      // claro em vez de tela branca.
-                                      if (docs.isEmpty && !_mainPeriodLoading)
-                                        Padding(
-                                          padding: const EdgeInsets.fromLTRB(
-                                              24, 20, 24, 28),
-                                          child: Column(
-                                            children: [
-                                              Icon(Icons.receipt_long_rounded,
-                                                  size: 46,
-                                                  color: context.appTextMuted),
-                                              const SizedBox(height: 10),
-                                              Text(
-                                                'Nenhum lançamento neste período.',
-                                                textAlign: TextAlign.center,
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              Icons.receipt_long_rounded,
+                                              size: 22,
+                                              color: AppColors.primary
+                                                  .withValues(alpha: 0.9),
+                                            ),
+                                            SizedBox(width: 8),
+                                            Expanded(
+                                              child: Text(
+                                                hasMoreTx
+                                                    ? '${docsVisible.length} de ${gridDocs.length} lançamentos'
+                                                    : '${gridDocs.length} lançamento(s)',
                                                 style: TextStyle(
-                                                    fontSize: 15,
-                                                    fontWeight: FontWeight.w800,
-                                                    color:
-                                                        context.appTextPrimary),
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: context.appTextPrimary,
+                                                ),
                                               ),
-                                              const SizedBox(height: 6),
-                                              Text(
-                                                'Troque o período no topo, ou toque em + Receita / + Despesa para adicionar.',
-                                                textAlign: TextAlign.center,
-                                                style: TextStyle(
-                                                    fontSize: 13,
-                                                    height: 1.35,
-                                                    color: context
-                                                        .appTextSecondary),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      if (docs.isNotEmpty && gridDocs.isEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.fromLTRB(
-                                              24, 16, 24, 8),
-                                          child: Text(
-                                            _gridListTypeFilter == 'income'
-                                                ? 'Nenhuma receita no período com os filtros atuais.'
-                                                : 'Nenhuma despesa no período com os filtros atuais.',
-                                            textAlign: TextAlign.center,
-                                            style: TextStyle(
-                                                fontSize: 14,
-                                                color: context.appTextMuted,
-                                                fontWeight: FontWeight.w600),
-                                          ),
-                                        ),
-                                      if (gridDocs.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.fromLTRB(
-                                              12, 8, 12, 8),
-                                          child: Material(
-                                            color: context.isDarkMode
-                                                ? context.appDarkModuleSurface
-                                                : Colors.white,
-                                            elevation:
-                                                context.isDarkMode ? 0 : 2,
-                                            surfaceTintColor: context.isDarkMode
-                                                ? context.appDarkModuleSurface
-                                                : Colors.white,
-                                            shadowColor: AppColors.deepBlueDark
-                                                .withValues(alpha: 0.12),
-                                            borderRadius:
-                                                BorderRadius.circular(16),
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 6),
-                                              child: Row(
-                                                children: [
-                                                  Icon(
-                                                      Icons
-                                                          .receipt_long_rounded,
-                                                      size: 22,
+                                            ),
+                                            if (!_gridSelectionMode) ...[
+                                              IconButton.filledTonal(
+                                                tooltip:
+                                                    'Lista em tela cheia com filtros',
+                                                onPressed: () =>
+                                                    _openFullscreenLancamentos(
+                                                      context,
+                                                    ),
+                                                icon: Icon(
+                                                  Icons.open_in_full_rounded,
+                                                  size: 22,
+                                                ),
+                                                style: IconButton.styleFrom(
+                                                  foregroundColor:
+                                                      AppColors.primary,
+                                                  backgroundColor: AppColors
+                                                      .primary
+                                                      .withValues(alpha: 0.14),
+                                                  surfaceTintColor:
+                                                      Colors.transparent,
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          14,
+                                                        ),
+                                                    side: BorderSide(
                                                       color: AppColors.primary
                                                           .withValues(
-                                                              alpha: 0.9)),
-                                                  SizedBox(width: 8),
-                                                  Expanded(
-                                                    child: Text(
-                                                      hasMoreTx
-                                                          ? '${docsVisible.length} de ${gridDocs.length} lançamentos'
-                                                          : '${gridDocs.length} lançamento(s)',
-                                                      style: TextStyle(
-                                                          fontSize: 13,
-                                                          fontWeight:
-                                                              FontWeight.w800,
-                                                          color: context
-                                                              .appTextPrimary),
+                                                            alpha: 0.26,
+                                                          ),
+                                                      width: 1,
                                                     ),
                                                   ),
-                                                  if (!_gridSelectionMode) ...[
-                                                    IconButton.filledTonal(
-                                                      tooltip:
-                                                          'Lista em tela cheia com filtros',
-                                                      onPressed: () =>
-                                                          _openFullscreenLancamentos(
-                                                              context),
-                                                      icon: Icon(
-                                                          Icons
-                                                              .open_in_full_rounded,
-                                                          size: 22),
-                                                      style:
-                                                          IconButton.styleFrom(
-                                                        foregroundColor:
-                                                            AppColors.primary,
-                                                        backgroundColor:
-                                                            AppColors.primary
-                                                                .withValues(
-                                                                    alpha:
-                                                                        0.14),
-                                                        surfaceTintColor:
-                                                            Colors.transparent,
-                                                        shape:
-                                                            RoundedRectangleBorder(
-                                                          borderRadius:
-                                                              BorderRadius
-                                                                  .circular(14),
-                                                          side: BorderSide(
+                                                ),
+                                              ),
+                                              FilledButton.tonalIcon(
+                                                onPressed: () => setState(
+                                                  () =>
+                                                      _gridSelectionMode = true,
+                                                ),
+                                                icon: Icon(
+                                                  Icons.checklist_rounded,
+                                                  size: 20,
+                                                ),
+                                                label: Text(
+                                                  'Selecionar',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: 13,
+                                                    color: AppColors.primary,
+                                                    letterSpacing: 0.15,
+                                                  ),
+                                                ),
+                                                style:
+                                                    _financeToolbarTonalFilledStyle(),
+                                              ),
+                                            ] else
+                                              Expanded(
+                                                child: Builder(
+                                                  builder: (context) {
+                                                    final pendingToConfirm =
+                                                        _gridSelectedPendingIdsAmong(
+                                                          docsVisible,
+                                                        );
+                                                    return Wrap(
+                                                      spacing: 8,
+                                                      runSpacing: 6,
+                                                      alignment:
+                                                          WrapAlignment.end,
+                                                      children: [
+                                                        FilledButton.tonal(
+                                                          onPressed: () =>
+                                                              setState(() {
+                                                                _gridSelectionMode =
+                                                                    false;
+                                                                _gridSelectedIds
+                                                                    .clear();
+                                                              }),
+                                                          style:
+                                                              _financeToolbarTonalFilledStyle(),
+                                                          child: Text(
+                                                            'Cancelar',
+                                                            style: TextStyle(
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w800,
+                                                              fontSize: 13,
                                                               color: AppColors
-                                                                  .primary
-                                                                  .withValues(
-                                                                      alpha:
-                                                                          0.26),
-                                                              width: 1),
+                                                                  .primary,
+                                                              letterSpacing:
+                                                                  0.15,
+                                                            ),
+                                                          ),
                                                         ),
-                                                      ),
-                                                    ),
-                                                    FilledButton.tonalIcon(
-                                                      onPressed: () => setState(
-                                                          () =>
-                                                              _gridSelectionMode =
-                                                                  true),
-                                                      icon: Icon(
-                                                          Icons
-                                                              .checklist_rounded,
-                                                          size: 20),
-                                                      label: Text(
-                                                        'Selecionar',
-                                                        style: TextStyle(
-                                                          fontWeight:
-                                                              FontWeight.w800,
-                                                          fontSize: 13,
-                                                          color:
-                                                              AppColors.primary,
-                                                          letterSpacing: 0.15,
+                                                        TextButton(
+                                                          onPressed: () {
+                                                            final pending =
+                                                                <String>[];
+                                                            for (final doc
+                                                                in docsVisible) {
+                                                              final d =
+                                                                  _txDataForMainPeriodDoc(
+                                                                    doc,
+                                                                  );
+                                                              if ((d['status'] ??
+                                                                          'paid')
+                                                                      .toString() ==
+                                                                  'pending') {
+                                                                pending.add(
+                                                                  doc.id,
+                                                                );
+                                                              }
+                                                            }
+                                                            if (pending
+                                                                .isEmpty) {
+                                                              ScaffoldMessenger.of(
+                                                                context,
+                                                              ).showSnackBar(
+                                                                const SnackBar(
+                                                                  content: Text(
+                                                                    'Nenhum pendente na lista visível.',
+                                                                  ),
+                                                                ),
+                                                              );
+                                                              return;
+                                                            }
+                                                            setState(() {
+                                                              _gridSelectedIds
+                                                                ..clear()
+                                                                ..addAll(
+                                                                  pending,
+                                                                );
+                                                            });
+                                                          },
+                                                          child: Text(
+                                                            'Sel. pendentes',
+                                                          ),
                                                         ),
-                                                      ),
-                                                      style:
-                                                          _financeToolbarTonalFilledStyle(),
-                                                    ),
-                                                  ] else
-                                                    Expanded(
-                                                      child: Builder(
-                                                        builder: (context) {
-                                                          final pendingToConfirm =
-                                                              _gridSelectedPendingIdsAmong(
-                                                                  docsVisible);
-                                                          return Wrap(
-                                                            spacing: 8,
-                                                            runSpacing: 6,
-                                                            alignment:
-                                                                WrapAlignment
-                                                                    .end,
-                                                            children: [
-                                                              FilledButton
-                                                                  .tonal(
-                                                                onPressed: () =>
-                                                                    setState(
-                                                                        () {
+                                                        if (pendingToConfirm
+                                                            .isNotEmpty)
+                                                          FilledButton.icon(
+                                                            onPressed: () async {
+                                                              await _confirmarPagamentoEmLote(
+                                                                context,
+                                                                pendingToConfirm,
+                                                                successSnackBar:
+                                                                    pendingToConfirm
+                                                                            .length >
+                                                                        1
+                                                                    ? '${pendingToConfirm.length} lançamentos confirmados.'
+                                                                    : 'Lançamento confirmado.',
+                                                              );
+                                                              if (mounted) {
+                                                                setState(() {
                                                                   _gridSelectionMode =
                                                                       false;
                                                                   _gridSelectedIds
                                                                       .clear();
-                                                                }),
-                                                                style:
-                                                                    _financeToolbarTonalFilledStyle(),
-                                                                child: Text(
-                                                                  'Cancelar',
-                                                                  style:
-                                                                      TextStyle(
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .w800,
-                                                                    fontSize:
-                                                                        13,
-                                                                    color: AppColors
-                                                                        .primary,
-                                                                    letterSpacing:
-                                                                        0.15,
+                                                                });
+                                                              }
+                                                            },
+                                                            icon: Icon(
+                                                              Icons
+                                                                  .done_all_rounded,
+                                                              size: 20,
+                                                            ),
+                                                            label: Text(
+                                                              'Confirmar (${pendingToConfirm.length})',
+                                                            ),
+                                                            style: FilledButton.styleFrom(
+                                                              backgroundColor:
+                                                                  AppColors
+                                                                      .success,
+                                                              foregroundColor:
+                                                                  Colors.white,
+                                                              minimumSize:
+                                                                  const Size(
+                                                                    48,
+                                                                    48,
                                                                   ),
-                                                                ),
-                                                              ),
-                                                              TextButton(
-                                                                onPressed: () {
-                                                                  final pending =
-                                                                      <String>[];
-                                                                  for (final doc
-                                                                      in docsVisible) {
-                                                                    final d =
-                                                                        _txDataForMainPeriodDoc(
-                                                                            doc);
-                                                                    if ((d['status'] ??
-                                                                                'paid')
-                                                                            .toString() ==
-                                                                        'pending') {
-                                                                      pending.add(
-                                                                          doc.id);
-                                                                    }
-                                                                  }
-                                                                  if (pending
-                                                                      .isEmpty) {
-                                                                    ScaffoldMessenger.of(
-                                                                            context)
-                                                                        .showSnackBar(
-                                                                      const SnackBar(
-                                                                          content:
-                                                                              Text('Nenhum pendente na lista visível.')),
-                                                                    );
-                                                                    return;
-                                                                  }
-                                                                  setState(() {
-                                                                    _gridSelectedIds
-                                                                      ..clear()
-                                                                      ..addAll(
-                                                                          pending);
-                                                                  });
-                                                                },
-                                                                child: Text(
-                                                                    'Sel. pendentes'),
-                                                              ),
-                                                              if (pendingToConfirm
-                                                                  .isNotEmpty)
-                                                                FilledButton
-                                                                    .icon(
-                                                                  onPressed:
-                                                                      () async {
-                                                                    await _confirmarPagamentoEmLote(
-                                                                      context,
-                                                                      pendingToConfirm,
-                                                                      successSnackBar: pendingToConfirm.length >
-                                                                              1
-                                                                          ? '${pendingToConfirm.length} lançamentos confirmados.'
-                                                                          : 'Lançamento confirmado.',
-                                                                    );
-                                                                    if (mounted) {
-                                                                      setState(
-                                                                          () {
-                                                                        _gridSelectionMode =
-                                                                            false;
-                                                                        _gridSelectedIds
-                                                                            .clear();
-                                                                      });
-                                                                    }
-                                                                  },
-                                                                  icon: Icon(
-                                                                      Icons
-                                                                          .done_all_rounded,
-                                                                      size: 20),
-                                                                  label: Text(
-                                                                      'Confirmar (${pendingToConfirm.length})'),
-                                                                  style: FilledButton
-                                                                      .styleFrom(
-                                                                    backgroundColor:
-                                                                        AppColors
-                                                                            .success,
-                                                                    foregroundColor:
-                                                                        Colors
-                                                                            .white,
-                                                                    minimumSize:
-                                                                        const Size(
-                                                                            48,
-                                                                            48),
-                                                                    tapTargetSize:
-                                                                        MaterialTapTargetSize
-                                                                            .padded,
+                                                              tapTargetSize:
+                                                                  MaterialTapTargetSize
+                                                                      .padded,
+                                                            ),
+                                                          ),
+                                                        if (_gridSelectedIds
+                                                            .isNotEmpty)
+                                                          FilledButton.icon(
+                                                            onPressed: () async {
+                                                              final confirm = await showDialog<bool>(
+                                                                context:
+                                                                    context,
+                                                                builder: (ctx) => AlertDialog(
+                                                                  title: Text(
+                                                                    'Excluir selecionados?',
                                                                   ),
-                                                                ),
-                                                              if (_gridSelectedIds
-                                                                  .isNotEmpty)
-                                                                FilledButton
-                                                                    .icon(
-                                                                  onPressed:
-                                                                      () async {
-                                                                    final confirm =
-                                                                        await showDialog<
-                                                                            bool>(
-                                                                      context:
-                                                                          context,
-                                                                      builder:
-                                                                          (ctx) =>
-                                                                              AlertDialog(
-                                                                        title: Text(
-                                                                            'Excluir selecionados?'),
-                                                                        content:
-                                                                            Text(
-                                                                          '${_gridSelectedIds.length} lançamento(s) serão excluídos. Esta ação não pode ser desfeita.',
-                                                                        ),
-                                                                        actions: [
-                                                                          TextButton(
-                                                                              onPressed: () => Navigator.pop(ctx, false),
-                                                                              child: Text('Cancelar')),
-                                                                          FilledButton(
-                                                                            onPressed: () =>
-                                                                                Navigator.pop(ctx, true),
-                                                                            style:
-                                                                                FilledButton.styleFrom(backgroundColor: AppColors.error),
-                                                                            child:
-                                                                                Text('Excluir'),
+                                                                  content: Text(
+                                                                    '${_gridSelectedIds.length} lançamento(s) serão excluídos. Esta ação não pode ser desfeita.',
+                                                                  ),
+                                                                  actions: [
+                                                                    TextButton(
+                                                                      onPressed: () =>
+                                                                          Navigator.pop(
+                                                                            ctx,
+                                                                            false,
                                                                           ),
-                                                                        ],
+                                                                      child: Text(
+                                                                        'Cancelar',
                                                                       ),
-                                                                    );
-                                                                    if (confirm ==
-                                                                            true &&
-                                                                        mounted) {
-                                                                      await _deleteTxBatch(
-                                                                          context,
-                                                                          _gridSelectedIds
-                                                                              .toList());
-                                                                      if (mounted) {
-                                                                        setState(
-                                                                            () {
-                                                                          _gridSelectionMode =
-                                                                              false;
-                                                                          _gridSelectedIds
-                                                                              .clear();
-                                                                        });
-                                                                      }
-                                                                    }
-                                                                  },
-                                                                  icon: Icon(
-                                                                      Icons
-                                                                          .delete_outline_rounded,
-                                                                      size: 20),
-                                                                  label: Text(
-                                                                      'Excluir (${_gridSelectedIds.length})'),
-                                                                  style: FilledButton
-                                                                      .styleFrom(
-                                                                    backgroundColor:
-                                                                        AppColors
-                                                                            .error,
-                                                                    minimumSize:
-                                                                        const Size(
-                                                                            48,
-                                                                            48),
-                                                                    tapTargetSize:
-                                                                        MaterialTapTargetSize
-                                                                            .padded,
-                                                                  ),
+                                                                    ),
+                                                                    FilledButton(
+                                                                      onPressed: () =>
+                                                                          Navigator.pop(
+                                                                            ctx,
+                                                                            true,
+                                                                          ),
+                                                                      style: FilledButton.styleFrom(
+                                                                        backgroundColor:
+                                                                            AppColors.error,
+                                                                      ),
+                                                                      child: Text(
+                                                                        'Excluir',
+                                                                      ),
+                                                                    ),
+                                                                  ],
                                                                 ),
-                                                            ],
-                                                          );
-                                                        },
-                                                      ),
-                                                    ),
-                                                ],
+                                                              );
+                                                              if (confirm ==
+                                                                      true &&
+                                                                  mounted) {
+                                                                await _deleteTxBatch(
+                                                                  context,
+                                                                  _gridSelectedIds
+                                                                      .toList(),
+                                                                );
+                                                                if (mounted) {
+                                                                  setState(() {
+                                                                    _gridSelectionMode =
+                                                                        false;
+                                                                    _gridSelectedIds
+                                                                        .clear();
+                                                                  });
+                                                                }
+                                                              }
+                                                            },
+                                                            icon: Icon(
+                                                              Icons
+                                                                  .delete_outline_rounded,
+                                                              size: 20,
+                                                            ),
+                                                            label: Text(
+                                                              'Excluir (${_gridSelectedIds.length})',
+                                                            ),
+                                                            style: FilledButton.styleFrom(
+                                                              backgroundColor:
+                                                                  AppColors
+                                                                      .error,
+                                                              minimumSize:
+                                                                  const Size(
+                                                                    48,
+                                                                    48,
+                                                                  ),
+                                                              tapTargetSize:
+                                                                  MaterialTapTargetSize
+                                                                      .padded,
+                                                            ),
+                                                          ),
+                                                      ],
+                                                    );
+                                                  },
+                                                ),
                                               ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ]),
+                            ),
+                            // Lançamentos: lista lazy (constrói só o que aparece). Antes
+                            // montava até 150 tiles de uma vez (jank no Android ao rolar/filtrar).
+                            SliverList(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, i) {
+                                  final showHeader =
+                                      i == 0 ||
+                                      _transactionCalendarDay(
+                                            _txDataForMainPeriodDoc(
+                                              docsVisible[i - 1],
                                             ),
+                                          ) !=
+                                          _transactionCalendarDay(
+                                            _txDataForMainPeriodDoc(
+                                              docsVisible[i],
+                                            ),
+                                          );
+                                  final tile = FinanceTransactionListTile(
+                                    doc: docsVisible[i],
+                                    overrideData:
+                                        _optimisticEditedTxById[docsVisible[i]
+                                            .id],
+                                    profile: widget.profile,
+                                    financeAccounts: _financeAccounts,
+                                    gridSelectionMode: _gridSelectionMode,
+                                    isSelected: _gridSelectedIds.contains(
+                                      docsVisible[i].id,
+                                    ),
+                                    optimisticPaidIds: _optimisticPaidIds,
+                                    onToggleSelection: () => setState(() {
+                                      final id = docsVisible[i].id;
+                                      if (_gridSelectedIds.contains(id)) {
+                                        _gridSelectedIds.remove(id);
+                                      } else {
+                                        _gridSelectedIds.add(id);
+                                      }
+                                    }),
+                                    onEdit: _editTx,
+                                    onDelete: _deleteTx,
+                                    onConfirmPayment: _confirmarPagamento,
+                                    onAttachReceipt: _attachReceipt,
+                                  );
+                                  if (!showHeader) return tile;
+                                  return Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _financeDayHeader(
+                                        _transactionCalendarDay(
+                                          _txDataForMainPeriodDoc(
+                                            docsVisible[i],
                                           ),
                                         ),
-                                    ]),
-                                  ),
-                                  // Lançamentos: lista lazy (constrói só o que aparece). Antes
-                                  // montava até 150 tiles de uma vez (jank no Android ao rolar/filtrar).
-                                  SliverList(
-                                    delegate: SliverChildBuilderDelegate(
-                                      (context, i) {
-                                        final showHeader = i == 0 ||
-                                            _transactionCalendarDay(
-                                                    _txDataForMainPeriodDoc(
-                                                        docsVisible[i - 1])) !=
-                                                _transactionCalendarDay(
-                                                    _txDataForMainPeriodDoc(
-                                                        docsVisible[i]));
-                                        final tile = FinanceTransactionListTile(
-                                          doc: docsVisible[i],
-                                          overrideData: _optimisticEditedTxById[
-                                              docsVisible[i].id],
-                                          profile: widget.profile,
-                                          financeAccounts: _financeAccounts,
-                                          gridSelectionMode: _gridSelectionMode,
-                                          isSelected: _gridSelectedIds
-                                              .contains(docsVisible[i].id),
-                                          optimisticPaidIds: _optimisticPaidIds,
-                                          onToggleSelection: () => setState(() {
-                                            final id = docsVisible[i].id;
-                                            if (_gridSelectedIds.contains(id)) {
-                                              _gridSelectedIds.remove(id);
-                                            } else {
-                                              _gridSelectedIds.add(id);
-                                            }
-                                          }),
-                                          onEdit: _editTx,
-                                          onDelete: _deleteTx,
-                                          onConfirmPayment: _confirmarPagamento,
-                                          onAttachReceipt: _attachReceipt,
-                                        );
-                                        if (!showHeader) return tile;
-                                        return Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            _financeDayHeader(
-                                                _transactionCalendarDay(
-                                                    _txDataForMainPeriodDoc(
-                                                        docsVisible[i]))),
-                                            tile,
-                                          ],
-                                        );
-                                      },
-                                      childCount: docsVisible.length,
-                                      addAutomaticKeepAlives: false,
-                                    ),
-                                  ),
-                                  SliverPadding(
-                                    padding: EdgeInsets.only(bottom: bottomPad),
-                                    sliver: SliverList(
-                                      delegate: SliverChildListDelegate([
-                                        if (hasMoreTx)
-                                          Padding(
-                                            padding: const EdgeInsets.fromLTRB(
-                                                12, 4, 12, 12),
-                                            child: Center(
-                                              child: FilledButton.tonalIcon(
-                                                onPressed: () => setState(() =>
-                                                    _txDisplayLimit +=
-                                                        _txPageSize),
-                                                icon: Icon(
-                                                    Icons.expand_more_rounded),
-                                                label: Text(
-                                                    'Carregar mais (${docs.length - docsVisible.length} restantes)'),
-                                                style:
-                                                    _financeToolbarTonalFilledStyle(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                      horizontal: 20,
-                                                      vertical: 14),
-                                                  visualDensity:
-                                                      VisualDensity.standard,
-                                                  minimumSize:
-                                                      const Size(48, 48),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        if (_mainPeriodServerPagingActive &&
-                                            _mainPeriodHasMoreServer)
-                                          Padding(
-                                            padding: const EdgeInsets.fromLTRB(
-                                                12, 0, 12, 16),
-                                            child: Center(
-                                              child: FilledButton.tonalIcon(
-                                                onPressed: _mainPeriodLoadingMore
-                                                    ? null
-                                                    : () => unawaited(
-                                                        _loadMoreMainPeriodFirestore(
-                                                            sessionUid)),
-                                                icon: _mainPeriodLoadingMore
-                                                    ? SizedBox(
-                                                        width: 18,
-                                                        height: 18,
-                                                        child:
-                                                            CircularProgressIndicator(
-                                                                strokeWidth: 2),
-                                                      )
-                                                    : Icon(Icons
-                                                        .cloud_download_outlined),
-                                                label: Text(
-                                                  _mainPeriodLoadingMore
-                                                      ? 'A carregar…'
-                                                      : 'Carregar mais do servidor ($_kMainPeriodFirestorePageSize por pedido)',
-                                                ),
-                                                style:
-                                                    _financeToolbarTonalFilledStyle(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                      horizontal: 18,
-                                                      vertical: 14),
-                                                  visualDensity:
-                                                      VisualDensity.standard,
-                                                  minimumSize:
-                                                      const Size(48, 48),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                      ]),
-                                    ),
-                                  ),
-                                ],
+                                      ),
+                                      tile,
+                                    ],
+                                  );
+                                },
+                                childCount: docsVisible.length,
+                                addAutomaticKeepAlives: false,
                               ),
-                            );
-                          },
+                            ),
+                            SliverPadding(
+                              padding: EdgeInsets.only(bottom: bottomPad),
+                              sliver: SliverList(
+                                delegate: SliverChildListDelegate([
+                                  if (hasMoreTx)
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        12,
+                                        4,
+                                        12,
+                                        12,
+                                      ),
+                                      child: Center(
+                                        child: FilledButton.tonalIcon(
+                                          onPressed: () => setState(
+                                            () =>
+                                                _txDisplayLimit += _txPageSize,
+                                          ),
+                                          icon: Icon(Icons.expand_more_rounded),
+                                          label: Text(
+                                            'Carregar mais (${docs.length - docsVisible.length} restantes)',
+                                          ),
+                                          style:
+                                              _financeToolbarTonalFilledStyle(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 20,
+                                                      vertical: 14,
+                                                    ),
+                                                visualDensity:
+                                                    VisualDensity.standard,
+                                                minimumSize: const Size(48, 48),
+                                              ),
+                                        ),
+                                      ),
+                                    ),
+                                  if (_mainPeriodServerPagingActive &&
+                                      _mainPeriodHasMoreServer)
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        12,
+                                        0,
+                                        12,
+                                        16,
+                                      ),
+                                      child: Center(
+                                        child: FilledButton.tonalIcon(
+                                          onPressed: _mainPeriodLoadingMore
+                                              ? null
+                                              : () => unawaited(
+                                                  _loadMoreMainPeriodFirestore(
+                                                    sessionUid,
+                                                  ),
+                                                ),
+                                          icon: _mainPeriodLoadingMore
+                                              ? SizedBox(
+                                                  width: 18,
+                                                  height: 18,
+                                                  child:
+                                                      CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                      ),
+                                                )
+                                              : Icon(
+                                                  Icons.cloud_download_outlined,
+                                                ),
+                                          label: Text(
+                                            _mainPeriodLoadingMore
+                                                ? 'A carregar…'
+                                                : 'Carregar mais do servidor ($_kMainPeriodFirestorePageSize por pedido)',
+                                          ),
+                                          style:
+                                              _financeToolbarTonalFilledStyle(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 18,
+                                                      vertical: 14,
+                                                    ),
+                                                visualDensity:
+                                                    VisualDensity.standard,
+                                                minimumSize: const Size(48, 48),
+                                              ),
+                                        ),
+                                      ),
+                                    ),
+                                ]),
+                              ),
+                            ),
+                          ],
                         ),
                       );
                     },
                   ),
+                );
+              },
+            ),
           ),
         ),
       ),
@@ -8090,12 +8619,13 @@ class _PendingListSheetContent extends StatefulWidget {
     VoidCallback? onToggleSelect,
     required void Function(String id) removeFromSheet,
     required void Function(String id, Map<String, dynamic> patch) patchInSheet,
-  }) buildItem;
+  })
+  buildItem;
   final Future<void> Function(List<String> ids) onDeleteBatch;
 
   /// Confirma pagamento/recebimento dos IDs selecionados (opcional).
   final Future<void> Function(BuildContext sheetContext, List<String> ids)?
-      onConfirmBatch;
+  onConfirmBatch;
   final String batchConfirmShortLabel;
 
   const _PendingListSheetContent({
@@ -8130,10 +8660,12 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
         .toList(growable: true);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (await shouldShowSheetSelectionHint() && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(AppStrings.sheetSelectionHint),
-          behavior: SnackBarBehavior.floating,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppStrings.sheetSelectionHint),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
         markSheetSelectionHintShown();
       }
     });
@@ -8165,7 +8697,9 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
   }
 
   double get _totalValue => _items.fold<double>(
-      0, (s, e) => s + ((e['amount'] ?? 0) as num).toDouble().abs());
+    0,
+    (s, e) => s + ((e['amount'] ?? 0) as num).toDouble().abs(),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -8182,11 +8716,13 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
           children: [
             SizedBox(height: 8),
             Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2))),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
             // Topo do preview: «Voltar» (esquerda) + X (direita).
             buildFinancePreviewTopBar(context),
             Padding(
@@ -8201,34 +8737,43 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
                             Container(
                               padding: const EdgeInsets.all(10),
                               decoration: BoxDecoration(
-                                  color:
-                                      widget.iconColor.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(14)),
-                              child: Icon(Icons.schedule_rounded,
-                                  color: widget.iconColor, size: 28),
+                                color: widget.iconColor.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Icon(
+                                Icons.schedule_rounded,
+                                color: widget.iconColor,
+                                size: 28,
+                              ),
                             ),
                             SizedBox(width: 14),
                             Expanded(
-                                child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(widget.title,
-                                    style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w800,
-                                        color: context.appTextPrimary),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis),
-                                if ((_items.isNotEmpty))
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
                                   Text(
+                                    widget.title,
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w800,
+                                      color: context.appTextPrimary,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if ((_items.isNotEmpty))
+                                    Text(
                                       'Total: ${CurrencyFormats.formatBRL(_totalValue)}',
                                       style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: widget.iconColor)),
-                              ],
-                            )),
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: widget.iconColor,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                         SizedBox(height: 10),
@@ -8240,33 +8785,43 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
                         Container(
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                              color: widget.iconColor.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(14)),
-                          child: Icon(Icons.schedule_rounded,
-                              color: widget.iconColor, size: 28),
+                            color: widget.iconColor.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Icon(
+                            Icons.schedule_rounded,
+                            color: widget.iconColor,
+                            size: 28,
+                          ),
                         ),
                         SizedBox(width: 14),
                         Expanded(
-                            child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(widget.title,
-                                style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w800,
-                                    color: context.appTextPrimary),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis),
-                            if ((_items.isNotEmpty))
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
                               Text(
+                                widget.title,
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: context.appTextPrimary,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if ((_items.isNotEmpty))
+                                Text(
                                   'Total: ${CurrencyFormats.formatBRL(_totalValue)}',
                                   style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                      color: widget.iconColor)),
-                          ],
-                        )),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: widget.iconColor,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                         _buildSelectionActions(useWrap: false),
                       ],
                     ),
@@ -8277,21 +8832,31 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.inbox_rounded,
-                              size: 48, color: Colors.grey.shade400),
+                          Icon(
+                            Icons.inbox_rounded,
+                            size: 48,
+                            color: Colors.grey.shade400,
+                          ),
                           SizedBox(height: 12),
-                          Text(widget.emptyMessage,
-                              style: TextStyle(
-                                  fontSize: 14,
-                                  color: context.appTextSecondary)),
+                          Text(
+                            widget.emptyMessage,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: context.appTextSecondary,
+                            ),
+                          ),
                         ],
                       ),
                     )
                   : ListView.builder(
                       controller: widget.scrollController,
                       addAutomaticKeepAlives: false,
-                      padding:
-                          EdgeInsets.fromLTRB(20, 0, 20, 24 + bottomPadding),
+                      padding: EdgeInsets.fromLTRB(
+                        20,
+                        0,
+                        20,
+                        24 + bottomPadding,
+                      ),
                       itemCount: _items.length,
                       itemBuilder: (_, i) {
                         final e = _items[i];
@@ -8330,8 +8895,9 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
           icon: Icon(Icons.checklist_rounded, size: 20),
           label: Text(AppStrings.select),
           style: TextButton.styleFrom(
-              minimumSize: const Size(48, 48),
-              tapTargetSize: MaterialTapTargetSize.padded),
+            minimumSize: const Size(48, 48),
+            tapTargetSize: MaterialTapTargetSize.padded,
+          ),
         ),
       );
     }
@@ -8346,8 +8912,9 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
           _selectedIds.clear();
         }),
         style: TextButton.styleFrom(
-            minimumSize: const Size(48, 48),
-            tapTargetSize: MaterialTapTargetSize.padded),
+          minimumSize: const Size(48, 48),
+          tapTargetSize: MaterialTapTargetSize.padded,
+        ),
         child: Text(AppStrings.cancel),
       ),
       if ((_items.isNotEmpty))
@@ -8358,8 +8925,9 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
               ..addAll(idList);
           }),
           style: TextButton.styleFrom(
-              minimumSize: const Size(48, 48),
-              tapTargetSize: MaterialTapTargetSize.padded),
+            minimumSize: const Size(48, 48),
+            tapTargetSize: MaterialTapTargetSize.padded,
+          ),
           child: Text('Todos'),
         ),
       if (widget.onConfirmBatch != null && _selectedIds.isNotEmpty)
@@ -8370,7 +8938,9 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
                   setState(() => _confirmingBatch = true);
                   try {
                     await widget.onConfirmBatch!(
-                        context, _selectedIds.toList());
+                      context,
+                      _selectedIds.toList(),
+                    );
                   } finally {
                     if (mounted) setState(() => _confirmingBatch = false);
                   }
@@ -8380,11 +8950,16 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white))
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
               : Icon(Icons.done_all_rounded, size: 20),
-          label: Text(_confirmingBatch
-              ? '…'
-              : '${widget.batchConfirmShortLabel} (${_selectedIds.length})'),
+          label: Text(
+            _confirmingBatch
+                ? '…'
+                : '${widget.batchConfirmShortLabel} (${_selectedIds.length})',
+          ),
           style: FilledButton.styleFrom(
             backgroundColor: AppColors.success,
             foregroundColor: Colors.white,
@@ -8405,16 +8980,20 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
                       builder: (ctx) => AlertDialog(
                         title: Text(AppStrings.deleteSelected),
                         content: Text(
-                            '${_selectedIds.length} ${AppStrings.deleteSelectedConfirm}'),
+                          '${_selectedIds.length} ${AppStrings.deleteSelectedConfirm}',
+                        ),
                         actions: [
                           TextButton(
-                              onPressed: () => Navigator.pop(ctx, false),
-                              child: Text(AppStrings.cancel)),
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: Text(AppStrings.cancel),
+                          ),
                           FilledButton(
-                              onPressed: () => Navigator.pop(ctx, true),
-                              style: FilledButton.styleFrom(
-                                  backgroundColor: AppColors.error),
-                              child: Text(AppStrings.delete)),
+                            onPressed: () => Navigator.pop(ctx, true),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.error,
+                            ),
+                            child: Text(AppStrings.delete),
+                          ),
                         ],
                       ),
                     );
@@ -8429,15 +9008,21 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white))
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
                 : Icon(Icons.delete_outline_rounded, size: 20),
-            label: Text(_deletingBatch
-                ? 'Excluindo...'
-                : 'Excluir (${_selectedIds.length})'),
+            label: Text(
+              _deletingBatch
+                  ? 'Excluindo...'
+                  : 'Excluir (${_selectedIds.length})',
+            ),
             style: FilledButton.styleFrom(
-                backgroundColor: AppColors.error,
-                minimumSize: const Size(48, 48),
-                tapTargetSize: MaterialTapTargetSize.padded),
+              backgroundColor: AppColors.error,
+              minimumSize: const Size(48, 48),
+              tapTargetSize: MaterialTapTargetSize.padded,
+            ),
           ),
         ),
     ];
@@ -8449,17 +9034,17 @@ class _PendingListSheetContentState extends State<_PendingListSheetContent> {
         children: buttons,
       );
     }
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: buttons,
-    );
+    return Row(mainAxisSize: MainAxisSize.min, children: buttons);
   }
 }
 
 enum FinanceInsightScope { income, expense, balance }
 
 String _insightPercentLabel(
-    double part, double total, FinanceInsightScope scope) {
+  double part,
+  double total,
+  FinanceInsightScope scope,
+) {
   final base = total.abs();
   if (base < 0.005) return '0,0';
   return ((part.abs() / base) * 100).toStringAsFixed(1);
@@ -8484,7 +9069,11 @@ class FinanceInsightSheet extends StatefulWidget {
   final double? openingBalanceHint;
   final Map<String, double>? openingByAccountHint;
   final Future<void> Function(
-      String docId, Map<String, dynamic> current, String type) onEdit;
+    String docId,
+    Map<String, dynamic> current,
+    String type,
+  )
+  onEdit;
   final Future<void> Function(String docId) onDelete;
 
   const FinanceInsightSheet({
@@ -8541,10 +9130,19 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
   void initState() {
     super.initState();
     _scope = widget.initialScope;
-    _from = DateTime(widget.initialFrom.year, widget.initialFrom.month,
-        widget.initialFrom.day);
-    _to = DateTime(widget.initialTo.year, widget.initialTo.month,
-        widget.initialTo.day, 23, 59, 59);
+    _from = DateTime(
+      widget.initialFrom.year,
+      widget.initialFrom.month,
+      widget.initialFrom.day,
+    );
+    _to = DateTime(
+      widget.initialTo.year,
+      widget.initialTo.month,
+      widget.initialTo.day,
+      23,
+      59,
+      59,
+    );
     final cat = widget.initialCategoryExact?.trim();
     _selectedCategory = (cat != null && cat.isNotEmpty) ? cat : '__all__';
     _statusLocal = widget.statusFilter;
@@ -8572,8 +9170,9 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
     }
     if (widget.openingBalanceHint != null) {
       _openingTotal = widget.openingBalanceHint!;
-      _openingByAccount =
-          Map<String, double>.from(widget.openingByAccountHint ?? const {});
+      _openingByAccount = Map<String, double>.from(
+        widget.openingByAccountHint ?? const {},
+      );
     }
   }
 
@@ -8685,19 +9284,21 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
   }
 
   String get _title => switch (_scope) {
-        FinanceInsightScope.income => 'Receitas do período',
-        FinanceInsightScope.expense => 'Despesas do período',
-        FinanceInsightScope.balance => 'Saldo do período',
-      };
+    FinanceInsightScope.income => 'Receitas do período',
+    FinanceInsightScope.expense => 'Despesas do período',
+    FinanceInsightScope.balance => 'Saldo do período',
+  };
 
   Color get _accentColor => switch (_scope) {
-        FinanceInsightScope.income => AppColors.financeReceita,
-        FinanceInsightScope.expense => AppColors.financeDespesa,
-        FinanceInsightScope.balance => AppColors.primary,
-      };
+    FinanceInsightScope.income => AppColors.financeReceita,
+    FinanceInsightScope.expense => AppColors.financeDespesa,
+    FinanceInsightScope.balance => AppColors.primary,
+  };
 
   Future<List<Map<String, dynamic>>> _fetchFilteredTransactions(
-      DateTime from, DateTime to) async {
+    DateTime from,
+    DateTime to,
+  ) async {
     final docs = await FinanceInsightQuery.fetchPeriodDocs(
       uid: widget.uid,
       from: from,
@@ -8709,8 +9310,8 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
     for (final doc in docs) {
       final d = doc.data();
       if (_localSearch.isNotEmpty) {
-        final text =
-            '${d['category'] ?? ''} ${d['description'] ?? ''}'.toLowerCase();
+        final text = '${d['category'] ?? ''} ${d['description'] ?? ''}'
+            .toLowerCase();
         if (!text.contains(_localSearch)) continue;
       }
       rows.add({'id': doc.id, 'raw': d});
@@ -8719,7 +9320,10 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
   }
 
   Future<double> _loadComparisonTotal(
-      DateTime from, DateTime to, FinanceInsightScope scope) async {
+    DateTime from,
+    DateTime to,
+    FinanceInsightScope scope,
+  ) async {
     final days = to.difference(from).inDays + 1;
     final prevStart = from.subtract(Duration(days: days));
     final prevEnd = from.subtract(const Duration(seconds: 1));
@@ -8728,7 +9332,9 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
   }
 
   double _computeScopeTotal(
-      List<Map<String, dynamic>> baseRows, FinanceInsightScope scope) {
+    List<Map<String, dynamic>> baseRows,
+    FinanceInsightScope scope,
+  ) {
     var total = 0.0;
     for (final row in baseRows) {
       final d = Map<String, dynamic>.from(row['raw'] as Map<String, dynamic>);
@@ -8793,8 +9399,10 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
     unawaited(_refreshOpeningBalance());
   }
 
-  List<Map<String, dynamic>> _rowsByScope(List<Map<String, dynamic>> baseRows,
-      [String? categoryFilter]) {
+  List<Map<String, dynamic>> _rowsByScope(
+    List<Map<String, dynamic>> baseRows, [
+    String? categoryFilter,
+  ]) {
     final catKey = categoryFilter ?? _selectedCategory;
     final rows = <Map<String, dynamic>>[];
     for (final item in baseRows) {
@@ -8815,7 +9423,8 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
       final category = (d['category'] ?? '').toString().trim();
       final description = (d['description'] ?? '').toString().trim();
       final ts = d['date'];
-      final date = FinanceLineOpening.effectiveDateTimeFromMap(d) ??
+      final date =
+          FinanceLineOpening.effectiveDateTimeFromMap(d) ??
           (ts is Timestamp ? ts.toDate() : null);
       rows.add({
         'id': (item['id'] ?? '').toString(),
@@ -8831,9 +9440,13 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
     final filteredRows = catKey == '__all__'
         ? rows
         : rows
-            .where((r) => FinanceCategoryMerger.sameCategoryGroup(
-                (r['category'] ?? '').toString(), catKey))
-            .toList();
+              .where(
+                (r) => FinanceCategoryMerger.sameCategoryGroup(
+                  (r['category'] ?? '').toString(),
+                  catKey,
+                ),
+              )
+              .toList();
 
     filteredRows.sort((a, b) {
       final aAmount = (a['amount'] ?? 0.0) as double;
@@ -8868,12 +9481,14 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
       child: SafeArea(
         top: false,
         child: DraggableScrollableSheet(
-          initialChildSize: 0.9,
-          maxChildSize: 0.96,
-          minChildSize: 0.62,
+          initialChildSize: 1.0,
+          maxChildSize: 1.0,
+          minChildSize: 1.0,
           builder: (context, controller) => Container(
             decoration: financePremiumSheetDecoration(
-                surfaceTint: _accentColor, context: context),
+              surfaceTint: _accentColor,
+              context: context,
+            ),
             child: FutureBuilder<List<Map<String, dynamic>>>(
               future: _docsFuture,
               builder: (context, snap) {
@@ -8906,7 +9521,8 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                 final insightMerger = FinanceCategoryMerger();
                 for (final item in baseRows) {
                   final d = Map<String, dynamic>.from(
-                      item['raw'] as Map<String, dynamic>);
+                    item['raw'] as Map<String, dynamic>,
+                  );
                   final type = (d['type'] ?? 'expense').toString();
                   final include = switch (_scope) {
                     FinanceInsightScope.income => type == 'income',
@@ -8921,12 +9537,15 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                 final allCategoryOptions = <String>{
                   ..._userCategoryNames,
                   ...allCategoryTotals.keys,
-                }.toList()
-                  ..sort(UserCategoriesService.compareNamesPt);
-                final effectiveCategory = _selectedCategory == '__all__' ||
-                        allCategoryOptions.any((k) =>
-                            FinanceCategoryMerger.sameCategoryGroup(
-                                k, _selectedCategory))
+                }.toList()..sort(UserCategoriesService.compareNamesPt);
+                final effectiveCategory =
+                    _selectedCategory == '__all__' ||
+                        allCategoryOptions.any(
+                          (k) => FinanceCategoryMerger.sameCategoryGroup(
+                            k,
+                            _selectedCategory,
+                          ),
+                        )
                     ? _selectedCategory
                     : '__all__';
                 final rows = _rowsByScope(baseRows, effectiveCategory);
@@ -8937,16 +9556,22 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                 final incomeTotal = rows
                     .where((r) => (r['type'] ?? 'expense') == 'income')
                     .fold<double>(
-                        0, (s, r) => s + ((r['amount'] ?? 0.0) as double));
+                      0,
+                      (s, r) => s + ((r['amount'] ?? 0.0) as double),
+                    );
                 final expenseTotal = rows
                     .where((r) => (r['type'] ?? 'expense') == 'expense')
                     .fold<double>(
-                        0, (s, r) => s + ((r['amount'] ?? 0.0) as double));
+                      0,
+                      (s, r) => s + ((r['amount'] ?? 0.0) as double),
+                    );
                 final saldoPeriodo = incomeTotal - expenseTotal;
                 final total = _scope == FinanceInsightScope.balance
                     ? saldoPeriodo
                     : rows.fold<double>(
-                        0, (sum, r) => sum + ((r['amount'] ?? 0.0) as double));
+                        0,
+                        (sum, r) => sum + ((r['amount'] ?? 0.0) as double),
+                      );
                 final categoryTotals = <String, double>{};
                 final rowMerger = FinanceCategoryMerger();
                 for (final r in rows) {
@@ -8994,25 +9619,26 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                     final saldoAcumulado = effectiveOpening + saldoPeriodo;
                     final authoritativeTotal = summary == null
                         ? (_scope == FinanceInsightScope.balance
-                            ? saldoAcumulado
-                            : total)
+                              ? saldoAcumulado
+                              : total)
                         : switch (_scope) {
                             FinanceInsightScope.income => summary.income,
                             FinanceInsightScope.expense => summary.expense,
-                            FinanceInsightScope.balance => effectiveOpening +
-                                summary.income -
-                                summary.expense,
+                            FinanceInsightScope.balance =>
+                              effectiveOpening +
+                                  summary.income -
+                                  summary.expense,
                           };
                     final saldoPieSegments = [
                       (
                         label: 'Receitas',
                         value: authoritativeIncome,
-                        color: AppColors.financeReceita
+                        color: AppColors.financeReceita,
                       ),
                       (
                         label: 'Despesas',
                         value: authoritativeExpense,
-                        color: AppColors.financeDespesa
+                        color: AppColors.financeDespesa,
                       ),
                     ];
 
@@ -9026,10 +9652,12 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                             : (deltaPrev == 0 ? 0.0 : 100.0);
                         final previousLabel = (() {
                           final days = _to.difference(_from).inDays + 1;
-                          final prevStart =
-                              _from.subtract(Duration(days: days));
-                          final prevEnd =
-                              _from.subtract(const Duration(seconds: 1));
+                          final prevStart = _from.subtract(
+                            Duration(days: days),
+                          );
+                          final prevEnd = _from.subtract(
+                            const Duration(seconds: 1),
+                          );
                           return '${DateFormat('dd/MM').format(prevStart)} a ${DateFormat('dd/MM').format(prevEnd)}';
                         })();
 
@@ -9063,7 +9691,10 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                               iconGradient: [
                                 _accentColor,
                                 Color.lerp(
-                                    _accentColor, AppColors.accent, 0.45)!,
+                                  _accentColor,
+                                  AppColors.accent,
+                                  0.45,
+                                )!,
                               ],
                               onBack: () => Navigator.pop(context),
                               titleColor: _accentColor,
@@ -9080,15 +9711,20 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                               runSpacing: 8,
                               children: [
                                 _scopeChip(
-                                    'Receitas',
-                                    FinanceInsightScope.income,
-                                    AppColors.financeReceita),
+                                  'Receitas',
+                                  FinanceInsightScope.income,
+                                  AppColors.financeReceita,
+                                ),
                                 _scopeChip(
-                                    'Despesas',
-                                    FinanceInsightScope.expense,
-                                    AppColors.financeDespesa),
-                                _scopeChip('Saldo', FinanceInsightScope.balance,
-                                    AppColors.primary),
+                                  'Despesas',
+                                  FinanceInsightScope.expense,
+                                  AppColors.financeDespesa,
+                                ),
+                                _scopeChip(
+                                  'Saldo',
+                                  FinanceInsightScope.balance,
+                                  AppColors.primary,
+                                ),
                               ],
                             ),
                             SizedBox(height: 8),
@@ -9116,18 +9752,25 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                               Container(
                                 width: double.infinity,
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 10),
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFFF0FDF4),
                                   borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
-                                      color: const Color(0xFF166534)
-                                          .withValues(alpha: 0.35)),
+                                    color: const Color(
+                                      0xFF166534,
+                                    ).withValues(alpha: 0.35),
+                                  ),
                                 ),
                                 child: Row(
                                   children: [
-                                    Icon(Icons.filter_alt_rounded,
-                                        size: 20, color: Colors.green.shade800),
+                                    Icon(
+                                      Icons.filter_alt_rounded,
+                                      size: 20,
+                                      color: Colors.green.shade800,
+                                    ),
                                     SizedBox(width: 10),
                                     Expanded(
                                       child: Text(
@@ -9147,28 +9790,35 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                             SizedBox(height: 10),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 4),
+                                horizontal: 14,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: context.appMutedSurface,
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                    color: context.appChipIdleBorder),
+                                  color: context.appChipIdleBorder,
+                                ),
                               ),
                               child: FastTextField(
                                 controller: _searchCtrl,
                                 decoration: const InputDecoration(
-                                  hintText: 'Pesquisar categoria ou descrição…',
+                                  hintText:
+                                      'Pesquisar categoria ou descrição…',
                                   border: InputBorder.none,
-                                  prefixIcon: Icon(Icons.search_rounded,
-                                      color: AppColors.primary),
+                                  prefixIcon: Icon(
+                                    Icons.search_rounded,
+                                    color: AppColors.primary,
+                                  ),
                                   isDense: true,
                                 ),
                                 onChanged: (v) {
                                   _searchDebounceTimer?.cancel();
                                   _searchDebounceTimer = Timer(
                                     Duration(
-                                        milliseconds:
-                                            AppBusinessRules.searchDebounceMs),
+                                      milliseconds:
+                                          AppBusinessRules.searchDebounceMs,
+                                    ),
                                     () {
                                       if (!mounted) return;
                                       setState(() {
@@ -9176,7 +9826,9 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                         _visibleRowsLimit = _kInsightPageSize;
                                         _docsFuture =
                                             _fetchFilteredTransactions(
-                                                _from, _to);
+                                              _from,
+                                              _to,
+                                            );
                                       });
                                     },
                                   );
@@ -9189,9 +9841,10 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                               child: Text(
                                 'Status dos lançamentos',
                                 style: TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 12,
-                                    color: context.appTextSecondary),
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 12,
+                                  color: context.appTextSecondary,
+                                ),
                               ),
                             ),
                             SizedBox(height: 6),
@@ -9205,12 +9858,15 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                   onSelected: (_) => setState(() {
                                     _statusLocal = 'all';
                                     _visibleRowsLimit = _kInsightPageSize;
-                                    _docsFuture =
-                                        _fetchFilteredTransactions(_from, _to);
+                                    _docsFuture = _fetchFilteredTransactions(
+                                      _from,
+                                      _to,
+                                    );
                                     _periodSummaryFuture = _loadPeriodSummary();
                                   }),
-                                  selectedColor:
-                                      _accentColor.withValues(alpha: 0.22),
+                                  selectedColor: _accentColor.withValues(
+                                    alpha: 0.22,
+                                  ),
                                   checkmarkColor: _accentColor,
                                 ),
                                 FilterChip(
@@ -9219,12 +9875,15 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                   onSelected: (_) => setState(() {
                                     _statusLocal = 'paid';
                                     _visibleRowsLimit = _kInsightPageSize;
-                                    _docsFuture =
-                                        _fetchFilteredTransactions(_from, _to);
+                                    _docsFuture = _fetchFilteredTransactions(
+                                      _from,
+                                      _to,
+                                    );
                                     _periodSummaryFuture = _loadPeriodSummary();
                                   }),
-                                  selectedColor:
-                                      _accentColor.withValues(alpha: 0.22),
+                                  selectedColor: _accentColor.withValues(
+                                    alpha: 0.22,
+                                  ),
                                   checkmarkColor: _accentColor,
                                 ),
                                 FilterChip(
@@ -9233,12 +9892,15 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                   onSelected: (_) => setState(() {
                                     _statusLocal = 'pending';
                                     _visibleRowsLimit = _kInsightPageSize;
-                                    _docsFuture =
-                                        _fetchFilteredTransactions(_from, _to);
+                                    _docsFuture = _fetchFilteredTransactions(
+                                      _from,
+                                      _to,
+                                    );
                                     _periodSummaryFuture = _loadPeriodSummary();
                                   }),
-                                  selectedColor:
-                                      _accentColor.withValues(alpha: 0.22),
+                                  selectedColor: _accentColor.withValues(
+                                    alpha: 0.22,
+                                  ),
                                   checkmarkColor: _accentColor,
                                 ),
                               ],
@@ -9250,9 +9912,10 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                 child: Text(
                                   'Tipo na lista (saldo)',
                                   style: TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 12,
-                                      color: context.appTextSecondary),
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 12,
+                                    color: context.appTextSecondary,
+                                  ),
                                 ),
                               ),
                               SizedBox(height: 6),
@@ -9265,15 +9928,17 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                     selected: _typeRowFilter.isEmpty,
                                     onSelected: (_) =>
                                         setState(() => _typeRowFilter = ''),
-                                    selectedColor:
-                                        _accentColor.withValues(alpha: 0.22),
+                                    selectedColor: _accentColor.withValues(
+                                      alpha: 0.22,
+                                    ),
                                     checkmarkColor: _accentColor,
                                   ),
                                   FilterChip(
                                     label: Text('Só receitas'),
                                     selected: _typeRowFilter == 'income',
                                     onSelected: (_) => setState(
-                                        () => _typeRowFilter = 'income'),
+                                      () => _typeRowFilter = 'income',
+                                    ),
                                     selectedColor: AppColors.financeReceita
                                         .withValues(alpha: 0.22),
                                     checkmarkColor: AppColors.financeReceita,
@@ -9282,7 +9947,8 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                     label: Text('Só despesas'),
                                     selected: _typeRowFilter == 'expense',
                                     onSelected: (_) => setState(
-                                        () => _typeRowFilter = 'expense'),
+                                      () => _typeRowFilter = 'expense',
+                                    ),
                                     selectedColor: AppColors.financeDespesa
                                         .withValues(alpha: 0.22),
                                     checkmarkColor: AppColors.financeDespesa,
@@ -9300,26 +9966,33 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                               ),
                               child: Row(
                                 children: [
-                                  Icon(Icons.category_rounded,
-                                      size: 22, color: _accentColor),
+                                  Icon(
+                                    Icons.category_rounded,
+                                    size: 22,
+                                    color: _accentColor,
+                                  ),
                                   SizedBox(width: 10),
                                   Expanded(
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text('Categoria',
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 12)),
+                                        Text(
+                                          'Categoria',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 12,
+                                          ),
+                                        ),
                                         SizedBox(height: 4),
                                         Text(
                                           effectiveCategory == '__all__'
                                               ? 'Todas as categorias'
                                               : effectiveCategory,
                                           style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 15),
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 15,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -9328,16 +10001,17 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                     onPressed: () async {
                                       final picked =
                                           await showFinanceCategoryPicker(
-                                        context: context,
-                                        isIncome: _scope ==
-                                            FinanceInsightScope.income,
-                                        uid: widget.uid,
-                                        initialQuery:
-                                            effectiveCategory == '__all__'
+                                            context: context,
+                                            isIncome:
+                                                _scope ==
+                                                FinanceInsightScope.income,
+                                            uid: widget.uid,
+                                            initialQuery:
+                                                effectiveCategory == '__all__'
                                                 ? ''
                                                 : effectiveCategory,
-                                        extraCategories: allCategoryOptions,
-                                      );
+                                            extraCategories: allCategoryOptions,
+                                          );
                                       if (picked != null && mounted) {
                                         setState(() {
                                           _selectedCategory = picked.isEmpty
@@ -9349,8 +10023,9 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                     },
                                     style: FilledButton.styleFrom(
                                       foregroundColor: _accentColor,
-                                      backgroundColor:
-                                          _accentColor.withValues(alpha: 0.12),
+                                      backgroundColor: _accentColor.withValues(
+                                        alpha: 0.12,
+                                      ),
                                     ),
                                     child: Text('Escolher'),
                                   ),
@@ -9365,7 +10040,8 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                 _financeInsightChip(
                                   'Total',
                                   CurrencyFormats.formatBRLTight(
-                                      authoritativeTotal),
+                                    authoritativeTotal,
+                                  ),
                                   _accentColor,
                                 ),
                                 _financeInsightChip(
@@ -9388,7 +10064,8 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                 _financeInsightChip(
                                   'Saldo abertura',
                                   CurrencyFormats.formatBRLTight(
-                                      effectiveOpening),
+                                    effectiveOpening,
+                                  ),
                                   effectiveOpening >= 0
                                       ? AppColors.saldoPositive
                                       : AppColors.saldoNegative,
@@ -9397,7 +10074,8 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                   _financeInsightChip(
                                     'Mov. período',
                                     CurrencyFormats.formatBRLTight(
-                                        saldoPeriodo),
+                                      saldoPeriodo,
+                                    ),
                                     saldoPeriodo >= 0
                                         ? AppColors.saldoPositive
                                         : AppColors.saldoNegative,
@@ -9406,7 +10084,8 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                   _financeInsightChip(
                                     'Saldo (acum.)',
                                     CurrencyFormats.formatBRLTight(
-                                        saldoAcumulado),
+                                      saldoAcumulado,
+                                    ),
                                     saldoAcumulado >= 0
                                         ? AppColors.saldoPositive
                                         : AppColors.saldoNegative,
@@ -9425,9 +10104,11 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                   spacing: 8,
                                   runSpacing: 8,
                                   children: [
-                                    for (var i = 0;
-                                        i < sortedCats.length && i < 3;
-                                        i++)
+                                    for (
+                                      var i = 0;
+                                      i < sortedCats.length && i < 3;
+                                      i++
+                                    )
                                       _financeInsightChip(
                                         'Top ${i + 1}: ${sortedCats[i].key}',
                                         '${_insightPercentLabel(sortedCats[i].value, authoritativeTotal, _scope)}%',
@@ -9448,10 +10129,13 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                 children: [
                                   Icon(Icons.sort_rounded, size: 18),
                                   SizedBox(width: 8),
-                                  Text('Ordenar',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                          color: context.appTextPrimary)),
+                                  Text(
+                                    'Ordenar',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: context.appTextPrimary,
+                                    ),
+                                  ),
                                   SizedBox(width: 10),
                                   Expanded(
                                     child: DropdownButtonHideUnderline(
@@ -9460,21 +10144,25 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                         isExpanded: true,
                                         items: const [
                                           DropdownMenuItem(
-                                              value: 'amount_desc',
-                                              child: Text(
-                                                  'Valor (maior > menor)')),
+                                            value: 'amount_desc',
+                                            child: Text(
+                                              'Valor (maior > menor)',
+                                            ),
+                                          ),
                                           DropdownMenuItem(
-                                              value: 'amount_asc',
-                                              child: Text(
-                                                  'Valor (menor > maior)')),
+                                            value: 'amount_asc',
+                                            child: Text(
+                                              'Valor (menor > maior)',
+                                            ),
+                                          ),
                                           DropdownMenuItem(
-                                              value: 'date_desc',
-                                              child:
-                                                  Text('Data (mais recente)')),
+                                            value: 'date_desc',
+                                            child: Text('Data (mais recente)'),
+                                          ),
                                           DropdownMenuItem(
-                                              value: 'date_asc',
-                                              child:
-                                                  Text('Data (mais antiga)')),
+                                            value: 'date_asc',
+                                            child: Text('Data (mais antiga)'),
+                                          ),
                                         ],
                                         onChanged: (v) {
                                           if (v != null) {
@@ -9500,9 +10188,10 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                   Text(
                                     'Filtro rápido (clique na barra da categoria)',
                                     style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w800,
-                                        color: context.appTextPrimary),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      color: context.appTextPrimary,
+                                    ),
                                   ),
                                   SizedBox(height: 8),
                                   if (allCategoryTotals.isEmpty)
@@ -9513,14 +10202,18 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                           _selectedCategory == entry.key;
                                       final ratio = maxCatVal <= 0
                                           ? 0.05
-                                          : (entry.value / maxCatVal)
-                                              .clamp(0.05, 1.0);
+                                          : (entry.value / maxCatVal).clamp(
+                                              0.05,
+                                              1.0,
+                                            );
                                       return Padding(
-                                        padding:
-                                            const EdgeInsets.only(bottom: 8),
+                                        padding: const EdgeInsets.only(
+                                          bottom: 8,
+                                        ),
                                         child: InkWell(
-                                          borderRadius:
-                                              BorderRadius.circular(10),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
                                           onTap: () => setState(() {
                                             _selectedCategory = selected
                                                 ? '__all__'
@@ -9553,27 +10246,30 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                                       height: 10,
                                                       decoration: BoxDecoration(
                                                         color: Colors
-                                                            .grey.shade200,
+                                                            .grey
+                                                            .shade200,
                                                         borderRadius:
-                                                            BorderRadius
-                                                                .circular(99),
+                                                            BorderRadius.circular(
+                                                              99,
+                                                            ),
                                                       ),
                                                     ),
                                                     FractionallySizedBox(
                                                       widthFactor: ratio,
                                                       child: Container(
                                                         height: 10,
-                                                        decoration:
-                                                            BoxDecoration(
+                                                        decoration: BoxDecoration(
                                                           color: selected
                                                               ? _accentColor
                                                               : _accentColor
-                                                                  .withValues(
+                                                                    .withValues(
                                                                       alpha:
-                                                                          0.65),
+                                                                          0.65,
+                                                                    ),
                                                           borderRadius:
-                                                              BorderRadius
-                                                                  .circular(99),
+                                                              BorderRadius.circular(
+                                                                99,
+                                                              ),
                                                         ),
                                                       ),
                                                     ),
@@ -9583,11 +10279,12 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                               SizedBox(width: 8),
                                               Text(
                                                 CurrencyFormats.formatBRLTight(
-                                                    entry.value),
+                                                  entry.value,
+                                                ),
                                                 style: const TextStyle(
-                                                    fontSize: 11.5,
-                                                    fontWeight:
-                                                        FontWeight.w800),
+                                                  fontSize: 11.5,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
                                               ),
                                             ],
                                           ),
@@ -9610,7 +10307,9 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                             Text(
                               'Lançamentos',
                               style: TextStyle(
-                                  fontSize: 14, fontWeight: FontWeight.w900),
+                                fontSize: 14,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                             SizedBox(height: 8),
                             if (rows.isEmpty)
@@ -9620,8 +10319,9 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                   radius: 14,
                                   borderColor: context.appChipIdleBorder,
                                 ),
-                                child:
-                                    Text('Sem lançamentos para este preview.'),
+                                child: Text(
+                                  'Sem lançamentos para este preview.',
+                                ),
                               )
                             else
                               ...rowsVisible.map((r) {
@@ -9629,11 +10329,11 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                 final category =
                                     (r['category'] ?? 'Sem categoria')
                                         .toString();
-                                final description =
-                                    (r['description'] ?? '').toString();
+                                final description = (r['description'] ?? '')
+                                    .toString();
                                 final date = r['date'] as DateTime?;
-                                final type =
-                                    (r['type'] ?? 'expense').toString();
+                                final type = (r['type'] ?? 'expense')
+                                    .toString();
                                 final id = (r['id'] ?? '').toString();
                                 final percentBase = switch (_scope) {
                                   FinanceInsightScope.income =>
@@ -9655,10 +10355,12 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                                   percent: percent,
                                   onEdit: () async {
                                     await widget.onEdit(
-                                        id,
-                                        Map<String, dynamic>.from(
-                                            r['raw'] as Map<String, dynamic>),
-                                        type);
+                                      id,
+                                      Map<String, dynamic>.from(
+                                        r['raw'] as Map<String, dynamic>,
+                                      ),
+                                      type,
+                                    );
                                     if (mounted) _scheduleDocsReload();
                                   },
                                   onDelete: () async {
@@ -9669,15 +10371,18 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
                               }),
                             if (hasMoreRows)
                               Padding(
-                                padding:
-                                    const EdgeInsets.only(top: 4, bottom: 8),
+                                padding: const EdgeInsets.only(
+                                  top: 4,
+                                  bottom: 8,
+                                ),
                                 child: FilledButton.tonalIcon(
                                   onPressed: () => setState(() {
                                     _visibleRowsLimit += _kInsightPageSize;
                                   }),
                                   icon: Icon(Icons.expand_more_rounded),
                                   label: Text(
-                                      'Carregar mais (${rowsVisible.length}/${rows.length})'),
+                                    'Carregar mais (${rowsVisible.length}/${rows.length})',
+                                  ),
                                 ),
                               ),
                             SizedBox(height: 8),
@@ -9739,8 +10444,9 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
         color: selected ? color : AppColors.textSecondary,
       ),
       side: BorderSide(
-          color: color.withValues(alpha: selected ? 0.85 : 0.35),
-          width: selected ? 2 : 1),
+        color: color.withValues(alpha: selected ? 0.85 : 0.35),
+        width: selected ? 2 : 1,
+      ),
     );
   }
 
@@ -9767,8 +10473,9 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
         color: selected ? _accentColor : context.appTextSecondary,
       ),
       side: BorderSide(
-          color: _accentColor.withValues(alpha: selected ? 0.85 : 0.35),
-          width: selected ? 2 : 1),
+        color: _accentColor.withValues(alpha: selected ? 0.85 : 0.35),
+        width: selected ? 2 : 1,
+      ),
     );
   }
 
@@ -9787,9 +10494,10 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
           Text(
             label,
             style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: context.appTextSecondary),
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: context.appTextSecondary,
+            ),
           ),
           SizedBox(height: 4),
           FittedBox(
@@ -9798,7 +10506,10 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
             child: Text(
               value,
               style: TextStyle(
-                  fontSize: 13.5, fontWeight: FontWeight.w900, color: color),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w900,
+                color: color,
+              ),
             ),
           ),
         ],
@@ -9855,19 +10566,20 @@ class _FinanceReportsPremiumSheetState
   late DateTime _cTo;
   String? _categoryChoice;
   late final Future<
-      ({
-        List<String> income,
-        List<String> expense,
-        List<String> hiddenDefaultIncome,
-        List<String> hiddenDefaultExpense,
-      })> _catsFuture;
+    ({
+      List<String> income,
+      List<String> expense,
+      List<String> hiddenDefaultIncome,
+      List<String> hiddenDefaultExpense,
+    })
+  >
+  _catsFuture;
   @override
   void initState() {
     super.initState();
     _cFrom = widget.screenFrom;
     _cTo = widget.screenTo;
-    _catsFuture =
-        UserCategoriesService().load(widget.uid.trim());
+    _catsFuture = UserCategoriesService().load(widget.uid.trim());
   }
 
   String _previewFilenameBase(DateTime rf, DateTime rt) {
@@ -9886,12 +10598,12 @@ class _FinanceReportsPremiumSheetState
       case 1:
         return (
           DateTime(now.year, now.month, 1),
-          DateTime(now.year, now.month + 1, 0, 23, 59, 59)
+          DateTime(now.year, now.month + 1, 0, 23, 59, 59),
         );
       case 4:
         return (
           DateTime(now.year, 1, 1),
-          DateTime(now.year, 12, 31, 23, 59, 59)
+          DateTime(now.year, 12, 31, 23, 59, 59),
         );
       default:
         final cf = DateTime(_cFrom.year, _cFrom.month, _cFrom.day);
@@ -9922,24 +10634,28 @@ class _FinanceReportsPremiumSheetState
                   ? LinearGradient(
                       colors: [accent, darker],
                       begin: Alignment.topLeft,
-                      end: Alignment.bottomRight)
+                      end: Alignment.bottomRight,
+                    )
                   : null,
               color: sel ? null : Colors.white,
               border: Border.all(
-                  color: accent.withValues(alpha: sel ? 0 : 0.55),
-                  width: sel ? 0 : 2),
+                color: accent.withValues(alpha: sel ? 0 : 0.55),
+                width: sel ? 0 : 2,
+              ),
               boxShadow: sel
                   ? [
                       BoxShadow(
-                          color: accent.withValues(alpha: 0.35),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4))
+                        color: accent.withValues(alpha: 0.35),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
                     ]
                   : [
                       BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.06),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2))
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
                     ],
             ),
             child: Row(
@@ -9952,9 +10668,10 @@ class _FinanceReportsPremiumSheetState
                 Text(
                   label,
                   style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12,
-                      color: sel ? Colors.white : accent),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                    color: sel ? Colors.white : accent,
+                  ),
                 ),
               ],
             ),
@@ -9969,10 +10686,10 @@ class _FinanceReportsPremiumSheetState
     final bottom = MediaQuery.paddingOf(context).bottom + 16;
     final (rf, rt) = _resolveRange();
     return DraggableScrollableSheet(
-      initialChildSize: 0.72,
-      minChildSize: 0.45,
-      maxChildSize: 0.92,
-      expand: false,
+      initialChildSize: 1.0,
+      minChildSize: 1.0,
+      maxChildSize: 1.0,
+      expand: true,
       builder: (context, scrollController) {
         return Container(
           decoration: context.appSheetDecoration(radius: 22),
@@ -9985,8 +10702,9 @@ class _FinanceReportsPremiumSheetState
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2)),
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
               SizedBox(height: 8),
@@ -9994,14 +10712,19 @@ class _FinanceReportsPremiumSheetState
                 children: [
                   TextButton.icon(
                     onPressed: () => Navigator.pop(context),
-                    icon: Icon(Icons.arrow_back_rounded,
-                        size: 20, color: AppColors.primary),
+                    icon: Icon(
+                      Icons.arrow_back_rounded,
+                      size: 20,
+                      color: AppColors.primary,
+                    ),
                     label: Text('Voltar'),
                     style: TextButton.styleFrom(
                       foregroundColor: AppColors.primary,
                       visualDensity: VisualDensity.compact,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 6),
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
                     ),
                   ),
                   const Spacer(),
@@ -10010,11 +10733,17 @@ class _FinanceReportsPremiumSheetState
                     style: TextButton.styleFrom(
                       foregroundColor: context.appTextSecondary,
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
                     ),
-                    child: Text('Cancelar',
-                        style: TextStyle(
-                            fontWeight: FontWeight.w800, fontSize: 15)),
+                    child: Text(
+                      'Cancelar',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -10028,7 +10757,7 @@ class _FinanceReportsPremiumSheetState
                       gradient: LinearGradient(
                         colors: [
                           AppColors.primary,
-                          Color.lerp(AppColors.primary, AppColors.accent, 0.5)!
+                          Color.lerp(AppColors.primary, AppColors.accent, 0.5)!,
                         ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
@@ -10036,28 +10765,37 @@ class _FinanceReportsPremiumSheetState
                       borderRadius: BorderRadius.circular(14),
                       boxShadow: [
                         BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.35),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4))
+                          color: AppColors.primary.withValues(alpha: 0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
                       ],
                     ),
-                    child: Icon(Icons.auto_awesome_rounded,
-                        color: Colors.white, size: 22),
+                    child: Icon(
+                      Icons.auto_awesome_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
                   ),
                   SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Relatórios financeiros',
-                            style: TextStyle(
-                                fontSize: 20, fontWeight: FontWeight.w900)),
+                        Text(
+                          'Relatórios financeiros',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
                         Text(
                           'Escolha o período e, se quiser, filtre por categoria. O PDF usa o mesmo filtro Pago/Pendente/Todos da tela.',
                           style: TextStyle(
-                              fontSize: 13,
-                              color: context.appTextSecondary,
-                              height: 1.35),
+                            fontSize: 13,
+                            color: context.appTextSecondary,
+                            height: 1.35,
+                          ),
                         ),
                       ],
                     ),
@@ -10065,11 +10803,14 @@ class _FinanceReportsPremiumSheetState
                 ],
               ),
               SizedBox(height: 20),
-              Text('Período do relatório',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14,
-                      color: AppColors.primary)),
+              Text(
+                'Período do relatório',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                  color: AppColors.primary,
+                ),
+              ),
               SizedBox(height: 10),
               Wrap(
                 children: [
@@ -10095,9 +10836,9 @@ class _FinanceReportsPremiumSheetState
                         },
                         icon: Icon(Icons.event_rounded, size: 18),
                         label: Text(
-                            'De ${DateTimeFormats.dateBR.format(_cFrom)}',
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w700)),
+                          'De ${DateTimeFormats.dateBR.format(_cFrom)}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
                       ),
                     ),
                     SizedBox(width: 8),
@@ -10115,9 +10856,9 @@ class _FinanceReportsPremiumSheetState
                         },
                         icon: Icon(Icons.event_available_rounded, size: 18),
                         label: Text(
-                            'Até ${DateTimeFormats.dateBR.format(_cTo)}',
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w700)),
+                          'Até ${DateTimeFormats.dateBR.format(_cTo)}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
                       ),
                     ),
                   ],
@@ -10125,34 +10866,43 @@ class _FinanceReportsPremiumSheetState
               ],
               SizedBox(height: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF0FDF4),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                      color: AppColors.primary.withValues(alpha: 0.2)),
+                    color: AppColors.primary.withValues(alpha: 0.2),
+                  ),
                 ),
                 child: Text(
-                  '${DateTimeFormats.dateBR.format(rf)}  →  ${DateTimeFormats.dateBR.format(rt)}',
+                  '${DateTimeFormats.dateBR.format(rf)} - ${DateTimeFormats.dateBR.format(rt)}',
                   style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w700),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
               SizedBox(height: 22),
-              Text('Categoria',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14,
-                      color: AppColors.primary)),
+              Text(
+                'Categoria',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                  color: AppColors.primary,
+                ),
+              ),
               SizedBox(height: 8),
               FutureBuilder<
-                  ({
-                    List<String> income,
-                    List<String> expense,
-                    List<String> hiddenDefaultIncome,
-                    List<String> hiddenDefaultExpense,
-                  })>(
+                ({
+                  List<String> income,
+                  List<String> expense,
+                  List<String> hiddenDefaultIncome,
+                  List<String> hiddenDefaultExpense,
+                })
+              >(
                 future: _catsFuture,
                 builder: (context, snap) {
                   final merged = <String>{};
@@ -10168,8 +10918,9 @@ class _FinanceReportsPremiumSheetState
                       }
                     }
                   }
-                  final sorted =
-                      UserCategoriesService.sortedWithoutIncluirNova(merged);
+                  final sorted = UserCategoriesService.sortedWithoutIncluirNova(
+                    merged,
+                  );
                   return DropdownButtonFormField<String?>(
                     isExpanded: true,
                     key: ValueKey<String?>(_categoryChoice),
@@ -10178,31 +10929,43 @@ class _FinanceReportsPremiumSheetState
                       filled: true,
                       fillColor: context.appInputFill,
                       border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14)),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
                     ),
                     hint: Text('Todas as categorias'),
                     items: [
                       const DropdownMenuItem<String?>(
-                          value: null, child: Text('Todas as categorias')),
+                        value: null,
+                        child: Text('Todas as categorias'),
+                      ),
                       DropdownMenuItem<String?>(
-                          value: widget.semCategoriaToken,
-                          child: Text('Sem categoria')),
-                      ...sorted.map((c) => DropdownMenuItem<String?>(
+                        value: widget.semCategoriaToken,
+                        child: Text('Sem categoria'),
+                      ),
+                      ...sorted.map(
+                        (c) => DropdownMenuItem<String?>(
                           value: c,
-                          child: Text(c, overflow: TextOverflow.ellipsis))),
+                          child: Text(c, overflow: TextOverflow.ellipsis),
+                        ),
+                      ),
                     ],
                     onChanged: (v) => setState(() => _categoryChoice = v),
                   );
                 },
               ),
               SizedBox(height: 18),
-              Text('Resumo antes de exportar',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14,
-                      color: AppColors.primary)),
+              Text(
+                'Resumo antes de exportar',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                  color: AppColors.primary,
+                ),
+              ),
               SizedBox(height: 8),
               FutureBuilder<({double income, double expense, int docCount})>(
                 key: ValueKey<String>(
@@ -10219,7 +10982,7 @@ class _FinanceReportsPremiumSheetState
                 builder: (context, snap) {
                   final loading =
                       snap.connectionState == ConnectionState.waiting &&
-                          !snap.hasData;
+                      !snap.hasData;
                   final inc = snap.data?.income ?? 0.0;
                   final exp = snap.data?.expense ?? 0.0;
                   final saldo = inc - exp;
@@ -10232,7 +10995,8 @@ class _FinanceReportsPremiumSheetState
                       color: const Color(0xFFF8FAFC),
                       borderRadius: BorderRadius.circular(14),
                       border: Border.all(
-                          color: AppColors.primary.withValues(alpha: 0.18)),
+                        color: AppColors.primary.withValues(alpha: 0.18),
+                      ),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -10248,21 +11012,27 @@ class _FinanceReportsPremiumSheetState
                           ),
                         Text(
                           line(
-                              'Total receitas', CurrencyFormats.formatBRL(inc)),
+                            'Total receitas',
+                            CurrencyFormats.formatBRL(inc),
+                          ),
                           style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              height: 1.35,
-                              color: AppColors.financeReceita),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                            color: AppColors.financeReceita,
+                          ),
                         ),
                         Text(
                           line(
-                              'Total despesas', CurrencyFormats.formatBRL(exp)),
+                            'Total despesas',
+                            CurrencyFormats.formatBRL(exp),
+                          ),
                           style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              height: 1.35,
-                              color: AppColors.financeDespesa),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                            color: AppColors.financeDespesa,
+                          ),
                         ),
                         Text(
                           line('Saldo', CurrencyFormats.formatBRL(saldo)),
@@ -10279,9 +11049,10 @@ class _FinanceReportsPremiumSheetState
                         Text(
                           'Será salvo como: $fname.pdf (e $fname.csv)',
                           style: TextStyle(
-                              fontSize: 12,
-                              color: context.appTextMuted,
-                              fontWeight: FontWeight.w500),
+                            fontSize: 12,
+                            color: context.appTextMuted,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ],
                     ),
@@ -10292,31 +11063,36 @@ class _FinanceReportsPremiumSheetState
               Text(
                 'PDF: Extrato Financeiro (layout moderno — logo Controle Total App).',
                 style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                    color: context.appTextSecondary),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                  color: context.appTextSecondary,
+                ),
               ),
               SizedBox(height: 12),
               ModernPdfExportButton(
                 label: 'Gerar PDF',
                 onPressed: () {
                   final (f, t) = _resolveRange();
-                  widget.onExportPdf(_FinanceReportExportOpts(
-                    from: f,
-                    to: t,
-                    categoryExact: _categoryChoice,
-                  ));
+                  widget.onExportPdf(
+                    _FinanceReportExportOpts(
+                      from: f,
+                      to: t,
+                      categoryExact: _categoryChoice,
+                    ),
+                  );
                 },
               ),
               SizedBox(height: 10),
               OutlinedButton.icon(
                 onPressed: () {
                   final (f, t) = _resolveRange();
-                  widget.onExportCsv(_FinanceReportExportOpts(
-                    from: f,
-                    to: t,
-                    categoryExact: _categoryChoice,
-                  ));
+                  widget.onExportCsv(
+                    _FinanceReportExportOpts(
+                      from: f,
+                      to: t,
+                      categoryExact: _categoryChoice,
+                    ),
+                  );
                 },
                 icon: Icon(Icons.table_chart_rounded, size: 20),
                 label: Text('Exportar CSV (mesmas colunas do PDF)'),
@@ -10324,10 +11100,12 @@ class _FinanceReportsPremiumSheetState
                   foregroundColor: AppColors.primary,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   side: BorderSide(
-                      color: AppColors.primary.withValues(alpha: 0.65),
-                      width: 2),
+                    color: AppColors.primary.withValues(alpha: 0.65),
+                    width: 2,
+                  ),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16)),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                 ),
               ),
             ],
@@ -10444,8 +11222,10 @@ class _PremiumSaldoPeriodoCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
@@ -10513,7 +11293,8 @@ class _PremiumSaldoPeriodoCard extends StatelessWidget {
     final prevDates =
         '${DateTimeFormats.dateBR.format(prevFrom)} — ${DateTimeFormats.dateBR.format(prevTo)}';
     final narrow = MediaQuery.sizeOf(context).width < 520;
-    final curDates = 'Mesmo filtro da tela · totais do período selecionado';
+    final curDates =
+        'Mesmo filtro da tela · totais do período selecionado';
 
     final left = _periodPanel(
       context: context,
@@ -10569,9 +11350,7 @@ class _PremiumSaldoPeriodoCard extends StatelessWidget {
             Container(
               height: 5,
               decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: AppColors.logoGradient,
-                ),
+                gradient: LinearGradient(colors: AppColors.logoGradient),
               ),
             ),
             Padding(
@@ -10600,8 +11379,11 @@ class _PremiumSaldoPeriodoCard extends StatelessWidget {
                             ),
                           ],
                         ),
-                        child: Icon(Icons.insights_rounded,
-                            color: AppColors.primary, size: 26),
+                        child: Icon(
+                          Icons.insights_rounded,
+                          color: AppColors.primary,
+                          size: 26,
+                        ),
                       ),
                       SizedBox(width: 14),
                       Expanded(
@@ -10636,11 +11418,7 @@ class _PremiumSaldoPeriodoCard extends StatelessWidget {
                   if (narrow)
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        left,
-                        SizedBox(height: 12),
-                        right,
-                      ],
+                      children: [left, SizedBox(height: 12), right],
                     )
                   else
                     IntrinsicHeight(
@@ -10712,7 +11490,9 @@ class _WhereMoneyExpenseCard extends StatelessWidget {
     if (l.contains('mercado') || l.contains('super')) {
       return Icons.shopping_cart_rounded;
     }
-    if (l.contains('saúde') || l.contains('saude') || l.contains('medic')) {
+    if (l.contains('saúde') ||
+        l.contains('saude') ||
+        l.contains('medic')) {
       return Icons.medical_services_rounded;
     }
     if (l.contains('moradia') || l.contains('aluguel')) {
@@ -10750,8 +11530,9 @@ class _WhereMoneyExpenseCard extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(10),
-                        border:
-                            Border.all(color: accent.withValues(alpha: 0.28)),
+                        border: Border.all(
+                          color: accent.withValues(alpha: 0.28),
+                        ),
                       ),
                       child: Icon(icon, color: accent, size: 16),
                     ),
@@ -10762,18 +11543,20 @@ class _WhereMoneyExpenseCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 13,
-                            color: context.appTextPrimary),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                          color: context.appTextPrimary,
+                        ),
                       ),
                     ),
                     SizedBox(width: 8),
                     Text(
                       CurrencyFormats.formatBRLTight(amount),
                       style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 14,
-                          color: accent),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 14,
+                        color: accent,
+                      ),
                     ),
                   ],
                 ),
@@ -10788,8 +11571,10 @@ class _WhereMoneyExpenseCard extends StatelessWidget {
                       ),
                     ),
                     FractionallySizedBox(
-                      widthFactor:
-                          (percentOfPeriodExpenses / 100).clamp(0.0, 1.0),
+                      widthFactor: (percentOfPeriodExpenses / 100).clamp(
+                        0.0,
+                        1.0,
+                      ),
                       child: Container(
                         height: 8,
                         decoration: BoxDecoration(
@@ -10810,21 +11595,26 @@ class _WhereMoneyExpenseCard extends StatelessWidget {
                     Text(
                       '$pctLabel das despesas',
                       style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: accent.withValues(alpha: 0.95)),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: accent.withValues(alpha: 0.95),
+                      ),
                     ),
                     const Spacer(),
                     Text(
                       'Gráficos',
                       style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: context.appTextMuted),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: context.appTextMuted,
+                      ),
                     ),
                     SizedBox(width: 4),
-                    Icon(Icons.arrow_forward_ios_rounded,
-                        size: 11, color: accent.withValues(alpha: 0.75)),
+                    Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      size: 11,
+                      color: accent.withValues(alpha: 0.75),
+                    ),
                   ],
                 ),
               ],
@@ -10866,24 +11656,28 @@ class _FinanceKpiCard extends StatelessWidget {
         children: [
           Icon(icon, color: color),
           SizedBox(height: 6),
-          Text(value,
-              style: TextStyle(fontWeight: FontWeight.w900, color: color)),
+          Text(
+            value,
+            style: TextStyle(fontWeight: FontWeight.w900, color: color),
+          ),
           SizedBox(height: 4),
           Text(
             title,
             style: TextStyle(
-                color: context.appTextSecondary,
-                fontWeight: FontWeight.w500,
-                fontSize: 12),
+              color: context.appTextSecondary,
+              fontWeight: FontWeight.w500,
+              fontSize: 12,
+            ),
           ),
           if (onTap != null) ...[
             SizedBox(height: 6),
             Text(
               'Toque para detalhar',
               style: TextStyle(
-                  fontSize: 11,
-                  color: context.appTextMuted,
-                  fontWeight: FontWeight.w500),
+                fontSize: 11,
+                color: context.appTextMuted,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ],

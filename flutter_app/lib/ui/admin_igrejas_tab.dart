@@ -56,8 +56,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
       });
     }
     try {
-      var list = await MasterChurchesListService.loadFast(force: force)
-          .timeout(const Duration(seconds: 22));
+      var list = await MasterChurchesListService.loadFast(
+        force: force,
+      ).timeout(const Duration(seconds: 22));
       if (list.isEmpty && !force) {
         MasterDashboardSummary? summary = _masterSummary;
         if (summary == null && _masterSummaryFuture != null) {
@@ -66,8 +67,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
           } catch (_) {}
         }
         if (summary != null && summary.igrejas > 0) {
-          list = await MasterChurchesListService.loadFast(force: true)
-              .timeout(const Duration(seconds: 25));
+          list = await MasterChurchesListService.loadFast(
+            force: true,
+          ).timeout(const Duration(seconds: 25));
         }
       }
       if (!mounted) return;
@@ -85,8 +87,10 @@ class _IgrejasTabState extends State<_IgrejasTab> {
           _churches = cached;
           _churchesLoadError = null;
         } else {
-          _churchesLoadError =
-              formatFirebaseErrorForUser(e, logToCrashlytics: false);
+          _churchesLoadError = formatFirebaseErrorForUser(
+            e,
+            logToCrashlytics: false,
+          );
         }
       });
     }
@@ -116,8 +120,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
     super.didUpdateWidget(oldWidget);
     if (widget.query != oldWidget.query && widget.query != _searchCtrl.text) {
       _searchCtrl.text = widget.query;
-      _searchCtrl.selection =
-          TextSelection.collapsed(offset: _searchCtrl.text.length);
+      _searchCtrl.selection = TextSelection.collapsed(
+        offset: _searchCtrl.text.length,
+      );
     }
   }
 
@@ -136,8 +141,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
       if (st != _filterStatus) return false;
     }
     if (_filterPlano.isNotEmpty) {
-      final p =
-          (data['plano'] ?? data['planId'] ?? '').toString().toLowerCase();
+      final p = (data['plano'] ?? data['planId'] ?? '')
+          .toString()
+          .toLowerCase();
       if (_filterPlano == 'free') {
         if (p != 'free') return false;
       } else {
@@ -201,18 +207,16 @@ class _IgrejasTabState extends State<_IgrejasTab> {
   Future<List<_BenchmarkTenant>> _loadBenchmark(
     List<MasterChurchListItem> items,
   ) async {
-    final db = firebaseDefaultFirestore;
     final now = DateTime.now();
     final last30 = Timestamp.fromDate(now.subtract(const Duration(days: 30)));
     final out = <_BenchmarkTenant>[];
     for (final d in items.take(8)) {
       final churchId = d.id;
-      final churchName =
-          (d.data['nome'] ?? d.data['name'] ?? churchId).toString();
+      final churchName = (d.data['nome'] ?? d.data['name'] ?? churchId)
+          .toString();
       try {
         final op = ChurchPanelTenantGateway.churchId(churchId.trim());
-        final membrosCol =
-            ChurchUiCollections.membros(op);
+        final membrosCol = ChurchUiCollections.membros(op);
         final publicTotalAgg = await membrosCol
             .where('PUBLIC_SIGNUP', isEqualTo: true)
             .count()
@@ -227,7 +231,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
             .where('status', isEqualTo: 'ativo')
             .limit(120)
             .get();
-        final newsAgg = await             ChurchUiCollections.eventos(churchId)
+        final newsAgg = await ChurchUiCollections.eventos(churchId)
             .where('publicSite', isEqualTo: true)
             .where('createdAt', isGreaterThanOrEqualTo: last30)
             .count()
@@ -235,8 +239,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
 
         final totalPublic = publicTotalAgg.count ?? 0;
         final approved = approvedAgg.count ?? 0;
-        final conversion =
-            totalPublic == 0 ? 0.0 : (approved / totalPublic).toDouble();
+        final conversion = totalPublic == 0
+            ? 0.0
+            : (approved / totalPublic).toDouble();
 
         int samples = 0;
         double totalHours = 0;
@@ -247,7 +252,7 @@ class _IgrejasTabState extends State<_IgrejasTab> {
           if (created is Timestamp && approvedAt is Timestamp) {
             final h =
                 approvedAt.toDate().difference(created.toDate()).inMinutes /
-                    60.0;
+                60.0;
             if (h >= 0) {
               totalHours += h;
               samples++;
@@ -255,14 +260,16 @@ class _IgrejasTabState extends State<_IgrejasTab> {
           }
         }
         final avgHours = samples == 0 ? null : (totalHours / samples);
-        out.add(_BenchmarkTenant(
-          churchId: churchId,
-          churchName: churchName,
-          conversionRate: conversion,
-          siteEngagement30d: newsAgg.count ?? 0,
-          avgApprovalHours: avgHours,
-          totalPublicSignups: totalPublic,
-        ));
+        out.add(
+          _BenchmarkTenant(
+            churchId: churchId,
+            churchName: churchName,
+            conversionRate: conversion,
+            siteEngagement30d: newsAgg.count ?? 0,
+            avgApprovalHours: avgHours,
+            totalPublicSignups: totalPublic,
+          ),
+        );
       } catch (_) {}
     }
     out.sort((a, b) => b.conversionRate.compareTo(a.conversionRate));
@@ -277,15 +284,16 @@ class _IgrejasTabState extends State<_IgrejasTab> {
 
   Uri? _tenantChargeWhatsappUri(Map<String, dynamic> ig, String igrejaId) {
     final nome = (ig['nome'] ?? ig['name'] ?? igrejaId).toString().trim();
-    final phoneRaw = (ig['whatsappIgreja'] ??
-            ig['whatsapp'] ??
-            ig['telefone'] ??
-            ig['telefoneIgreja'] ??
-            ig['gestorTelefone'] ??
-            ig['whatsappGestor'] ??
-            '')
-        .toString()
-        .trim();
+    final phoneRaw =
+        (ig['whatsappIgreja'] ??
+                ig['whatsapp'] ??
+                ig['telefone'] ??
+                ig['telefoneIgreja'] ??
+                ig['gestorTelefone'] ??
+                ig['whatsappGestor'] ??
+                '')
+            .toString()
+            .trim();
     final phone = _normalizePhone(phoneRaw);
     if (phone.isEmpty) return null;
     final msg = Uri.encodeComponent(
@@ -305,7 +313,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
     if (uri == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-            'Sem telefone/WhatsApp cadastrado para cobrança.'),
+          'Sem telefone/WhatsApp cadastrado para cobrança.',
+        ),
       );
       return;
     }
@@ -313,7 +322,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
     if (!ok && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-            'Não foi possível abrir o WhatsApp.'),
+          'Não foi possível abrir o WhatsApp.',
+        ),
       );
     }
   }
@@ -328,7 +338,6 @@ class _IgrejasTabState extends State<_IgrejasTab> {
     final lic = ig['license'] is Map
         ? Map<String, dynamic>.from(ig['license'] as Map)
         : <String, dynamic>{};
-    final guard = SubscriptionGuard.evaluate(church: ig);
     final planKey = (ig['planId'] ?? ig['plano'] ?? '')
         .toString()
         .toLowerCase()
@@ -336,9 +345,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
     final initialBlocked =
         ig['adminBlocked'] == true || lic['adminBlocked'] == true;
     var adminBlocked = initialBlocked;
-    var modoFree = planKey == 'free' ||
-        (planKey.isEmpty &&
-            (ig['isFree'] == true || lic['isFree'] == true));
+    var modoFree =
+        planKey == 'free' ||
+        (planKey.isEmpty && (ig['isFree'] == true || lic['isFree'] == true));
     if (planKey.isNotEmpty && planKey != 'free') {
       modoFree = false;
     }
@@ -365,7 +374,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
       setModal(() => saving = true);
       try {
         final blockChanged = adminBlocked != initialBlocked;
-        final licenseChanged = modoFree != initialModoFree ||
+        final licenseChanged =
+            modoFree != initialModoFree ||
             (!modoFree &&
                 (planoSel != initialPlanoSel ||
                     venc != initialVenc ||
@@ -395,11 +405,11 @@ class _IgrejasTabState extends State<_IgrejasTab> {
             ThemeCleanPremium.successSnackBar(
               blockChanged && !licenseChanged
                   ? (adminBlocked
-                      ? 'Igreja bloqueada pelo master.'
-                      : 'Igreja liberada — bloqueio removido.')
+                        ? 'Igreja bloqueada pelo master.'
+                        : 'Igreja liberada — bloqueio removido.')
                   : modoFree
-                      ? 'Igreja configurada como FREE.'
-                      : 'Plano e licença salvos com sucesso.',
+                  ? 'Igreja configurada como FREE.'
+                  : 'Plano e licença salvos com sucesso.',
             ),
           );
           await _loadChurchesList(force: true);
@@ -446,15 +456,17 @@ class _IgrejasTabState extends State<_IgrejasTab> {
             );
 
             return Padding(
-              padding:
-                  EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(ctx).bottom,
+              ),
               child: Container(
                 margin: const EdgeInsets.all(12),
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: ThemeCleanPremium.cardBackground,
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusLg,
+                  ),
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
                 ),
                 child: SingleChildScrollView(
@@ -495,11 +507,16 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: _paymentChipColor(previewGuard).withValues(alpha: 0.08),
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                          color: _paymentChipColor(
+                            previewGuard,
+                          ).withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusMd,
+                          ),
                           border: Border.all(
-                            color: _paymentChipColor(previewGuard).withValues(alpha: 0.25),
+                            color: _paymentChipColor(
+                              previewGuard,
+                            ).withValues(alpha: 0.25),
                           ),
                         ),
                         child: Row(
@@ -526,8 +543,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                     modoFree
                                         ? 'Acesso gratuito — sem cobrança automática.'
                                         : venc != null
-                                            ? 'Vencimento: ${DateFormat('dd/MM/yyyy').format(venc!)}'
-                                            : 'Defina a data de vencimento.',
+                                        ? 'Vencimento: ${DateFormat('dd/MM/yyyy').format(venc!)}'
+                                        : 'Defina a data de vencimento.',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: ThemeCleanPremium.onSurfaceVariant,
@@ -587,11 +604,11 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                       if (sel) {
                                         setModal(() {
                                           modoFree = false;
-                                          venc ??= BillingLicenseService
-                                              .licensePeriodEndFrom(
-                                            DateTime.now(),
-                                            ciclo,
-                                          );
+                                          venc ??=
+                                              BillingLicenseService.licensePeriodEndFrom(
+                                                DateTime.now(),
+                                                ciclo,
+                                              );
                                         });
                                       }
                                     }
@@ -647,7 +664,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                             Expanded(
                               child: ChoiceChip(
                                 label: Text(
-                                    'Mensal (${BillingLicenseService.licensePeriodDaysMonthly}d)'),
+                                  'Mensal (${BillingLicenseService.licensePeriodDaysMonthly}d)',
+                                ),
                                 selected: ciclo == 'monthly',
                                 onSelected: widget.canEdit
                                     ? (sel) {
@@ -662,7 +680,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                             Expanded(
                               child: ChoiceChip(
                                 label: Text(
-                                    'Anual (${BillingLicenseService.licensePeriodDaysAnnual}d)'),
+                                  'Anual (${BillingLicenseService.licensePeriodDaysAnnual}d)',
+                                ),
                                 selected: ciclo == 'annual',
                                 onSelected: widget.canEdit
                                     ? (sel) {
@@ -702,8 +721,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                     ),
                                     Text(
                                       venc != null
-                                          ? DateFormat('dd/MM/yyyy')
-                                              .format(venc!)
+                                          ? DateFormat(
+                                              'dd/MM/yyyy',
+                                            ).format(venc!)
                                           : 'Obrigatória para plano pago',
                                       style: TextStyle(
                                         fontSize: 13,
@@ -722,9 +742,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                     ? () async {
                                         final d = await showDatePicker(
                                           context: ctx,
-                                          initialDate: venc ??
-                                              BillingLicenseService
-                                                  .licensePeriodEndFrom(
+                                          initialDate:
+                                              venc ??
+                                              BillingLicenseService.licensePeriodEndFrom(
                                                 DateTime.now(),
                                                 ciclo,
                                               ),
@@ -749,11 +769,11 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                               onPressed: widget.canEdit
                                   ? () {
                                       setModal(() {
-                                        venc = BillingLicenseService
-                                            .licensePeriodEndFrom(
-                                          DateTime.now(),
-                                          ciclo,
-                                        );
+                                        venc =
+                                            BillingLicenseService.licensePeriodEndFrom(
+                                              DateTime.now(),
+                                              ciclo,
+                                            );
                                       });
                                     }
                                   : null,
@@ -816,8 +836,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                           saving
                               ? 'Salvando…'
                               : modoFree
-                                  ? 'Salvar licença FREE'
-                                  : 'Salvar plano e vencimento',
+                              ? 'Salvar licença FREE'
+                              : 'Salvar plano e vencimento',
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -828,20 +848,23 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                   context: ctx,
                                   builder: (dctx) => AlertDialog(
                                     title: const Text(
-                                        'Excluir igreja permanentemente?'),
+                                      'Excluir igreja permanentemente?',
+                                    ),
                                     content: Text(
                                       'Remove o documento da igreja e subcoleções (membros, financeiro, etc.). '
                                       'Não remove usuários Auth. Esta ação não pode ser desfeita.\n\n"$nome"',
                                     ),
                                     actions: [
                                       TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(dctx, false),
-                                          child: const Text('Cancelar')),
+                                        onPressed: () =>
+                                            Navigator.pop(dctx, false),
+                                        child: const Text('Cancelar'),
+                                      ),
                                       FilledButton(
                                         style: FilledButton.styleFrom(
-                                            backgroundColor:
-                                                ThemeCleanPremium.error),
+                                          backgroundColor:
+                                              ThemeCleanPremium.error,
+                                        ),
                                         onPressed: () =>
                                             Navigator.pop(dctx, true),
                                         child: const Text('Excluir tudo'),
@@ -851,13 +874,15 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                 );
                                 if (ok != true) return;
                                 try {
-                                  await billing
-                                      .removerIgrejaELimparDados(igrejaId);
+                                  await billing.removerIgrejaELimparDados(
+                                    igrejaId,
+                                  );
                                   if (context.mounted) {
                                     Navigator.pop(ctx);
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       ThemeCleanPremium.successSnackBar(
-                                          'Igreja e dados vinculados foram removidos.'),
+                                        'Igreja e dados vinculados foram removidos.',
+                                      ),
                                     );
                                     setState(() {});
                                   }
@@ -865,18 +890,23 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                          content: Text('$e'),
-                                          backgroundColor:
-                                              ThemeCleanPremium.error),
+                                        content: Text('$e'),
+                                        backgroundColor:
+                                            ThemeCleanPremium.error,
+                                      ),
                                     );
                                   }
                                 }
                               }
                             : null,
-                        icon: Icon(Icons.delete_forever_rounded,
-                            color: ThemeCleanPremium.error),
-                        label: Text('Exclusão total no banco',
-                            style: TextStyle(color: ThemeCleanPremium.error)),
+                        icon: Icon(
+                          Icons.delete_forever_rounded,
+                          color: ThemeCleanPremium.error,
+                        ),
+                        label: Text(
+                          'Exclusão total no banco',
+                          style: TextStyle(color: ThemeCleanPremium.error),
+                        ),
                       ),
                       const SizedBox(height: 8),
                       TextButton(
@@ -899,7 +929,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
     final isNarrow =
         MediaQuery.sizeOf(context).width < ThemeCleanPremium.breakpointTablet;
     final padding = EdgeInsets.all(
-        isNarrow ? ThemeCleanPremium.spaceSm : ThemeCleanPremium.spaceMd);
+      isNarrow ? ThemeCleanPremium.spaceSm : ThemeCleanPremium.spaceMd,
+    );
 
     return Padding(
       padding: padding,
@@ -937,7 +968,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
               final allDocs = _churches;
               final docs = allDocs.where(_passesFilters).toList();
               final benchKey = docs.take(20).map((e) => e.id).join('|');
-              final benchmarkCacheValid = _benchmarkFetchedAt != null &&
+              final benchmarkCacheValid =
+                  _benchmarkFetchedAt != null &&
                   DateTime.now().difference(_benchmarkFetchedAt!) <
                       _benchmarkCacheTtl;
               if (_benchmarkRequested &&
@@ -952,20 +984,27 @@ class _IgrejasTabState extends State<_IgrejasTab> {
               final total = summary?.igrejas ?? allDocs.length;
               final ativas = summary != null
                   ? (summary.licencasAtivas > 0
-                      ? summary.licencasAtivas
-                      : allDocs
-                          .where((d) =>
-                              (d.data['status'] ?? 'ativa').toString() ==
-                              'ativa')
-                          .length)
+                        ? summary.licencasAtivas
+                        : allDocs
+                              .where(
+                                (d) =>
+                                    (d.data['status'] ?? 'ativa').toString() ==
+                                    'ativa',
+                              )
+                              .length)
                   : allDocs
-                      .where((d) =>
-                          (d.data['status'] ?? 'ativa').toString() == 'ativa')
-                      .length;
-              final inativas = summary?.blockedCount ??
+                        .where(
+                          (d) =>
+                              (d.data['status'] ?? 'ativa').toString() ==
+                              'ativa',
+                        )
+                        .length;
+              final inativas =
+                  summary?.blockedCount ??
                   allDocs
-                      .where((d) =>
-                          (d.data['status'] ?? '').toString() == 'inativa')
+                      .where(
+                        (d) => (d.data['status'] ?? '').toString() == 'inativa',
+                      )
                       .length;
               final novasMes = allDocs.where((d) {
                 final data = d.data['createdAt'] ?? d.data['dataCadastro'];
@@ -980,10 +1019,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
               final billing = BillingLicenseService();
               final healthWithoutLogo = allDocs.where((d) {
                 final ig = d.data;
-                final logo = ChurchBrandService.logoPathFromData(
-                      ig,
-                      churchId: d.id,
-                    ) ??
+                final logo =
+                    ChurchBrandService.logoPathFromData(ig, churchId: d.id) ??
                     '';
                 return logo.isEmpty;
               }).length;
@@ -993,16 +1030,15 @@ class _IgrejasTabState extends State<_IgrejasTab> {
               }).length;
               final mediaBroken = allDocs.where((d) {
                 final ig = d.data;
-                final logo = ChurchBrandService.logoPathFromData(
-                      ig,
-                      churchId: d.id,
-                    ) ??
+                final logo =
+                    ChurchBrandService.logoPathFromData(ig, churchId: d.id) ??
                     '';
-                final video = (ig['institutionalVideoUrl'] ??
-                        ig['videoInstitucionalUrl'] ??
-                        ig['videoUrl'] ??
-                        '')
-                    .toString();
+                final video =
+                    (ig['institutionalVideoUrl'] ??
+                            ig['videoInstitucionalUrl'] ??
+                            ig['videoUrl'] ??
+                            '')
+                        .toString();
                 final brokenLogo =
                     logo.trim().isNotEmpty && !_isMediaUrlValid(logo);
                 final brokenVideo =
@@ -1011,19 +1047,21 @@ class _IgrejasTabState extends State<_IgrejasTab> {
               }).length;
               final siteUnavailable = allDocs.where((d) {
                 final ig = d.data;
-                final guard = SubscriptionGuard.evaluate(church: ig);
                 final inativa =
                     (ig['status'] ?? 'ativa').toString().toLowerCase() ==
-                        'inativa';
+                    'inativa';
+                final guard = SubscriptionGuard.evaluate(church: ig);
                 return inativa || guard.blocked || guard.adminBlocked;
               }).length;
               final healthInGrace = allDocs
-                  .where((d) =>
-                      SubscriptionGuard.evaluate(church: d.data).inGrace)
+                  .where(
+                    (d) => SubscriptionGuard.evaluate(church: d.data).inGrace,
+                  )
                   .length;
               final healthBlocked = allDocs
-                  .where((d) =>
-                      SubscriptionGuard.evaluate(church: d.data).blocked)
+                  .where(
+                    (d) => SubscriptionGuard.evaluate(church: d.data).blocked,
+                  )
                   .length;
               final dueSoon = allDocs.where((d) {
                 final guard = SubscriptionGuard.evaluate(church: d.data);
@@ -1036,562 +1074,651 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                 return days >= 0 && days <= 7;
               }).length;
               final now = DateTime.now();
-              final chargeCandidates = allDocs.where((d) {
-                final guard = SubscriptionGuard.evaluate(church: d.data);
-                if (guard.blocked ||
-                    guard.inGrace ||
-                    guard.statusAssinatura == 'overdue') {
-                  return true;
-                }
-                final exp = guard.dataVencimento;
-                if (exp == null) return false;
-                final days = exp.difference(now).inDays;
-                return days >= 0 && days <= 7;
-              }).toList()
-                ..sort((a, b) {
-                  final ga = SubscriptionGuard.evaluate(church: a.data);
-                  final gb = SubscriptionGuard.evaluate(church: b.data);
-                  final da = ga.dataVencimento ?? DateTime(2099);
-                  final dbb = gb.dataVencimento ?? DateTime(2099);
-                  return da.compareTo(dbb);
-                });
+              final chargeCandidates =
+                  allDocs.where((d) {
+                    final guard = SubscriptionGuard.evaluate(church: d.data);
+                    if (guard.blocked ||
+                        guard.inGrace ||
+                        guard.statusAssinatura == 'overdue') {
+                      return true;
+                    }
+                    final exp = guard.dataVencimento;
+                    if (exp == null) return false;
+                    final days = exp.difference(now).inDays;
+                    return days >= 0 && days <= 7;
+                  }).toList()..sort((a, b) {
+                    final ga = SubscriptionGuard.evaluate(church: a.data);
+                    final gb = SubscriptionGuard.evaluate(church: b.data);
+                    final da = ga.dataVencimento ?? DateTime(2099);
+                    final dbb = gb.dataVencimento ?? DateTime(2099);
+                    return da.compareTo(dbb);
+                  });
 
               return RefreshIndicator(
                 onRefresh: _loadChurchesList,
                 child: CustomScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Align(
-                          alignment: isNarrow
-                              ? Alignment.centerLeft
-                              : Alignment.centerRight,
-                          child: FilledButton.icon(
-                            icon: const Icon(Icons.payment_rounded),
-                            label: const Text('Mercado Pago (Admin)'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: ThemeCleanPremium.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Align(
+                            alignment: isNarrow
+                                ? Alignment.centerLeft
+                                : Alignment.centerRight,
+                            child: FilledButton.icon(
+                              icon: const Icon(Icons.payment_rounded),
+                              label: const Text('Mercado Pago (Admin)'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: ThemeCleanPremium.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
                                   horizontal: ThemeCleanPremium.spaceLg,
-                                  vertical: ThemeCleanPremium.spaceSm),
-                            ),
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                    builder: (_) =>
-                                        const MercadoPagoAdminPage()),
-                              );
-                            },
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        isNarrow
-                            ? Wrap(
-                                spacing: 12,
-                                runSpacing: 12,
-                                children: [
-                                  _MetricCard(label: 'Total', value: total),
-                                  _MetricCard(label: 'Ativas', value: ativas),
-                                  _MetricCard(
-                                      label: 'Inativas', value: inativas),
-                                  _MetricCard(
-                                      label: 'Novas mês', value: novasMes),
-                                ],
-                              )
-                            : Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceEvenly,
-                                children: [
-                                  _MetricCard(label: 'Total', value: total),
-                                  _MetricCard(label: 'Ativas', value: ativas),
-                                  _MetricCard(
-                                      label: 'Inativas', value: inativas),
-                                  _MetricCard(
-                                      label: 'Novas mês', value: novasMes),
-                                ],
-                              ),
-                        const SizedBox(height: 16),
-                        Card(
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusMd)),
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Saúde dos tenants (visão única)',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 15),
+                                  vertical: ThemeCleanPremium.spaceSm,
                                 ),
-                                const SizedBox(height: 10),
-                                Wrap(
-                                  spacing: 10,
-                                  runSpacing: 10,
+                              ),
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        const MercadoPagoAdminPage(),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          isNarrow
+                              ? Wrap(
+                                  spacing: 12,
+                                  runSpacing: 12,
                                   children: [
+                                    _MetricCard(label: 'Total', value: total),
+                                    _MetricCard(label: 'Ativas', value: ativas),
                                     _MetricCard(
-                                        label: 'Sem logo',
-                                        value: healthWithoutLogo),
+                                      label: 'Inativas',
+                                      value: inativas,
+                                    ),
                                     _MetricCard(
-                                        label: 'Sem vídeo',
-                                        value: healthWithoutVideo),
+                                      label: 'Novas mês',
+                                      value: novasMes,
+                                    ),
+                                  ],
+                                )
+                              : Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    _MetricCard(label: 'Total', value: total),
+                                    _MetricCard(label: 'Ativas', value: ativas),
                                     _MetricCard(
-                                        label: 'Mídia quebrada',
-                                        value: mediaBroken),
+                                      label: 'Inativas',
+                                      value: inativas,
+                                    ),
                                     _MetricCard(
-                                        label: 'Site indisponível',
-                                        value: siteUnavailable),
-                                    _MetricCard(
-                                        label: 'Vencimento próximo',
-                                        value: dueSoon),
-                                    _MetricCard(
-                                        label: 'Em carência',
-                                        value: healthInGrace),
-                                    _MetricCard(
-                                        label: 'Bloqueadas',
-                                        value: healthBlocked),
+                                      label: 'Novas mês',
+                                      value: novasMes,
+                                    ),
                                   ],
                                 ),
-                              ],
+                          const SizedBox(height: 16),
+                          Card(
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusMd,
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Saúde dos tenants (visão única)',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Wrap(
+                                    spacing: 10,
+                                    runSpacing: 10,
+                                    children: [
+                                      _MetricCard(
+                                        label: 'Sem logo',
+                                        value: healthWithoutLogo,
+                                      ),
+                                      _MetricCard(
+                                        label: 'Sem vídeo',
+                                        value: healthWithoutVideo,
+                                      ),
+                                      _MetricCard(
+                                        label: 'Mídia quebrada',
+                                        value: mediaBroken,
+                                      ),
+                                      _MetricCard(
+                                        label: 'Site indisponível',
+                                        value: siteUnavailable,
+                                      ),
+                                      _MetricCard(
+                                        label: 'Vencimento próximo',
+                                        value: dueSoon,
+                                      ),
+                                      _MetricCard(
+                                        label: 'Em carência',
+                                        value: healthInGrace,
+                                      ),
+                                      _MetricCard(
+                                        label: 'Bloqueadas',
+                                        value: healthBlocked,
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        Card(
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
+                          const SizedBox(height: 12),
+                          Card(
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusMd)),
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Benchmark entre igrejas (SaaS)',
-                                  style: TextStyle(
+                                ThemeCleanPremium.radiusMd,
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Benchmark entre igrejas (SaaS)',
+                                    style: TextStyle(
                                       fontWeight: FontWeight.w800,
-                                      fontSize: 15),
-                                ),
-                                const SizedBox(height: 8),
-                                if (!_benchmarkRequested)
-                                  Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: TextButton.icon(
-                                      onPressed: docs.isEmpty
-                                          ? null
-                                          : () => setState(
-                                                () => _benchmarkRequested =
-                                                    true,
-                                              ),
-                                      icon: const Icon(Icons.insights_rounded),
-                                      label: const Text(
-                                        'Carregar benchmark (opcional)',
-                                      ),
+                                      fontSize: 15,
                                     ),
-                                  )
-                                else
-                                  FutureBuilder<List<_BenchmarkTenant>>(
-                                  future: _benchmarkFuture,
-                                  builder: (context, benchSnap) {
-                                    if (!benchSnap.hasData) {
-                                      return const Padding(
-                                        padding:
-                                            EdgeInsets.symmetric(vertical: 10),
-                                        child: LinearProgressIndicator(),
-                                      );
-                                    }
-                                    final rows = benchSnap.data!;
-                                    if (rows.isEmpty) {
-                                      return Text(
-                                        'Sem dados suficientes ainda para benchmark.',
-                                        style: TextStyle(
-                                            color: ThemeCleanPremium
-                                                .onSurfaceVariant),
-                                      );
-                                    }
-                                    return Column(
-                                      children: rows.take(6).map((r) {
-                                        final conv = (r.conversionRate * 100)
-                                            .toStringAsFixed(1);
-                                        final approval = r.avgApprovalHours ==
-                                                null
-                                            ? 'n/d'
-                                            : '${r.avgApprovalHours!.toStringAsFixed(1)}h';
-                                        return ListTile(
-                                          dense: true,
-                                          contentPadding: EdgeInsets.zero,
-                                          leading: const Icon(
-                                              Icons.insights_rounded),
-                                          title: Text(
-                                            r.churchName,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                          subtitle: Text(
-                                            'Conversão: $conv% (${r.totalPublicSignups} cadastros) • Engajamento 30d: ${r.siteEngagement30d} posts • Aprovação média: $approval',
+                                  ),
+                                  const SizedBox(height: 8),
+                                  if (!_benchmarkRequested)
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: TextButton.icon(
+                                        onPressed: docs.isEmpty
+                                            ? null
+                                            : () => setState(
+                                                () =>
+                                                    _benchmarkRequested = true,
+                                              ),
+                                        icon: const Icon(
+                                          Icons.insights_rounded,
+                                        ),
+                                        label: const Text(
+                                          'Carregar benchmark (opcional)',
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    FutureBuilder<List<_BenchmarkTenant>>(
+                                      future: _benchmarkFuture,
+                                      builder: (context, benchSnap) {
+                                        if (!benchSnap.hasData) {
+                                          return const Padding(
+                                            padding: EdgeInsets.symmetric(
+                                              vertical: 10,
+                                            ),
+                                            child: LinearProgressIndicator(),
+                                          );
+                                        }
+                                        final rows = benchSnap.data!;
+                                        if (rows.isEmpty) {
+                                          return Text(
+                                            'Sem dados suficientes ainda para benchmark.',
                                             style: TextStyle(
                                               color: ThemeCleanPremium
                                                   .onSurfaceVariant,
                                             ),
-                                          ),
+                                          );
+                                        }
+                                        return Column(
+                                          children: rows.take(6).map((r) {
+                                            final conv =
+                                                (r.conversionRate * 100)
+                                                    .toStringAsFixed(1);
+                                            final approval =
+                                                r.avgApprovalHours == null
+                                                ? 'n/d'
+                                                : '${r.avgApprovalHours!.toStringAsFixed(1)}h';
+                                            return ListTile(
+                                              dense: true,
+                                              contentPadding: EdgeInsets.zero,
+                                              leading: const Icon(
+                                                Icons.insights_rounded,
+                                              ),
+                                              title: Text(
+                                                r.churchName,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              subtitle: Text(
+                                                'Conversão: $conv% (${r.totalPublicSignups} cadastros) • Engajamento 30d: ${r.siteEngagement30d} posts • Aprovação média: $approval',
+                                                style: TextStyle(
+                                                  color: ThemeCleanPremium
+                                                      .onSurfaceVariant,
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
                                         );
-                                      }).toList(),
-                                    );
-                                  },
-                                ),
-                              ],
+                                      },
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        Card(
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
+                          const SizedBox(height: 12),
+                          Card(
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusMd)),
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Cobrança inteligente (vencendo / em atraso)',
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 15),
-                                ),
-                                const SizedBox(height: 8),
-                                if (chargeCandidates.isEmpty)
-                                  Text(
-                                    'Nenhuma igreja com cobrança prioritária agora.',
+                                ThemeCleanPremium.radiusMd,
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Cobrança inteligente (vencendo / em atraso)',
                                     style: TextStyle(
-                                        color:
-                                            ThemeCleanPremium.onSurfaceVariant),
-                                  )
-                                else
-                                  ...chargeCandidates.take(6).map((d) {
-                                    final ig = d.data;
-                                    final nome =
-                                        (ig['nome'] ?? ig['name'] ?? d.id)
-                                            .toString();
-                                    final guard =
-                                        SubscriptionGuard.evaluate(church: ig);
-                                    final exp = guard.dataVencimento;
-                                    final due = exp != null
-                                        ? DateFormat('dd/MM').format(exp)
-                                        : '—';
-                                    return ListTile(
-                                      dense: true,
-                                      contentPadding: EdgeInsets.zero,
-                                      leading: Icon(
-                                          Icons.notifications_active_rounded,
-                                          color: _paymentChipColor(guard)),
-                                      title: Text(nome,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis),
-                                      subtitle: Text(
-                                        'Status: ${guard.masterBadgeLabel} • Venc.: $due',
-                                        style: TextStyle(
-                                            color: ThemeCleanPremium
-                                                .onSurfaceVariant),
-                                      ),
-                                      trailing: IconButton(
-                                        tooltip: 'Cobrar no WhatsApp',
-                                        icon: const Icon(Icons.chat_rounded),
-                                        onPressed: () => _openChargeWhatsapp(
-                                            context, ig, d.id),
-                                      ),
-                                    );
-                                  }),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Card(
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusMd)),
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Column(
-                              children: [
-                                if (isNarrow) ...[
-                                  TextField(
-                                    controller: _searchCtrl,
-                                    decoration: const InputDecoration(
-                                      prefixIcon: Icon(Icons.search),
-                                      hintText:
-                                          'Buscar por nome, slug ou ID...',
-                                      border: OutlineInputBorder(),
-                                      isDense: true,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
                                     ),
-                                    onChanged: widget.onQueryChanged,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    child: FilledButton.icon(
-                                      onPressed: widget.canEdit
-                                          ? () async {
-                                              await showDialog(
-                                                  context: context,
-                                                  builder: (_) =>
-                                                      const _NovaIgrejaDialog());
-                                            }
-                                          : null,
-                                      icon: const Icon(Icons.add),
-                                      label: const Text('Nova igreja'),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  DropdownButtonFormField<String>(
-                                    initialValue: _filterStatus.isEmpty
-                                        ? null
-                                        : _filterStatus,
-                                    decoration: const InputDecoration(
-                                        labelText: 'Status'),
-                                    items: const [
-                                      DropdownMenuItem(
-                                          value: null, child: Text('Todos')),
-                                      DropdownMenuItem(
-                                          value: 'ativa', child: Text('Ativa')),
-                                      DropdownMenuItem(
-                                          value: 'inativa',
-                                          child: Text('Inativa')),
-                                    ],
-                                    onChanged: (v) =>
-                                        setState(() => _filterStatus = v ?? ''),
                                   ),
                                   const SizedBox(height: 8),
-                                  DropdownButtonFormField<String>(
-                                    initialValue: _filterPlano.isEmpty
-                                        ? null
-                                        : _filterPlano,
-                                    decoration: const InputDecoration(
-                                        labelText: 'Plano'),
-                                    items: const [
-                                      DropdownMenuItem(
-                                          value: null, child: Text('Todos')),
-                                      DropdownMenuItem(
-                                          value: 'free', child: Text('Free')),
-                                      DropdownMenuItem(
-                                          value: 'pago', child: Text('Pagos')),
-                                    ],
-                                    onChanged: (v) =>
-                                        setState(() => _filterPlano = v ?? ''),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      ChoiceChip(
-                                        label: const Text('Ativas'),
-                                        selected: _paymentFilter == 'active',
-                                        onSelected: (_) => setState(() =>
-                                            _paymentFilter =
-                                                _paymentFilter == 'active'
-                                                    ? ''
-                                                    : 'active'),
+                                  if (chargeCandidates.isEmpty)
+                                    Text(
+                                      'Nenhuma igreja com cobrança prioritária agora.',
+                                      style: TextStyle(
+                                        color:
+                                            ThemeCleanPremium.onSurfaceVariant,
                                       ),
-                                      ChoiceChip(
-                                        label:
-                                            const Text('Em atraso (carência)'),
-                                        selected: _paymentFilter == 'grace',
-                                        onSelected: (_) => setState(() =>
-                                            _paymentFilter =
-                                                _paymentFilter == 'grace'
-                                                    ? ''
-                                                    : 'grace'),
-                                      ),
-                                      ChoiceChip(
-                                        label: const Text('Bloqueadas'),
-                                        selected: _paymentFilter == 'blocked',
-                                        onSelected: (_) => setState(() =>
-                                            _paymentFilter =
-                                                _paymentFilter == 'blocked'
-                                                    ? ''
-                                                    : 'blocked'),
-                                      ),
-                                    ],
-                                  ),
-                                ] else ...[
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: TextField(
-                                          controller: _searchCtrl,
-                                          decoration: const InputDecoration(
-                                            prefixIcon: Icon(Icons.search),
-                                            hintText:
-                                                'Buscar por nome, slug ou ID...',
-                                            border: OutlineInputBorder(),
-                                            isDense: true,
-                                          ),
-                                          onChanged: widget.onQueryChanged,
+                                    )
+                                  else
+                                    ...chargeCandidates.take(6).map((d) {
+                                      final ig = d.data;
+                                      final nome =
+                                          (ig['nome'] ?? ig['name'] ?? d.id)
+                                              .toString();
+                                      final guard = SubscriptionGuard.evaluate(
+                                        church: ig,
+                                      );
+                                      final exp = guard.dataVencimento;
+                                      final due = exp != null
+                                          ? DateFormat('dd/MM').format(exp)
+                                          : '—';
+                                      return ListTile(
+                                        dense: true,
+                                        contentPadding: EdgeInsets.zero,
+                                        leading: Icon(
+                                          Icons.notifications_active_rounded,
+                                          color: _paymentChipColor(guard),
                                         ),
+                                        title: Text(
+                                          nome,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        subtitle: Text(
+                                          'Status: ${guard.masterBadgeLabel} • Venc.: $due',
+                                          style: TextStyle(
+                                            color: ThemeCleanPremium
+                                                .onSurfaceVariant,
+                                          ),
+                                        ),
+                                        trailing: IconButton(
+                                          tooltip: 'Cobrar no WhatsApp',
+                                          icon: const Icon(Icons.chat_rounded),
+                                          onPressed: () => _openChargeWhatsapp(
+                                            context,
+                                            ig,
+                                            d.id,
+                                          ),
+                                        ),
+                                      );
+                                    }),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Card(
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusMd,
+                              ),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                children: [
+                                  if (isNarrow) ...[
+                                    TextField(
+                                      controller: _searchCtrl,
+                                      decoration: const InputDecoration(
+                                        prefixIcon: Icon(Icons.search),
+                                        hintText:
+                                            'Buscar por nome, slug ou ID...',
+                                        border: OutlineInputBorder(),
+                                        isDense: true,
                                       ),
-                                      const SizedBox(width: 12),
-                                      FilledButton.icon(
+                                      onChanged: widget.onQueryChanged,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    SizedBox(
+                                      width: double.infinity,
+                                      child: FilledButton.icon(
                                         onPressed: widget.canEdit
                                             ? () async {
                                                 await showDialog(
-                                                    context: context,
-                                                    builder: (_) =>
-                                                        const _NovaIgrejaDialog());
+                                                  context: context,
+                                                  builder: (_) =>
+                                                      const _NovaIgrejaDialog(),
+                                                );
                                               }
                                             : null,
                                         icon: const Icon(Icons.add),
-                                        label: const Text('Nova'),
+                                        label: const Text('Nova igreja'),
                                       ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: DropdownButtonFormField<String>(
-                                          initialValue: _filterStatus.isEmpty
-                                              ? null
-                                              : _filterStatus,
-                                          decoration: const InputDecoration(
-                                              labelText: 'Status'),
-                                          items: const [
-                                            DropdownMenuItem(
-                                                value: null,
-                                                child: Text('Todos')),
-                                            DropdownMenuItem(
-                                                value: 'ativa',
-                                                child: Text('Ativa')),
-                                            DropdownMenuItem(
-                                                value: 'inativa',
-                                                child: Text('Inativa')),
-                                          ],
-                                          onChanged: (v) => setState(
-                                              () => _filterStatus = v ?? ''),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    DropdownButtonFormField<String>(
+                                      initialValue: _filterStatus.isEmpty
+                                          ? null
+                                          : _filterStatus,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Status',
+                                      ),
+                                      items: const [
+                                        DropdownMenuItem(
+                                          value: null,
+                                          child: Text('Todos'),
                                         ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: DropdownButtonFormField<String>(
-                                          initialValue: _filterPlano.isEmpty
-                                              ? null
-                                              : _filterPlano,
-                                          decoration: const InputDecoration(
-                                              labelText: 'Plano'),
-                                          items: const [
-                                            DropdownMenuItem(
-                                                value: null,
-                                                child: Text('Todos')),
-                                            DropdownMenuItem(
-                                                value: 'free',
-                                                child: Text('Free')),
-                                            DropdownMenuItem(
-                                                value: 'pago',
-                                                child: Text('Pagos')),
-                                          ],
-                                          onChanged: (v) => setState(
-                                              () => _filterPlano = v ?? ''),
+                                        DropdownMenuItem(
+                                          value: 'ativa',
+                                          child: Text('Ativa'),
                                         ),
+                                        DropdownMenuItem(
+                                          value: 'inativa',
+                                          child: Text('Inativa'),
+                                        ),
+                                      ],
+                                      onChanged: (v) => setState(
+                                        () => _filterStatus = v ?? '',
                                       ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      ChoiceChip(
-                                        label: const Text('Ativas'),
-                                        selected: _paymentFilter == 'active',
-                                        onSelected: (_) => setState(() =>
-                                            _paymentFilter =
+                                    ),
+                                    const SizedBox(height: 8),
+                                    DropdownButtonFormField<String>(
+                                      initialValue: _filterPlano.isEmpty
+                                          ? null
+                                          : _filterPlano,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Plano',
+                                      ),
+                                      items: const [
+                                        DropdownMenuItem(
+                                          value: null,
+                                          child: Text('Todos'),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'free',
+                                          child: Text('Free'),
+                                        ),
+                                        DropdownMenuItem(
+                                          value: 'pago',
+                                          child: Text('Pagos'),
+                                        ),
+                                      ],
+                                      onChanged: (v) => setState(
+                                        () => _filterPlano = v ?? '',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        ChoiceChip(
+                                          label: const Text('Ativas'),
+                                          selected: _paymentFilter == 'active',
+                                          onSelected: (_) => setState(
+                                            () => _paymentFilter =
                                                 _paymentFilter == 'active'
-                                                    ? ''
-                                                    : 'active'),
-                                      ),
-                                      ChoiceChip(
-                                        label:
-                                            const Text('Em atraso (carência)'),
-                                        selected: _paymentFilter == 'grace',
-                                        onSelected: (_) => setState(() =>
-                                            _paymentFilter =
+                                                ? ''
+                                                : 'active',
+                                          ),
+                                        ),
+                                        ChoiceChip(
+                                          label: const Text(
+                                            'Em atraso (carência)',
+                                          ),
+                                          selected: _paymentFilter == 'grace',
+                                          onSelected: (_) => setState(
+                                            () => _paymentFilter =
                                                 _paymentFilter == 'grace'
-                                                    ? ''
-                                                    : 'grace'),
-                                      ),
-                                      ChoiceChip(
-                                        label: const Text('Bloqueadas'),
-                                        selected: _paymentFilter == 'blocked',
-                                        onSelected: (_) => setState(() =>
-                                            _paymentFilter =
+                                                ? ''
+                                                : 'grace',
+                                          ),
+                                        ),
+                                        ChoiceChip(
+                                          label: const Text('Bloqueadas'),
+                                          selected: _paymentFilter == 'blocked',
+                                          onSelected: (_) => setState(
+                                            () => _paymentFilter =
                                                 _paymentFilter == 'blocked'
-                                                    ? ''
-                                                    : 'blocked'),
-                                      ),
-                                    ],
-                                  ),
+                                                ? ''
+                                                : 'blocked',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ] else ...[
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _searchCtrl,
+                                            decoration: const InputDecoration(
+                                              prefixIcon: Icon(Icons.search),
+                                              hintText:
+                                                  'Buscar por nome, slug ou ID...',
+                                              border: OutlineInputBorder(),
+                                              isDense: true,
+                                            ),
+                                            onChanged: widget.onQueryChanged,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        FilledButton.icon(
+                                          onPressed: widget.canEdit
+                                              ? () async {
+                                                  await showDialog(
+                                                    context: context,
+                                                    builder: (_) =>
+                                                        const _NovaIgrejaDialog(),
+                                                  );
+                                                }
+                                              : null,
+                                          icon: const Icon(Icons.add),
+                                          label: const Text('Nova'),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child:
+                                              DropdownButtonFormField<String>(
+                                                initialValue:
+                                                    _filterStatus.isEmpty
+                                                    ? null
+                                                    : _filterStatus,
+                                                decoration:
+                                                    const InputDecoration(
+                                                      labelText: 'Status',
+                                                    ),
+                                                items: const [
+                                                  DropdownMenuItem(
+                                                    value: null,
+                                                    child: Text('Todos'),
+                                                  ),
+                                                  DropdownMenuItem(
+                                                    value: 'ativa',
+                                                    child: Text('Ativa'),
+                                                  ),
+                                                  DropdownMenuItem(
+                                                    value: 'inativa',
+                                                    child: Text('Inativa'),
+                                                  ),
+                                                ],
+                                                onChanged: (v) => setState(
+                                                  () => _filterStatus = v ?? '',
+                                                ),
+                                              ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child:
+                                              DropdownButtonFormField<String>(
+                                                initialValue:
+                                                    _filterPlano.isEmpty
+                                                    ? null
+                                                    : _filterPlano,
+                                                decoration:
+                                                    const InputDecoration(
+                                                      labelText: 'Plano',
+                                                    ),
+                                                items: const [
+                                                  DropdownMenuItem(
+                                                    value: null,
+                                                    child: Text('Todos'),
+                                                  ),
+                                                  DropdownMenuItem(
+                                                    value: 'free',
+                                                    child: Text('Free'),
+                                                  ),
+                                                  DropdownMenuItem(
+                                                    value: 'pago',
+                                                    child: Text('Pagos'),
+                                                  ),
+                                                ],
+                                                onChanged: (v) => setState(
+                                                  () => _filterPlano = v ?? '',
+                                                ),
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        ChoiceChip(
+                                          label: const Text('Ativas'),
+                                          selected: _paymentFilter == 'active',
+                                          onSelected: (_) => setState(
+                                            () => _paymentFilter =
+                                                _paymentFilter == 'active'
+                                                ? ''
+                                                : 'active',
+                                          ),
+                                        ),
+                                        ChoiceChip(
+                                          label: const Text(
+                                            'Em atraso (carência)',
+                                          ),
+                                          selected: _paymentFilter == 'grace',
+                                          onSelected: (_) => setState(
+                                            () => _paymentFilter =
+                                                _paymentFilter == 'grace'
+                                                ? ''
+                                                : 'grace',
+                                          ),
+                                        ),
+                                        ChoiceChip(
+                                          label: const Text('Bloqueadas'),
+                                          selected: _paymentFilter == 'blocked',
+                                          onSelected: (_) => setState(
+                                            () => _paymentFilter =
+                                                _paymentFilter == 'blocked'
+                                                ? ''
+                                                : 'blocked',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ],
-                              ],
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: Text(
-                            '${docs.length} igreja(s) na lista',
-                            style: TextStyle(
-                                fontSize: 13,
-                                color: ThemeCleanPremium.onSurfaceVariant),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                    ),
-                  ),
-                  if (docs.isEmpty)
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.church_rounded,
-                                size: 56, color: Colors.grey.shade400),
-                            const SizedBox(height: 12),
-                            Text(
-                              allDocs.isEmpty
-                                  ? 'Nenhuma igreja cadastrada.'
-                                  : 'Nenhum resultado com os filtros atuais.',
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              '${docs.length} igreja(s) na lista',
                               style: TextStyle(
-                                  color: ThemeCleanPremium.onSurfaceVariant),
+                                fontSize: 13,
+                                color: ThemeCleanPremium.onSurfaceVariant,
+                              ),
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                       ),
-                    )
-                  else
-                    SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, i) {
+                    ),
+                    if (docs.isEmpty)
+                      SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.church_rounded,
+                                size: 56,
+                                color: Colors.grey.shade400,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                allDocs.isEmpty
+                                    ? 'Nenhuma igreja cadastrada.'
+                                    : 'Nenhum resultado com os filtros atuais.',
+                                style: TextStyle(
+                                  color: ThemeCleanPremium.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      SliverList(
+                        delegate: SliverChildBuilderDelegate((context, i) {
                           final doc = docs[i];
                           final ig = doc.data;
                           final igrejaId = doc.id;
+                          final guard = SubscriptionGuard.evaluate(church: ig);
                           final status = (ig['status'] ?? 'ativa').toString();
                           final removed = ig['removedByAdminAt'] != null;
-                          var licenseExpiresAt = ig['licenseExpiresAt']
-                                  is Timestamp
+                          var licenseExpiresAt =
+                              ig['licenseExpiresAt'] is Timestamp
                               ? (ig['licenseExpiresAt'] as Timestamp).toDate()
                               : null;
                           if (licenseExpiresAt == null &&
@@ -1603,12 +1730,14 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                             }
                           }
                           final now = DateTime.now();
-                          final hasActiveLicense = licenseExpiresAt != null &&
+                          final hasActiveLicense =
+                              licenseExpiresAt != null &&
                               licenseExpiresAt.isAfter(now);
-                          final daysLeft = licenseExpiresAt?.difference(now).inDays;
-                          final guard = SubscriptionGuard.evaluate(church: ig);
-                          final plano =
-                              (ig['plano'] ?? ig['planId'] ?? '—').toString();
+                          final daysLeft = licenseExpiresAt
+                              ?.difference(now)
+                              .inDays;
+                          final plano = (ig['plano'] ?? ig['planId'] ?? '—')
+                              .toString();
                           final adminB = ig['adminBlocked'] == true;
                           final licMap = ig['license'] is Map
                               ? ig['license'] as Map
@@ -1632,12 +1761,16 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                           final actionButtons = <Widget>[
                             if (widget.canEdit)
                               IconButton(
-                                tooltip:
-                                    'Licença, FREE, bloqueio, exclusão',
+                                tooltip: 'Licença, FREE, bloqueio, exclusão',
                                 icon: const Icon(
-                                    Icons.admin_panel_settings_rounded),
-                                onPressed: () => _abrirGestaoLicenca(context,
-                                    igrejaId: igrejaId, nome: nome, ig: ig),
+                                  Icons.admin_panel_settings_rounded,
+                                ),
+                                onPressed: () => _abrirGestaoLicenca(
+                                  context,
+                                  igrejaId: igrejaId,
+                                  nome: nome,
+                                  ig: ig,
+                                ),
                               ),
                             if (widget.canEdit && !removed && plano != 'free')
                               IconButton(
@@ -1648,7 +1781,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       ThemeCleanPremium.successSnackBar(
-                                          'Prazo +15 dias.'),
+                                        'Prazo +15 dias.',
+                                      ),
                                     );
                                   }
                                 },
@@ -1662,7 +1796,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       ThemeCleanPremium.successSnackBar(
-                                          'Bônus aplicado: +7 dias de licença.'),
+                                        'Bônus aplicado: +7 dias de licença.',
+                                      ),
                                     );
                                   }
                                 },
@@ -1676,7 +1811,8 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                   if (context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       ThemeCleanPremium.successSnackBar(
-                                          'Igreja reativada.'),
+                                        'Igreja reativada.',
+                                      ),
                                     );
                                   }
                                 },
@@ -1691,25 +1827,31 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                     builder: (ctx) => AlertDialog(
                                       title: const Text('Remover igreja'),
                                       content: Text(
-                                          'Remover "$nome"? Pode reativar depois.'),
+                                        'Remover "$nome"? Pode reativar depois.',
+                                      ),
                                       actions: [
                                         TextButton(
-                                            onPressed: () =>
-                                                Navigator.pop(ctx, false),
-                                            child: const Text('Cancelar')),
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, false),
+                                          child: const Text('Cancelar'),
+                                        ),
                                         FilledButton(
-                                            onPressed: () =>
-                                                Navigator.pop(ctx, true),
-                                            child: const Text('Remover')),
+                                          onPressed: () =>
+                                              Navigator.pop(ctx, true),
+                                          child: const Text('Remover'),
+                                        ),
                                       ],
                                     ),
                                   );
                                   if (ok == true) {
                                     await billing.removerTenant(igrejaId);
                                     if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
                                         ThemeCleanPremium.successSnackBar(
-                                            'Igreja removida (soft).'),
+                                          'Igreja removida (soft).',
+                                        ),
                                       );
                                     }
                                   }
@@ -1720,9 +1862,10 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                               icon: const Icon(Icons.info_outline_rounded),
                               onPressed: () {
                                 showDialog(
-                                    context: context,
-                                    builder: (_) =>
-                                        _DetalhesIgrejaDialog(igreja: ig));
+                                  context: context,
+                                  builder: (_) =>
+                                      _DetalhesIgrejaDialog(igreja: ig),
+                                );
                               },
                             ),
                             if (widget.canEdit)
@@ -1741,18 +1884,44 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                   );
                                 },
                               ),
+                            MasterChurchPublicationButton(
+                              churchId: igrejaId,
+                              data: ig,
+                              canEdit: widget.canEdit,
+                            ),
+                            MasterChurchNoticeButton(
+                              churchId: igrejaId,
+                              canEdit: widget.canEdit,
+                            ),
+                            TextButton.icon(
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (_) =>
+                                      _DetalhesIgrejaDialog(igreja: ig),
+                                );
+                              },
+                              icon: const Icon(
+                                Icons.visibility_rounded,
+                                size: 17,
+                              ),
+                              label: const Text('Veja mais'),
+                            ),
                           ];
                           return Card(
                             margin: const EdgeInsets.only(bottom: 10),
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(
-                                  ThemeCleanPremium.radiusMd),
+                                ThemeCleanPremium.radiusMd,
+                              ),
                               side: BorderSide(color: Colors.grey.shade200),
                             ),
                             child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 10),
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
                               leading: _MasterChurchListLogo(
                                 churchId: igrejaId,
                                 data: ig,
@@ -1765,21 +1934,28 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                         Text(
                                           nome,
                                           style: const TextStyle(
-                                              fontWeight: FontWeight.w700),
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                         const SizedBox(height: 6),
                                         Container(
                                           padding: const EdgeInsets.symmetric(
-                                              horizontal: 10, vertical: 5),
+                                            horizontal: 10,
+                                            vertical: 5,
+                                          ),
                                           decoration: BoxDecoration(
-                                            color: _paymentChipColor(guard)
-                                                .withValues(alpha: 0.12),
-                                            borderRadius:
-                                                BorderRadius.circular(999),
+                                            color: _paymentChipColor(
+                                              guard,
+                                            ).withValues(alpha: 0.12),
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
                                             border: Border.all(
-                                                color: _paymentChipColor(guard)
-                                                    .withValues(alpha: 0.35)),
+                                              color: _paymentChipColor(
+                                                guard,
+                                              ).withValues(alpha: 0.35),
+                                            ),
                                           ),
                                           child: Text(
                                             'Pagamento: ${guard.masterBadgeLabel}',
@@ -1798,22 +1974,29 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                           child: Text(
                                             nome,
                                             style: const TextStyle(
-                                                fontWeight: FontWeight.w700),
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                             overflow: TextOverflow.ellipsis,
                                           ),
                                         ),
                                         const SizedBox(width: 8),
                                         Container(
                                           padding: const EdgeInsets.symmetric(
-                                              horizontal: 10, vertical: 5),
+                                            horizontal: 10,
+                                            vertical: 5,
+                                          ),
                                           decoration: BoxDecoration(
-                                            color: _paymentChipColor(guard)
-                                                .withValues(alpha: 0.12),
-                                            borderRadius:
-                                                BorderRadius.circular(999),
+                                            color: _paymentChipColor(
+                                              guard,
+                                            ).withValues(alpha: 0.12),
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
                                             border: Border.all(
-                                                color: _paymentChipColor(guard)
-                                                    .withValues(alpha: 0.35)),
+                                              color: _paymentChipColor(
+                                                guard,
+                                              ).withValues(alpha: 0.35),
+                                            ),
                                           ),
                                           child: Text(
                                             'Pagamento: ${guard.masterBadgeLabel}',
@@ -1845,15 +2028,20 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                       IconButton(
                                         tooltip: 'Copiar ID',
                                         visualDensity: VisualDensity.compact,
-                                        icon: const Icon(Icons.copy_rounded,
-                                            size: 18),
+                                        icon: const Icon(
+                                          Icons.copy_rounded,
+                                          size: 18,
+                                        ),
                                         onPressed: () {
                                           Clipboard.setData(
-                                              ClipboardData(text: igrejaId));
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(
+                                            ClipboardData(text: igrejaId),
+                                          );
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
                                             ThemeCleanPremium.successSnackBar(
-                                                'ID da igreja copiado.'),
+                                              'ID da igreja copiado.',
+                                            ),
                                           );
                                         },
                                       ),
@@ -1866,9 +2054,9 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                     '${adminB || adminB2 ? " | BLOQUEADA (master)" : ""}'
                                     '${removed ? " | Removida" : ""}',
                                     style: TextStyle(
-                                        fontSize: 12,
-                                        color:
-                                            ThemeCleanPremium.onSurfaceVariant),
+                                      fontSize: 12,
+                                      color: ThemeCleanPremium.onSurfaceVariant,
+                                    ),
                                   ),
                                   if (isNarrow) ...[
                                     const SizedBox(height: 6),
@@ -1887,12 +2075,10 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                               minLeadingWidth: 24,
                             ),
                           );
-                        },
-                        childCount: docs.length,
+                        }, childCount: docs.length),
                       ),
-                    ),
-                ],
-              ),
+                  ],
+                ),
               );
             },
           ),
@@ -1922,20 +2108,14 @@ class _BenchmarkTenant {
 
 /// Miniatura da logo na lista Master (path canónico `igrejas/{id}/…`).
 class _MasterChurchListLogo extends StatelessWidget {
-  const _MasterChurchListLogo({
-    required this.churchId,
-    required this.data,
-  });
+  const _MasterChurchListLogo({required this.churchId, required this.data});
 
   final String churchId;
   final Map<String, dynamic> data;
 
   @override
   Widget build(BuildContext context) {
-    final path = ChurchBrandService.logoPathFromData(
-      data,
-      churchId: churchId,
-    );
+    final path = ChurchBrandService.logoPathFromData(data, churchId: churchId);
     final url = (data['logoUrl'] ?? data['urlLogo'] ?? '').toString().trim();
     final hasUrl = url.startsWith('http');
     final hasPath = path != null && path.trim().isNotEmpty;

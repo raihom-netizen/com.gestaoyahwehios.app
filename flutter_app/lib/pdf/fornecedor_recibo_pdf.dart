@@ -181,10 +181,10 @@ Future<Uint8List> buildFornecedorReciboPdf({
                     pw.Text(
                       pdfSafeText(
                         churchSignerName.trim().isEmpty
-                            ? 'Assinatura — ${branding.churchName}'
+                            ? 'Assinatura ? ${branding.churchName}'
                             : churchSignerRole.trim().isEmpty
                                 ? churchSignerName.trim()
-                                : '${churchSignerName.trim()} — ${churchSignerRole.trim()}',
+                                : '${churchSignerName.trim()} ? ${churchSignerRole.trim()}',
                       ),
                       style: const pw.TextStyle(fontSize: 8.5, lineSpacing: 1.1),
                     ),
@@ -205,7 +205,7 @@ Future<Uint8List> buildFornecedorReciboPdf({
                     ),
                     pw.SizedBox(height: 4),
                     pw.Text(
-                      pdfSafeText('Assinatura — $fornecedorNome'),
+                      pdfSafeText('Assinatura ? $fornecedorNome'),
                       style: const pw.TextStyle(fontSize: 8.5, lineSpacing: 1.1),
                       textAlign: pw.TextAlign.right,
                     ),

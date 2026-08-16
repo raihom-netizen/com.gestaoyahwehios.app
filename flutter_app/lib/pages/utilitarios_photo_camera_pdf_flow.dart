@@ -1,4 +1,4 @@
-﻿import 'dart:typed_data';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show compute, kIsWeb;
 import 'package:flutter/material.dart';
@@ -159,7 +159,7 @@ class _PhotoCameraPdfSimplePageState extends State<_PhotoCameraPdfSimplePage> {
       if (added.isEmpty) throw StateError('Nenhuma imagem válida.');
       if (!mounted) return;
       setState(() => _photos.addAll(added));
-    }, label: 'Preparando foto…');
+    }, label: 'Preparando foto?');
   }
 
   void _removeAt(int index) {
@@ -188,7 +188,7 @@ class _PhotoCameraPdfSimplePageState extends State<_PhotoCameraPdfSimplePage> {
           pdfBytes: pdf,
         ),
       );
-    }, label: 'Gerando PDF…');
+    }, label: 'Gerando PDF?');
   }
 
   Future<bool> _confirmDiscard() async {
@@ -252,7 +252,7 @@ class _PhotoCameraPdfSimplePageState extends State<_PhotoCameraPdfSimplePage> {
                     child: Text(
                       _photos.isEmpty
                           ? 'Tire fotos com a câmera do aparelho (máx. $kPhotoCameraPdfMaxPages). Depois monte o PDF.'
-                          : '${_photos.length}/$kPhotoCameraPdfMaxPages foto(s) · restam $_remaining',
+                          : '${_photos.length}/$kPhotoCameraPdfMaxPages foto(s) ? restam $_remaining',
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.82),
                         fontSize: 14,

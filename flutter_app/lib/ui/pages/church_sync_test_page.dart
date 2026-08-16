@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_media_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Tela de teste — compara leitura Web/Android do mesmo doc `igrejas/{churchId}`.
+/// Tela de teste ? compara leitura Web/Android do mesmo doc `igrejas/{churchId}`.
 class ChurchSyncTestPage extends StatefulWidget {
   final String tenantId;
 
@@ -130,7 +130,7 @@ class _ChurchSyncTestPageState extends State<ChurchSyncTestPage> {
                           border: Border.all(color: Colors.orange.shade200),
                         ),
                         child: const Text(
-                          'WEB_FIRESTORE_MISMATCH — seed e tenant resolvido diferem.',
+                          'WEB_FIRESTORE_MISMATCH ? seed e tenant resolvido diferem.',
                           style: TextStyle(fontWeight: FontWeight.w600),
                         ),
                       ),

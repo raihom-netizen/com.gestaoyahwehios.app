@@ -16,8 +16,8 @@ import 'package:gestao_yahweh/services/storage_media_service.dart';
 
 /// Viewer canónico — foto/arquivo em **tamanho original** com pinch (padrão CT).
 ///
-/// Imagem → lightbox PhotoView com bytes completos (sem memCacheWidth).
-/// PDF/outro → abrir URL (viewer nativo / browser).
+/// Imagem ? lightbox PhotoView com bytes completos (sem memCacheWidth).
+/// PDF/outro ? abrir URL (viewer nativo / browser).
 Future<void> showYahwehOriginalMedia(
   BuildContext context, {
   required String urlOrPath,
@@ -238,7 +238,7 @@ class _OriginalImageDialogState extends State<_OriginalImageDialog> {
             left: 12,
             child: const IgnorePointer(
               child: Text(
-                'Ampliar · tamanho original',
+                'Ampliar ? tamanho original',
                 style: TextStyle(
                   color: Colors.white70,
                   fontWeight: FontWeight.w600,

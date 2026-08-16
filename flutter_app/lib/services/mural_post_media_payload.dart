@@ -41,7 +41,7 @@ abstract final class MuralPostMediaPayload {
     final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
       count: newImages.length,
       maxConcurrent: maxConc,
-      progressLabel: 'A enviar imagens…',
+      progressLabel: 'A enviar imagens?',
       uploadOne: (i, report) => uploadPhotoSlot(
         tenantId: tenantId,
         postType: postType,
@@ -76,7 +76,7 @@ abstract final class MuralPostMediaPayload {
     final uploaded = await FeedPostMediaUpload.uploadParallel<String>(
       count: paths.length,
       maxConcurrent: maxConc,
-      progressLabel: 'A enviar imagens…',
+      progressLabel: 'A enviar imagens?',
       uploadOne: (i, report) async {
         final path = paths[i];
         final f = File(path);
@@ -85,7 +85,7 @@ abstract final class MuralPostMediaPayload {
         }
         final bytes = await f.readAsBytes();
         if (bytes.isEmpty) {
-          throw StateError('Foto ${i + 1} vazia — selecione outra imagem.');
+          throw StateError('Foto ${i + 1} vazia ? selecione outra imagem.');
         }
         final slot = await ChurchInstantUploadPipeline.uploadFeedPhotoSlot(
           tenantId: tenantId,

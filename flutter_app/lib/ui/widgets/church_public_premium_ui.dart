@@ -38,7 +38,7 @@ String _scheduleAddrKey(String raw) {
 const double kChurchPublicSiteMobileFrameWidth = 430;
 
 /// Largura máxima do post no site público (desktop) — coluna central tipo Instagram.
-const double kChurchPublicFeedCardMaxWidth = kChurchPublicSiteMobileFrameWidth;
+const double kChurchPublicFeedCardMaxWidth = 1440;
 
 /// Largura máxima do bloco de mídia no feed (1:1 dentro da coluna).
 const double kChurchPublicFeedInstagramMaxWidth = kChurchPublicFeedCardMaxWidth;
@@ -118,11 +118,7 @@ class ChurchPublicConstrainedMedia extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
               clipBehavior: Clip.antiAlias,
-              child: SizedBox(
-                width: fullW,
-                height: targetH,
-                child: child,
-              ),
+              child: SizedBox(width: fullW, height: targetH, child: child),
             ),
           ),
         );
@@ -188,9 +184,7 @@ class ChurchPublicPremiumSection extends StatelessWidget {
                       accentColor.withValues(alpha: 0.05),
                     ],
                   ),
-                  border: Border.all(
-                    color: accentColor.withValues(alpha: 0.2),
-                  ),
+                  border: Border.all(color: accentColor.withValues(alpha: 0.2)),
                   boxShadow: [
                     BoxShadow(
                       color: accentColor.withValues(alpha: 0.12),
@@ -312,8 +306,11 @@ class ChurchPublicSiteMobileFrame extends StatelessWidget {
     if (w <= kChurchPublicSiteMobileFrameWidth + 8) return inner;
     return Center(
       child: ConstrainedBox(
-        constraints:
-            const BoxConstraints(maxWidth: kChurchPublicSiteMobileFrameWidth),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width >= 900
+              ? 1180
+              : kChurchPublicSiteMobileFrameWidth,
+        ),
         child: inner,
       ),
     );
@@ -328,7 +325,16 @@ class ChurchPublicFeedItemWidth extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChurchPublicSiteMobileFrame(child: child);
+    final width = MediaQuery.sizeOf(context).width;
+    if (width < 900) {
+      return ChurchPublicSiteMobileFrame(child: child);
+    }
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1440),
+        child: child,
+      ),
+    );
   }
 }
 
@@ -431,17 +437,22 @@ class ChurchPublicPremiumScheduleTile extends StatelessWidget {
 /// Programação pública: layout compacto com thumb lateral.
 class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
   final String title;
+
   /// Ex.: "Dom" — atalho quando não há [weekdayLongLabel].
   final String weekdayLabel;
+
   /// Ex.: "domingo" (nome completo) para a pastilha do dia da semana.
   final String weekdayLongLabel;
+
   /// Ex.: "14/04/2026"
   final String dateShort;
   final String timeLabel;
   final String location;
+
   /// Endereço principal do cadastro da igreja — se [location] for equivalente, não repete no card.
   final String churchDefaultAddress;
   final String imageUrl;
+
   /// Path Storage (`igrejas/.../eventos/{id}/banner_evento.jpg`) — exibição sem URL https.
   final String photoStoragePath;
   final List<String> photoStorageFallbackPaths;
@@ -504,10 +515,7 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                Colors.white,
-                Color.lerp(Colors.white, accent, 0.04)!,
-              ],
+              colors: [Colors.white, Color.lerp(Colors.white, accent, 0.04)!],
             ),
             borderRadius: borderRadius,
             border: Border.all(
@@ -539,7 +547,8 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
                             storagePath: photoStoragePath.trim().isNotEmpty
                                 ? photoStoragePath.trim()
                                 : null,
-                            imageUrl: imageUrl.trim().isNotEmpty &&
+                            imageUrl:
+                                imageUrl.trim().isNotEmpty &&
                                     isValidImageUrl(imageUrl.trim())
                                 ? imageUrl.trim()
                                 : null,
@@ -618,8 +627,11 @@ class ChurchPublicPremiumScheduleEventCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 6),
-                Icon(Icons.chevron_right_rounded,
-                    size: 22, color: Colors.grey.shade400),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 22,
+                  color: Colors.grey.shade400,
+                ),
               ],
             ),
           ),
@@ -668,9 +680,7 @@ class _ScheduleWhenChips extends StatelessWidget {
           color: filled ? null : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: filled
-                ? Colors.transparent
-                : accent.withValues(alpha: 0.28),
+            color: filled ? Colors.transparent : accent.withValues(alpha: 0.28),
             width: 1.2,
           ),
           boxShadow: filled
@@ -725,15 +735,7 @@ class _ScheduleWhenChips extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, c) {
         if (c.maxWidth < (compact ? 280 : 340)) {
-          return Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ?c1,
-              ?c2,
-              ?c3,
-            ],
-          );
+          return Wrap(spacing: 8, runSpacing: 8, children: [?c1, ?c2, ?c3]);
         }
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -748,10 +750,7 @@ class _SchedulePhotoFallback extends StatelessWidget {
   final Color accent;
   final bool compact;
 
-  const _SchedulePhotoFallback({
-    required this.accent,
-    this.compact = true,
-  });
+  const _SchedulePhotoFallback({required this.accent, this.compact = true});
 
   @override
   Widget build(BuildContext context) {
@@ -763,53 +762,53 @@ class _SchedulePhotoFallback extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  accent.withValues(alpha: 0.22),
-                  const Color(0xFFF8FAFC),
-                  Color.lerp(const Color(0xFFEFF6FF), accent, 0.06)!,
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    accent.withValues(alpha: 0.22),
+                    const Color(0xFFF8FAFC),
+                    Color.lerp(const Color(0xFFEFF6FF), accent, 0.06)!,
+                  ],
+                ),
+              ),
+            ),
+            Positioned(
+              right: -20,
+              top: -24,
+              child: Icon(
+                Icons.event_repeat_rounded,
+                size: compact ? 72 : 120,
+                color: accent.withValues(alpha: 0.07),
+              ),
+            ),
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.event_available_rounded,
+                    size: compact ? 44 : 52,
+                    color: accent.withValues(alpha: 0.5),
+                  ),
+                  if (!compact) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Imagem opcional',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: accent.withValues(alpha: 0.55),
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
-          ),
-          Positioned(
-            right: -20,
-            top: -24,
-            child: Icon(
-              Icons.event_repeat_rounded,
-              size: compact ? 72 : 120,
-              color: accent.withValues(alpha: 0.07),
-            ),
-          ),
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.event_available_rounded,
-                  size: compact ? 44 : 52,
-                  color: accent.withValues(alpha: 0.5),
-                ),
-                if (!compact) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    'Imagem opcional',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: accent.withValues(alpha: 0.55),
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
+          ],
         ),
       ),
     );

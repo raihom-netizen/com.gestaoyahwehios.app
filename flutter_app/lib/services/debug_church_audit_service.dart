@@ -16,7 +16,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Snapshot de auditoria — mesma consulta em Web / Android / iOS.
+/// Snapshot de auditoria ? mesma consulta em Web / Android / iOS.
 class DebugChurchAuditSnapshot {
   const DebugChurchAuditSnapshot({
     required this.platform,
@@ -246,7 +246,7 @@ class DebugChurchCrossPlatformProof {
       b.writeln('| $label | $fs | $storage | $web | $android | $ios | $status |');
     }
     b.writeln('');
-    b.writeln('TESTE 1 Cadastro — Web:${_cadastroCell("WEB")} Android:${_cadastroCell("ANDROID")} iOS:${_cadastroCell("IOS")}');
+    b.writeln('TESTE 1 Cadastro ? Web:${_cadastroCell("WEB")} Android:${_cadastroCell("ANDROID")} iOS:${_cadastroCell("IOS")}');
     if (legacyPlatforms.isNotEmpty) {
       b.writeln('LEGADO: ${legacyPlatforms.join(", ")}');
     }
@@ -267,7 +267,7 @@ class DebugChurchCrossPlatformProof {
     final fps = snap.fingerprintsFor(module);
     if (fps.isEmpty) return 'n=${count ?? "-"}';
     final preview = fps.take(3).join(', ');
-    final suffix = fps.length > 3 ? '…' : '';
+    final suffix = fps.length > 3 ? '?' : '';
     return 'n=${count ?? "-"} [$preview$suffix]';
   }
 
@@ -301,7 +301,7 @@ class DebugChurchCrossPlatformProof {
     b.writeln('IOS:${_pathOrMissing(byPlatform['IOS']?.storagePath)}');
     if (legacyPlatforms.isNotEmpty) {
       b.writeln('');
-      b.writeln('LEGADO NOS LOGS: ${legacyPlatforms.join(", ")} → REPROVADO');
+      b.writeln('LEGADO NOS LOGS: ${legacyPlatforms.join(", ")} ? REPROVADO');
     }
     return b.toString().trimRight();
   }
@@ -619,7 +619,7 @@ abstract final class DebugChurchAuditService {
           .toLowerCase();
       for (final token in _legacyTokens) {
         if (blob.contains(token.toLowerCase())) {
-          legacyHits.add('TRACE $token → ${t.origin} path=${t.firestorePath}');
+          legacyHits.add('TRACE $token ? ${t.origin} path=${t.firestorePath}');
         }
       }
     }

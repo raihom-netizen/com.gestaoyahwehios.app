@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Caixa de entrada interna — além do push (avisos, eventos, escalas, chat…).
 abstract final class InternalNotificationInboxService {
@@ -80,11 +81,11 @@ abstract final class InternalNotificationInboxService {
           .limit(120)
           .get();
       if (snap.docs.isEmpty) return;
-      final batch = firebaseDefaultFirestore.batch();
+      final batch = YahwehBatch();
       for (final d in snap.docs) {
         batch.update(d.reference, {
           'read': true,
-          'readAt': FieldValue.serverTimestamp(),
+          'readAt': YahwehFv.serverTimestamp,
         });
       }
       await batch.commit();

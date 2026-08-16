@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'bank_notification_parser.dart';
@@ -11,7 +11,7 @@ class _HintsSnapshot {
   const _HintsSnapshot(this.keywordMap, this.learnedRaw);
 }
 
-/// Mapeia trechos da descrição (SMS) → categoria de despesa/receita.
+/// Mapeia trechos da descrição (SMS) ? categoria de despesa/receita.
 /// Padrão em código + ajustes do usuário em `users/{uid}/settings/config_categorias`.
 abstract final class SmartCategoryHintsService {
   SmartCategoryHintsService._();
@@ -21,7 +21,7 @@ abstract final class SmartCategoryHintsService {
   static DocumentReference<Map<String, dynamic>> _ref(String uid) =>
       ChurchUiCollections.config(uid.trim()).doc('finance_smart_hints');
 
-  /// Padrão: palavra-chave (maiúscula) → categoria.
+  /// Padrão: palavra-chave (mai?scula) ? categoria.
   static const Map<String, String> kDefaultKeywordToCategory = {
     'SUPERMERCADO': 'Supermercado',
     'HIPERMERCADO': 'Supermercado',
@@ -108,12 +108,12 @@ abstract final class SmartCategoryHintsService {
 
   static String _normalizeSearchText(String s) {
     const accents = {
-      'á': 'a', 'à': 'a', 'ã': 'a', 'â': 'a', 'ä': 'a',
-      'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
-      'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i',
-      'ó': 'o', 'ò': 'o', 'õ': 'o', 'ô': 'o', 'ö': 'o',
-      'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
-      'ç': 'c', 'ñ': 'n',
+      '\u00e1': 'a', '\u00e0': 'a', '\u00e3': 'a', '\u00e2': 'a', '\u00e4': 'a',
+      '\u00e9': 'e', '\u00e8': 'e', '\u00ea': 'e', '\u00eb': 'e',
+      '\u00ed': 'i', '\u00ec': 'i', '\u00ee': 'i', '\u00ef': 'i',
+      '\u00f3': 'o', '\u00f2': 'o', '\u00f5': 'o', '\u00f4': 'o', '\u00f6': 'o',
+      '\u00fa': 'u', '\u00f9': 'u', '\u00fb': 'u', '\u00fc': 'u',
+      '\u00e7': 'c', '\u00f1': 'n',
     };
     return s
         .toLowerCase()
@@ -204,7 +204,7 @@ abstract final class SmartCategoryHintsService {
     for (final c in sorted) {
       final key = _normalizeSearchText(c);
       if (key.length < 3) continue;
-      final re = RegExp(r'(?:^|[\s,.;|·]+)' + RegExp.escape(key) + r'(?:$|[\s,.;|·]+)');
+      final re = RegExp(r'(?:^|[\s,.;|?]+)' + RegExp.escape(key) + r'(?:$|[\s,.;|?]+)');
       if (re.hasMatch(descNorm)) return c.trim();
     }
     return null;

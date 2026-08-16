@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -10,6 +11,8 @@ import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
 import 'package:gestao_yahweh/services/church_departments_load_service.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_month_calendar.dart';
+import 'package:gestao_yahweh/ui/widgets/agenda_preview_actions.dart';
+import 'package:gestao_yahweh/ui/widgets/agenda_responsible_picker.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_multi_day_picker_page.dart';
 
 /// Módulo Agenda — reescrito do zero no padrão Controle Total (Agenda/Escala):
@@ -43,34 +46,34 @@ enum AgKind { culto, evento, reuniao }
 
 extension _AgKindX on AgKind {
   String get id => switch (this) {
-        AgKind.culto => 'culto',
-        AgKind.evento => 'evento',
-        AgKind.reuniao => 'reuniao',
-      };
+    AgKind.culto => 'culto',
+    AgKind.evento => 'evento',
+    AgKind.reuniao => 'reuniao',
+  };
 
   String get label => switch (this) {
-        AgKind.culto => 'Culto',
-        AgKind.evento => 'Evento',
+    AgKind.culto => 'Culto',
+    AgKind.evento => 'Evento',
         AgKind.reuniao => 'Reunião',
-      };
+  };
 
   String get labelPlural => switch (this) {
-        AgKind.culto => 'Cultos',
-        AgKind.evento => 'Eventos',
+    AgKind.culto => 'Cultos',
+    AgKind.evento => 'Eventos',
         AgKind.reuniao => 'Reuniões',
-      };
+  };
 
   Color get color => switch (this) {
-        AgKind.culto => const Color(0xFF2563EB), // azul
-        AgKind.evento => const Color(0xFFF97316), // laranja
-        AgKind.reuniao => const Color(0xFF7C3AED), // roxo
-      };
+    AgKind.culto => const Color(0xFF2563EB), // azul
+    AgKind.evento => const Color(0xFFF97316), // laranja
+    AgKind.reuniao => const Color(0xFF7C3AED), // roxo
+  };
 
   IconData get icon => switch (this) {
-        AgKind.culto => Icons.church_rounded,
-        AgKind.evento => Icons.celebration_rounded,
-        AgKind.reuniao => Icons.groups_rounded,
-      };
+    AgKind.culto => Icons.church_rounded,
+    AgKind.evento => Icons.celebration_rounded,
+    AgKind.reuniao => Icons.groups_rounded,
+  };
 }
 
 class _AgendaItem {
@@ -281,7 +284,11 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
               child: Row(
                 children: [
-                  const Icon(Icons.settings_rounded, color: Colors.white, size: 22),
+                  const Icon(
+                    Icons.settings_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Text(
@@ -297,8 +304,10 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
                   AnimatedRotation(
                     turns: _funcoesOpen ? 0.5 : 0,
                     duration: const Duration(milliseconds: 180),
-                    child: const Icon(Icons.keyboard_arrow_down_rounded,
-                        color: Colors.white),
+                    child: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: Colors.white,
+                    ),
                   ),
                 ],
               ),
@@ -314,11 +323,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
                     'Novo culto / evento / reunião',
                     () => _openAddEditForm(day: _selectedDay),
                   ),
-                  _funcTile(
-                    Icons.today_rounded,
-                    'Ir para hoje',
-                    _goToday,
-                  ),
+                  _funcTile(Icons.today_rounded, 'Ir para hoje', _goToday),
                   _funcTile(
                     Icons.refresh_rounded,
                     'Recarregar do servidor',
@@ -355,8 +360,11 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
                   ),
                 ),
               ),
-              const Icon(Icons.chevron_right_rounded,
-                  color: Colors.white70, size: 20),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: Colors.white70,
+                size: 20,
+              ),
             ],
           ),
         ),
@@ -452,7 +460,11 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
       ),
       child: Row(
         children: [
-          const Icon(Icons.touch_app_rounded, color: Color(0xFF059669), size: 20),
+          const Icon(
+            Icons.touch_app_rounded,
+            color: Color(0xFF059669),
+            size: 20,
+          ),
           const SizedBox(width: 10),
           const Expanded(
             child: Text(
@@ -473,18 +485,22 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
     // Calendário PADRÃO do sistema (mesmo widget de Escalas/Fornecedores).
     final dayColors = <String, Color>{};
     final dayCounts = <String, int>{};
+    final dayColorBands = <String, List<Color>>{};
     _byDay.forEach((key, items) {
       if (items.isEmpty) return;
       final kinds = items.map((e) => e.kind).toSet();
-      dayColors[key] =
-          kinds.length == 1 ? items.first.kind.color : const Color(0xFF0EA5A4);
+      dayColors[key] = kinds.length == 1
+          ? items.first.kind.color
+          : const Color(0xFF0EA5A4);
       dayCounts[key] = items.length;
+      dayColorBands[key] = items.map((e) => e.kind.color).toSet().toList();
     });
     return YahwehMonthCalendar(
       visibleMonth: _visibleMonth,
       selectedDay: _selectedDay,
       dayColors: dayColors,
       dayCounts: dayCounts,
+      dayColorBands: dayColorBands,
       onMonthDelta: _changeMonth,
       onDayTap: (day) => setState(() => _selectedDay = day),
       onDaySelectedTap: (day) => _openDayEditor(day),
@@ -493,8 +509,10 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
 
   Widget _resumoDoDia() {
     final items = _itemsOf(_selectedDay);
-    final dateLabel =
-        DateFormat("EEEE',' dd/MM/yyyy", 'pt_BR').format(_selectedDay);
+    final dateLabel = DateFormat(
+      "EEEE',' dd/MM/yyyy",
+      'pt_BR',
+    ).format(_selectedDay);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -520,7 +538,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
             dateLabel.isEmpty
                 ? dateLabel
                 : dateLabel.substring(0, 1).toUpperCase() +
-                    dateLabel.substring(1),
+                      dateLabel.substring(1),
             style: const TextStyle(
               fontSize: 12.5,
               color: Color(0xFF64748B),
@@ -552,8 +570,11 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
             ),
             child: Row(
               children: [
-                const Icon(Icons.description_rounded,
-                    size: 18, color: Color(0xFF475569)),
+                const Icon(
+                  Icons.description_rounded,
+                  size: 18,
+                  color: Color(0xFF475569),
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'Total do dia: ${items.length} compromisso(s)',
@@ -576,8 +597,11 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         children: [
-          Icon(Icons.event_available_rounded,
-              size: 40, color: Colors.blueGrey.shade200),
+          Icon(
+            Icons.event_available_rounded,
+            size: 40,
+            color: Colors.blueGrey.shade200,
+          ),
           const SizedBox(height: 8),
           const Text(
             'Nenhum compromisso neste dia.',
@@ -597,8 +621,9 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
   }
 
   Widget _dayItemTile(_AgendaItem item) {
-    final timeLabel =
-        item.allDay ? 'Dia todo' : DateFormat('HH:mm').format(item.when);
+    final timeLabel = item.allDay
+        ? 'Dia todo'
+        : DateFormat('HH:mm').format(item.when);
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: _canEdit ? () => _openAddEditForm(item: item) : null,
@@ -638,7 +663,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${item.kind.label} · $timeLabel',
+                    '${item.kind.label} ? $timeLabel',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -663,56 +688,115 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
     final reunioes = month.where((e) => e.kind == AgKind.reuniao).length;
     return Row(
       children: [
-        _counterCard('Todos', month.length, const Color(0xFF1D4ED8),
-            Icons.calendar_month_rounded),
-        const SizedBox(width: 10),
-        _counterCard('Reuniões', reunioes, AgKind.reuniao.color,
-            AgKind.reuniao.icon),
+        _counterCard(
+          'Todos',
+          month.length,
+          const Color(0xFF1D4ED8),
+          Icons.calendar_month_rounded,
+          onTap: () => _openKindPreview(
+            context,
+            title: 'Todos',
+            items: month,
+            canEdit: _canEditAgendaItem,
+            onEdit: _editAgendaItemFromPreview,
+            onDelete: _deleteAgendaItemFromPreview,
+          ),
+        ),
         const SizedBox(width: 10),
         _counterCard(
-            'Eventos', eventos, AgKind.evento.color, AgKind.evento.icon),
+          'Reuniões',
+          reunioes,
+          AgKind.reuniao.color,
+          AgKind.reuniao.icon,
+          onTap: () => _openKindPreview(
+            context,
+            title: 'Reuniões',
+            items: month.where((e) => e.kind == AgKind.reuniao).toList(),
+            canEdit: _canEditAgendaItem,
+            onEdit: _editAgendaItemFromPreview,
+            onDelete: _deleteAgendaItemFromPreview,
+          ),
+        ),
         const SizedBox(width: 10),
-        _counterCard('Cultos', cultos, AgKind.culto.color, AgKind.culto.icon),
+        _counterCard(
+          'Eventos',
+          eventos,
+          AgKind.evento.color,
+          AgKind.evento.icon,
+          onTap: () => _openKindPreview(
+            context,
+            title: 'Eventos',
+            items: month.where((e) => e.kind == AgKind.evento).toList(),
+            canEdit: _canEditAgendaItem,
+            onEdit: _editAgendaItemFromPreview,
+            onDelete: _deleteAgendaItemFromPreview,
+          ),
+        ),
+        const SizedBox(width: 10),
+        _counterCard(
+          'Cultos',
+          cultos,
+          AgKind.culto.color,
+          AgKind.culto.icon,
+          onTap: () => _openKindPreview(
+            context,
+            title: 'Cultos',
+            items: month.where((e) => e.kind == AgKind.culto).toList(),
+            canEdit: _canEditAgendaItem,
+            onEdit: _editAgendaItemFromPreview,
+            onDelete: _deleteAgendaItemFromPreview,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _counterCard(String label, int value, Color color, IconData icon) {
+  Widget _counterCard(
+    String label,
+    int value,
+    Color color,
+    IconData icon, {
+    VoidCallback? onTap,
+  }) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: 0.25)),
-        ),
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              child: Icon(icon, color: Colors.white, size: 18),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-                color: color,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: color.withValues(alpha: 0.25)),
+          ),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                child: Icon(icon, color: Colors.white, size: 18),
               ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              '$value',
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-                color: Color(0xFF0F172A),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
               ),
-            ),
-          ],
+              const SizedBox(height: 2),
+              Text(
+                '$value',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -745,6 +829,32 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
       await _load(forceServer: true);
     }
   }
+
+  bool _canEditAgendaItem(_AgendaItem item) {
+    final role = widget.role.toLowerCase();
+    if (role.contains('líder') || role.contains('lider')) {
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final author =
+          (item.data['createdByUid'] ??
+                  item.data['createdBy'] ??
+                  item.data['authorUid'] ??
+                  '')
+              .toString();
+      return uid.isNotEmpty && uid == author;
+    }
+    return _canEdit;
+  }
+
+  Future<void> _editAgendaItemFromPreview(_AgendaItem item) async {
+    if (!_canEditAgendaItem(item)) return;
+    await _openAddEditForm(item: item);
+  }
+
+  Future<void> _deleteAgendaItemFromPreview(_AgendaItem item) async {
+    if (!_canEditAgendaItem(item)) return;
+    await ChurchAgendaLoadService.deleteAgendaEvent(item.ref);
+    await _load(forceServer: true);
+  }
 }
 
 extension _PadBottom on Widget {
@@ -752,7 +862,191 @@ extension _PadBottom on Widget {
       Padding(padding: const EdgeInsets.only(bottom: 8), child: this);
 }
 
-/// Bottom sheet de criar/editar culto/evento/reunião.
+/// Prévia da Agenda.
+Future<void> _openKindPreview(
+  BuildContext context, {
+  required String title,
+  required List<_AgendaItem> items,
+  required bool Function(_AgendaItem) canEdit,
+  required Future<void> Function(_AgendaItem) onEdit,
+  required Future<void> Function(_AgendaItem) onDelete,
+}) async {
+  await Navigator.of(context).push<void>(
+    MaterialPageRoute<void>(
+      builder: (_) => _AgendaKindPreviewPage(
+        title: title,
+        items: items,
+        canEdit: canEdit,
+        onEdit: onEdit,
+        onDelete: onDelete,
+      ),
+    ),
+  );
+}
+
+class _AgendaKindPreviewPage extends StatelessWidget {
+  const _AgendaKindPreviewPage({
+    required this.title,
+    required this.items,
+    required this.canEdit,
+    required this.onEdit,
+    required this.onDelete,
+  });
+  final String title;
+  final List<_AgendaItem> items;
+  final bool Function(_AgendaItem) canEdit;
+  final Future<void> Function(_AgendaItem) onEdit;
+  final Future<void> Function(_AgendaItem) onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        leading: IconButton(
+          tooltip: 'Retornar',
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        title: Text(title),
+        backgroundColor: const Color(0xFF1D4ED8),
+        foregroundColor: Colors.white,
+      ),
+      body: items.isEmpty
+          ? const Center(child: Text('Nenhum compromisso encontrado.'))
+          : ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 14),
+              itemBuilder: (context, index) {
+                final item = items[index];
+                final date = DateFormat('dd/MM/yyyy').format(item.when);
+                final time = item.allDay
+                    ? 'Dia todo'
+                    : DateFormat('HH:mm').format(item.when);
+                final location =
+                    (item.data['location'] ?? item.data['local'] ?? '')
+                        .toString()
+                        .trim();
+                return InkWell(
+                  borderRadius: BorderRadius.circular(18),
+                  onTap: () => showModalBottomSheet<void>(
+                    context: context,
+                    builder: (_) => SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              item.title,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text('${item.kind.label} · $date · $time'),
+                            if (location.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Text('Local: $location'),
+                            ],
+                            const SizedBox(height: 16),
+                            FilledButton.icon(
+                              onPressed: () => Navigator.of(context).pop(),
+                              icon: const Icon(Icons.arrow_back_rounded),
+                              label: const Text('Retornar à lista'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: item.kind.color.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: item.kind.color.withValues(alpha: 0.30),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 24,
+                          backgroundColor: item.kind.color,
+                          child: Icon(item.kind.icon, color: Colors.white),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                item.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              Text(
+                                '${item.kind.label} · $date · $time',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: item.kind.color,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              if (location.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                Text(
+                                  location,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF64748B),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        AgendaPreviewActions(
+                          onDetails: () => showDialog<void>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: Text(item.title),
+                              content: Text("${item.kind.label} ? $date $time"),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(ctx),
+                                  child: const Text("Fechar"),
+                                ),
+                              ],
+                            ),
+                          ),
+                          canEdit: canEdit(item),
+                          onEdit: () => onEdit(item),
+                          onDelete: () => onDelete(item),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
 class _AgendaFormSheet extends StatefulWidget {
   const _AgendaFormSheet({
     required this.tenantId,
@@ -773,6 +1067,8 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
   late final TextEditingController _descCtrl;
   late final TextEditingController _localCtrl;
   late final TextEditingController _responsavelCtrl;
+  Set<String> _responsibleIds = <String>{};
+  List<String> _responsibleNames = <String>[];
   late final TextEditingController _cepCtrl;
   late final TextEditingController _ruaCtrl;
   late final TextEditingController _bairroCtrl;
@@ -786,6 +1082,7 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
 
   // Notificar todos (push via Cloud Function onNovaAgendaPush).
   bool _notify = false;
+  bool _publishPublic = false;
 
   // Recorrência (culto/evento fixo — repetir toda semana).
   bool _repeatWeekly = false;
@@ -818,6 +1115,8 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     _responsavelCtrl = TextEditingController(
       text: (d['responsavel'] ?? d['responsavelNome'] ?? '').toString(),
     );
+    _publishPublic =
+        d['publicarNoSite'] == true || d['publicar_no_site'] == true;
     _cepCtrl = TextEditingController(text: (d['cep'] ?? '').toString());
     // Endereço separado; retrocompat com o campo único `endereco` legado.
     final legadoEnd = (d['endereco'] ?? d['endereço'] ?? '').toString();
@@ -829,8 +1128,9 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     _cidadeCtrl = TextEditingController(
       text: (d['cidade'] ?? d['localidade'] ?? '').toString(),
     );
-    _complementoCtrl =
-        TextEditingController(text: (d['complemento'] ?? '').toString());
+    _complementoCtrl = TextEditingController(
+      text: (d['complemento'] ?? '').toString(),
+    );
     final deps = d['departamentos'];
     if (deps is List) {
       _selectedDepartments.addAll(
@@ -864,7 +1164,13 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     if (_allDay || _time == null) {
       return DateTime(_date.year, _date.month, _date.day, 0, 0);
     }
-    return DateTime(_date.year, _date.month, _date.day, _time!.hour, _time!.minute);
+    return DateTime(
+      _date.year,
+      _date.month,
+      _date.day,
+      _time!.hour,
+      _time!.minute,
+    );
   }
 
   Future<void> _loadDepartments() async {
@@ -910,7 +1216,9 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
       if ((r.logradouro ?? '').trim().isNotEmpty) {
         _ruaCtrl.text = r.logradouro!.trim();
       }
-      if ((r.bairro ?? '').trim().isNotEmpty) _bairroCtrl.text = r.bairro!.trim();
+      if ((r.bairro ?? '').trim().isNotEmpty) {
+        _bairroCtrl.text = r.bairro!.trim();
+      }
       final cidadeUf = [r.localidade, r.uf]
           .where((e) => e != null && e.trim().isNotEmpty)
           .map((e) => e!.trim())
@@ -931,8 +1239,7 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
       final cidade = (d['cidade'] ?? d['localidade'] ?? '').toString().trim();
       final uf = (d['estado'] ?? d['uf'] ?? '').toString().trim();
       final cep = (d['cep'] ?? '').toString().trim();
-      final cidadeUf =
-          [cidade, uf].where((e) => e.isNotEmpty).join(' - ');
+      final cidadeUf = [cidade, uf].where((e) => e.isNotEmpty).join(' - ');
       if (!mounted) return;
       setState(() {
         if (rua.isNotEmpty) _ruaCtrl.text = rua;
@@ -994,6 +1301,10 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     if (desc.isNotEmpty) p['descricao'] = desc;
     final local = _localCtrl.text.trim();
     if (local.isNotEmpty) p['local'] = local;
+    if (_responsibleIds.isNotEmpty) {
+      p['responsavelIds'] = _responsibleIds.toList();
+    }
+    if (_responsibleNames.isNotEmpty) p['responsaveis'] = _responsibleNames;
     if (_kind == AgKind.reuniao) {
       final resp = _responsavelCtrl.text.trim();
       if (resp.isNotEmpty) p['responsavel'] = resp;
@@ -1012,7 +1323,7 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
         [rua, complemento].where((e) => e.isNotEmpty).join(', '),
         bairro,
         cidade,
-      ].where((e) => e.isNotEmpty).join(' — ');
+      ].where((e) => e.isNotEmpty).join(' ? ');
       if (composto.isNotEmpty) p['endereco'] = composto;
       if (_selectedDepartments.isNotEmpty) {
         p['departamentos'] = _selectedDepartments.toList();
@@ -1055,7 +1366,7 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
         }
       } else if (_extraDays.isNotEmpty) {
         // Vários dias — cria uma ocorrência na data principal + em cada dia extra
-        // (mesma série; push só na 1ª para não repetir).
+        // (mesma série; push só na 1? para não repetir).
         final seriesId = DateTime.now().millisecondsSinceEpoch.toString();
         final hh = _allDay || _time == null ? 0 : _time!.hour;
         final mm = _allDay || _time == null ? 0 : _time!.minute;
@@ -1119,9 +1430,9 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Falha ao excluir: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Falha ao excluir: $e')));
     }
   }
 
@@ -1158,7 +1469,9 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
                     child: Text(
                       _isEdit ? 'Editar compromisso' : 'Novo compromisso',
                       style: const TextStyle(
-                          fontWeight: FontWeight.w800, fontSize: 18),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 18,
+                      ),
                     ),
                   ),
                   TextButton.icon(
@@ -1177,148 +1490,163 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
                 padding: EdgeInsets.fromLTRB(18, 16, 18, 20 + bottomInset),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: _titleCtrl,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
+                  children: [
+                    TextField(
+                      controller: _titleCtrl,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: InputDecoration(
                   labelText: 'Título',
                   hintText: 'Ex.: Culto de Oração',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text('Tipo',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  for (final k in AgKind.values) ...[
-                    Expanded(child: _kindChip(k)),
-                    if (k != AgKind.values.last) const SizedBox(width: 8),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _fieldButton(
-                      icon: Icons.calendar_today_rounded,
-                      label: DateFormat('dd/MM/yyyy').format(_date),
-                      onTap: _pickDate,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _fieldButton(
-                      icon: Icons.access_time_rounded,
-                      label: _allDay
-                          ? 'Dia todo'
-                          : (_time?.format(context) ?? '--:--'),
-                      onTap: _allDay ? null : _pickTime,
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Tipo',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Dia todo'),
-                value: _allDay,
-                onChanged: (v) => setState(() => _allDay = v),
-              ),
-              const SizedBox(height: 6),
-              // ---- Campos ricos (variam por tipo) ----
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        for (final k in AgKind.values) ...[
+                          Expanded(child: _kindChip(k)),
+                          if (k != AgKind.values.last) const SizedBox(width: 8),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _fieldButton(
+                            icon: Icons.calendar_today_rounded,
+                            label: DateFormat('dd/MM/yyyy').format(_date),
+                            onTap: _pickDate,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _fieldButton(
+                            icon: Icons.access_time_rounded,
+                            label: _allDay
+                                ? 'Dia todo'
+                                : (_time?.format(context) ?? '--:--'),
+                            onTap: _allDay ? null : _pickTime,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Dia todo'),
+                      value: _allDay,
+                      onChanged: (v) => setState(() => _allDay = v),
+                    ),
+                    const SizedBox(height: 6),
+                    // ---- Campos ricos (variam por tipo) ----
               _sectionLabel('Descrição'),
-              const SizedBox(height: 8),
-              _multilineField(
-                controller: _descCtrl,
+                    const SizedBox(height: 8),
+                    _multilineField(
+                      controller: _descCtrl,
                 hint: 'Detalhes, tema, observações…',
-                minLines: 2,
-                maxLines: 4,
-              ),
-              if (_kind != AgKind.reuniao) ...[
-                const SizedBox(height: 14),
-                _sectionLabel('Local'),
-                const SizedBox(height: 8),
-                _multilineField(
-                  controller: _localCtrl,
-                  hint: _kind == AgKind.culto
+                      minLines: 2,
+                      maxLines: 4,
+                    ),
+                    if (_kind != AgKind.reuniao) ...[
+                      const SizedBox(height: 14),
+                      _sectionLabel('Local'),
+                      const SizedBox(height: 8),
+                      _multilineField(
+                        controller: _localCtrl,
+                        hint: _kind == AgKind.culto
                       ? 'Ex.: Templo — Salão principal'
                       : 'Ex.: Onde será o evento',
-                  minLines: 1,
-                  maxLines: 2,
-                ),
-              ],
-              if (_kind == AgKind.reuniao) _reuniaoFields(),
-              if (!_isEdit && _kind != AgKind.reuniao) _recurrenceField(),
-              if (!_isEdit && !_repeatWeekly) _multiDaysField(),
-              const SizedBox(height: 14),
-              _notifyField(),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  if (_isEdit) ...[
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _saving ? null : _delete,
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          side: const BorderSide(color: Colors.red),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        icon: const Icon(Icons.delete_outline_rounded),
-                        label: const Text('Excluir'),
+                        minLines: 1,
+                        maxLines: 2,
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                  ],
-                  if (!_isEdit) ...[
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: _saving
-                            ? null
-                            : () => Navigator.of(context).pop(false),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF475569),
-                          side: const BorderSide(color: Color(0xFFCBD5E1)),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        icon: const Icon(Icons.close_rounded),
-                        label: const Text('Cancelar'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                  ],
-                  Expanded(
-                    flex: 2,
-                    child: FilledButton.icon(
-                      onPressed: _saving ? null : _save,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF2563EB),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      icon: _saving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
+                    ],
+                    if (_kind == AgKind.reuniao) _reuniaoFields(),
+                    if (_kind == AgKind.culto || _kind == AgKind.evento)
+                      _responsiblePickerField(),
+                    if (!_isEdit && _kind != AgKind.reuniao) _recurrenceField(),
+                    if (!_isEdit && !_repeatWeekly) _multiDaysField(),
+                    const SizedBox(height: 14),
+                    _notifyField(),
+                    const SizedBox(height: 8),
+                    _publishField(),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        if (_isEdit) ...[
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _saving ? null : _delete,
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.red,
+                                side: const BorderSide(color: Colors.red),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
                               ),
-                            )
-                          : const Icon(Icons.check_rounded),
-                      label: Text(_isEdit ? 'Salvar' : 'Adicionar'),
+                              icon: const Icon(Icons.delete_outline_rounded),
+                              label: const Text('Excluir'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        if (!_isEdit) ...[
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _saving
+                                  ? null
+                                  : () => Navigator.of(context).pop(false),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFF475569),
+                                side: const BorderSide(
+                                  color: Color(0xFFCBD5E1),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
+                              ),
+                              icon: const Icon(Icons.close_rounded),
+                              label: const Text('Cancelar'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        Expanded(
+                          flex: 2,
+                          child: FilledButton.icon(
+                            onPressed: _saving ? null : _save,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF2563EB),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                            icon: _saving
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.check_rounded),
+                            label: Text(_isEdit ? 'Salvar' : 'Adicionar'),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
             ),
           ],
         ),
@@ -1340,8 +1668,7 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
         ),
         child: Column(
           children: [
-            Icon(k.icon,
-                color: selected ? Colors.white : k.color, size: 22),
+            Icon(k.icon, color: selected ? Colors.white : k.color, size: 22),
             const SizedBox(height: 4),
             Text(
               k.labelPlural,
@@ -1393,9 +1720,9 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
   }
 
   Widget _sectionLabel(String text) => Text(
-        text,
-        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-      );
+    text,
+    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+  );
 
   Widget _multilineField({
     required TextEditingController controller,
@@ -1464,8 +1791,11 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
                     color: selected ? color : color.withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(icon,
-                      size: 16, color: selected ? Colors.white : color),
+                  child: Icon(
+                    icon,
+                    size: 16,
+                    color: selected ? Colors.white : color,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1479,9 +1809,7 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
                   ),
                 ),
                 Icon(
-                  selected
-                      ? Icons.check_circle_rounded
-                      : Icons.circle_outlined,
+                  selected ? Icons.check_circle_rounded : Icons.circle_outlined,
                   color: selected ? color : Colors.blueGrey.shade200,
                   size: 22,
                 ),
@@ -1493,25 +1821,35 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     );
   }
 
+  Widget _responsiblePickerField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionLabel('Respons\u00e1veis'),
+        const SizedBox(height: 8),
+        AgendaResponsiblePicker(
+          tenantId: widget.tenantId,
+          selectedIds: _responsibleIds,
+          onChanged: (ids, names) => setState(() {
+            _responsibleIds = ids;
+            _responsibleNames = names;
+            _responsavelCtrl.text = names.join(', ');
+          }),
+        ),
+      ],
+    );
+  }
+
   Widget _reuniaoFields() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 14),
-        _sectionLabel('Responsável'),
+        _sectionLabel('Respons\u00e1vel'),
         const SizedBox(height: 8),
-        TextField(
-          controller: _responsavelCtrl,
-          textCapitalization: TextCapitalization.words,
-          decoration: InputDecoration(
-            hintText: 'Quem organiza a reunião',
-            isDense: true,
-            prefixIcon: const Icon(Icons.person_outline_rounded, size: 20),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
+        _responsiblePickerField(),
         const SizedBox(height: 14),
-        _sectionLabel('Localização'),
+        _sectionLabel('Localiza\u00e7\u00e3o'),
         const SizedBox(height: 8),
         Row(
           children: [
@@ -1523,8 +1861,9 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
                   labelText: 'CEP',
                   hintText: '00000-000',
                   isDense: true,
-                  border:
-                      OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ),
@@ -1567,8 +1906,11 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
         const SizedBox(height: 8),
         _addrField(_cidadeCtrl, 'Cidade / UF', Icons.location_city_rounded),
         const SizedBox(height: 8),
-        _addrField(_complementoCtrl, 'Complemento (opcional)',
-            Icons.add_location_alt_outlined),
+        _addrField(
+          _complementoCtrl,
+          'Complemento (opcional)',
+          Icons.add_location_alt_outlined,
+        ),
         const SizedBox(height: 14),
         Row(
           children: [
@@ -1642,7 +1984,9 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: Text(
-            _kind == AgKind.culto ? 'Culto fixo (toda semana)' : 'Repetir toda semana',
+            _kind == AgKind.culto
+                ? 'Culto fixo (toda semana)'
+                : 'Repetir toda semana',
           ),
           subtitle: const Text('Cria uma ocorrência por semana'),
           value: _repeatWeekly,
@@ -1654,19 +1998,18 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
               const Text('Por', style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(width: 10),
               IconButton(
-                onPressed: _weeks > 2
-                    ? () => setState(() => _weeks--)
-                    : null,
+                onPressed: _weeks > 2 ? () => setState(() => _weeks--) : null,
                 icon: const Icon(Icons.remove_circle_outline_rounded),
               ),
               Text(
                 '$_weeks semanas',
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
               ),
               IconButton(
-                onPressed: _weeks < 26
-                    ? () => setState(() => _weeks++)
-                    : null,
+                onPressed: _weeks < 26 ? () => setState(() => _weeks++) : null,
                 icon: const Icon(Icons.add_circle_outline_rounded),
               ),
             ],
@@ -1725,12 +2068,40 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     setState(() {
       _extraDays
         ..clear()
-        ..addAll(result.where((d) =>
-            !(d.year == main.year &&
-                d.month == main.month &&
-                d.day == main.day)))
+        ..addAll(
+          result.where(
+            (d) =>
+                !(d.year == main.year &&
+                    d.month == main.month &&
+                    d.day == main.day),
+          ),
+        )
         ..sort();
     });
+  }
+
+  Widget _publishField() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFBBF7D0)),
+      ),
+      child: SwitchListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        secondary: const Icon(Icons.public_rounded, color: Color(0xFF15803D)),
+        title: const Text(
+          'Publicar no site p\u00fablico',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: const Text(
+          'Permite que este registro apare\u00e7a no site p\u00fablico da igreja',
+          style: TextStyle(fontSize: 12),
+        ),
+        value: _publishPublic,
+        onChanged: (value) => setState(() => _publishPublic = value),
+      ),
+    );
   }
 
   Widget _notifyField() {
@@ -1742,8 +2113,10 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
       ),
       child: SwitchListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-        secondary: const Icon(Icons.notifications_active_rounded,
-            color: Color(0xFF2563EB)),
+        secondary: const Icon(
+          Icons.notifications_active_rounded,
+          color: Color(0xFF2563EB),
+        ),
         title: const Text(
           'Notificar todos',
           style: TextStyle(fontWeight: FontWeight.w700),

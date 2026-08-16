@@ -5,17 +5,17 @@
 abstract final class YahwehPerformanceV4 {
   YahwehPerformanceV4._();
 
-  // ——— Cache HTTP (cached_network_image / flutter_cache_manager) ———
+  // ??? Cache HTTP (cached_network_image / flutter_cache_manager) ???
   static const Duration imageCacheStalePeriod = Duration(days: 30);
   static const int imageCacheMaxObjects = 500;
   static const int feedThumbCacheMaxObjects = 500;
 
-  // ——— WebP (paridade Controle Total) ———
+  // ??? WebP (paridade Controle Total) ???
   static const int webpQuality = 78;
   /// Fotos gerais — padrão CT (1600px / JPEG ~78%, alvo ~700 KB).
   static const int uploadMaxEdgePx = 1600;
 
-  // ——— Fotos de perfil (membros) ———
+  // ??? Fotos de perfil (membros) ???
   /// Perfil membro — Full HD (era 400×400: perdia nitidez visível em telas
   /// maiores/impressão da carteirinha). Alinhado ao teto Full HD do feed.
   static const int profileFullEdge = uploadMaxEdgePx;
@@ -33,7 +33,7 @@ abstract final class YahwehPerformanceV4 {
   static const String profileThumbFile = 'profile_thumb.webp';
   static const String profileMediumFile = 'profile_medium.webp';
 
-  // ——— Feed / mural (1 ficheiro/slot — ChurchInstantUploadPipeline / EcoFire) ———
+  // ??? Feed / mural (1 ficheiro/slot ? ChurchInstantUploadPipeline / EcoFire) ???
   static const int feedThumbEdge = 200;
   static const int feedMediumEdge = 800;
   static const int feedFullEdge = uploadMaxEdgePx;
@@ -46,7 +46,7 @@ abstract final class YahwehPerformanceV4 {
   static const int adminExportBatchLimit = 500;
   /// Amostra para gráficos/estatísticas do dashboard (não lista paginada).
   static const int dashboardStatsSampleLimit = 100;
-  /// Amostra para gráficos/resumo — não carregar histórico completo no 1.º frame.
+  /// Amostra para gráficos/resumo ? não carregar histórico completo no 1.? frame.
   static const int financeChartsSampleLimit = 60;
   static const int financeListInitialLimit = blindListPageSize;
   static const int financeListPageStep = blindListPageSize;
@@ -84,7 +84,7 @@ abstract final class YahwehPerformanceV4 {
   static const int preloadScreenMaxUrls = 32;
 
   // ——— Publicação instantânea (avisos / eventos) ———
-  /// Alias Firestore: `publishState: uploading` ≡ `status: processing`.
+  /// Alias Firestore: `publishState: uploading` = `status: processing`.
   static const String publishStatusProcessing = 'uploading';
   static const String publishStatusPublished = 'published';
 

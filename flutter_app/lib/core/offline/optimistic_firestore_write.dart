@@ -3,7 +3,7 @@ import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 
 /// Escritas textuais **optimistas** — UI instantânea, sync silenciosa em background.
 ///
-/// - **Online:** grava no Firestore (mobile com persistence → cache local imediato).
+/// - **Online:** grava no Firestore (mobile com persistence ? cache local imediato).
 /// - **Offline:** fila Hive + espelho no cache Firestore (mobile); web grava directo quando online.
 /// - Falhas de rede **não** bloqueiam a UI — [SyncEngine] reenvia ao voltar online.
 abstract final class OptimisticFirestoreWrite {

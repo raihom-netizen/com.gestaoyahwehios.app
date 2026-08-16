@@ -128,8 +128,8 @@ abstract final class GlobalTenantAuditService {
     final statuses = _moduleStatuses(churchId, syncReport);
     final notes = <String>[
       if (legacySeed)
-        'Seed legado detectado ($seed) — resolver redireciona para $churchId.',
-      if (mismatch) 'Mismatch seed/resolvido — verificar TenantResolver.',
+        'Seed legado detectado ($seed) ? resolver redireciona para $churchId.',
+      if (mismatch) 'Mismatch seed/resolvido ? verificar TenantResolver.',
       if (syncReport.storageAligned == false)
         'Storage desalinhado do Firestore.',
       'Plataforma: ${kIsWeb ? 'web' : 'mobile'}.',
@@ -360,13 +360,13 @@ abstract final class GlobalTenantAuditService {
       };
 
   static List<String> priorityMigrationTargets() => const [
-        'ui/pages/members_page.dart — Firestore direto + getDownloadURL',
-        'ui/pages/cargos_page.dart — Firestore direto',
-        'ui/pages/member_card_page.dart — Firestore + Storage direto',
-        'ui/pages/igreja_cadastro_page.dart — Storage direto (logo)',
-        'services/firebase_storage_service.dart — legado getDownloadURL',
+        'ui/pages/members_page.dart ? Firestore direto + getDownloadURL',
+        'ui/pages/cargos_page.dart ? Firestore direto',
+        'ui/pages/member_card_page.dart ? Firestore + Storage direto',
+        'ui/pages/igreja_cadastro_page.dart ? Storage direto (logo)',
+        'services/firebase_storage_service.dart ? legado getDownloadURL',
         'ui/widgets/safe_network_image.dart — refresh URL (exibição OK)',
-        'ui/admin_* — painel master (fora do tenant igreja)',
+        'ui/admin_* ? painel master (fora do tenant igreja)',
         'jimsabores_frota/ — módulo separado',
       ];
 }

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fa;
@@ -21,6 +21,7 @@ import 'package:gestao_yahweh/utils/keyboard_form_scaffold.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
 import 'package:gestao_yahweh/ui/widgets/fast_text_field.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_bank_brand_thumb.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 enum _PeriodPreset { last30, last90, last365, custom }
 
@@ -28,7 +29,7 @@ enum _MigracaoModo { semConta, transferirBanco }
 
 enum _TipoFiltro { todos, receitas, despesas }
 
-/// Assistente de migração: sem conta → banco, ou transferir lançamentos de um banco para outro.
+/// Assistente de migração: sem conta ? banco, ou transferir lançamentos de um banco para outro.
 class FinanceBulkAssignScreen extends StatefulWidget {
   final String uid;
   final UserProfile profile;
@@ -379,11 +380,11 @@ class _FinanceBulkAssignScreenState extends State<FinanceBulkAssignScreen> {
       final src = _sourceAccountId?.trim() ?? '';
       const chunk = 450;
       for (var i = 0; i < targets.length; i += chunk) {
-        final batch = FirebaseFirestore.instance.batch();
+        final batch = YahwehBatch();
         for (final doc in targets.skip(i).take(chunk)) {
           final d = doc.data();
           final updates = <String, dynamic>{
-            'updatedAt': FieldValue.serverTimestamp(),
+            'updatedAt': YahwehFv.serverTimestamp,
           };
           if (_modo == _MigracaoModo.semConta) {
             updates['financeAccountId'] = dest;
@@ -422,7 +423,7 @@ class _FinanceBulkAssignScreenState extends State<FinanceBulkAssignScreen> {
     final cat = (d['category'] ?? '').toString().trim();
     final desc = (d['description'] ?? '').toString().trim();
     if (desc.isNotEmpty) {
-      return desc.length > 60 ? '${desc.substring(0, 60)}…' : desc;
+      return desc.length > 60 ? '${desc.substring(0, 60)}?' : desc;
     }
     if (cat.isNotEmpty) return cat;
     return (d['type'] ?? 'expense').toString() == 'income'
@@ -437,8 +438,8 @@ class _FinanceBulkAssignScreenState extends State<FinanceBulkAssignScreen> {
     final tipo =
         (d['type'] ?? 'expense').toString() == 'income' ? 'Receita' : 'Despesa';
     final cat = (d['category'] ?? '').toString().trim();
-    final catPart = cat.isEmpty ? '' : ' • $cat';
-    return '$data • $tipo$catPart';
+    final catPart = cat.isEmpty ? '' : ' ? $cat';
+    return '$data ? $tipo$catPart';
   }
 
   ({int nInc, int nExp, double sumInc, double sumExp}) _stats() {
@@ -621,7 +622,7 @@ class _FinanceBulkAssignScreenState extends State<FinanceBulkAssignScreen> {
     if (_loadingList || _listError != null) return const SizedBox.shrink();
     final n = _transactions.length;
     final periodo =
-        '${DateTimeFormats.dateBR.format(_from)}  →  ${DateTimeFormats.dateBR.format(_to)}';
+        '${DateTimeFormats.dateBR.format(_from)}  ?  ${DateTimeFormats.dateBR.format(_to)}';
     if (n == 0) {
       return Container(
         padding: const EdgeInsets.all(16),
@@ -705,12 +706,12 @@ class _FinanceBulkAssignScreenState extends State<FinanceBulkAssignScreen> {
                   color: context.appTextPrimary)),
           SizedBox(height: 10),
           Text(
-            '• ${st.nInc} receita(s) · ${CurrencyFormats.formatBRL(st.sumInc)}',
+            '? ${st.nInc} receita(s) ? ${CurrencyFormats.formatBRL(st.sumInc)}',
             style: TextStyle(
                 fontWeight: FontWeight.w800, color: AppColors.financeReceita),
           ),
           Text(
-            '• ${st.nExp} despesa(s) · ${CurrencyFormats.formatBRL(st.sumExp)}',
+            '? ${st.nExp} despesa(s) ? ${CurrencyFormats.formatBRL(st.sumExp)}',
             style: TextStyle(
                 fontWeight: FontWeight.w800, color: AppColors.financeDespesa),
           ),
@@ -973,7 +974,7 @@ class _FinanceBulkAssignScreenState extends State<FinanceBulkAssignScreen> {
                       ] else ...[
                         SizedBox(height: 8),
                         Text(
-                          '${DateTimeFormats.dateBR.format(_from)} → ${DateTimeFormats.dateBR.format(_to)}',
+                          '${DateTimeFormats.dateBR.format(_from)} ? ${DateTimeFormats.dateBR.format(_to)}',
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ],
@@ -1064,7 +1065,7 @@ class _FinanceBulkAssignScreenState extends State<FinanceBulkAssignScreen> {
                         )
                       else ...[
                         Text(
-                          '${filtered.length} na lista • $nSel selecionado(s)',
+                          '${filtered.length} na lista ? $nSel selecionado(s)',
                           style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w800,
@@ -1108,7 +1109,7 @@ class _FinanceBulkAssignScreenState extends State<FinanceBulkAssignScreen> {
                             : Icons.swap_horiz_rounded),
                     label: Text(
                       _loadingApply
-                          ? 'Aplicando…'
+                          ? 'Aplicando?'
                           : _modo == _MigracaoModo.semConta
                               ? 'Vincular selecionados ao destino'
                               : 'Transferir selecionados para destino',

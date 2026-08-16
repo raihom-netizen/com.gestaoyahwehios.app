@@ -84,7 +84,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
   final _tplTransferCtrl = TextEditingController();
   final _tplAgradecimentoCtrl = TextEditingController();
 
-  /// Doc ids em `membros` — obrigatório 1º; 2º opcional (segunda assinatura).
+  /// Doc ids em `membros` ? obrigatório 1?; 2? opcional (segunda assinatura).
   String? _signer1MemberId;
   String? _signer2MemberId;
 
@@ -392,7 +392,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     final entries = _memberEntriesFromDocs(_seedMemberDocs);
     final picked = await showChurchLetterSignerPicker(
       context,
-      title: second ? '2.º assinante (opcional)' : '1.º assinante *',
+      title: second ? '2.? assinante (opcional)' : '1.? assinante *',
       tenantId: _effectiveTenantId.isNotEmpty
           ? _effectiveTenantId
           : widget.tenantId.trim(),
@@ -847,7 +847,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         uf,
       if (cep.isNotEmpty) 'CEP $cep',
     ];
-    if (parts.isNotEmpty) return parts.join(' · ');
+    if (parts.isNotEmpty) return parts.join(' ? ');
     return (d['endereco'] ?? d['ENDERECO'] ?? d['enderecoCompleto'] ?? '')
         .toString()
         .trim();
@@ -1055,7 +1055,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
             .toString()
             .trim();
     final mail = (m['EMAIL'] ?? m['email'] ?? '').toString().trim();
-    if (tel.isNotEmpty && mail.isNotEmpty) return '$tel · $mail';
+    if (tel.isNotEmpty && mail.isNotEmpty) return '$tel ? $mail';
     if (tel.isNotEmpty) return tel;
     return mail;
   }
@@ -1148,7 +1148,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     final c2 = m2 != null ? _contactLineFromMember(m2) : '';
     if (c1.isEmpty) return c2;
     if (c2.isEmpty || c1 == c2) return c1;
-    return '$c1 · $c2';
+    return '$c1 ? $c2';
   }
 
   String _defaultMissionText() {
@@ -1513,7 +1513,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     if (_signer1MemberId == null || _signer1MemberId!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Selecione o 1.º assinante no cadastro de membros.',
+          'Selecione o 1.? assinante no cadastro de membros.',
         ),
       );
       return;
@@ -2115,7 +2115,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                           vertical: 8,
                                         ),
                                         child: Text(
-                                          'Nenhum membro com nome no cadastro. Atualize em Membros ou toque em «Atualizar» abaixo.',
+                                          'Nenhum membro com nome no cadastro. Atualize em Membros ou toque em ?Atualizar? abaixo.',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: Colors.orange.shade800,
@@ -2161,7 +2161,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                         ),
                                         const SizedBox(height: 12),
                                         ChurchLetterSignerTile(
-                                          label: '1.º assinante *',
+                                          label: '1.? assinante *',
                                           tenantId: tid,
                                           entry: _entryById(_signer1MemberId),
                                           onTap: () =>
@@ -2169,7 +2169,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                         ),
                                         const SizedBox(height: 10),
                                         ChurchLetterSignerTile(
-                                          label: '2.º assinante (opcional)',
+                                          label: '2.? assinante (opcional)',
                                           tenantId: tid,
                                           entry: _entryById(_signer2MemberId),
                                           optional: true,
@@ -2184,7 +2184,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                                 () => _signer2MemberId = null,
                                               ),
                                               child: const Text(
-                                                'Remover 2.º assinante',
+                                                'Remover 2.? assinante',
                                               ),
                                             ),
                                           ),
@@ -2314,7 +2314,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                             ),
                                       label: Text(
                                         _savingTpl
-                                            ? 'A guardar…'
+                                            ? 'A guardar?'
                                             : 'Guardar modelos na nuvem',
                                       ),
                                     ),
@@ -2345,7 +2345,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                         transferenciaTab
                                             ? 'Restaurar modelo — transferência'
                                             : agradecimentoTab
-                                            ? 'Restaurar modelo — agradecimento'
+                                            ? 'Restaurar modelo ? agradecimento'
                                             : 'Restaurar modelo — apresentação',
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w700,
@@ -2390,7 +2390,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                         transferenciaTab
                                             ? 'Modelo — transferência'
                                             : agradecimentoTab
-                                            ? 'Modelo — agradecimento'
+                                            ? 'Modelo ? agradecimento'
                                             : 'Modelo — apresentação',
                                         maxLines: 99,
                                       ),
@@ -2429,7 +2429,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                           transferenciaTab
                                               ? 'Gerar PDF — transferência'
                                               : agradecimentoTab
-                                              ? 'Gerar PDF — agradecimento'
+                                              ? 'Gerar PDF ? agradecimento'
                                               : 'Gerar PDF — apresentação',
                                           style: const TextStyle(
                                             fontWeight: FontWeight.w800,
@@ -2542,7 +2542,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                         Row(
                           children: [
                             Text(
-                              '${_selectedIds.length} selecionado(s) · ${_seedMemberDocs.where((d) => _memberHasName(d.data())).length} membro(s)',
+                              '${_selectedIds.length} selecionado(s) ? ${_seedMemberDocs.where((d) => _memberHasName(d.data())).length} membro(s)',
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
                                 color: accent,
@@ -2614,7 +2614,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                     ),
                     const SizedBox(height: 14),
                     const Text(
-                      'A gerar PDF…',
+                      'A gerar PDF?',
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
                         fontSize: 15,
@@ -2739,7 +2739,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                   label: Text(
                     _histCustomRange == null
                         ? 'Período personalizado'
-                        : '${DateFormat('dd/MM/yyyy').format(_histCustomRange!.start)} — ${DateFormat('dd/MM/yyyy').format(_histCustomRange!.end)}',
+                        : '${DateFormat('dd/MM/yyyy').format(_histCustomRange!.start)} ? ${DateFormat('dd/MM/yyyy').format(_histCustomRange!.end)}',
                   ),
                 ),
                 if (_histCustomRange != null)
@@ -2787,7 +2787,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                 return Padding(
                   padding: const EdgeInsets.all(20),
                   child: Text(
-                    'Nenhum registo neste filtro. Ao gerar uma carta, ela aparece aqui — use «Editar» para reabrir e alterar.',
+                    'Nenhum registo neste filtro. Ao gerar uma carta, ela aparece aqui ? use ?Editar? para reabrir e alterar.',
                     style: TextStyle(color: Colors.grey.shade600, height: 1.4),
                     textAlign: TextAlign.center,
                   ),
@@ -2814,7 +2814,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                   if (ts is Timestamp) dt = ts.toDate();
                   final dataStr = dt != null
                       ? DateFormat('dd/MM/yyyy HH:mm').format(dt)
-                      : '—';
+                      : '?';
                   final dest = (d['destIgreja'] ?? '').toString();
                   final stackActions =
                       ThemeCleanPremium.isMobile(context) ||

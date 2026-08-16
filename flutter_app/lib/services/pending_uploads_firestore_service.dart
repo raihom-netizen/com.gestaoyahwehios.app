@@ -15,6 +15,7 @@ import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Fila por igreja: `igrejas/{tenantId}/pending_uploads/{id}`.
 /// A coleção raiz `pendingUploads` está descontinuada (legado — migrar/apagar).
@@ -282,15 +283,15 @@ abstract final class PendingUploadsFirestoreService {
       }
       if (snap.docs.isEmpty) break;
       await _abandonChatStubsFromPendingDocs(tenantId, snap.docs);
-      var batch = firebaseDefaultFirestore.batch();
+      var batch = YahwehBatch();
       var ops = 0;
       for (final doc in snap.docs) {
-        batch.delete(doc.reference);
+        batch.deleteDoc(doc.reference);
         ops++;
         total++;
         if (ops >= 400) {
           await batch.commit();
-          batch = firebaseDefaultFirestore.batch();
+          batch = YahwehBatch();
           ops = 0;
         }
       }
@@ -489,16 +490,16 @@ abstract final class PendingUploadsFirestoreService {
       await _abandonChatStubsFromPendingDocs(tenantId, toDelete);
     }
 
-    var batch = firebaseDefaultFirestore.batch();
+    var batch = YahwehBatch();
     var ops = 0;
     var deleted = 0;
     for (final doc in toDelete) {
-      batch.delete(doc.reference);
+      batch.deleteDoc(doc.reference);
       ops++;
       deleted++;
       if (ops >= 400) {
         await batch.commit();
-        batch = firebaseDefaultFirestore.batch();
+        batch = YahwehBatch();
         ops = 0;
       }
     }
@@ -543,16 +544,16 @@ abstract final class PendingUploadsFirestoreService {
 
     await _abandonChatStubsFromPendingDocs(tenantId, stale);
 
-    var batch = firebaseDefaultFirestore.batch();
+    var batch = YahwehBatch();
     var ops = 0;
     var removed = 0;
     for (final doc in stale) {
-      batch.delete(doc.reference);
+      batch.deleteDoc(doc.reference);
       ops++;
       removed++;
       if (ops >= 400) {
         await batch.commit();
-        batch = firebaseDefaultFirestore.batch();
+        batch = YahwehBatch();
         ops = 0;
       }
     }

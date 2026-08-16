@@ -208,7 +208,7 @@ abstract final class ChurchCanonicalMediaDeleteService {
     ]);
   }
 
-  /// Remove slot de foto — limpa Firestore no ato e Storage em background.
+  /// Remove slot de foto ? limpa Firestore no ato e Storage em background.
   static void schedulePatrimonioSlotCleared({
     required String tenantId,
     required String itemId,

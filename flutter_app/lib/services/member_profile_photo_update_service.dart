@@ -253,7 +253,7 @@ class MemberProfilePhotoUpdateService {
     return null;
   }
 
-  /// Firestore primeiro → upload em background (não bloqueia UI).
+  /// Firestore primeiro ? upload em background (não bloqueia UI).
   /// [requireAuth] false no cadastro público (visitante anónimo).
   static void scheduleBackgroundPhotoUpload({
     required String tenantId,
@@ -668,7 +668,7 @@ class MemberProfilePhotoUpdateService {
       memberRefData['photoThumbStoragePath'] = tsp;
       memberRefData['fotoThumbPath'] = tsp;
     }
-    // HTTPS primeiro — path Storage sozinho atrasava avatar no chat.
+    // HTTPS primeiro ? path Storage sozinho atrasava avatar no chat.
     final displayPhoto = bustedThumb.isNotEmpty
         ? bustedThumb
         : (bustedUrl.isNotEmpty
@@ -705,7 +705,7 @@ class MemberProfilePhotoUpdateService {
   static int cacheRevisionFromData(Map<String, dynamic> data) =>
       memberPhotoDisplayCacheRevision(data) ?? 0;
 
-  /// Remove foto de perfil — Firestore + Storage + cache + chat.
+  /// Remove foto de perfil ? Firestore + Storage + cache + chat.
   static Future<MemberProfilePhotoUpdateResult> removeProfilePhoto({
     required String tenantId,
     required String memberDocId,
@@ -719,7 +719,7 @@ class MemberProfilePhotoUpdateService {
       throw StateError('Igreja ou membro inválido para remover a foto.');
     }
 
-    onPhase?.call('A remover foto…');
+    onPhase?.call('A remover foto?');
     final previousUrl = sanitizeImageUrl(imageUrlFromMap(memberData));
     final previousThumb = sanitizeImageUrl(
       MemberProfileVariantsService.listPhotoUrl(memberData) ?? '',
@@ -785,7 +785,7 @@ class MemberProfilePhotoUpdateService {
 
     // Firestore já é a fonte de verdade: a UI limpa imediatamente. Storage,
     // users/Auth e espelho do chat são finalizados sem bloquear o formulário.
-    onPhase?.call('A limpar ficheiros…');
+    onPhase?.call('A limpar ficheiros?');
     unawaited(
       FirebaseStorageCleanupService.deleteMemberProfilePhotoArtifactsBeforeReplace(
         tenantId: churchId,

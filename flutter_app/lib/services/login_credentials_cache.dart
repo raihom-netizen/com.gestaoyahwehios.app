@@ -16,7 +16,7 @@ class LoginCredentialsSnapshot {
       login.trim().isNotEmpty && password.isNotEmpty;
 }
 
-/// Cache por contexto (`igreja`, `master`, `default`) — aquecido no arranque.
+/// Cache por contexto (`igreja`, `master`, `default`) ? aquecido no arranque.
 abstract final class LoginCredentialsCache {
   LoginCredentialsCache._();
 

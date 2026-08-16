@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fa;
@@ -10,9 +10,10 @@ import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'finance_advanced_settings_service.dart';
 import 'goal_deposit_service.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 class FinanceAccountsService {
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  // _db saiu: os lotes agora sao YahwehBatch (REST no Web).
 
   /// [uid] aqui é o `churchId` — contas do Financeiro são por igreja
   /// (`igrejas/{churchId}/contas`, mesma coleção usada por doações/OFX).
@@ -35,7 +36,7 @@ class FinanceAccountsService {
   ///
   /// **Performance**: para evitar tela vazia "Cadastre contas em Financeiro"
   /// enquanto o servidor responde, lemos do **cache local primeiro**
-  /// (`Source.cache`) e emitimos imediatamente — depois deixa o snapshot
+  /// (`Source.cache`) e emitimos imediatamente ? depois deixa o snapshot
   /// listener com o servidor entregar a versão fresca. Em iOS/Android/Web
   /// isso deixa a abertura do bottom sheet **instantânea** quando o usuário
   /// já tem contas cadastradas.
@@ -56,13 +57,13 @@ class FinanceAccountsService {
         // Cache miss ou indisponível — segue para o snapshot listener.
       }
       // Seed do SERVIDOR (one-shot). No web, sem IndexedDB, o cache acima vem
-      // vazio e a lista de "Bancos e cartões" mostrava 0 até o 1º poll (45s) —
-      // este `listOnce` garante as contas já no 1º frame. Barato (1 get).
+      // vazio e a lista de "Bancos e cartões" mostrava 0 até o 1? poll (45s) ?
+      // este `listOnce` garante as contas já no 1? frame. Barato (1 get).
       try {
         final server = await listOnce(uid);
         if (server.isNotEmpty) yield server;
       } catch (_) {
-        // Sem rede/erro — o poll/listener abaixo assume.
+        // Sem rede/erro ? o poll/listener abaixo assume.
       }
     }
     yield* fa.FirebaseAuth.instance.authStateChanges().asyncExpand((u) {
@@ -300,7 +301,7 @@ class FinanceAccountsService {
       final chunk =
           ids.sublist(i, i + 300 > ids.length ? ids.length : i + 300);
       final snaps = await Future.wait(chunk.map((id) => col.doc(id).get()));
-      final batch = _db.batch();
+      final batch = YahwehBatch();
       var inBatch = 0;
       for (final snap in snaps) {
         final data = snap.data();
@@ -396,14 +397,14 @@ class FinanceAccountsService {
       } catch (_) {}
     }
 
-    var batch = _db.batch();
+    var batch = YahwehBatch();
     var n = 0;
     for (final id in ids) {
-      batch.delete(col.doc(id));
+      batch.deleteDoc(col.doc(id));
       n++;
       if (n >= 450) {
         await batch.commit();
-        batch = _db.batch();
+        batch = YahwehBatch();
         n = 0;
       }
     }
@@ -419,11 +420,11 @@ class FinanceAccountsService {
   /// Persiste a ordem exibida (campo [FinanceAccount.sortOrder]).
   Future<void> setAccountOrder(String uid, List<String> orderedAccountIds) async {
     if (orderedAccountIds.isEmpty || uid.trim().isEmpty) return;
-    final batch = _db.batch();
+    final batch = YahwehBatch();
     for (var i = 0; i < orderedAccountIds.length; i++) {
       batch.update(_col(uid).doc(orderedAccountIds[i]), {
         'sortOrder': i,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       });
     }
     await batch.commit();

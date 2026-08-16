@@ -1,6 +1,6 @@
 /// Perfis de compressão pré-upload — única fonte de verdade para limites de mídia.
 enum MediaOptimizationProfile {
-  /// Chat / avisos / feed — 1080px, qualidade 80, teto ~150 KB.
+  /// Chat / avisos / feed ? 1080px, qualidade 80, teto ~150 KB.
   chat,
 
   /// Foto de perfil membro — 512×512, qualidade 80.
@@ -9,7 +9,7 @@ enum MediaOptimizationProfile {
   /// Património / comprovante foto — 1080px.
   general,
 
-  /// Comprovante financeiro / foto patrimonial — 1280px, qualidade 75.
+  /// Comprovante financeiro / foto patrimonial ? 1280px, qualidade 75.
   receipt,
 
   /// Miniatura instantânea (bolha otimista / listas).

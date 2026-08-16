@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 /// Funções do painel da igreja — catálogo em `igrejas/{tenantId}/funcoesControle/{key}`.
 /// O gestor pode adicionar/remover entradas e restaurar padrões. O campo [permissionTemplate]
 /// define o núcleo de permissões (AppPermissions); [key] é o valor gravado em FUNCAO no membro.
@@ -37,7 +38,7 @@ class ChurchFuncoesControleService {
         _doc(
             'secretario',
             'Secretário(a)',
-            'Cadastros, certificados, documentos, departamentos e visitantes — sem financeiro.',
+            'Cadastros, certificados, documentos, departamentos e visitantes ? sem financeiro.',
             5),
         _doc(
             'tesoureiro',
@@ -130,17 +131,17 @@ class ChurchFuncoesControleService {
     final tid = await resolveEffectiveTenantId(tenantId);
     final col = collection(tid);
     final existing = await col.get();
-    final batch = firebaseDefaultFirestore.batch();
+    final batch = YahwehBatch();
     for (final d in existing.docs) {
-      batch.delete(d.reference);
+      batch.deleteDoc(d.reference);
     }
     for (final m in defaultRoleDocuments()) {
       final k = (m['key'] ?? '').toString();
       if (k.isEmpty) continue;
       batch.set(col.doc(k), {
         ...m,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': YahwehFv.serverTimestamp,
+        'updatedAt': YahwehFv.serverTimestamp,
       });
     }
     await batch.commit();
@@ -159,7 +160,7 @@ class ChurchFuncoesControleService {
   static Future<String> resolvePermissionBase(String tenantId, String funcaoKey) async {
     var key = funcaoKey.trim().toLowerCase();
     if (key.isEmpty) return 'membro';
-    // Rótulo gravado no lugar da chave (ex.: "Administrador") → doc `igrejas/.../funcoesControle/adm`
+    // Rótulo gravado no lugar da chave (ex.: "Administrador") ? doc `igrejas/.../funcoesControle/adm`
     if (key == 'administrador' || key == 'administradora') key = 'adm';
     final tid = await resolveEffectiveTenantId(tenantId);
     final d = await collection(tid).doc(key).get();
@@ -213,7 +214,7 @@ class ChurchFuncoesControleService {
     return 400;
   }
 
-  /// Escolhe o papel mais alto entre candidatos (ex.: FUNCOES = [adm, gestor] → adm).
+  /// Escolhe o papel mais alto entre candidatos (ex.: FUNCOES = [adm, gestor] ? adm).
   static String pickHighestRole(Iterable<String> candidates) {
     var best = 'membro';
     var bestScore = roleRank(best);

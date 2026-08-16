@@ -9,22 +9,22 @@ import 'package:gestao_yahweh/core/firestore_app_config.dart';
 import 'package:gestao_yahweh/services/web_panel_stability.dart';
 
 /// Blindagem Web (padrão Controle Total): **nunca** `terminate()` em retry automático
-/// (mata o singleton → `failed-precondition: client has already been terminated` em Doação,
+/// (mata o singleton ? `failed-precondition: client has already been terminated` em Doação,
 /// Patrimônio, Cartão membro, Mural, etc.).
 class FirestoreWebGuard {
   FirestoreWebGuard._();
 
   /// Web: usa `get()` (RestConnection/REST) em vez de `.snapshots()`.
-  /// ⭐ DESCOBERTA (2026-08-09): a `INTERNAL ASSERTION` vive no
+  /// ? DESCOBERTA (2026-08-09): a `INTERNAL ASSERTION` vive no
   /// `WatchChangeAggregator`, que só é usado pelo caminho de **LISTEN**
   /// (`.snapshots()`). Com `webExperimentalForceLongPolling: true`, os `get()`
-  /// usam **RestConnection (REST)** — que NÃO passa pelo agregador → não há a
+  /// usam **RestConnection (REST)** ? que NÃO passa pelo agregador ? não há a
   /// assertion. Portanto, na web lemos por `get()` (poll leve) e evitamos os
   /// listeners ao vivo (que caem no agregador bugado). Mobile: sempre live.
   static bool get disableLiveSnapshotsOnWeb => kIsWeb;
 
   /// Web: limita leituras Firestore em voo (alvos do watch stream) para evitar
-  /// dezenas de alvos paralelos → `INTERNAL ASSERTION FAILED: Unexpected state`
+  /// dezenas de alvos paralelos ? `INTERNAL ASSERTION FAILED: Unexpected state`
   /// no `WatchChangeAggregator` (SDK JS 12.x). Semáforo FIFO com **admissão
   /// suave**: a fila nunca rejeita a leitura — só suaviza picos. Uma fila que
   /// lança `TimeoutException` derruba todos os módulos em cascata (regressão
@@ -56,7 +56,7 @@ class FirestoreWebGuard {
     } finally {
       _webReadsInFlight--;
       // Acorda o próximo waiter vivo — waiters expirados são ignorados para
-      // não perder o sinal de libertação (lost wakeup → fila encravada).
+      // não perder o sinal de liberta??o (lost wakeup ? fila encravada).
       while (_webReadWaiters.isNotEmpty) {
         final next = _webReadWaiters.removeAt(0);
         if (!next.isCompleted) {
@@ -174,7 +174,7 @@ class FirestoreWebGuard {
   static void hardReloadWebApp({String reason = 'firestore_web'}) {
     if (!kIsWeb) return;
     debugPrint(
-      'FirestoreWebGuard.hardReloadWebApp: $reason — '
+      'FirestoreWebGuard.hardReloadWebApp: $reason ? '
       'ignorado (sem reload automático; use diálogo de versão ou F5 manual).',
     );
     // Mantém API pública, mas NÃO agenda location.reload — estabilidade do painel.
@@ -186,25 +186,25 @@ class FirestoreWebGuard {
   static bool handleFatalWebErrorIfNeeded(Object e) {
     if (!kIsWeb) return false;
     if (isInternalAssertionError(e)) {
-      // ⭐ 2026-08-09: NÃO recarregar a aba automaticamente (pedido do usuário:
-      // «nada de F5 sozinho»). A causa raiz do INTERNAL ASSERTION foi corrigida
+      // ? 2026-08-09: NÃO recarregar a aba automaticamente (pedido do usuário:
+      // ?nada de F5 sozinho?). A causa raiz do INTERNAL ASSERTION foi corrigida
       // (SDK JS alinhado 12.17 compat+modular no index.html/SW; sem long-polling;
       // web só get-poll). Se ainda pingar um assert isolado, apenas engolimos —
       // as leituras são get-poll (REST RunQuery) e se recuperam sozinhas no
       // próximo poll, sem matar a experiência com um reload surpresa.
-      debugPrint('FirestoreWebGuard: INTERNAL ASSERTION — ignorado (sem reload).');
+      debugPrint('FirestoreWebGuard: INTERNAL ASSERTION ? ignorado (sem reload).');
       return true;
     }
     if (isClientTerminated(e)) {
       // Cliente terminado: recuperação suave (enableNetwork), sem reload de aba.
-      debugPrint('FirestoreWebGuard: cliente TERMINADO — soft recover (sem reload).');
+      debugPrint('FirestoreWebGuard: cliente TERMINADO ? soft recover (sem reload).');
       unawaited(ensureFirestoreClientAlive());
       return true;
     }
     return false;
   }
 
-  /// Compat: terminated → reload.
+  /// Compat: terminated ? reload.
   static bool handleTerminatedIfNeeded(Object e) =>
       handleFatalWebErrorIfNeeded(e);
 
@@ -212,7 +212,7 @@ class FirestoreWebGuard {
 
   /// Recuperação Web single-flight — soft: só `enableNetwork` (nunca desliga a
   /// rede). Hard (INTERNAL ASSERTION / cliente terminado): ciclo
-  /// `disableNetwork` → `enableNetwork` reinicia os watch/write streams do SDK
+  /// `disableNetwork` ? `enableNetwork` reinicia os watch/write streams do SDK
   /// JS **sem** `terminate()` (singleton preservado).
   static Future<void> recoverFirestoreWebSession({
     bool allowHardReconnect = false,
@@ -348,7 +348,7 @@ class FirestoreWebGuard {
     for (var attempt = 0; attempt < attempts; attempt++) {
       try {
         if (attempt > 0) {
-          debugPrint('FirestoreWebGuard: retry $attempt/$attempts…');
+          debugPrint('FirestoreWebGuard: retry $attempt/$attempts?');
           final err = lastError;
           final hard =
               err != null &&
@@ -504,7 +504,7 @@ class FirestoreWebGuard {
           await prepareForChatWrite();
         } else {
           debugPrint(
-            'FirestoreWebGuard: chat write retry $attempt/$maxAttempts…',
+            'FirestoreWebGuard: chat write retry $attempt/$maxAttempts?',
           );
           await recoverForChatWrite(attempt: attempt, lastError: lastError);
         }
@@ -533,7 +533,7 @@ class FirestoreWebGuard {
     );
   }
 
-  /// Verifica se o erro e de um cliente Firestore terminado — CT compat.
+  /// Verifica se o erro e de um cliente Firestore terminado ? CT compat.
   static bool isTerminatedClientError(Object e) {
     if (e is FirebaseException) {
       return e.code == 'failed-precondition' ||
@@ -542,9 +542,9 @@ class FirestoreWebGuard {
     return false;
   }
 
-  /// Trata erros fatais de Firestore no web — CT compat.
+  /// Trata erros fatais de Firestore no web ? CT compat.
   static void handleFatalWebFirestoreIfNeeded(Object e) {
-    // No-op em YAHWEH — o guard ja faz recovery automatico.
+    // No-op em YAHWEH ? o guard ja faz recovery automatico.
     if (kIsWeb) {
       debugPrint('[FirestoreWebGuard] erro web: $e');
     }

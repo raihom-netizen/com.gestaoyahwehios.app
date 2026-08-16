@@ -12,7 +12,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Tela «Integração» da conta Mercado Pago (Financeiro → Contas).
+/// Tela ?Integra??o? da conta Mercado Pago (Financeiro ? Contas).
 /// Credenciais (produção + teste) ficam só no servidor — nunca são reexibidas.
 class MercadoPagoIntegrationPage extends StatefulWidget {
   const MercadoPagoIntegrationPage({
@@ -100,7 +100,7 @@ class _MercadoPagoIntegrationPageState
     try {
       final churchId = _effectiveTenantId;
       Map<String, dynamic>? data;
-      // ⭐ Web: lê a config por REST (não passa pelo watch stream do SDK, então
+      // ? Web: lê a config por REST (não passa pelo watch stream do SDK, então
       // NÃO trava no cliente envenenado pela assertion). Timeout de 12s embutido.
       if (kIsWeb) {
         try {
@@ -173,7 +173,7 @@ class _MercadoPagoIntegrationPageState
     if (wh.isNotEmpty && !wh.toLowerCase().startsWith('https://')) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Webhook deve ser uma URL HTTPS (ex.: https://…).'),
+          content: Text('Webhook deve ser uma URL HTTPS (ex.: https://?).'),
         ),
       );
       return;
@@ -318,7 +318,7 @@ class _MercadoPagoIntegrationPageState
                           labelText: 'Client Secret',
                           helperText: (_cfg?['hasClientSecret'] == true)
                               ? 'Já salvo no servidor — cole apenas para substituir.'
-                              : 'Painel MP → Credenciais de produção.',
+                              : 'Painel MP ? Credenciais de produção.',
                           border: const OutlineInputBorder(),
                         ),
                       ),
@@ -393,10 +393,10 @@ class _MercadoPagoIntegrationPageState
                         controller: _webhookSecretCtrl,
                         obscureText: true,
                         decoration: InputDecoration(
-                          labelText: 'Assinatura secreta — Webhooks MP (opcional)',
+                          labelText: 'Assinatura secreta ? Webhooks MP (opcional)',
                           helperText: (_cfg?['hasWebhookSecret'] == true)
                               ? 'Já salva no servidor — cole apenas para substituir.'
-                              : 'Painel MP → Webhooks → Assinatura secreta.',
+                              : 'Painel MP ? Webhooks ? Assinatura secreta.',
                           border: const OutlineInputBorder(),
                         ),
                       ),
@@ -406,7 +406,7 @@ class _MercadoPagoIntegrationPageState
                         keyboardType: TextInputType.url,
                         decoration: const InputDecoration(
                           labelText: 'Webhook (notificações MP)',
-                          hintText: 'Opcional — HTTPS do seu endpoint ou deixe vazio',
+                          hintText: 'Opcional ? HTTPS do seu endpoint ou deixe vazio',
                           helperText:
                               'Se vazio, o PIX usa o webhook da plataforma (recomendado).',
                           border: OutlineInputBorder(),

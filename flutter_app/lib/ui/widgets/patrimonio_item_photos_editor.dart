@@ -33,7 +33,7 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:image_picker/image_picker.dart';
 
-/// Estado das fotos de um bem — slots fixos `foto01`…`foto05`.
+/// Estado das fotos de um bem ? slots fixos `foto01`?`foto05`.
 class PatrimonioItemPhotosSnapshot {
   const PatrimonioItemPhotosSnapshot({
     required this.slotUrls,
@@ -203,7 +203,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
       _slotUrls[i] = '';
       _slotPaths[i] = '';
     }
-    // Preservar o índice real do slot (foto01 → slot 1): lista compactada
+    // Preservar o ?ndice real do slot (foto01 ? slot 1): lista compactada
     // deslocava fotos quando havia slot vazio no meio.
     final refs = ChurchCanonicalMediaContract.resolvePatrimonioPhotos(data);
     for (final r in refs) {
@@ -253,7 +253,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
   }
 
   Future<void> _maybeRepairStuckPhotos(Map<String, dynamic> data) async {
-    // Web: reparo + get() no initState conflita com listeners → INTERNAL ASSERTION.
+    // Web: reparo + get() no initState conflita com listeners ? INTERNAL ASSERTION.
     if (kIsWeb) return;
     final hasUrl = _slotUrls.any((u) => u.trim().isNotEmpty);
     final hasPath = _slotPaths.any((p) => p.trim().isNotEmpty);
@@ -344,7 +344,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     });
     _notifyChanged();
     // Controle Total: remoção só persiste ao Guardar/Salvar (evita write Firestore
-    // imediato na web com listeners activos → INTERNAL ASSERTION).
+    // imediato na web com listeners activos ? INTERNAL ASSERTION).
   }
 
   Future<void> _showFotoAnexadaSnack(String fileName, Uint8List bytes) async {
@@ -383,7 +383,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
     if (slot < 0 || slot >= PatrimonioItemPhotosEditor.maxPhotos) return;
     setState(() => _mediaPicking = true);
     try {
-      // Padrão CT: pick → bytes leves → pending slot (sem 2.ª compressão).
+      // Padrão CT: pick ? bytes leves ? pending slot (sem 2.? compressão).
       final bytes = await _pickCtJpegBytes(source: ImageSource.gallery);
       if (bytes == null || !mounted) return;
       setState(() {
@@ -846,7 +846,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
                           ),
                         ),
                         Text(
-                          '5 slots fixos — deslize ou toque na miniatura.',
+                          '5 slots fixos ? deslize ou toque na miniatura.',
                           style: TextStyle(
                             fontSize: 12.5,
                             color: Colors.grey.shade700,
@@ -873,7 +873,7 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
                     ),
                     const SizedBox(width: 10),
                     Text(
-                      'A preparar foto $_preparingPhotoCount…',
+                      'A preparar foto $_preparingPhotoCount?',
                       style: TextStyle(
                         fontSize: 13,
                         color: Colors.grey.shade700,
@@ -1120,7 +1120,7 @@ class _PatrimonioItemPhotosEditorPageState
     final snap = editor.snapshot;
     setState(() {
       _saving = true;
-      _phaseLabel = 'A enviar fotos…';
+      _phaseLabel = 'A enviar fotos?';
     });
     try {
       await PatrimonioPhotosUpdateService.publishPhotosStrict(
@@ -1181,7 +1181,7 @@ class _PatrimonioItemPhotosEditorPageState
           onPressed: busy ? null : () => Navigator.maybePop(context, false),
         ),
         title: Text(
-          'Fotos — $nome',
+          'Fotos ? $nome',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),

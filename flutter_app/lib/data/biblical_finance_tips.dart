@@ -1,4 +1,4 @@
-﻿import 'package:gestao_yahweh/services/financial_tips_catalog_service.dart';
+import 'package:gestao_yahweh/services/financial_tips_catalog_service.dart';
 
 /// Dicas financeiras com base bíblica — catálogo principal do Início WISDOMAPP.
 const List<FinancialTipDisplayItem> kBiblicalFinanceTips = [
@@ -710,7 +710,7 @@ const List<FinancialTipDisplayItem> kBiblicalFinanceTips = [
     titulo: 'Não apegue o coração aos bens',
     descricao:
         'Se as vossas riquezas aumentam, não ponhais nelas o coração. '
-        'Deixe o dinheiro crescer sem se tornar seu senhor — mantenha valores acima do saldo.',
+        'Deixe o dinheiro crescer sem se tornar seu senhor ? mantenha valores acima do saldo.',
     categoriaSlug: 'biblia',
     iconKey: 'account_balance',
     colorKey: 'blueGrey',
@@ -752,7 +752,7 @@ const List<FinancialTipDisplayItem> kBiblicalFinanceTips = [
     titulo: 'Não creia em tudo (golpes)',
     descricao:
         'O ingênuo crê em tudo, mas o prudente atenta para os seus passos. '
-        'Desconfie de promessas milagrosas e verifique tudo — cautela evita golpes e perdas.',
+        'Desconfie de promessas milagrosas e verifique tudo ? cautela evita golpes e perdas.',
     categoriaSlug: 'biblia',
     iconKey: 'search',
     colorKey: 'red',

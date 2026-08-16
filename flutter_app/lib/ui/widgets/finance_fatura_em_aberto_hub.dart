@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -94,6 +94,7 @@ class FinanceFaturaEmAbertoHub {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
+      constraints: BoxConstraints.tightFor(height: MediaQuery.sizeOf(context).height),
       backgroundColor: Colors.transparent,
       builder: (sheetCtx) => _FinanceFaturaCardPickerSheet(
         cards: cards,

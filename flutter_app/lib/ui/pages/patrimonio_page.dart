@@ -173,8 +173,8 @@ List<String> _fotoUrlsFromData(Map<String, dynamic> m) {
   return out;
 }
 
-/// Carrossel e miniaturas: [fotoUrls] ordenados + fallback (imageUrl…), **sem** duplicar
-/// slides por lista de paths maior que URLs reais (ex.: 1 foto + 5 paths → 1 slide).
+/// Carrossel e miniaturas: [fotoUrls] ordenados + fallback (imageUrl?), **sem** duplicar
+/// slides por lista de paths maior que URLs reais (ex.: 1 foto + 5 paths ? 1 slide).
 /// Alinha [fotoStoragePaths] ao comprimento das URLs quando possível.
 ({List<String> urls, List<String?> paths}) _patrimonioCarouselSlotsFromData(
   Map<String, dynamic> m,
@@ -322,7 +322,7 @@ List<String> _fotoUrlsFromData(Map<String, dynamic> m) {
   return (urls: outUrls, paths: outPaths);
 }
 
-/// Miniatura na lista/galeria: prefere campo [thumbnail], depois 1.ª URL http(s).
+/// Miniatura na lista/galeria: prefere campo [thumbnail], depois 1.? URL http(s).
 ({String url, String? path}) _patrimonioThumbFromSlots(
   List<String> urls,
   List<String?> paths, {
@@ -546,7 +546,7 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
     'Documento: $titulo',
     'Sessão finalizada em: $dtStr',
     'Responsável pela conferência: $por',
-    'Conferidos: $conf / $total · Pendentes: $pend · Percentual: ${pct is num ? pct.toStringAsFixed(1) : ''}%',
+    'Conferidos: $conf / $total ? Pendentes: $pend ? Percentual: ${pct is num ? pct.toStringAsFixed(1) : ''}%',
   ];
   final rawItens = data['itens'];
   final rows = <List<String>>[];
@@ -617,7 +617,7 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
           accent: branding.accent,
           sectionTitle: 'Validação pastoral',
           label: signerCfg.signerCargo.trim().isNotEmpty
-              ? '${signerCfg.signerName.trim()} — ${signerCfg.signerCargo.trim()}'
+              ? '${signerCfg.signerName.trim()} ? ${signerCfg.signerCargo.trim()}'
               : 'Assinatura do pastor responsável',
           signerName: signerCfg.signerName,
           signatureImageBytes: signerCfg.signerSignatureBytes,
@@ -643,9 +643,9 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// PatrimonioPage — Módulo de Gestão de Patrimônio (Bens · Dashboard · Relatórios · Inventário)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
+// PatrimonioPage ? Módulo de Gestão de Patrimônio (Bens ? Dashboard ? Relatórios ? Inventário)
+// -------------------------------------------------------------------------------
 
 /// Lista de bens — cache RAM curto para reabrir o módulo sem skeleton longo.
 abstract final class _PatrimonioRamCache {
@@ -1216,7 +1216,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     await _excluirPatrimonioEmLote(targets);
   }
 
-  // ─── Helpers ───────────────────────────────────────────────────────────────
+  // --- Helpers ---------------------------------------------------------------
 
   static IconData _catIcon(String cat) {
     switch (cat) {
@@ -1269,7 +1269,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   }
 
   String _statusLabel(String? key) {
-    if (key == null || key.isEmpty) return '—';
+    if (key == null || key.isEmpty) return '?';
     for (final s in _statusList) {
       if (s['key'] == key) return s['label']!;
     }
@@ -1296,9 +1296,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   }
 
   String _fmtMoney(dynamic v) {
-    if (v == null) return '—';
+    if (v == null) return '?';
     final n = v is num ? v.toDouble() : double.tryParse(v.toString());
-    if (n == null) return '—';
+    if (n == null) return '?';
     return 'R\$ ${n.toStringAsFixed(2).replaceAll('.', ',')}';
   }
 
@@ -1311,7 +1311,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
   }
 
-  // ─── CRUD ──────────────────────────────────────────────────────────────────
+  // --- CRUD ------------------------------------------------------------------
 
   Future<void> _openForm({DocumentSnapshot<Map<String, dynamic>>? doc}) async {
     if (!_canWrite) {
@@ -1366,7 +1366,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
         );
       }
       // Fotos em background: quando o doc receber foto01..05 (published),
-      // atualiza o seed e a lista — sem isso o card ficava no placeholder.
+      // atualiza o seed e a lista ? sem isso o card ficava no placeholder.
       if (result['photosPending'] == true && itemId.isNotEmpty) {
         _watchPendingPhotosThenRefresh(itemId);
       }
@@ -1442,7 +1442,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     }
   }
 
-  // ─── QR Code ───────────────────────────────────────────────────────────────
+  // --- QR Code ---------------------------------------------------------------
 
   void _showQrCode(DocumentSnapshot<Map<String, dynamic>> doc) {
     final m = doc.data() ?? {};
@@ -1503,7 +1503,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               ),
               const SizedBox(height: 14),
               Text(
-                'Nº Série: $serie',
+                'N? Série: $serie',
                 style: TextStyle(
                   fontSize: 12,
                   color: Colors.grey.shade600,
@@ -1524,7 +1524,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     );
   }
 
-  // ─── Transferir ────────────────────────────────────────────────────────────
+  // --- Transferir ------------------------------------------------------------
 
   Future<void> _exportPdfFromPage(BuildContext context) async {
     try {
@@ -1681,7 +1681,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     );
   }
 
-  // ─── Depreciação ─────────────────────────────────────────────────────────
+  // --- Depreciação ---------------------------------------------------------
 
   Widget _buildDepreciacao(Map<String, dynamic> m, Color cor) {
     final valor = (m['valor'] is num) ? (m['valor'] as num).toDouble() : 0.0;
@@ -1800,7 +1800,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     );
   }
 
-  // ─── Registrar Manutenção ──────────────────────────────────────────────────
+  // --- Registrar Manutenção --------------------------------------------------
 
   void _addManutencao(DocumentSnapshot<Map<String, dynamic>> doc) {
     final descCtrl = TextEditingController();
@@ -1920,7 +1920,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     );
   }
 
-  // ─── Detalhe completo: folha inferior (fotos, histórico, editar/excluir) ─
+  // --- Detalhe completo: folha inferior (fotos, histórico, editar/excluir) -
 
   Widget _patrimonioDetailScrollContent(
     DocumentSnapshot<Map<String, dynamic>> doc, {
@@ -1940,7 +1940,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
 
     final dprD = MediaQuery.devicePixelRatioOf(layoutContext);
     final sheetW = MediaQuery.sizeOf(layoutContext).width;
-    // Decode proporcional ao carrossel (220px altura) — evita decodificar largura total em 4K.
+    // Decode proporcional ao carrossel (220px altura) ? evita decodificar largura total em 4K.
     final memDetailW = (sheetW * 0.55 * dprD).round().clamp(200, 720);
     final memDetailH = (160 * dprD).round().clamp(160, 480);
     return SingleChildScrollView(
@@ -2019,7 +2019,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
             ),
           ),
           // Gerir fotos / editar ficam no rodapé da tela full screen.
-          // Header — Super Premium
+          // Header ? Super Premium
           Container(
             padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
             decoration: BoxDecoration(
@@ -2180,13 +2180,13 @@ class _PatrimonioPageState extends State<PatrimonioPage>
             value: (m['observacoes'] ?? '').toString(),
           ),
 
-          // ── Depreciação ──
+          // -- Depreciação --
           if (m['valor'] != null &&
               m['vidaUtil'] != null &&
               m['dataAquisicao'] != null)
             _buildDepreciacao(m, cor),
 
-          // ── Histórico de Manutenções ──
+          // -- Histórico de Manutenções --
           const SizedBox(height: 16),
           Row(
             children: [
@@ -2313,7 +2313,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
             },
           ),
 
-          // ── Histórico de Transferências ──
+          // -- Histórico de Transferências --
           const SizedBox(height: 16),
           Row(
             children: [
@@ -2384,7 +2384,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
-                                const TextSpan(text: ' → '),
+                                const TextSpan(text: ' ? '),
                                 TextSpan(
                                   text: (tm['para'] ?? '?').toString(),
                                   style: const TextStyle(
@@ -2579,7 +2579,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
     unawaited(_showDetail(doc));
   }
 
-  // ─── BUILD ─────────────────────────────────────────────────────────────────
+  // --- BUILD -----------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -2821,7 +2821,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                   title: 'Patrimônio',
                   icon: moduleEntry.icon,
                   accent: moduleAccent,
-                  subtitle: 'Bens · dashboard · inventário',
+                  subtitle: 'Bens ? dashboard ? inventário',
                   tabController: _tabCtrl,
                   tabs: PatrimonioModuleTabBar._tabs,
                 )
@@ -2944,9 +2944,9 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 2 — _BensTab (lista de bens com busca, filtros e alertas)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
+// SECTION 2 ? _BensTab (lista de bens com busca, filtros e alertas)
+// -------------------------------------------------------------------------------
 
 class _BensTab extends StatefulWidget {
   final String tenantId;
@@ -3405,7 +3405,7 @@ class _BensTabState extends State<_BensTab> {
                 if (widget.selectionMode) ...[
                   const SizedBox(height: ThemeCleanPremium.spaceSm),
                   Text(
-                    'Toque nos bens para selecionar · ${_selectedCountLabel()}',
+                    'Toque nos bens para selecionar ? ${_selectedCountLabel()}',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -3818,7 +3818,7 @@ class _BensTabState extends State<_BensTab> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        '${allDocs.length} bem(ns) no total — nenhum com estes filtros',
+                        '${allDocs.length} bem(ns) no total ? nenhum com estes filtros',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 14,
@@ -3975,8 +3975,8 @@ class _BensTabState extends State<_BensTab> {
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
-                                  '$reparoCount ${reparoCount == 1 ? 'item' : 'itens'} marcados como “Precisa de Reparo”'
-                                  '${filterStatus == 'precisa_reparo' ? ' (filtro ativo)' : ' — toque para filtrar'}',
+                                  '$reparoCount ${reparoCount == 1 ? 'item' : 'itens'} marcados como ?Precisa de Reparo?'
+                                  '${filterStatus == 'precisa_reparo' ? ' (filtro ativo)' : ' ? toque para filtrar'}',
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
@@ -4250,9 +4250,9 @@ class _BensTabState extends State<_BensTab> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SECTION 3 — _PatrimonioCard (card premium com foto, badges e popup)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
+// SECTION 3 ? _PatrimonioCard (card premium com foto, badges e popup)
+// -------------------------------------------------------------------------------
 
 class _PatrimonioCard extends StatelessWidget {
   final DocumentSnapshot<Map<String, dynamic>> doc;
@@ -4659,7 +4659,7 @@ class _PatrimonioCard extends StatelessWidget {
   }
 }
 
-/// Card em grade (galeria) — mesmo comportamento do card em lista, layout vertical.
+/// Card em grade (galeria) ? mesmo comportamento do card em lista, layout vertical.
 class _PatrimonioGalleryTile extends StatelessWidget {
   final DocumentSnapshot<Map<String, dynamic>> doc;
   final bool selected;
@@ -4994,9 +4994,9 @@ class _PatrimonioGalleryTile extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // SECTION 3B — _RelatoriosPatrimonioTab (filtros + exportação PDF Super Premium)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _RelatoriosPatrimonioTab extends StatefulWidget {
   final CollectionReference<Map<String, dynamic>> col;
@@ -5509,7 +5509,7 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        '${filtered.length} bem(ns) · Valor filtrado: ${widget.fmtMoney(soma)}',
+                        '${filtered.length} bem(ns) ? Valor filtrado: ${widget.fmtMoney(soma)}',
                         style: const TextStyle(
                           fontWeight: FontWeight.w700,
                           fontSize: 15,
@@ -5568,13 +5568,13 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
               else
                 ...filtered.take(40).map((d) {
                   final m = d.data();
-                  final nome = (m['nome'] ?? '—').toString();
+                  final nome = (m['nome'] ?? '?').toString();
                   final cat = (m['categoria'] ?? '').toString();
                   final st = widget.statusLabel((m['status'] ?? '').toString());
                   final aq = _dataAquisicaoFromPatrimonioMap(m);
                   final aqStr = aq != null
                       ? widget.fmtDate(Timestamp.fromDate(aq))
-                      : '—';
+                      : '?';
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Material(
@@ -5610,7 +5610,7 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    '$cat · $st · Aquis.: $aqStr',
+                                    '$cat ? $st ? Aquis.: $aqStr',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey.shade600,
@@ -5641,9 +5641,9 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Lista rápida do painel (KPI) — editar + exportar PDF
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _PatrimonioKpiListDialog extends StatelessWidget {
   final String title;
@@ -5734,7 +5734,7 @@ class _PatrimonioKpiListDialog extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Text(
-                '${docs.length} item(ns) · toque para abrir o bem',
+                '${docs.length} item(ns) ? toque para abrir o bem',
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
             ),
@@ -5754,7 +5754,7 @@ class _PatrimonioKpiListDialog extends StatelessWidget {
                       itemBuilder: (context, i) {
                         final d = docs[i];
                         final m = d.data();
-                        final nome = (m['nome'] ?? '—').toString();
+                        final nome = (m['nome'] ?? '?').toString();
                         final cat = (m['categoria'] ?? '').toString();
                         final st = statusLabel((m['status'] ?? '').toString());
                         return Material(
@@ -5799,7 +5799,7 @@ class _PatrimonioKpiListDialog extends StatelessWidget {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          '$cat · $st',
+                                          '$cat ? $st',
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: Colors.grey.shade600,
@@ -5851,9 +5851,9 @@ class _PatrimonioKpiListDialog extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // SECTION 4 — _DashboardTab (resumos, gráficos e exportação PDF)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _DashboardTab extends StatefulWidget {
   final CollectionReference<Map<String, dynamic>> col;
@@ -6058,7 +6058,7 @@ class _DashboardTabState extends State<_DashboardTab> {
           );
         }
 
-        // ── Summary card builder ──
+        // -- Summary card builder --
         Widget summaryCard({
           required IconData icon,
           required Color color,
@@ -6154,7 +6154,7 @@ class _DashboardTabState extends State<_DashboardTab> {
           );
         }
 
-        // ── PieChart sections ──
+        // -- PieChart sections --
         final pieEntries = <PieChartSectionData>[];
         final activeCats = <String>[];
         catValues.forEach((cat, val) {
@@ -6177,7 +6177,7 @@ class _DashboardTabState extends State<_DashboardTab> {
           }
         });
 
-        // ── BarChart groups ──
+        // -- BarChart groups --
         final barGroups = <BarChartGroupData>[];
         int maxCount = 0;
         for (int i = 0; i < statusList.length; i++) {
@@ -6219,7 +6219,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                     onRetry: refresh,
                   ),
                 ),
-              // ── 4 Summary cards ──
+              // -- 4 Summary cards --
               LayoutBuilder(
                 builder: (context, constraints) {
                   final wide = constraints.maxWidth > 600;
@@ -6242,7 +6242,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                           onTap: () => openKpiList(
                             title: 'Todos os bens',
                             list: docs,
-                            pdfLines: const ['Origem: painel — Total de bens'],
+                            pdfLines: const ['Origem: painel ? Total de bens'],
                             pdfFilename: 'patrimonio_lista_total.pdf',
                           ),
                         ),
@@ -6264,7 +6264,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                           color: Colors.orange.shade700,
                           title: 'Manutenção / Reparo',
                           value: precisaReparo > 0
-                              ? '$emManutencao em manut. · $precisaReparo reparo'
+                              ? '$emManutencao em manut. ? $precisaReparo reparo'
                               : '$emManutencao',
                           onTap: () => openKpiList(
                             title: 'Manutenção e reparo',
@@ -6294,7 +6294,7 @@ class _DashboardTabState extends State<_DashboardTab> {
               ),
               const SizedBox(height: 24),
 
-              // ── PieChart: Distribuição por categoria ──
+              // -- PieChart: Distribuição por categoria --
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -6388,7 +6388,7 @@ class _DashboardTabState extends State<_DashboardTab> {
                                           const SizedBox(width: 6),
                                           Expanded(
                                             child: Text(
-                                              '$cat · ${fmtMoney(val)}',
+                                              '$cat ? ${fmtMoney(val)}',
                                               style: TextStyle(
                                                 fontSize: 11,
                                                 color: Colors.grey.shade700,
@@ -6413,7 +6413,7 @@ class _DashboardTabState extends State<_DashboardTab> {
               ),
               const SizedBox(height: 20),
 
-              // ── BarChart: Status dos bens ──
+              // -- BarChart: Status dos bens --
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -6528,7 +6528,7 @@ class _DashboardTabState extends State<_DashboardTab> {
               ),
               const SizedBox(height: 20),
 
-              // ── Linha: inventários finalizados por mês (últimos 6 meses) ──
+              // -- Linha: inventários finalizados por mês (?ltimos 6 meses) --
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 stream: FirestoreStreamUtils.queryOneShot(
                   ChurchUiCollections.patrimonioInventarioHistorico(
@@ -6789,7 +6789,7 @@ class _DashboardTabState extends State<_DashboardTab> {
               ),
               const SizedBox(height: 24),
 
-              // ── Exportar PDF ──
+              // -- Exportar PDF --
               SizedBox(
                 width: double.infinity,
                 height: 52,
@@ -6833,9 +6833,9 @@ class _DashboardTabState extends State<_DashboardTab> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // SECTION 5 — _InventarioTab (conferência periódica de bens)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 class _InventarioTab extends StatefulWidget {
   final CollectionReference<Map<String, dynamic>> col;
   final bool canWrite;
@@ -7457,7 +7457,7 @@ class _InventarioHistoricoSectionState
                         Text(
                           allDocs.isEmpty
                               ? 'Finalize uma conferência para registrar aqui.'
-                              : '${hDocs.length} de ${allDocs.length} exibido(s) · toque para relatório',
+                              : '${hDocs.length} de ${allDocs.length} exibido(s) ? toque para relatório',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey.shade600,
@@ -7653,8 +7653,8 @@ class _InventarioHistoricoSectionState
                                     const SizedBox(height: 4),
                                     Text(
                                       '$conf / $tot conferidos'
-                                      '${pend != null ? ' · $pend pendente(s)' : ''}'
-                                      '${dt.isNotEmpty ? ' · $dt' : ''}',
+                                      '${pend != null ? ' ? $pend pendente(s)' : ''}'
+                                      '${dt.isNotEmpty ? ' ? $dt' : ''}',
                                       style: TextStyle(
                                         fontSize: 11,
                                         color: Colors.grey.shade700,
@@ -7888,7 +7888,7 @@ class _InventarioHistoricoPreviewScaffold extends StatelessWidget {
                     ),
                     _PreviewStatChip(
                       label: 'Pendentes',
-                      value: '${pend ?? '—'}',
+                      value: '${pend ?? '?'}',
                       icon: Icons.pending_actions_rounded,
                     ),
                     if (pct is num)
@@ -8004,7 +8004,7 @@ class _InventarioHistoricoPreviewScaffold extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            cat.isEmpty ? '—' : cat,
+                            cat.isEmpty ? '?' : cat,
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.grey.shade700,
@@ -8120,7 +8120,7 @@ class _InventarioHistoricoPreviewScaffold extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Nome legível · carimbo da igreja (opcional) · data',
+                  'Nome legível ? carimbo da igreja (opcional) ? data',
                   style: TextStyle(
                     fontSize: 11,
                     color: Colors.grey.shade600,
@@ -8736,9 +8736,9 @@ class _PatrimonioFullscreenGalleryState
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // SECTION 6 — _PatrimonioFormPage (formulário com fotos, vida útil, manutenção)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 class _PatrimonioFormPage extends StatefulWidget {
   final CollectionReference<Map<String, dynamic>> col;
   final DocumentSnapshot<Map<String, dynamic>>? doc;
@@ -9409,7 +9409,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               ),
               const SizedBox(height: 20),
 
-              // ── Identificação ──
+              // -- Identificação --
               _SectionHeader(
                 title: 'Identificação',
                 icon: Icons.badge_rounded,
@@ -9489,7 +9489,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               ),
               const SizedBox(height: 20),
 
-              // ── Financeiro + Depreciação ──
+              // -- Financeiro + Depreciação --
               _SectionHeader(
                 title: 'Financeiro & Depreciação',
                 icon: Icons.attach_money_rounded,
@@ -9555,7 +9555,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               ),
               const SizedBox(height: 20),
 
-              // ── Localização ──
+              // -- Localização --
               _SectionHeader(
                 title: 'Localização e Responsável',
                 icon: Icons.location_on_rounded,
@@ -9583,7 +9583,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               ),
               const SizedBox(height: 20),
 
-              // ── Manutenção ──
+              // -- Manutenção --
               _SectionHeader(
                 title: 'Manutenção Programada',
                 icon: Icons.build_rounded,
@@ -9636,7 +9636,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               ),
               const SizedBox(height: 20),
 
-              // ── Status ──
+              // -- Status --
               _SectionHeader(
                 title: 'Status',
                 icon: Icons.flag_rounded,
@@ -9677,7 +9677,7 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
               ),
               const SizedBox(height: 20),
 
-              // ── Observações ──
+              // -- Observações --
               _SectionHeader(
                 title: 'Observações',
                 icon: Icons.notes_rounded,
@@ -9708,8 +9708,8 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
                 const SizedBox(height: 8),
                 Text(
                   (_photosEditorKey.currentState?.preparingPhotoCount ?? 0) > 0
-                      ? 'A preparar foto ${_photosEditorKey.currentState!.preparingPhotoCount}…'
-                      : 'A preparar fotos…',
+                      ? 'A preparar foto ${_photosEditorKey.currentState!.preparingPhotoCount}?'
+                      : 'A preparar fotos?',
                   style: TextStyle(
                     fontSize: 13,
                     color: Colors.grey.shade700,
@@ -9761,9 +9761,9 @@ class _PatrimonioFormPageState extends State<_PatrimonioFormPage> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Widgets auxiliares reutilizáveis
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _SectionHeader extends StatelessWidget {
   final String title;

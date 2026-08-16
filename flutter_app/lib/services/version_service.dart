@@ -142,7 +142,7 @@ class VersionService {
 
   /// Interpreta [data] de `config/appVersion` para o banner do painel.
   /// Usa `latestVersion` se existir; senão `minVersion`. Só retorna hint se o app estiver mais antigo.
-  /// [storeUrlAndroid] vazio → [kDefaultPlayStoreUrl].
+  /// [storeUrlAndroid] vazio ? [kDefaultPlayStoreUrl].
   Future<PanelUpdateHint?> panelUpdateHintFromConfigData(
     Map<String, dynamic>? data,
   ) async {
@@ -248,12 +248,12 @@ class VersionService {
       );
 
       if (kIsWeb) {
-        // Web: «atualizar» = recarregar o bundle do Hosting.
+        // Web: ?atualizar? = recarregar o bundle do Hosting.
         // NUNCA hard-reload silencioso — o utilizador escolhe no diálogo
         // (Atualizar / Cancelar) para não interromper lançamentos.
         final installedBuild = int.tryParse(appBuildNumber) ?? 0;
         final serverBuild = await reload.fetchServerBuildNumber();
-        // Sem version.json ou build remoto == instalado → não avisar.
+        // Sem version.json ou build remoto == instalado ? não avisar.
         if (serverBuild <= 0 || serverBuild <= installedBuild) {
           return const VersionResult();
         }
@@ -275,7 +275,7 @@ class VersionService {
               ? storeUrlIos
               : AppConstants.gestaoYahwehTestFlightUrl;
         } else if (defaultTargetPlatform == TargetPlatform.windows) {
-          // Windows: «Atualizar» abre o download do ZIP no Storage
+          // Windows: ?Atualizar? abre o download do ZIP no Storage
           // (config/appVersion.storeUrlWindows == config/appDownloads.windowsUrl).
           updateUrl = storeUrlWindows;
         }

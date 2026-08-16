@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/utils/scale_entry_hours.dart';
 import 'package:gestao_yahweh/utils/text_case_preserving_utils.dart';
@@ -45,7 +45,7 @@ class ShiftLocation {
   final List<int>? reminderLeads;
 
   /// `id` do banco offline de toques (`notification_sound_catalog.dart`).
-  /// `null` ou vazio = usa o som padrão da categoria (Preferências → Sons).
+  /// `null` ou vazio = usa o som padrão da categoria (Preferências ? Sons).
   /// Vale como **padrão de notificação** quando um plantão é lançado a
   /// partir deste pré-cadastro recorrente.
   final String? notificationSoundId;
@@ -196,7 +196,7 @@ class ShiftLocation {
           'notificationDeliveryMode': notificationDeliveryMode,
       };
 
-  /// Um segmento da sigla a partir de um token (ex.: `4º` → `4`, `BPM` → `B`).
+  /// Um segmento da sigla a partir de um token (ex.: `4?` ? `4`, `BPM` ? `B`).
   static String _abbrevChunkFromToken(String token) {
     final t = token.trim().toUpperCase();
     if (t.isEmpty) return '';
@@ -217,7 +217,7 @@ class ShiftLocation {
 
   /// Gera iniciais a partir do nome quando a sigla está vazia: até 6 caracteres, sempre maiúsculas.
   /// Usa somente a parte com letras (base), ignora o complemento de horário " HH:MM ÀS HH:MM".
-  /// Várias palavras: primeira letra (ou bloco numérico inicial) de cada token — ex. `REFORÇO 4º BPM` → `R4B`.
+  /// Várias palavras: primeira letra (ou bloco numérico inicial) de cada token ? ex. `REFOR?O 4? BPM` ? `R4B`.
   static String abbreviationFromName(String name) {
     final base = baseNameFromFull(name.trim());
     final n = base.toUpperCase();

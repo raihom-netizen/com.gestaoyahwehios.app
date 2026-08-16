@@ -21,7 +21,8 @@ class AdminIgrejaUsuariosPage extends StatefulWidget {
   });
 
   @override
-  State<AdminIgrejaUsuariosPage> createState() => _AdminIgrejaUsuariosPageState();
+  State<AdminIgrejaUsuariosPage> createState() =>
+      _AdminIgrejaUsuariosPageState();
 }
 
 class _MemberRow {
@@ -29,9 +30,28 @@ class _MemberRow {
   final Map<String, dynamic> data;
   _MemberRow(this.id, this.data);
 
-  String get nome => (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? id).toString();
-  String get funcao => (data['funcao'] ?? data['FUNCAO'] ?? data['cargo'] ?? data['role'] ?? 'Membro').toString();
-  String get status => (data['status'] ?? data['STATUS'] ?? data['ativo'] == true ? 'ativo' : 'inativo').toString();
+  String get nome =>
+      (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? id).toString();
+  String get funcao =>
+      (data['funcao'] ??
+              data['FUNCAO'] ??
+              data['cargo'] ??
+              data['role'] ??
+              'Membro')
+          .toString();
+  String get status {
+    final rawStatus = data['status'] ?? data['STATUS'];
+    if (rawStatus is bool) return rawStatus ? 'ativo' : 'inativo';
+    if (rawStatus is num) return rawStatus != 0 ? 'ativo' : 'inativo';
+    final textStatus = rawStatus?.toString().trim();
+    if (textStatus != null && textStatus.isNotEmpty) return textStatus;
+
+    final rawActive = data['ativo'] ?? data['active'];
+    if (rawActive is bool) return rawActive ? 'ativo' : 'inativo';
+    if (rawActive is num) return rawActive != 0 ? 'ativo' : 'inativo';
+    final textActive = rawActive?.toString().trim();
+    return textActive == null || textActive.isEmpty ? 'inativo' : textActive;
+  }
 }
 
 class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
@@ -63,8 +83,10 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
       for (final rawTid in allIds) {
         final tid = await ChurchOperationalPaths.resolve(rawTid);
         try {
-          final membrosSnap =
-              await ChurchTenantResilientReads.membrosRecent(tid, limit: 2500);
+          final membrosSnap = await ChurchTenantResilientReads.membrosRecent(
+            tid,
+            limit: 2500,
+          );
           for (final d in membrosSnap.docs) {
             addDoc(d);
           }
@@ -73,7 +95,9 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
         }
         // Usuários dentro da igreja: subcoleção igrejas/{id}/users (painel da igreja)
         try {
-          final usersInIgreja = await ChurchUiCollections.churchDoc(tid).collection('users').get();
+          final usersInIgreja = await ChurchUiCollections.churchDoc(
+            tid,
+          ).collection('users').get();
           for (final d in usersInIgreja.docs) {
             addDoc(d);
           }
@@ -82,7 +106,10 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
         }
         // users (raiz) com tenantId/igrejaId apontando para esta igreja
         try {
-          final usersT = await db.collection('users').where('tenantId', isEqualTo: tid).get();
+          final usersT = await db
+              .collection('users')
+              .where('tenantId', isEqualTo: tid)
+              .get();
           for (final d in usersT.docs) {
             if (adminUserHasCompleteEmail(d.data())) addDoc(d);
           }
@@ -90,7 +117,10 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
           debugPrint('AdminIgrejaUsuarios users tenantId($tid): $e\n$st');
         }
         try {
-          final usersI = await db.collection('users').where('igrejaId', isEqualTo: tid).get();
+          final usersI = await db
+              .collection('users')
+              .where('igrejaId', isEqualTo: tid)
+              .get();
           for (final d in usersI.docs) {
             if (adminUserHasCompleteEmail(d.data())) addDoc(d);
           }
@@ -118,11 +148,14 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
     final q = _busca.trim().toLowerCase();
     final filtrados = q.isEmpty
         ? _members
-        : _members.where((m) =>
-            m.nome.toLowerCase().contains(q) ||
-            m.funcao.toLowerCase().contains(q) ||
-            m.status.toLowerCase().contains(q)).toList();
-    final isMobile = ThemeCleanPremium.isMobile(context);
+        : _members
+              .where(
+                (m) =>
+                    m.nome.toLowerCase().contains(q) ||
+                    m.funcao.toLowerCase().contains(q) ||
+                    m.status.toLowerCase().contains(q),
+              )
+              .toList();
     final padding = ThemeCleanPremium.pagePadding(context);
 
     return Scaffold(
@@ -139,7 +172,8 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => MembersPage(tenantId: widget.tenantId, role: 'master'),
+                  builder: (_) =>
+                      MembersPage(tenantId: widget.tenantId, role: 'master'),
                 ),
               );
             },
@@ -168,7 +202,10 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
                       children: [
                         Text(
                           'Total: ${filtrados.length}',
-                          style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey.shade700),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
                         ),
                       ],
                     ),
@@ -180,13 +217,20 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.people_outline_rounded, size: 64, color: Colors.grey.shade400),
+                                Icon(
+                                  Icons.people_outline_rounded,
+                                  size: 64,
+                                  color: Colors.grey.shade400,
+                                ),
                                 const SizedBox(height: 16),
                                 Text(
                                   _members.isEmpty
                                       ? 'Nenhum usuário/membro nesta igreja.'
                                       : 'Nenhum resultado para a busca.',
-                                  style: TextStyle(fontSize: 15, color: Colors.grey.shade600),
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    color: Colors.grey.shade600,
+                                  ),
                                   textAlign: TextAlign.center,
                                 ),
                               ],
@@ -202,7 +246,9 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
                                 elevation: 0,
                                 margin: const EdgeInsets.only(bottom: 8),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                                  borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusMd,
+                                  ),
                                   side: BorderSide(color: Colors.grey.shade200),
                                 ),
                                 child: InkWell(
@@ -217,25 +263,34 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
                                       ),
                                     );
                                   },
-                                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                                  borderRadius: BorderRadius.circular(
+                                    ThemeCleanPremium.radiusMd,
+                                  ),
                                   child: Padding(
-                                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 12,
+                                      horizontal: 16,
+                                    ),
                                     child: Row(
                                       children: [
                                         CircleAvatar(
                                           backgroundColor: ativo
-                                              ? ThemeCleanPremium.primary.withValues(alpha: 0.15)
+                                              ? ThemeCleanPremium.primary
+                                                    .withValues(alpha: 0.15)
                                               : Colors.grey.shade300,
                                           child: Icon(
                                             Icons.person_rounded,
-                                            color: ativo ? ThemeCleanPremium.primary : Colors.grey.shade600,
+                                            color: ativo
+                                                ? ThemeCleanPremium.primary
+                                                : Colors.grey.shade600,
                                             size: 24,
                                           ),
                                         ),
                                         const SizedBox(width: 12),
                                         Expanded(
                                           child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
                                               Text(
@@ -249,13 +304,19 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
                                               const SizedBox(height: 2),
                                               Text(
                                                 '${m.funcao} • ${m.status}',
-                                                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey.shade700,
+                                                ),
                                                 overflow: TextOverflow.ellipsis,
                                               ),
                                             ],
                                           ),
                                         ),
-                                        Icon(Icons.chevron_right_rounded, color: Colors.grey.shade600),
+                                        Icon(
+                                          Icons.chevron_right_rounded,
+                                          color: Colors.grey.shade600,
+                                        ),
                                       ],
                                     ),
                                   ),

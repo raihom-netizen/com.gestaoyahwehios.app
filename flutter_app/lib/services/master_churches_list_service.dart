@@ -48,7 +48,7 @@ abstract final class MasterChurchesListService {
   /// Contagem instantânea para badge do header (sem await).
   static int peekCount() => _memCache?.length ?? 0;
 
-  /// Lista em RAM — outras telas master reutilizam sem novo round-trip.
+  /// Lista em RAM ? outras telas master reutilizam sem novo round-trip.
   static List<MasterChurchListItem>? peekMemory() => _memCache;
 
   static void invalidateMemory() {
@@ -208,7 +208,7 @@ abstract final class MasterChurchesListService {
     return const [];
   }
 
-  /// Índice → callable → query directa (servidor). Memória compartilhada entre telas.
+  /// ?ndice ? callable ? query directa (servidor). Memória compartilhada entre telas.
   static Future<List<MasterChurchListItem>> loadFast({
     bool force = false,
   }) async {
@@ -221,7 +221,7 @@ abstract final class MasterChurchesListService {
       return _memCache!;
     }
 
-    // Offline: prefs → Firestore cache — sem bloquear.
+    // Offline: prefs ? Firestore cache ? sem bloquear.
     if (!AppConnectivityService.instance.isOnline) {
       final local = await readAnyLocal();
       if (local.isNotEmpty) return local;

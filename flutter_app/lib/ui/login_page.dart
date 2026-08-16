@@ -44,7 +44,7 @@ import 'package:gestao_yahweh/ui/widgets/version_footer.dart';
 import 'package:intl/intl.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
-// ── Pós-OAuth: evitar signOut agressivo (sensação de «login em loop») ─────────
+// -- Pós-OAuth: evitar signOut agressivo (sensação de ?login em loop?) ---------
 
 /// Só limpar sessão Firebase para erros em que faz sentido «recomeçar» o login.
 bool _firebaseAuthErrorShouldClearSession(FirebaseAuthException e) {
@@ -85,7 +85,7 @@ String _loginFirebaseFunctionsUserMessage(
   if (code.contains('deadline') ||
       code.contains('deadline-exceeded') ||
       code.contains('cancelled')) {
-    return 'O servidor demorou a responder. Verifique a internet e toque de novo em entrar — '
+    return 'O servidor demorou a responder. Verifique a internet e toque de novo em entrar ? '
         'a sessão Google/Apple pode já estar válida; não precisa voltar ao início.';
   }
   if (code.contains('unavailable') ||
@@ -181,7 +181,7 @@ class _LoginPageState extends State<LoginPage> {
   /// Após escolher persona: membro (true) ou gestor já cadastrado (false).
   bool _credentialsAsMembro = true;
 
-  /// iPhone/iPad: exibir «Continuar com Apple» quando o SO suportar (nunca Android).
+  /// iPhone/iPad: exibir ?Continuar com Apple? quando o SO suportar (nunca Android).
   bool _appleSignInAvailable = false;
 
   /// Planos (preços/limites) do Firestore — mesma fonte do painel Master (tempo real).
@@ -258,7 +258,7 @@ class _LoginPageState extends State<LoginPage> {
     });
   }
 
-  /// Reabrir app: só sessão Firebase persistida → biometria (se activa) → painel.
+  /// Reabrir app: só sessão Firebase persistida ? biometria (se activa) ? painel.
   /// Sem Google Sign-In silencioso no arranque.
   Future<void> _restoreSessionOnLoginPageOpen() async {
     if (!mounted) return;
@@ -462,7 +462,7 @@ class _LoginPageState extends State<LoginPage> {
     _scheduleMaybeAutoNativeCredentialLogin();
   }
 
-  /// Android/iOS painel: credenciais offline → login automático (sem biometria).
+  /// Android/iOS painel: credenciais offline ? login automático (sem biometria).
   void _scheduleMaybeAutoNativeCredentialLogin() {
     if (kIsWeb || !_nativeChurchLogin) return;
     if (!loginAfterTargetsPainelOrAtualizarPlano(_painelLoginRoute)) return;
@@ -526,7 +526,7 @@ class _LoginPageState extends State<LoginPage> {
     _schedulePersistentAutoLoginOnce(delay: delay);
   }
 
-  /// Web painel: com «Lembrar» activo, entra directo (sem escolher conta Google).
+  /// Web painel: com ?Lembrar? activo, entra directo (sem escolher conta Google).
   void _scheduleMaybeAutoWebCredentialLogin() {
     if (!kIsWeb || _painelLoginRoute != '/painel' || _isMasterAdminLogin) return;
     if (!_rememberLogin || !_hasSavedCredentials) return;
@@ -729,7 +729,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   bool _requireChurchPanelEmailBeforeOAuth() {
-    // Painel igreja (app + web): Google/Apple usam a conta do dispositivo — sem e-mail manual.
+    // Painel igreja (app + web): Google/Apple usam a conta do dispositivo ? sem e-mail manual.
     if (_nativeChurchLogin || _isIgrejaPainelLogin) return true;
     if (_simplifiedGoogleOnlyLogin) return true;
     if (_oauthPrimaryLogin) return true;
@@ -793,8 +793,8 @@ class _LoginPageState extends State<LoginPage> {
     ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
         content: Text(
-          'Para usar outra conta: entre no painel → Configurações → '
-          '«Trocar de conta».',
+          'Para usar outra conta: entre no painel ? Configurações ? '
+          '?Trocar de conta?.',
         ),
         duration: Duration(seconds: 5),
       ),
@@ -1217,7 +1217,7 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  /// Apple na web (Safari) — popup ou redirect.
+  /// Apple na web (Safari) ? popup ou redirect.
   Future<void> _onAppleWebChurchLogin() async {
     if (!kIsWeb || !_showAppleSignInButtonWeb || _loading || _sessionFinalizing) {
       return;
@@ -1302,7 +1302,7 @@ class _LoginPageState extends State<LoginPage> {
       final msg = isUnknown
           ? 'Não foi possível concluir o login com a Apple (erro 1000). '
               'Confira em Ajustes > Apple ID > Senha e segurança se «Usar o Apple ID» está ok, '
-              'ou use e-mail e senha. Em builds de desenvolvimento, teste em dispositivo real com «Entrar com a Apple» ativo no App ID.'
+              'ou use e-mail e senha. Em builds de desenvolvimento, teste em dispositivo real com ?Entrar com a Apple? ativo no App ID.'
           : 'Falha no login com Apple. Tente de novo ou use e-mail e senha.';
       setState(() => _errorMessage = msg);
       ScaffoldMessenger.of(context)
@@ -1558,7 +1558,7 @@ class _LoginPageState extends State<LoginPage> {
     if (widget.churchWebAppleIosRenewEntry) return false;
     if (_painelLoginRoute != '/painel') return false;
     if (widget.showSmartLoginFlow != null) return widget.showSmartLoginFlow!;
-    // Painel igreja (web/Android/iOS): login unificado — sem wizard «Sou membro / gestor».
+    // Painel igreja (web/Android/iOS): login unificado ? sem wizard ?Sou membro / gestor?.
     return false;
   }
 
@@ -1569,7 +1569,7 @@ class _LoginPageState extends State<LoginPage> {
       defaultTargetPlatform == TargetPlatform.iOS ||
       defaultTargetPlatform == TargetPlatform.macOS;
 
-  /// Login com Google + e-mail/senha no painel da igreja ou fluxo «Atualizar plano» web.
+  /// Login com Google + e-mail/senha no painel da igreja ou fluxo ?Atualizar plano? web.
   bool get _showChurchGoogleButton =>
       loginAfterTargetsPainelOrAtualizarPlano(_painelLoginRoute) &&
       !_isMasterAdminLogin &&
@@ -1587,7 +1587,7 @@ class _LoginPageState extends State<LoginPage> {
     return widget.title;
   }
 
-  /// iOS: aviso para novos gestores — cadastro da igreja no site.
+  /// iOS: aviso para novos gestores ? cadastro da igreja no site.
   bool get _showIosNewGestorSiteHint =>
       _showIgrejaPainelExtras && IosPaymentsGate.hideOrganizationSignup;
 
@@ -1851,7 +1851,7 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(width: 12),
                         Text(
                           _oauthGoogleInFlight
-                              ? 'A ligar ao Google…'
+                              ? 'A ligar ao Google?'
                               : 'Continuar com Google',
                           style: GoogleFonts.inter(
                             fontWeight: FontWeight.w700,
@@ -2216,7 +2216,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  /// Android/iOS — painel da igreja: tela com login + resumo de planos + cadastro gestor.
+  /// Android/iOS ? painel da igreja: tela com login + resumo de planos + cadastro gestor.
   bool get _nativeChurchLogin =>
       !kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
@@ -2396,7 +2396,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Widget _buildPlanosResumoCard(Color theme) {
     final brl = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
-    // Apple Guideline 3.1.1 — em iOS native (app instalado no iPhone),
+    // Apple Guideline 3.1.1 ? em iOS native (app instalado no iPhone),
     // a tela pré-login NÃO pode mostrar preços nem qualquer CTA de compra.
     // Só nome do plano, capacidade e um botão que abre o site no Safari.
     final iosReader = IosPaymentsGate.isIosNative;
@@ -2532,7 +2532,7 @@ class _LoginPageState extends State<LoginPage> {
       children: [
         Text(
           'Conta já registada neste aparelho. O app tenta reabrir a sessão '
-          'automaticamente — use Google ou Apple se precisar.',
+          'automaticamente ? use Google ou Apple se precisar.',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13,
@@ -2571,7 +2571,7 @@ class _LoginPageState extends State<LoginPage> {
         ),
         const SizedBox(height: 4),
         Text(
-          'Outra conta? No painel: Configurações → Trocar de conta.',
+          'Outra conta? No painel: Configurações ? Trocar de conta.',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           textAlign: TextAlign.center,
         ),
@@ -2586,7 +2586,7 @@ class _LoginPageState extends State<LoginPage> {
         Text(
           _oauthQuickUnlockReady
               ? 'Conta Google ou Apple já vinculada. Toque em Entrar para '
-                  'digital ou Face ID — sem digitar o e-mail.'
+                  'digital ou Face ID ? sem digitar o e-mail.'
               : 'Credenciais salvas neste aparelho. Toque em Entrar ou aguarde '
                   'a leitura biométrica automática.',
           style: TextStyle(
@@ -2645,7 +2645,7 @@ class _LoginPageState extends State<LoginPage> {
         Padding(
           padding: const EdgeInsets.only(top: 4),
           child: Text(
-            'Outra conta? No painel: Configurações → Trocar de conta.',
+            'Outra conta? No painel: Configurações ? Trocar de conta.',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             textAlign: TextAlign.center,
           ),
@@ -2956,7 +2956,7 @@ class _LoginPageState extends State<LoginPage> {
     } catch (_) {}
   }
 
-  /// Abre Safari no **login web da igreja** — removido do fluxo iOS Reader (Apple 3.1.1).
+  /// Abre Safari no **login web da igreja** ? removido do fluxo iOS Reader (Apple 3.1.1).
   @Deprecated('Não usar no iOS Reader — pagamento só fora do app.')
   Future<void> _openExternalUpgradePlanFromLogin() async {
     final email = (FirebaseAuth.instance.currentUser?.email ?? '').trim();
@@ -3110,7 +3110,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  /// Login master web — card centralizado, campos compactos.
+  /// Login master web ? card centralizado, campos compactos.
   Widget _buildWisdomMasterLogin(BuildContext context) {
     final theme = ThemeCleanPremium.primary;
     return Theme(
@@ -3354,7 +3354,7 @@ class _LoginPageState extends State<LoginPage> {
                                     _painelLoginRoute == '/atualizar-plano'
                                 ? (IosPaymentsGate.isIosNative
                                     ? 'Entre com a conta já cadastrada (Google, Apple ou e-mail). '
-                                        'Para contratar ou alterar plano, use o menu no painel — '
+                                        'Para contratar ou alterar plano, use o menu no painel ? '
                                         'o pagamento é feito no site (Safari), não neste app.'
                                     : 'Entre com Google, Apple ou e-mail e senha da igreja. '
                                         'Em seguida escolha o plano e pague com PIX ou cartão.')

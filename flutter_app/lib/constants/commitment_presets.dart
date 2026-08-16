@@ -12,7 +12,7 @@ class CommitmentPreset {
   final IconData icon;
 
   /// Cor base do ícone (e do chip do calendário, quando o usuário não escolher
-  /// outra). Tons fortes e modernos — premium.
+  /// outra). Tons fortes e modernos ? premium.
   final Color color;
 
   const CommitmentPreset({
@@ -98,7 +98,7 @@ const List<CommitmentPreset> kCommitmentPresets = [
   CommitmentPreset(name: 'Cartório', icon: Icons.gavel_rounded, color: Color(0xFF455A64)),
 ];
 
-/// Mapa de descrição → preset para resolver ícone/cor a partir do nome.
+/// Mapa de descrição ? preset para resolver ?cone/cor a partir do nome.
 final Map<String, CommitmentPreset> kCommitmentPresetByName = {
   for (final p in kCommitmentPresets)
     _normalizeCommitmentKey(p.name): p,

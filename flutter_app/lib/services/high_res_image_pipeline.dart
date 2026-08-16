@@ -20,7 +20,7 @@ import 'package:gestao_yahweh/services/biometric_service.dart';
 
 /// Perfil de recorte antes do upload (Yahweh Geral em alta definição).
 enum HighResCropProfile {
-  /// Foto de membro — quadrado 1:1 (perfil).
+  /// Foto de membro ? quadrado 1:1 (perfil).
   memberSquare,
 
   /// Mural: avisos / eventos — proporção livre (presets no editor nativo).
@@ -36,17 +36,17 @@ const int kHighResCropMaxHeight = 2160;
 const int kPremiumFeedFullHdMaxWidth = 1600;
 const int kPremiumFeedFullHdMaxHeight = 1600;
 
-/// Foto de membro (1:1) — mesmo teto Full HD do feed (era 768px, perdia
+/// Foto de membro (1:1) ? mesmo teto Full HD do feed (era 768px, perdia
 /// nitidez visivelmente; a etapa final ainda recorta 1:1 a partir disto).
 const int kMemberCropWebpMaxEdgePx = kPremiumFeedFullHdMaxWidth;
 
 /// Qualidade na saída do recorte nativo (sem perda antes do WebP).
 const int kCropperCompressQuality = 100;
 
-/// WebP do feed — nitidez (avisos + eventos); alinhado a [kEventoAvisoFeedWebpQuality].
+/// WebP do feed ? nitidez (avisos + eventos); alinhado a [kEventoAvisoFeedWebpQuality].
 const int kPremiumMuralFeedWebpQuality = 85;
 
-/// Qualidade WebP em release mobile (turbo — ligeiramente menor).
+/// Qualidade WebP em release mobile (turbo ? ligeiramente menor).
 const int kPremiumMuralFeedWebpQualityTurbo = 80;
 
 int get kEffectiveMuralFeedWebpQuality => kEventoAvisoFeedWebpQuality;
@@ -60,13 +60,13 @@ const int kMaxAvisoFeedPhotosPerPost = 5;
 /// Eventos no mural — até 10 fotos compactadas.
 const int kMaxEventFeedPhotosPerPost = 10;
 
-/// WebP final — retrocompat (igual ao premium mural).
+/// WebP final ? retrocompat (igual ao premium mural).
 const int kHighResWebpQuality = kPremiumMuralFeedWebpQuality;
 
-/// WebP avisos — retrocompat (unificado com eventos para nitidez consistente).
+/// WebP avisos ? retrocompat (unificado com eventos para nitidez consistente).
 const int kAvisoFeedWebpQuality = kPremiumMuralFeedWebpQuality;
 
-/// Seleciona imagem → recorte nativo ([image_cropper]) → WebP.
+/// Seleciona imagem ? recorte nativo ([image_cropper]) ? WebP.
 ///
 /// **Feed (eventos/avisos):** [PremiumFeedImageCropScreen] com **Confirmar em baixo** (web, Android, iOS).
 /// **Membro/logo:** [showChurchPhotoCropDialog] com **Confirmar em baixo**.
@@ -170,7 +170,7 @@ Future<Uint8List?> _flutterMemberLogoCrop(
   );
 }
 
-/// No mobile, reduz no disco antes do recorte (HEIC/12MP → JPEG leve ~1080px).
+/// No mobile, reduz no disco antes do recorte (HEIC/12MP ? JPEG leve ~1080px).
 Future<XFile> _mobilePreparePickedForCrop(XFile picked) async {
   if (kIsWeb) return picked;
   try {
@@ -422,7 +422,7 @@ Future<List<XFile>> pickMultiEncodeFeedTurboFast(
   return out;
 }
 
-/// Galeria mural — recorte + WebP **um a um** (evita OOM no iPhone).
+/// Galeria mural ? recorte + WebP **um a um** (evita OOM no iPhone).
 Future<List<XFile>> pickMultiCropEncodeFeedWebpSequential(
   List<XFile> picked, {
   BuildContext? webCropContext,
@@ -496,7 +496,7 @@ Future<List<XFile>> pickMultiCropEncodeFeedWebp(
 }
 
 /// Foto de membro — **corte automático** (centro 1:1) sem abrir o editor.
-/// Usar quando o utilizador escolhe «Usar automaticamente».
+/// Usar quando o utilizador escolhe ?Usar automaticamente?.
 Future<XFile?> encodeMemberPhotoAutoCenterWebp(
   XFile picked, {
   int webpOutputQuality = kHighResWebpQuality,
@@ -514,7 +514,7 @@ Future<XFile?> encodeMemberPhotoAutoCenterWebp(
   );
 }
 
-/// Já existe [XFile] (ex. galeria multi) → recorte → WebP.
+/// Já existe [XFile] (ex. galeria multi) ? recorte ? WebP.
 Future<XFile?> cropEncodePickedToWebp(
   XFile picked, {
   required HighResCropProfile profile,

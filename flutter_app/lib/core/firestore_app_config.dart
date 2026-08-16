@@ -22,7 +22,7 @@ abstract final class FirestoreOfflineConfig {
 ///   (alvo de watch gravado com versão inválida `ve:-1`). Quando dispara,
 ///   envenena o cliente Firestore da sessão inteira — todos os módulos
 ///   (Financeiro, Chat, Eventos, Fornecedores, Patrimônio, Escalas…) passam a
-///   voltar vazios/erro — e o estado corrompido **sobrevive a reloads** no
+///   voltar vazios/erro ? e o estado corrompido **sobrevive a reloads** no
 ///   IndexedDB, além de conflitar entre abas. Sem persistência IndexedDB o
 ///   estado corrompido deixa de existir e as leituras vão sempre ao servidor
 ///   (dados corretos, como no iOS/Android). Velocidade de reabertura fica por
@@ -33,7 +33,7 @@ void configureFirestoreForOfflineAndSpeed() {
   if (FirestoreOfflineConfig.settingsApplied) return;
   if (!isFirebaseReady) {
     debugPrint(
-      'configureFirestoreForOfflineAndSpeed: Firebase ainda nao pronto — ignorado.',
+      'configureFirestoreForOfflineAndSpeed: Firebase ainda nao pronto ? ignorado.',
     );
     return;
   }
@@ -43,28 +43,28 @@ void configureFirestoreForOfflineAndSpeed() {
   if (kIsWeb) {
     try {
       // Web: cache EM MEMÓRIA (sem IndexedDB), **SEM long-polling**.
-      // ⭐ CORREÇÃO DEFINITIVA (2026-08-09, PROVA EMPÍRICA): inspeção da rede ao
+      // ? CORRE??O DEFINITIVA (2026-08-09, PROVA EMP?RICA): inspe??o da rede ao
       // vivo mostrou que com `webExperimentalForceLongPolling: true` TODAS as
       // leituras `.get()` iam pelo canal `Listen/channel` (WebChannel /
-      // PersistentListenStream) — 10 Listen/channel, 0 RunQuery. Cada `.get()`
-      // alocava um alvo de watch → `targetId` subia (1260/1308) → estourava o
+      // PersistentListenStream) ? 10 Listen/channel, 0 RunQuery. Cada `.get()`
+      // alocava um alvo de watch ? `targetId` subia (1260/1308) ? estourava o
       // `INTERNAL ASSERTION FAILED / WatchChangeAggregator` (SDK JS 12.17).
       // Sem long-polling, o `.get()` one-shot usa **REST `RunQuery`** (não aloca
-      // alvo, não passa pelo agregador) → sem assertion e mais rápido. Como a web
+      // alvo, não passa pelo agregador) ? sem assertion e mais rápido. Como a web
       // já não abre `.snapshots()` (disableLiveSnapshotsOnWeb=true, tudo é
       // get-poll), o transporte de Listen é irrelevante — só os `.get()` REST
       // importam. Isto conserta Financeiro/Patrimônio/Fornecedores e a lentidão
       // do site público de uma só vez.
-      // ⭐ CORREÇÃO DEFINITIVA (2026-08-11, causa-raiz do assertion que voltou no
+      // ? CORRE??O DEFINITIVA (2026-08-11, causa-raiz do assertion que voltou no
       // 2183): o firebase-js-sdk **rejeita quando `experimentalForceLongPolling`
       // E `experimentalAutoDetectLongPolling` são especificados JUNTOS** (mesmo
-      // ambos `false`) → `db.settings =` LANÇA → caía no `_applyFallbackSettings`
-      // que ligava `forceLongPolling: true` → long-polling LIGADO → todo `.get()`
-      // ia pelo canal Listen (`PersistentListenStream`), alocando `targetId` →
-      // churn → `INTERNAL ASSERTION FAILED / WatchChangeAggregator`. FIX: setar
+      // ambos `false`) ? `db.settings =` LAN?A ? caía no `_applyFallbackSettings`
+      // que ligava `forceLongPolling: true` ? long-polling LIGADO ? todo `.get()`
+      // ia pelo canal Listen (`PersistentListenStream`), alocando `targetId` ?
+      // churn ? `INTERNAL ASSERTION FAILED / WatchChangeAggregator`. FIX: setar
       // **apenas UM** flag. `webExperimentalAutoDetectLongPolling: false` (com
       // `forceLongPolling` no default `false`) GARANTE long-polling desligado
-      // sem auto-detecção → `.get()` one-shot usa RunQuery (não aloca alvo, não
+      // sem auto-detecção ? `.get()` one-shot usa RunQuery (não aloca alvo, não
       // passa pelo agregador). Um único flag = nada lança, nada liga long-polling.
       db.settings = const Settings(
         persistenceEnabled: false,
@@ -100,8 +100,8 @@ void _applyFallbackSettings(FirebaseFirestore db) {
   try {
     if (kIsWeb) {
       // Fallback web: cache em memória (sem IndexedDB) — mesma blindagem.
-      // ⚠️ NUNCA ligar long-polling aqui: era o BUG (fallback com
-      // `forceLongPolling: true` → `.get()` via Listen → churn de targetId →
+      // ?? NUNCA ligar long-polling aqui: era o BUG (fallback com
+      // `forceLongPolling: true` ? `.get()` via Listen ? churn de targetId ?
       // INTERNAL ASSERTION). Igual ao primário: só `autoDetectLongPolling:false`.
       db.settings = const Settings(
         persistenceEnabled: false,

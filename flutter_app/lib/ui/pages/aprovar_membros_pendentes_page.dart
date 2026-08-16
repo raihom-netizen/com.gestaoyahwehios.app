@@ -23,6 +23,7 @@ import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Cores premium — Aprovações rápidas (esmeralda / teal / âmbar).
 abstract final class _AprovacoesPremiumTheme {
@@ -286,7 +287,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(_pendentesDocs);
     _removePendenteLocal(id);
     try {
-      // Fonte da verdade = CF (Auth + migração docId→uid). Evita ativo+pendente duplicado.
+      // Fonte da verdade = CF (Auth + migração docId?uid). Evita ativo+pendente duplicado.
       await _invokeSetMemberApproved(id);
       await _afterApprovalMutation(skipReload: false);
       if (mounted) {
@@ -385,9 +386,9 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       try {
         await runFirestorePublishWithRecovery(
           () async {
-            final batch = firebaseDefaultFirestore.batch();
+            final batch = YahwehBatch();
             for (final id in ids) {
-              batch.delete(_membersCol.doc(id));
+              batch.deleteDoc(_membersCol.doc(id));
             }
             await batch.commit();
           },
@@ -423,7 +424,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
         final linkage = await _getTenantLinkage();
         await runFirestorePublishWithRecovery(
           () async {
-            final batch = firebaseDefaultFirestore.batch();
+            final batch = YahwehBatch();
             for (final id in ids) {
               batch.update(_membersCol.doc(id), {
                 'alias': linkage['alias'],
@@ -489,7 +490,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
       final linkage = await _getTenantLinkage();
       await runFirestorePublishWithRecovery(
         () async {
-          final batch = firebaseDefaultFirestore.batch();
+          final batch = YahwehBatch();
           for (final d in docs) {
             batch.update(_membersCol.doc(d.id), {
               'alias': linkage['alias'],
@@ -497,7 +498,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
               'tenantId': _churchId,
               'status': 'ativo',
               'STATUS': 'ativo',
-              'aprovadoEm': FieldValue.serverTimestamp(),
+              'aprovadoEm': YahwehFv.serverTimestamp,
             });
           }
           await batch.commit();
@@ -910,7 +911,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
                                             child: SizedBox(
                                               width: 44,
                                               height: 44,
-                                              // FotoMembroWidget escuta MemberProfilePhotoSyncNotifier —
+                                              // FotoMembroWidget escuta MemberProfilePhotoSyncNotifier ?
                                               // sem isso a fila de aprovação não atualizava sozinha
                                               // quando a foto do cadastro público terminava de processar.
                                               child: FotoMembroWidget(
@@ -1005,7 +1006,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
   static String _photoUrlFromData(Map<String, dynamic> data) => imageUrlFromMap(data);
 }
 
-// ── Empty state premium ─────────────────────────────────────────────────────
+// -- Empty state premium -----------------------------------------------------
 
 class _PremiumEmptyPendentes extends StatelessWidget {
   final VoidCallback onOpenHistorico;
@@ -1069,7 +1070,7 @@ class _PremiumEmptyPendentes extends StatelessWidget {
   }
 }
 
-// ── Histórico + filtros + gráficos ──────────────────────────────────────────
+// -- Histórico + filtros + gráficos ------------------------------------------
 
 enum _HistoryPreset { mesAtual, trimestre, ultimos90, ano, periodo }
 
@@ -1254,7 +1255,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
         content: Text(
           event.aprovado
               ? 'Remover «${event.nome}» da igreja? A ficha do membro será apagada.'
-              : 'Remover o registro reprovado de «${event.nome}»?',
+              : 'Remover o registro reprovado de ?${event.nome}??',
         ),
         actions: [
           TextButton(
@@ -1615,7 +1616,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
   Widget build(BuildContext context) {
     final range = _effectiveRange;
     final periodoLabel =
-        '${DateFormat('dd/MM/yyyy').format(range.$1)} — ${DateFormat('dd/MM/yyyy').format(range.$2)}';
+        '${DateFormat('dd/MM/yyyy').format(range.$1)} ? ${DateFormat('dd/MM/yyyy').format(range.$2)}';
 
     if (_lastData == null && _historicoError != null && !_historicoLoading) {
       return Padding(
@@ -2724,7 +2725,7 @@ class _BarMensalChart extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Barras verdes: aprovados · vermelhas: reprovados',
+            'Barras verdes: aprovados ? vermelhas: reprovados',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 16),
@@ -2869,7 +2870,7 @@ class _HistoricoTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '$rotulo · ${DateFormat('dd/MM/yyyy HH:mm').format(event.when)}',
+                  '$rotulo ? ${DateFormat('dd/MM/yyyy HH:mm').format(event.when)}',
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
               ],

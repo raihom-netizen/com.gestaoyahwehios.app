@@ -1,11 +1,11 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/widgets.dart';
 
 import 'package:gestao_yahweh/constants/app_business_rules.dart';
 
-/// Helpers para evitar o «teclado Android lento» causado por `setState` ou
+/// Helpers para evitar o ?teclado Android lento? causado por `setState` ou
 /// reagendamento de busca em **cada keystroke** do `TextField`/`TextFormField`.
 ///
 /// O problema típico no Flutter Android é fazer:
@@ -41,12 +41,12 @@ const int kDefaultSearchDebounceMs = AppBusinessRules.searchDebounceMs;
 /// "lista que filtra conforme o usuário digita":
 /// ```dart
 /// final _ctrl = DebouncedTextController();
-/// // …
+/// // ?
 /// ValueListenableBuilder<String>(
 ///   valueListenable: _ctrl.debouncedText,
 ///   builder: (_, q, __) => _buildResults(q),
 /// )
-/// // … TextField(controller: _ctrl, …)
+/// // ? TextField(controller: _ctrl, ?)
 /// // dispose: _ctrl.dispose();
 /// ```
 class DebouncedTextController extends TextEditingController {
@@ -101,7 +101,7 @@ class DebouncedTextController extends TextEditingController {
 /// ```dart
 /// _ctrl.addListener(() => setState(() {}));
 /// ```
-/// ⇢
+/// ?
 /// ```dart
 /// _detach = attachDebouncedRebuild(_ctrl, () { if (mounted) setState(() {}); });
 /// // dispose: _detach?.call();

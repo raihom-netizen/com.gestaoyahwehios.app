@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart' show PlatformException;
-import 'package:gestao_yahweh/services/auth_cpf_service.dart';
 import 'package:gestao_yahweh/services/app_google_sign_in.dart';
 import 'package:gestao_yahweh/services/gestor_oauth_onboarding_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
@@ -27,15 +26,10 @@ class SignupPage extends StatefulWidget {
 }
 
 class _SignupPageState extends State<SignupPage> {
-  final _formKey = GlobalKey<FormState>();
-
-  final _email = TextEditingController();
-  final _senha = TextEditingController();
-
   bool _loading = false;
+
   /// Só o botão Google — evita bloquear o ecrã inteiro enquanto o seletor de contas abre.
   bool _googleBusy = false;
-  bool _obscure = true;
   bool _appleSignInAvailable = false;
 
   bool get _formLocked => _loading || _googleBusy;
@@ -48,10 +42,6 @@ class _SignupPageState extends State<SignupPage> {
   @override
   void initState() {
     super.initState();
-    final init = widget.initialEmail?.trim();
-    if (init != null && init.isNotEmpty) {
-      _email.text = init;
-    }
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
       SignInWithApple.isAvailable().then((ok) {
         if (mounted) setState(() => _appleSignInAvailable = ok);
@@ -59,24 +49,14 @@ class _SignupPageState extends State<SignupPage> {
     }
   }
 
-  @override
-  void dispose() {
-    _email.dispose();
-    _senha.dispose();
-    super.dispose();
-  }
-
-  String? _req(String? v, String msg) =>
-      (v == null || v.trim().isEmpty) ? msg : null;
-
   Future<void> _cadastroRapidoGoogle() async {
     if (_formLocked) return;
     setState(() => _googleBusy = true);
     try {
       if (kIsWeb) {
-        await FirebaseAuth.instance
-            .signInWithPopup(
-                firebaseWebGoogleAuthProvider(forceAccountPicker: true));
+        await FirebaseAuth.instance.signInWithPopup(
+          firebaseWebGoogleAuthProvider(forceAccountPicker: true),
+        );
       } else {
         await GestorOAuthOnboardingService.signInWithGoogleNative(
           forceAccountPicker: true,
@@ -105,15 +85,15 @@ class _SignupPageState extends State<SignupPage> {
         ThemeCleanPremium.feedbackSnackBar(
           isDevErr
               ? 'Login Google indisponível neste aparelho (SHA-1). '
-                  'Verifique o keystore em Firebase Console → App Android ou use e-mail e senha.'
+                    'Verifique o keystore em Firebase Console → App Android ou use e-mail e senha.'
               : 'Falha no Google: ${e.code} ${e.message ?? ''}',
         ),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar('Erro: $e'),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(ThemeCleanPremium.feedbackSnackBar('Erro: $e'));
     } finally {
       if (mounted) {
         setState(() {
@@ -133,7 +113,9 @@ class _SignupPageState extends State<SignupPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Entrar com Apple não está disponível neste aparelho.'),
+              content: Text(
+                'Entrar com Apple não está disponível neste aparelho.',
+              ),
             ),
           );
         }
@@ -150,54 +132,14 @@ class _SignupPageState extends State<SignupPage> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? e.code)),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro Apple: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _loading = true);
-
-    try {
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _email.text.trim(),
-        password: _senha.text,
-      );
-      if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(
+      ScaffoldMessenger.of(
         context,
-        '/signup/completar-dados',
-        (_) => false,
-      );
-    } on FirebaseAuthException catch (e) {
-      if (!mounted) return;
-      final code = e.code.toLowerCase();
-      String msg = e.message ?? e.code;
-      if (code == 'email-already-in-use') {
-        msg =
-            'Este e-mail já está em uso. Use Entrar ou outro endereço.';
-      } else if (code == 'weak-password') {
-        msg = 'Senha fraca. Use pelo menos 6 caracteres.';
-      } else if (code == 'invalid-email') {
-        msg = 'E-mail inválido.';
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg)),
-      );
+      ).showSnackBar(SnackBar(content: Text(e.message ?? e.code)));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Falha no cadastro: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro Apple: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -224,8 +166,10 @@ class _SignupPageState extends State<SignupPage> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(minHeight: 48),
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -315,7 +259,6 @@ class _SignupPageState extends State<SignupPage> {
           child: ChurchWisdomAuthCenter(
             maxWidth: 460,
             child: Form(
-              key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -326,89 +269,10 @@ class _SignupPageState extends State<SignupPage> {
                         ChurchWisdomCardBrandHeader(
                           title: 'Criar conta — teste grátis 30 dias',
                           subtitle:
-                              'Google ou e-mail — depois você cadastra a igreja.',
+                              'Entre com Google ou Apple — depois você completa os dados da igreja.',
                           logo: YahwehSaasVisualShell.brandEmblem(size: 72),
                         ),
                         _socialHeader(),
-                        TextFormField(
-                          controller: _email,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: authCompactFieldDecoration(
-                            labelText: 'E-mail',
-                          ),
-                          validator: (v) => _req(v, 'Informe seu e-mail'),
-                        ),
-                        const SizedBox(height: 10),
-                        TextFormField(
-                          controller: _senha,
-                          obscureText: _obscure,
-                          decoration: authCompactFieldDecoration(
-                            labelText: 'Senha (mínimo 6)',
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscure
-                                    ? Icons.visibility_off_rounded
-                                    : Icons.visibility_rounded,
-                                size: 20,
-                              ),
-                              onPressed: () =>
-                                  setState(() => _obscure = !_obscure),
-                            ),
-                          ),
-                          validator: (v) {
-                            final msg = _req(v, 'Informe a senha');
-                            if (msg != null) return msg;
-                            if ((v ?? '').length < 6) {
-                              return 'Senha mínima: 6 caracteres';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                        SizedBox(
-                          height: 48,
-                          child: FilledButton.icon(
-                            onPressed: _formLocked ? null : _submit,
-                            icon: const Icon(Icons.check_circle, size: 20),
-                            label: _loading
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Text('Criar conta e continuar'),
-                            style: FilledButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                          ),
-                        ),
-                        TextButton(
-                          onPressed: _formLocked
-                              ? null
-                              : () {
-                                  final e = _email.text.trim();
-                                  if (AuthCpfService.looksLikeEmail(e)) {
-                                    Navigator.pushReplacementNamed(
-                                      context,
-                                      '/igreja/login?email=${Uri.encodeComponent(e)}',
-                                    );
-                                  } else {
-                                    Navigator.pushReplacementNamed(
-                                      context,
-                                      '/igreja/login',
-                                    );
-                                  }
-                                },
-                          child: const Text(
-                            'Já tenho conta → Entrar',
-                            style: TextStyle(fontSize: 13),
-                          ),
-                        ),
                       ],
                     ),
                   ),

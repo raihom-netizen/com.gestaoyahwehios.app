@@ -368,7 +368,7 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
                 child: Text(
-                  'Atalhos: / · Ctrl+K ou Cmd+K · pausa ${_debounceMs}ms',
+                  'Atalhos: / ? Ctrl+K ou Cmd+K ? pausa ${_debounceMs}ms',
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
                   textAlign: TextAlign.center,
                 ),
@@ -487,7 +487,7 @@ class _ChurchGlobalSearchDialogState extends State<ChurchGlobalSearchDialog> {
             subtitle: [
               if (date.isNotEmpty) date,
               if (st.isNotEmpty) st,
-            ].join(' · '),
+            ].join(' ? '),
             onTap: () => _pickTroca(d),
           ));
         }

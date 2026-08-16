@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_document_version_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Estado partilhado — abas «Painel de emissões» + «Histórico» (uma carga).
 class CertificadosHistoricoState {
@@ -423,10 +424,10 @@ class CertificateEmitidoService {
           ),
     };
 
-    final batch = firebaseDefaultFirestore.batch();
+    final batch = YahwehBatch();
     batch.set(_emitidosCol(op).doc(certificadoIdResolved), payload);
     batch.set(_protocolIndexDoc(op, certificadoIdResolved), {
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': YahwehFv.serverTimestamp,
       'tenantId': op,
       'churchId': op,
     });
@@ -457,7 +458,7 @@ class CertificateEmitidoService {
       final end = offset + chunkSize > snapshots.length
           ? snapshots.length
           : offset + chunkSize;
-      final batch = firebaseDefaultFirestore.batch();
+      final batch = YahwehBatch();
       for (var i = offset; i < end; i++) {
         final snapshot = snapshots[i];
         final preset = certificadoIds != null && i < certificadoIds.length
@@ -473,11 +474,11 @@ class CertificateEmitidoService {
           'churchId': op,
           'emitidoPorUid': uid,
           'emitidoPorEmail': email,
-          'dataEmissao': FieldValue.serverTimestamp(),
+          'dataEmissao': YahwehFv.serverTimestamp,
         };
         batch.set(_emitidosCol(op).doc(certificadoId), payload);
         batch.set(_protocolIndexDoc(op, certificadoId), {
-          'createdAt': FieldValue.serverTimestamp(),
+          'createdAt': YahwehFv.serverTimestamp,
           'tenantId': op,
           'churchId': op,
         });

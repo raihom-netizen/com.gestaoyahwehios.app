@@ -47,6 +47,7 @@ import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:gestao_yahweh/ui/widgets/church_department_member_picker_page.dart';
 import 'package:gestao_yahweh/ui/widgets/whatsapp_channel_icon.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 class DepartmentsPage extends StatefulWidget {
   final String tenantId;
@@ -967,7 +968,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         tenantId: _tid,
         departmentId: doc.id,
       );
-      final batch = ChurchRepository.batch();
+      final batch = YahwehBatch();
       final membersList = await ChurchRepository.membros.list(
         churchIdHint: _tid,
         limit: 500,
@@ -978,13 +979,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         );
         if (depts.contains(doc.id)) {
           batch.update(_membersCol.doc(m.id), {
-            'DEPARTAMENTOS': FieldValue.arrayRemove([doc.id]),
-            'departamentosIds': FieldValue.arrayRemove([doc.id]),
-            'DEPARTAMENTOS_ATUALIZADO_EM': FieldValue.serverTimestamp(),
+            'DEPARTAMENTOS': YahwehFv.arrayRemove([doc.id]),
+            'departamentosIds': YahwehFv.arrayRemove([doc.id]),
+            'DEPARTAMENTOS_ATUALIZADO_EM': YahwehFv.serverTimestamp,
           });
         }
       }
-      batch.delete(doc.reference);
+      batch.deleteDoc(doc.reference);
       await batch.commit();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1182,10 +1183,36 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         _refreshDepartments(forceServer: true);
       }
     } catch (e) {
+      // Não engolir a causa: sem isto o erro real (regra, rede, assertion do
+      // SDK) ficava invisível e só sobrava "verifique a conexão".
+      debugPrint('vincularMembros falhou: $e');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erro ao vincular membros: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Não foi possível vincular os membros. Verifique a conexão e tente novamente.',
+            ),
+            action: SnackBarAction(
+              label: 'Detalhes',
+              onPressed: () {
+                if (!mounted) return;
+                showDialog<void>(
+                  context: context,
+                  builder: (_) => AlertDialog(
+                    title: const Text('Detalhe do erro'),
+                    content: SelectableText('$e'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Fechar'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        );
       }
     }
   }
@@ -2205,7 +2232,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                 )
               else if (_canWrite)
                 FilledButton.icon(
-                  onPressed: creating ? null : () => _createSinglePreset(key, name),
+                  onPressed: creating
+                      ? null
+                      : () => _createSinglePreset(key, name),
                   icon: creating
                       ? const SizedBox(
                           width: 14,
@@ -3312,8 +3341,15 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
   Widget _buildDepartmentsListBody({
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> docsForTab,
   }) {
+    final orderedDocs = [...docsForTab]
+      ..sort(
+        (a, b) => churchDepartmentNameFromDoc(
+          a,
+        ).toLowerCase().compareTo(churchDepartmentNameFromDoc(b).toLowerCase()),
+      );
+
     Widget buildCard(int i) {
-      final card = _buildDepartmentCard(docsForTab[i]);
+      final card = _buildDepartmentCard(orderedDocs[i]);
       if (kIsWeb) return card;
       return AnimationConfiguration.staggeredList(
         position: i,
@@ -3326,40 +3362,15 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       );
     }
 
-    // Telas largas: grade de 2 colunas (mais moderno, menos rolagem) — cada
-    // card mantém a própria altura (Wrap, não GridView) porque o conteúdo
-    // varia (avatares de membros, líder, etc.) e um aspect ratio fixo cortaria.
-    final listView = LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 720;
-        if (!wide) {
-          return ListView.separated(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
-            itemCount: docsForTab.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 10),
-            itemBuilder: (context, i) => buildCard(i),
-          );
-        }
-        const spacing = 14.0;
-        final colWidth = (constraints.maxWidth - spacing) / 2;
-        return SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
-          child: Wrap(
-            spacing: spacing,
-            runSpacing: spacing,
-            children: [
-              for (var i = 0; i < docsForTab.length; i++)
-                SizedBox(width: colWidth, child: buildCard(i)),
-            ],
-          ),
-        );
-      },
+    final listView = ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+      itemCount: orderedDocs.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (context, i) => buildCard(i),
     );
 
     final core = kIsWeb ? listView : AnimationLimiter(child: listView);
-
     if (kIsWeb) return core;
     return RefreshIndicator(
       onRefresh: () => _startDeptLoad(forceServer: true),
@@ -3963,13 +3974,14 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
       // "Null check operator used on a null value" sempre que o timeout/erro
       // realmente acontecia (em vez de devolver null de forma segura) — daí
       // o "Erro ao carregar" ao abrir departamentos sem doc ainda estável.
-      final deptFuture = FirestoreWebGuard.runWithWebRecovery(
-        () => firestoreDocumentGetReliable(widget.deptRef),
-        maxAttempts: 2,
-      )
-          .timeout(const Duration(seconds: 6))
-          .then<DocumentSnapshot<Map<String, dynamic>>?>((v) => v)
-          .catchError((_) => null);
+      final deptFuture =
+          FirestoreWebGuard.runWithWebRecovery(
+                () => firestoreDocumentGetReliable(widget.deptRef),
+                maxAttempts: 2,
+              )
+              .timeout(const Duration(seconds: 6))
+              .then<DocumentSnapshot<Map<String, dynamic>>?>((v) => v)
+              .catchError((_) => null);
 
       final loaded = await loadedFuture;
       if (!mounted) return;

@@ -1,4 +1,4 @@
-﻿import 'package:cloud_functions/cloud_functions.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 

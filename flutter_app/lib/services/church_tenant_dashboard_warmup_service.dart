@@ -43,7 +43,7 @@ abstract final class ChurchTenantDashboardWarmupService {
     }
     if (_done) return;
 
-    // Offline: paint local (Hive/prefs) — sync silenciosa ao voltar online.
+    // Offline: paint local (Hive/prefs) ? sync silenciosa ao voltar online.
     if (!AppConnectivityService.instance.isOnline) {
       _done = true;
       unawaited(YahwehModuleCaches.warmUpTenant(tid));
@@ -67,7 +67,7 @@ abstract final class ChurchTenantDashboardWarmupService {
     final membersDir = await MembersDirectorySnapshotService.readOnce(tenantId);
     if (!context.mounted) return;
 
-    // Web: não aquecer dezenas de fotos legadas no 1.º frame (evita 1000+ 404 Storage).
+    // Web: não aquecer dezenas de fotos legadas no 1.? frame (evita 1000+ 404 Storage).
     if (!kIsWeb) {
       unawaited(
         ChurchGalleryPhotoWarmup.warmBytesForPanel(

@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -8,14 +8,17 @@ import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/firestore_query_batched_collect.dart';
 
 /// Saldo de abertura: total via [finance_month_buckets]; por conta via
-/// [finance_account_month_buckets] (servidor) + sÃ³ o mÃªs parcial em transactions.
+/// [finance_account_month_buckets] (servidor) + só o mês parcial em transactions.
 class FinanceOpeningBalanceService {
   FinanceOpeningBalanceService._();
 
   static const int _openingBucketsVersionExpected = 3;
 
-  static final Map<String,
-      ({double total, Map<String, double> byAccount, DateTime at})> _cache = {};
+  static final Map<
+    String,
+    ({double total, Map<String, double> byAccount, DateTime at})
+  >
+  _cache = {};
 
   static String _cacheKey(String uid, DateTime periodStart, bool withAccounts) {
     final id = uid.trim();
@@ -28,7 +31,7 @@ class FinanceOpeningBalanceService {
     _cache.removeWhere((k, _) => k.startsWith('$id|'));
   }
 
-  /// Leitura sÃ­ncrona do cache em memÃ³ria â€” evita FutureBuilder piscar no painel/Financeiro.
+  /// Leitura síncrona do cache em memória — evita FutureBuilder piscar no painel/Financeiro.
   static ({double total, Map<String, double> byAccount})? peekCached({
     required String uid,
     required DateTime periodStart,
@@ -36,8 +39,11 @@ class FinanceOpeningBalanceService {
     Duration maxAge = const Duration(minutes: 30),
   }) {
     if (uid.isEmpty) return null;
-    final start =
-        DateTime(periodStart.year, periodStart.month, periodStart.day);
+    final start = DateTime(
+      periodStart.year,
+      periodStart.month,
+      periodStart.day,
+    );
     final key = _cacheKey(uid, start, loadAccounts);
     final hit = _cache[key];
     if (hit == null || DateTime.now().difference(hit.at) > maxAge) return null;
@@ -66,7 +72,9 @@ class FinanceOpeningBalanceService {
   }
 
   static void _mergeNetByAccountMap(
-      Map<String, double> target, Map<String, dynamic>? raw) {
+    Map<String, double> target,
+    Map<String, dynamic>? raw,
+  ) {
     if (raw == null || raw.isEmpty) return;
     raw.forEach((fieldKey, value) {
       if (value is! num) return;
@@ -76,7 +84,7 @@ class FinanceOpeningBalanceService {
     });
   }
 
-  /// SÃ³ o total (buckets) â€” exibe saldos/KPI na hora.
+  /// Só o total (buckets) — exibe saldos/KPI na hora.
   static Future<double> loadTotalFast({
     required String uid,
     required DateTime periodStart,
@@ -91,7 +99,7 @@ class FinanceOpeningBalanceService {
     return r.total;
   }
 
-  /// Total (buckets + mÃªs parcial). [loadAccounts]: mapa por conta via buckets servidor.
+  /// Total (buckets + mês parcial). [loadAccounts]: mapa por conta via buckets servidor.
   static Future<({double total, Map<String, double> byAccount})> load({
     required String uid,
     required DateTime periodStart,
@@ -102,14 +110,17 @@ class FinanceOpeningBalanceService {
     if (uid.isEmpty) {
       return (total: 0.0, byAccount: const <String, double>{});
     }
-    final start =
-        DateTime(periodStart.year, periodStart.month, periodStart.day);
+    final start = DateTime(
+      periodStart.year,
+      periodStart.month,
+      periodStart.day,
+    );
     final key = _cacheKey(uid, start, loadAccounts);
     final hit = _cache[key];
     if (hit != null && DateTime.now().difference(hit.at) < cacheTtl) {
       return (
         total: hit.total,
-        byAccount: Map<String, double>.from(hit.byAccount)
+        byAccount: Map<String, double>.from(hit.byAccount),
       );
     }
 
@@ -143,10 +154,10 @@ class FinanceOpeningBalanceService {
       if (loadAccounts) {
         final slice =
             FinanceAccountBalanceUtils.openingPaidByAccountFromDocMaps(
-          items: [d],
-          periodStart: start,
-          creditCardIds: creditCardIds,
-        );
+              items: [d],
+              periodStart: start,
+              creditCardIds: creditCardIds,
+            );
         slice.forEach((k, v) => byAcc[k] = (byAcc[k] ?? 0) + v);
       }
     }
@@ -162,7 +173,9 @@ class FinanceOpeningBalanceService {
         for (final doc in accBuckets.docs) {
           final data = doc.data();
           _mergeNetByAccountMap(
-              byAcc, data['netByAccount'] as Map<String, dynamic>?);
+            byAcc,
+            data['netByAccount'] as Map<String, dynamic>?,
+          );
         }
       } catch (_) {}
     }
@@ -184,8 +197,10 @@ class FinanceOpeningBalanceService {
       try {
         final monthDocs = await firestoreQueryCollectDocumentsBatched(
           ChurchUiCollections.financeiro(fsId)
-              .where('date',
-                  isGreaterThanOrEqualTo: Timestamp.fromDate(monthStart))
+              .where(
+                'date',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(monthStart),
+              )
               .where('date', isLessThan: Timestamp.fromDate(start))
               .orderBy('date', descending: false),
           pageSize: 400,
@@ -218,23 +233,23 @@ class FinanceOpeningBalanceService {
           ).timeout(const Duration(seconds: 25));
           final recomputed =
               FinanceAccountBalanceUtils.openingPaidByAccountFromDocMaps(
-            items: beforeDocs.map((d) => d.data()),
-            periodStart: start,
-            creditCardIds: creditCardIds,
-          );
+                items: beforeDocs.map((d) => d.data()),
+                periodStart: start,
+                creditCardIds: creditCardIds,
+              );
           byAcc
             ..clear()
             ..addAll(recomputed);
         } catch (_) {}
       }
 
-      // CartÃµes de crÃ©dito nÃ£o movimentam saldo bancÃ¡rio: removemos do mapa
-      // por conta para que a visÃ£o consolidada use a mesma base da conta individual.
+      // Cartões de crédito não movimentam saldo bancário: removemos do mapa
+      // por conta para que a visão consolidada use a mesma base da conta individual.
       byAcc.removeWhere((accountId, _) => creditCardIds.contains(accountId));
 
-      // Fonte Ãºnica de verdade: o saldo consolidado Ã© a soma das contas bancÃ¡rias.
-      // Isso evita divergÃªncia entre o total dos buckets (que pode incluir cartÃµes
-      // e lanÃ§amentos sem conta) e o somatÃ³rio por conta exibido em cada banco.
+      // Fonte única de verdade: o saldo consolidado é a soma das contas bancárias.
+      // Isso evita divergência entre o total dos buckets (que pode incluir cartões
+      // e lançamentos sem conta) e o somatório por conta exibido em cada banco.
       total = byAcc.values.fold<double>(0, (acc, value) => acc + value);
     }
 
@@ -245,8 +260,8 @@ class FinanceOpeningBalanceService {
       at: DateTime.now(),
     );
 
-    // Sincroniza o cache "sÃ³ total" com o mesmo valor bancÃ¡rio, evitando que
-    // uma carga rÃ¡pida anterior (que incluÃ­a cartÃµes) pisque na tela antes da
+    // Sincroniza o cache "só total" com o mesmo valor bancário, evitando que
+    // uma carga rápida anterior (que incluía cartões) pisque na tela antes da
     // carga completa com as contas.
     if (loadAccounts) {
       final fastKey = _cacheKey(uid, start, false);
@@ -260,11 +275,11 @@ class FinanceOpeningBalanceService {
     return result;
   }
 
-  /// VersÃ£o esperada dos agregados (contas por mÃªs no servidor).
+  /// Versão esperada dos agregados (contas por mês no servidor).
   static int get openingBucketsVersionExpected =>
       _openingBucketsVersionExpected;
 
-  /// Uma vez por sessÃ£o: reconstrÃ³i buckets mensais + por conta no servidor (migraÃ§Ã£o v2).
+  /// Uma vez por sessão: reconstrói buckets mensais + por conta no servidor (migração v2).
   static bool _rebuildAsked = false;
 
   static Future<void> ensureServerBucketsRebuildIfNeeded(String uid) async {

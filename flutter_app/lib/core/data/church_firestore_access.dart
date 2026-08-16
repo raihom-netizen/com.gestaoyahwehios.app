@@ -74,8 +74,8 @@ abstract final class ChurchFirestoreAccess {
     final key = cacheKey ?? 'data_${id}_${subcollectionName}_$capped';
     final sw = Stopwatch()..start();
 
-    // ⭐ CORREÇÃO TOTAL WEB: lê por REST puro (não passa pelo watch stream do
-    // SDK → imune à INTERNAL ASSERTION que envenenava o cliente e fazia os
+    // ? CORRE??O TOTAL WEB: lê por REST puro (não passa pelo watch stream do
+    // SDK ? imune ? INTERNAL ASSERTION que envenenava o cliente e fazia os
     // módulos "perderem os dados"). Curando aqui — o gateway único — todos os
     // módulos que usam listOnce ficam curados de uma vez.
     if (kIsWeb) {
@@ -157,7 +157,7 @@ abstract final class ChurchFirestoreAccess {
     }
   }
 
-  /// Contagem agregada — auditoria (sequencial na Web, sem paralelismo).
+  /// Contagem agregada ? auditoria (sequencial na Web, sem paralelismo).
   static Future<int> countOnce({
     required String module,
     required String churchId,
@@ -343,7 +343,7 @@ abstract final class ChurchFirestoreAccess {
     final query = collectionRef(id, subcollectionName).limit(limit);
     Stream<QuerySnapshot<Map<String, dynamic>>> stream;
     if (kIsWeb) {
-      // Web: polling leve via one-shot — evita snapshots() no painel (assert SDK).
+      // Web: polling leve via one-shot ? evita snapshots() no painel (assert SDK).
       stream = _webPollingStream(
         watchKey: watchKey,
         fetch: () => listOnce(
@@ -354,7 +354,7 @@ abstract final class ChurchFirestoreAccess {
         ),
       );
     } else {
-      // Mobile: snapshots com retry Auth (permission-denied → estabiliza e reabre).
+      // Mobile: snapshots com retry Auth (permission-denied ? estabiliza e reabre).
       stream = FirestoreSessionGuard.authAwareSnapshots(
         () => query.snapshots(),
       );
@@ -370,7 +370,7 @@ abstract final class ChurchFirestoreAccess {
     return sub;
   }
 
-  /// Polling Web: nunca trata permission-denied como «lista vazia» (paridade CT).
+  /// Polling Web: nunca trata permission-denied como ?lista vazia? (paridade CT).
   static Stream<QuerySnapshot<Map<String, dynamic>>> _webPollingStream({
     required String watchKey,
     required Future<QuerySnapshot<Map<String, dynamic>>> Function() fetch,

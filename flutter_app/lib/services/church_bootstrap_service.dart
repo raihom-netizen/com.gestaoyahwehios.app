@@ -47,7 +47,7 @@ class ChurchBootstrapResult {
   bool get ok => error == null && churchData.isNotEmpty;
 }
 
-/// Carregamento paralelo com timeout — evita spinner infinito no Cadastro.
+/// Carregamento paralelo com timeout ? evita spinner infinito no Cadastro.
 abstract final class ChurchBootstrapService {
   ChurchBootstrapService._();
 

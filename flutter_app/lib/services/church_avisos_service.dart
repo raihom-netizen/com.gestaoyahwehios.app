@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
@@ -32,8 +33,9 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
-/// Modelo leve para UI — aviso publicado na igreja.
+/// Modelo leve para UI � aviso publicado na igreja.
 class ChurchAvisoItem {
   const ChurchAvisoItem({
     required this.id,
@@ -66,21 +68,22 @@ class ChurchAvisoItem {
   bool get hasImages =>
       imageUrls.isNotEmpty || eventNoticiaDocHasPhotoMedia(rawData);
 
-  bool get hasVideo =>
-      youtubeVideoId.isNotEmpty || videoUrl.trim().isNotEmpty;
+  bool get hasVideo => youtubeVideoId.isNotEmpty || videoUrl.trim().isNotEmpty;
 
   /// URLs + paths Storage para carrossel (igual eventos / site público).
   List<String> mediaRefs() => noticiaGalleryRefsForShare(rawData);
 
   /// Metadados mínimos para limpeza Storage na exclusão.
   Map<String, dynamic> toStorageCleanupPayload() => <String, dynamic>{
-        if (imageUrls.isNotEmpty) ...{
-          'imageUrls': imageUrls,
-          'imageUrl': imageUrls.first,
-        },
-      };
+    if (imageUrls.isNotEmpty) ...{
+      'imageUrls': imageUrls,
+      'imageUrl': imageUrls.first,
+    },
+  };
 
-  factory ChurchAvisoItem.fromDoc(QueryDocumentSnapshot<Map<String, dynamic>> d) {
+  factory ChurchAvisoItem.fromDoc(
+    QueryDocumentSnapshot<Map<String, dynamic>> d,
+  ) {
     final m = d.data();
     final urls = <String>[];
     void addUrl(dynamic raw) {
@@ -115,9 +118,8 @@ class ChurchAvisoItem {
       ytId = YoutubeUrlHelper.extractVideoId(videoUrl) ?? '';
     }
     if (ytId.isEmpty) {
-      ytId = YoutubeUrlHelper.extractVideoId(
-            (m['youtubeUrl'] ?? '').toString(),
-          ) ??
+      ytId =
+          YoutubeUrlHelper.extractVideoId((m['youtubeUrl'] ?? '').toString()) ??
           '';
     }
 
@@ -151,10 +153,11 @@ abstract final class ChurchAvisosService {
   static CollectionReference<Map<String, dynamic>> _collection(
     String churchId,
     String sub,
-  ) =>
-      ChurchUiCollections.ref(sub, churchIdHint: churchId);
+  ) => ChurchUiCollections.ref(sub, churchIdHint: churchId);
 
-  static Future<void> _ensurePublishReady({bool allowOfflineQueue = true}) async {
+  static Future<void> _ensurePublishReady({
+    bool allowOfflineQueue = true,
+  }) async {
     try {
       await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
     } catch (e) {
@@ -207,7 +210,8 @@ abstract final class ChurchAvisosService {
         return;
       } catch (e) {
         last = e;
-        final retryable = isFirebaseNoAppError(e) ||
+        final retryable =
+            isFirebaseNoAppError(e) ||
             FirestoreWebGuard.isClientTerminated(e) ||
             e is TimeoutException ||
             (e is FirebaseException &&
@@ -234,11 +238,11 @@ abstract final class ChurchAvisosService {
     return ChurchRepository.churchId(raw);
   }
 
-  static bool canManage(
-    String role, {
-    List<String>? permissions,
-  }) =>
-      AppPermissions.canManageChurchMuralEventsAgenda(role, permissions: permissions);
+  static bool canManage(String role, {List<String>? permissions}) =>
+      AppPermissions.canManageChurchMuralEventsAgenda(
+        role,
+        permissions: permissions,
+      );
 
   /// Aviso activo no painel/site (não expirado).
   static bool isActive(ChurchAvisoItem item, {DateTime? now}) {
@@ -302,7 +306,8 @@ abstract final class ChurchAvisosService {
     // MP4/M4V pequeno; senão comprime antes de enviar.
     final lower = localPath.toLowerCase();
     final byteLen = await file.length();
-    final skipTranscode = byteLen <= mediaVideoSkipTranscodeMaxBytes &&
+    final skipTranscode =
+        byteLen <= mediaVideoSkipTranscodeMaxBytes &&
         (lower.endsWith('.mp4') || lower.endsWith('.m4v'));
     late final File compressed;
     if (skipTranscode) {
@@ -312,18 +317,25 @@ abstract final class ChurchAvisosService {
       compressed = (mediaInfo?.file != null) ? mediaInfo!.file! : file;
     }
 
-    final storagePath =
-        ChurchStorageLayout.avisoHostedVideoMp4Path(churchId, postId, 0);
-    final thumbPath =
-        ChurchStorageLayout.avisoHostedVideoThumbPath(churchId, postId, 0);
+    final storagePath = ChurchStorageLayout.avisoHostedVideoMp4Path(
+      churchId,
+      postId,
+      0,
+    );
+    final thumbPath = ChurchStorageLayout.avisoHostedVideoThumbPath(
+      churchId,
+      postId,
+      0,
+    );
 
     // Miniatura estilo Instagram/YouTube, gerada e enviada EM PARALELO ao
     // vídeo (mesmo padrão do módulo Eventos) — sem isso o aviso com vídeo
     // não tinha nenhuma prévia leve (só o vídeo bruto para carregar).
     Future<String> uploadThumb() async {
       try {
-        final thumbFile = await MediaService.getVideoThumbnail(compressed)
-            .timeout(const Duration(seconds: 20), onTimeout: () => null);
+        final thumbFile = await MediaService.getVideoThumbnail(
+          compressed,
+        ).timeout(const Duration(seconds: 20), onTimeout: () => null);
         if (thumbFile != null && thumbFile.existsSync()) {
           final thumbBytes = await thumbFile.readAsBytes();
           if (thumbBytes.isNotEmpty) {
@@ -347,10 +359,13 @@ abstract final class ChurchAvisosService {
       uploadThumb(),
     ]);
     final thumbUrl = results[1];
-    return (videoPath: storagePath, thumbPath: thumbUrl.isNotEmpty ? thumbPath : '');
+    return (
+      videoPath: storagePath,
+      thumbPath: thumbUrl.isNotEmpty ? thumbPath : '',
+    );
   }
 
-  /// Publica aviso: fotos (Instagram) + YouTube/vídeo opcional → Firestore.
+  /// Publica aviso: fotos (Instagram) + YouTube/v�deo opcional ? Firestore.
   /// Aceita link de perfil/post/reel — só valida que é um http(s) utilizável.
   static String? _normalizeInstagramUrl(String raw) {
     final t = raw.trim();
@@ -372,6 +387,7 @@ abstract final class ChurchAvisosService {
     required List<Uint8List> photoBytes,
     String youtubeUrl = '',
     String instagramUrl = '',
+    bool publicSite = true,
     String? videoStoragePath,
     String? videoLocalPath,
     String role = '',
@@ -388,10 +404,15 @@ abstract final class ChurchAvisosService {
     final titulo = title.trim();
     if (titulo.isEmpty) throw StateError('Informe o título do aviso.');
 
-    final imgs = photoBytes.where((b) => b.isNotEmpty).take(kMaxPhotos).toList();
+    final imgs = photoBytes
+        .where((b) => b.isNotEmpty)
+        .take(kMaxPhotos)
+        .toList();
 
     if (!permanent && expiresAtEndOfDay == null) {
-      throw StateError('Escolha a data de vencimento ou marque como permanente.');
+      throw StateError(
+        'Escolha a data de vencimento ou marque como permanente.',
+      );
     }
 
     unawaited(purgeExpired(churchIdHint: cid));
@@ -433,8 +454,9 @@ abstract final class ChurchAvisosService {
     }
 
     final ytId = YoutubeUrlHelper.extractVideoId(youtubeUrl);
-    final ytWatch =
-        ytId != null ? YoutubeUrlHelper.normalizeYoutubeUrl(youtubeUrl) : '';
+    final ytWatch = ytId != null
+        ? YoutubeUrlHelper.normalizeYoutubeUrl(youtubeUrl)
+        : '';
     final videoPath = resolvedVideoPath;
     final igUrl = _normalizeInstagramUrl(instagramUrl);
 
@@ -449,20 +471,16 @@ abstract final class ChurchAvisosService {
       'updatedAt': now,
       'authorUid': user?.uid ?? '',
       'authorName': (user?.displayName ?? '').trim(),
-      'publicSite': true,
+      'publicSite': publicSite,
       'permanent': permanent,
-      if (expTs != null) ...{
-        'avisoExpiresAt': expTs,
-        'validUntil': validUntil,
-      },
+      if (expTs != null) ...{'avisoExpiresAt': expTs, 'validUntil': validUntil},
       if (ytId != null) ...{
         'youtubeVideoId': ytId,
         'youtubeUrl': ytWatch,
         'videoUrl': ytWatch,
       },
       'instagramUrl': ?igUrl,
-      if (resolvedThumbPath.isNotEmpty)
-        'thumbStoragePath': resolvedThumbPath,
+      if (resolvedThumbPath.isNotEmpty) 'thumbStoragePath': resolvedThumbPath,
     };
 
     logFirebasePublishPhase(
@@ -481,7 +499,7 @@ abstract final class ChurchAvisosService {
         newImagesBytes: imgs.isNotEmpty ? imgs : null,
         hasVideo: videoPath.isNotEmpty,
         videoStoragePath: videoPath.isNotEmpty ? videoPath : null,
-        publicSite: true,
+        publicSite: publicSite,
         calendarDate: permanent ? null : expiresAtEndOfDay,
         syncCalendar: true,
         onUploadProgress: onUploadProgress,
@@ -529,6 +547,7 @@ abstract final class ChurchAvisosService {
     List<Uint8List> newPhotoBytes = const [],
     String youtubeUrl = '',
     String instagramUrl = '',
+    bool publicSite = true,
     String? videoStoragePath,
     String? videoLocalPath,
     bool clearVideo = false,
@@ -564,7 +583,9 @@ abstract final class ChurchAvisosService {
     if (titulo.isEmpty) throw StateError('Informe o título do aviso.');
 
     if (!permanent && expiresAtEndOfDay == null) {
-      throw StateError('Escolha a data de vencimento ou marque como permanente.');
+      throw StateError(
+        'Escolha a data de vencimento ou marque como permanente.',
+      );
     }
 
     await _ensurePublishReady();
@@ -598,8 +619,9 @@ abstract final class ChurchAvisosService {
     }
 
     final ytId = YoutubeUrlHelper.extractVideoId(youtubeUrl);
-    final ytWatch =
-        ytId != null ? YoutubeUrlHelper.normalizeYoutubeUrl(youtubeUrl) : '';
+    final ytWatch = ytId != null
+        ? YoutubeUrlHelper.normalizeYoutubeUrl(youtubeUrl)
+        : '';
     final videoPath = resolvedVideoPath;
     final igUrl = _normalizeInstagramUrl(instagramUrl);
 
@@ -631,8 +653,7 @@ abstract final class ChurchAvisosService {
         'youtubeUrl': ytWatch,
         'videoUrl': ytWatch,
       },
-      if (resolvedThumbPath.isNotEmpty)
-        'thumbStoragePath': resolvedThumbPath,
+      if (resolvedThumbPath.isNotEmpty) 'thumbStoragePath': resolvedThumbPath,
       'instagramUrl': igUrl ?? FieldValue.delete(),
     };
 
@@ -654,7 +675,7 @@ abstract final class ChurchAvisosService {
         newImagesBytes: newImages.isNotEmpty ? newImages : null,
         hasVideo: videoPath.isNotEmpty,
         videoStoragePath: videoPath.isNotEmpty ? videoPath : null,
-        publicSite: true,
+        publicSite: publicSite,
         calendarDate: permanent ? null : expiresAtEndOfDay,
         syncCalendar: true,
         onUploadProgress: onUploadProgress,
@@ -765,9 +786,9 @@ abstract final class ChurchAvisosService {
         docIds: slice,
         directDelete: () => runFirestorePublishWithRecovery(
           () async {
-            final batch = ChurchRepository.batch();
+            final batch = YahwehBatch();
             for (final id in slice) {
-              batch.delete(_collection(churchId, 'avisos').doc(id));
+              batch.deleteDoc(_collection(churchId, 'avisos').doc(id));
             }
             await batch.commit();
           },
@@ -786,9 +807,9 @@ abstract final class ChurchAvisosService {
     List<String> docIds,
   ) async {
     try {
-      final batch = ChurchRepository.batch();
+      final batch = YahwehBatch();
       for (final id in docIds) {
-        batch.delete(_collection(churchId, 'mural_avisos').doc(id));
+        batch.deleteDoc(_collection(churchId, 'mural_avisos').doc(id));
       }
       await batch.commit();
     } catch (e) {
@@ -823,6 +844,10 @@ abstract final class ChurchAvisosService {
           data: dataById[id],
         );
         ChurchAvisosLoadService.evictDocFromCaches(cid, id);
+        await ChurchFeedAgendaSyncService.deleteForAviso(
+          tenantId: cid,
+          avisoId: id,
+        );
       }),
       eagerError: false,
     );

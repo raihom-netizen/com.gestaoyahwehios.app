@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Comentário leve para listagem no mural.
 class MuralCommentItem {
@@ -145,7 +146,7 @@ class NoticiaSocialService {
     await ensureSignedInForSocial();
 
     Future<void> write() async {
-      final batch = firebaseDefaultFirestore.batch();
+      final batch = YahwehBatch();
       final commentRef = _commentsRef(postRef).doc();
       batch.set(commentRef, {
         'authorUid': uid,
@@ -153,12 +154,12 @@ class NoticiaSocialService {
         'authorPhoto': authorPhoto,
         'text': trimmed,
         'texto': trimmed,
-        'createdAt': FieldValue.serverTimestamp(),
+        'createdAt': YahwehFv.serverTimestamp,
       });
       batch.set(
         postRef,
-        {'commentsCount': FieldValue.increment(1)},
-        SetOptions(merge: true),
+        {'commentsCount': YahwehFv.increment(1)},
+        merge: true,
       );
       await batch.commit();
     }
@@ -182,33 +183,33 @@ class NoticiaSocialService {
     await ensureSignedInForSocial();
 
     final likeRef = postRef.collection('curtidas').doc(uid);
-    final batch = firebaseDefaultFirestore.batch();
+    final batch = YahwehBatch();
     if (currentlyLiked) {
-      batch.delete(likeRef);
+      batch.deleteDoc(likeRef);
       batch.set(
         postRef,
         {
-          'likes': FieldValue.arrayRemove([uid]),
-          'likedBy': FieldValue.arrayRemove([uid]),
-          'likesCount': FieldValue.increment(-1),
+          'likes': YahwehFv.arrayRemove([uid]),
+          'likedBy': YahwehFv.arrayRemove([uid]),
+          'likesCount': YahwehFv.increment(-1),
         },
-        SetOptions(merge: true),
+        merge: true,
       );
     } else {
       batch.set(likeRef, {
         'uid': uid,
         'memberName': memberName,
         'photoUrl': photoUrl,
-        'createdAt': FieldValue.serverTimestamp(),
+        'createdAt': YahwehFv.serverTimestamp,
       });
       batch.set(
         postRef,
         {
-          'likes': FieldValue.arrayUnion([uid]),
-          'likedBy': FieldValue.arrayUnion([uid]),
-          'likesCount': FieldValue.increment(1),
+          'likes': YahwehFv.arrayUnion([uid]),
+          'likedBy': YahwehFv.arrayUnion([uid]),
+          'likesCount': YahwehFv.increment(1),
         },
-        SetOptions(merge: true),
+        merge: true,
       );
     }
 
@@ -252,31 +253,31 @@ class NoticiaSocialService {
     final postRef = _post(tenantId, postId, parentCollection: parentCollection);
     final confRef = postRef.collection('confirmacoes').doc(uid);
     await ensureSignedInForSocial();
-    final batch = firebaseDefaultFirestore.batch();
+    final batch = YahwehBatch();
     if (currentlyConfirmed) {
-      batch.delete(confRef);
+      batch.deleteDoc(confRef);
       batch.set(
         postRef,
         {
-          'rsvp': FieldValue.arrayRemove([uid]),
-          'rsvpCount': FieldValue.increment(-1),
+          'rsvp': YahwehFv.arrayRemove([uid]),
+          'rsvpCount': YahwehFv.increment(-1),
         },
-        SetOptions(merge: true),
+        merge: true,
       );
     } else {
       batch.set(confRef, {
         'uid': uid,
         'memberName': memberName,
         'photoUrl': photoUrl,
-        'createdAt': FieldValue.serverTimestamp(),
+        'createdAt': YahwehFv.serverTimestamp,
       });
       batch.set(
         postRef,
         {
-          'rsvp': FieldValue.arrayUnion([uid]),
-          'rsvpCount': FieldValue.increment(1),
+          'rsvp': YahwehFv.arrayUnion([uid]),
+          'rsvpCount': YahwehFv.increment(1),
         },
-        SetOptions(merge: true),
+        merge: true,
       );
     }
 

@@ -13,7 +13,7 @@ import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 
-/// Resultado da carga financeira — `igrejas/{churchId}/finance` e `contas`.
+/// Resultado da carga financeira ? `igrejas/{churchId}/finance` e `contas`.
 class ChurchFinanceLoadResult {
   const ChurchFinanceLoadResult({
     required this.churchId,
@@ -509,7 +509,7 @@ abstract final class ChurchFinanceLoadService {
           readSource: 'ram_preserve_empty_network',
           collectionPath: firestorePath(churchId),
           fromCache: true,
-          softError: 'Rede devolveu lista vazia — mantidos dados locais.',
+          softError: 'Rede devolveu lista vazia ? mantidos dados locais.',
         );
       }
       putSafe(docs);
@@ -550,7 +550,7 @@ abstract final class ChurchFinanceLoadService {
           readSource: 'ram_preserve_empty_retry',
           collectionPath: firestorePath(churchId),
           fromCache: true,
-          softError: 'Rede devolveu lista vazia — mantidos dados locais.',
+          softError: 'Rede devolveu lista vazia ? mantidos dados locais.',
         );
       }
       putSafe(docs);
@@ -670,7 +670,7 @@ abstract final class ChurchFinanceLoadService {
       return 'Tempo esgotado ao carregar financeiro. Verifique a conexão.';
     }
     final s = e.toString();
-    if (s.length > 180) return '${s.substring(0, 177)}…';
+    if (s.length > 180) return '${s.substring(0, 177)}?';
     return s;
   }
 

@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/finance_ofx_parser.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 class OfxMatchSuggestion {
   const OfxMatchSuggestion({
@@ -156,7 +157,7 @@ abstract final class FinanceOfxConciliationService {
     if (accepted.isEmpty) return 0;
     final churchId = ChurchRepository.churchId(tenantId.trim());
     final fin = ChurchUiCollections.financeiro(churchId);
-    final batch = fin.firestore.batch();
+    final batch = YahwehBatch();
     var n = 0;
 
     for (final m in accepted) {
@@ -167,7 +168,7 @@ abstract final class FinanceOfxConciliationService {
         'conciliado': true,
         'extratoRef': m.ofx.fitId,
         'ofxMemo': m.ofx.memo,
-        'conciliadoEm': FieldValue.serverTimestamp(),
+        'conciliadoEm': YahwehFv.serverTimestamp,
       };
       if (m.ofx.isCredit) {
         patch['recebimentoConfirmado'] = true;

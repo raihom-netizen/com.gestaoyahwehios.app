@@ -4,11 +4,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 class AttendancePage extends StatefulWidget {
   final String tenantId;
@@ -63,7 +65,10 @@ class _AttendancePageState extends State<AttendancePage> {
     setState(() {
       _resumoFuture = _safeReadQuery(
         _cultos
-            .where('data', isGreaterThanOrEqualTo: Timestamp.fromDate(mesInicio))
+            .where(
+              'data',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(mesInicio),
+            )
             .where('data', isLessThan: Timestamp.fromDate(mesFim)),
       );
       _chartFuture = _safeReadQuery(
@@ -81,8 +86,7 @@ class _AttendancePageState extends State<AttendancePage> {
   }
 
   CollectionReference<Map<String, dynamic>> get _cultos =>
-      ChurchUiCollections.churchDoc(_tenantId)
-          .collection('cultos');
+      ChurchUiCollections.churchDoc(_tenantId).collection('cultos');
 
   CollectionReference<Map<String, dynamic>> get _members =>
       ChurchUiCollections.membros(_tenantId);
@@ -117,9 +121,9 @@ class _AttendancePageState extends State<AttendancePage> {
                 Text(
                   'Controle de Presença',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        color: ThemeCleanPremium.onSurface,
-                      ),
+                    fontWeight: FontWeight.w800,
+                    color: ThemeCleanPremium.onSurface,
+                  ),
                 ),
                 const SizedBox(height: ThemeCleanPremium.spaceMd),
               ],
@@ -171,15 +175,24 @@ class _AttendancePageState extends State<AttendancePage> {
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: ThemeCleanPremium.primaryLight.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                          color: ThemeCleanPremium.primaryLight.withValues(
+                            alpha: 0.1,
+                          ),
+                          borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusSm,
+                          ),
                         ),
-                        child: Icon(Icons.insights_rounded, color: ThemeCleanPremium.primaryLight, size: 22),
+                        child: Icon(
+                          Icons.insights_rounded,
+                          color: ThemeCleanPremium.primaryLight,
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: ThemeCleanPremium.spaceSm),
                       Text(
                         'Resumo do Mês',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
                               fontWeight: FontWeight.w700,
                               color: ThemeCleanPremium.onSurface,
                             ),
@@ -336,9 +349,9 @@ class _AttendancePageState extends State<AttendancePage> {
               Text(
                 'Presenças por Evento',
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: ThemeCleanPremium.onSurface,
-                    ),
+                  fontWeight: FontWeight.w700,
+                  color: ThemeCleanPremium.onSurface,
+                ),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceMd),
               _ChartBars(cultos: _cultos, docs: docs.reversed.toList()),
@@ -366,13 +379,19 @@ class _AttendancePageState extends State<AttendancePage> {
             selected: selected,
             onSelected: (_) => setState(() {
               _tipoFiltro = t;
-              Query<Map<String, dynamic>> q = _cultos.orderBy('data', descending: true);
-              if (_tipoFiltro != 'Todos') q = q.where('tipo', isEqualTo: _tipoFiltro);
+              Query<Map<String, dynamic>> q = _cultos.orderBy(
+                'data',
+                descending: true,
+              );
+              if (_tipoFiltro != 'Todos')
+                q = q.where('tipo', isEqualTo: _tipoFiltro);
               _cultosListFuture = q.get();
             }),
             selectedColor: ThemeCleanPremium.primary,
             labelStyle: TextStyle(
-              color: selected ? Colors.white : ThemeCleanPremium.onSurfaceVariant,
+              color: selected
+                  ? Colors.white
+                  : ThemeCleanPremium.onSurfaceVariant,
               fontWeight: FontWeight.w600,
               fontSize: 13,
             ),
@@ -401,10 +420,15 @@ class _AttendancePageState extends State<AttendancePage> {
         }
         if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
           return Column(
-            children: List.generate(3, (_) => Padding(
-              padding: const EdgeInsets.only(bottom: ThemeCleanPremium.spaceSm),
-              child: _shimmerCard(height: 90),
-            )),
+            children: List.generate(
+              3,
+              (_) => Padding(
+                padding: const EdgeInsets.only(
+                  bottom: ThemeCleanPremium.spaceSm,
+                ),
+                child: _shimmerCard(height: 90),
+              ),
+            ),
           );
         }
         final docs = snap.data?.docs ?? [];
@@ -449,7 +473,9 @@ class _AttendancePageState extends State<AttendancePage> {
               child: Container(
                 decoration: BoxDecoration(
                   color: ThemeCleanPremium.cardBackground,
-                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusMd,
+                  ),
                   boxShadow: ThemeCleanPremium.softUiCardShadow,
                 ),
                 padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
@@ -460,9 +486,15 @@ class _AttendancePageState extends State<AttendancePage> {
                       height: 48,
                       decoration: BoxDecoration(
                         color: _tipoColor(tipo).withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                        borderRadius: BorderRadius.circular(
+                          ThemeCleanPremium.radiusSm,
+                        ),
                       ),
-                      child: Icon(_tipoIcon(tipo), color: _tipoColor(tipo), size: 22),
+                      child: Icon(
+                        _tipoIcon(tipo),
+                        color: _tipoColor(tipo),
+                        size: 22,
+                      ),
                     ),
                     const SizedBox(width: ThemeCleanPremium.spaceSm),
                     Expanded(
@@ -481,7 +513,9 @@ class _AttendancePageState extends State<AttendancePage> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            horaStr.isNotEmpty ? '$dataStr • $horaStr' : dataStr,
+                            horaStr.isNotEmpty
+                                ? '$dataStr • $horaStr'
+                                : dataStr,
                             style: const TextStyle(
                               fontSize: 12,
                               color: ThemeCleanPremium.onSurfaceVariant,
@@ -501,7 +535,11 @@ class _AttendancePageState extends State<AttendancePage> {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.people_rounded, size: 14, color: ThemeCleanPremium.onSurfaceVariant),
+                            Icon(
+                              Icons.people_rounded,
+                              size: 14,
+                              color: ThemeCleanPremium.onSurfaceVariant,
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               '$presentes',
@@ -567,9 +605,12 @@ class _AttendancePageState extends State<AttendancePage> {
     final editing = doc != null;
     final existing = doc?.data() ?? {};
 
-    final nomeCtrl = TextEditingController(text: existing['nome']?.toString() ?? '');
+    final nomeCtrl = TextEditingController(
+      text: existing['nome']?.toString() ?? '',
+    );
     String tipo = existing['tipo']?.toString() ?? 'Culto';
-    DateTime selectedDate = (existing['data'] as Timestamp?)?.toDate() ?? DateTime.now();
+    DateTime selectedDate =
+        (existing['data'] as Timestamp?)?.toDate() ?? DateTime.now();
     TimeOfDay selectedTime = TimeOfDay.fromDateTime(selectedDate);
     final formKey = GlobalKey<FormState>();
 
@@ -596,8 +637,9 @@ class _AttendancePageState extends State<AttendancePage> {
                         hintText: 'Ex: Culto de Domingo',
                         prefixIcon: Icon(Icons.church_rounded),
                       ),
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Informe o nome' : null,
+                      validator: (v) => (v == null || v.trim().isEmpty)
+                          ? 'Informe o nome'
+                          : null,
                     ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     DropdownButtonFormField<String>(
@@ -607,7 +649,9 @@ class _AttendancePageState extends State<AttendancePage> {
                         prefixIcon: Icon(Icons.category_rounded),
                       ),
                       items: ['Culto', 'Célula', 'Evento', 'Reunião']
-                          .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                          .map(
+                            (t) => DropdownMenuItem(value: t, child: Text(t)),
+                          )
                           .toList(),
                       onChanged: (v) => setDialogState(() => tipo = v ?? tipo),
                     ),
@@ -616,8 +660,10 @@ class _AttendancePageState extends State<AttendancePage> {
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.calendar_month_rounded),
                       title: Text(
-                        DateFormat("dd 'de' MMMM 'de' yyyy", 'pt_BR')
-                            .format(selectedDate),
+                        DateFormat(
+                          "dd 'de' MMMM 'de' yyyy",
+                          'pt_BR',
+                        ).format(selectedDate),
                       ),
                       subtitle: const Text('Data'),
                       onTap: () async {
@@ -696,7 +742,13 @@ class _AttendancePageState extends State<AttendancePage> {
     if (mounted) {
       _refreshPresencaData();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(editing ? 'Evento atualizado' : 'Evento criado com sucesso', style: const TextStyle(color: Colors.white)), backgroundColor: Colors.green),
+        SnackBar(
+          content: Text(
+            editing ? 'Evento atualizado' : 'Evento criado com sucesso',
+            style: const TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.green,
+        ),
       );
     }
   }
@@ -731,8 +783,14 @@ class _AttendancePageState extends State<AttendancePage> {
               },
             ),
             ListTile(
-              leading: Icon(Icons.delete_rounded, color: ThemeCleanPremium.error),
-              title: Text('Excluir evento', style: TextStyle(color: ThemeCleanPremium.error)),
+              leading: Icon(
+                Icons.delete_rounded,
+                color: ThemeCleanPremium.error,
+              ),
+              title: Text(
+                'Excluir evento',
+                style: TextStyle(color: ThemeCleanPremium.error),
+              ),
               minTileHeight: ThemeCleanPremium.minTouchTarget,
               onTap: () {
                 Navigator.pop(ctx);
@@ -764,19 +822,36 @@ class _AttendancePageState extends State<AttendancePage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
             child: const Text('Excluir'),
           ),
         ],
       ),
     );
     if (ok != true) return;
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
-    await doc.reference.delete();
+    final tenantId = _tenantId;
+    final docId = doc.id;
+    // Marcar antes do delete fecha a corrida com streams/cache offline.
+    TenantDeletedDocTombstones.mark(tenantId, 'cultos', [docId]);
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await doc.reference.delete();
+    } catch (_) {
+      TenantDeletedDocTombstones.unmark(tenantId, 'cultos', docId);
+      rethrow;
+    }
     if (mounted) {
       _refreshPresencaData();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Evento excluído', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green),
+        const SnackBar(
+          content: Text(
+            'Evento excluído',
+            style: TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.green,
+        ),
       );
     }
   }
@@ -854,7 +929,11 @@ class _AttendancePageState extends State<AttendancePage> {
       ),
       child: Text(
         tipo.isNotEmpty ? tipo : 'Outro',
-        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
       ),
     );
   }
@@ -871,8 +950,10 @@ class _AttendancePageState extends State<AttendancePage> {
           Icon(Icons.error_outline_rounded, color: ThemeCleanPremium.error),
           const SizedBox(width: ThemeCleanPremium.spaceSm),
           Expanded(
-            child: Text(msg,
-                style: TextStyle(color: ThemeCleanPremium.error, fontSize: 13)),
+            child: Text(
+              msg,
+              style: TextStyle(color: ThemeCleanPremium.error, fontSize: 13),
+            ),
           ),
         ],
       ),
@@ -1035,6 +1116,7 @@ class _PresencaSheetState extends State<_PresencaSheet> {
     _searchDebounce?.cancel();
     super.dispose();
   }
+
   final Map<String, bool> _presencas = {};
   final Map<String, String> _nomes = {};
   bool _loaded = false;
@@ -1042,10 +1124,9 @@ class _PresencaSheetState extends State<_PresencaSheet> {
   int _totalMembers = 0;
 
   CollectionReference<Map<String, dynamic>> get _presencasRef =>
-      ChurchUiCollections.churchDoc(_tenantId)
-          .collection('cultos')
-          .doc(widget.cultoId)
-          .collection('presencas');
+      ChurchUiCollections.churchDoc(
+        _tenantId,
+      ).collection('cultos').doc(widget.cultoId).collection('presencas');
 
   CollectionReference<Map<String, dynamic>> get _members =>
       ChurchUiCollections.membros(_tenantId);
@@ -1057,9 +1138,7 @@ class _PresencaSheetState extends State<_PresencaSheet> {
   }
 
   Future<void> _loadData() async {
-    final membersSnap = await _safeReadQuery(
-      _members.orderBy('NOME_COMPLETO'),
-    );
+    final membersSnap = await _safeReadQuery(_members.orderBy('NOME_COMPLETO'));
     final presSnap = await _safeReadQuery(_presencasRef);
 
     final presMap = <String, bool>{};
@@ -1071,7 +1150,12 @@ class _PresencaSheetState extends State<_PresencaSheet> {
     final nomes = <String, String>{};
     final presencas = <String, bool>{};
     for (final m in membersSnap.docs) {
-      final nome = (m.data()['NOME_COMPLETO'] ?? m.data()['nome'] ?? m.data()['name'] ?? '').toString();
+      final nome =
+          (m.data()['NOME_COMPLETO'] ??
+                  m.data()['nome'] ??
+                  m.data()['name'] ??
+                  '')
+              .toString();
       if (nome.isEmpty) continue;
       nomes[m.id] = nome;
       presencas[m.id] = presMap[m.id] ?? false;
@@ -1099,7 +1183,7 @@ class _PresencaSheetState extends State<_PresencaSheet> {
 
   Future<void> _saveAll() async {
     setState(() => _saving = true);
-    final batch = _presencasRef.firestore.batch();
+    final batch = YahwehBatch();
 
     for (final entry in _presencas.entries) {
       final docRef = _presencasRef.doc(entry.key);
@@ -1107,7 +1191,7 @@ class _PresencaSheetState extends State<_PresencaSheet> {
         'membroId': entry.key,
         'membroNome': _nomes[entry.key] ?? '',
         'presente': entry.value,
-        'timestamp': FieldValue.serverTimestamp(),
+        'timestamp': YahwehFv.serverTimestamp,
       });
     }
 
@@ -1115,7 +1199,13 @@ class _PresencaSheetState extends State<_PresencaSheet> {
     if (mounted) {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Presenças salvas com sucesso', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green),
+        const SnackBar(
+          content: Text(
+            'Presenças salvas com sucesso',
+            style: TextStyle(color: Colors.white),
+          ),
+          backgroundColor: Colors.green,
+        ),
       );
     }
   }
@@ -1158,9 +1248,8 @@ class _PresencaSheetState extends State<_PresencaSheet> {
                       children: [
                         Text(
                           widget.cultoNome,
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w800,
-                              ),
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                         if (widget.cultoSubtitle.isNotEmpty)
                           Padding(
@@ -1207,13 +1296,18 @@ class _PresencaSheetState extends State<_PresencaSheet> {
                 ),
                 decoration: BoxDecoration(
                   color: ThemeCleanPremium.success.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusSm,
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.check_circle_rounded,
-                        size: 16, color: ThemeCleanPremium.success),
+                    Icon(
+                      Icons.check_circle_rounded,
+                      size: 16,
+                      color: ThemeCleanPremium.success,
+                    ),
                     const SizedBox(width: 6),
                     Text(
                       '$_presentCount de $_totalMembers presentes',
@@ -1237,17 +1331,22 @@ class _PresencaSheetState extends State<_PresencaSheet> {
                     vertical: ThemeCleanPremium.spaceSm,
                   ),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                    borderRadius: BorderRadius.circular(
+                      ThemeCleanPremium.radiusSm,
+                    ),
                     borderSide: BorderSide(color: Colors.grey.shade300),
                   ),
                 ),
                 onChanged: (v) {
                   _searchDebounce?.cancel();
-                  _searchDebounce = Timer(const Duration(milliseconds: 500), () {
-                    if (!mounted) return;
-                    if (v == _search) return;
-                    setState(() => _search = v);
-                  });
+                  _searchDebounce = Timer(
+                    const Duration(milliseconds: 500),
+                    () {
+                      if (!mounted) return;
+                      if (v == _search) return;
+                      setState(() => _search = v);
+                    },
+                  );
                 },
               ),
               const SizedBox(height: ThemeCleanPremium.spaceXs),
@@ -1268,7 +1367,10 @@ class _PresencaSheetState extends State<_PresencaSheet> {
                     const SizedBox(width: ThemeCleanPremium.spaceXs),
                     TextButton.icon(
                       onPressed: () => _marcarTodos(false),
-                      icon: const Icon(Icons.check_box_outline_blank_rounded, size: 18),
+                      icon: const Icon(
+                        Icons.check_box_outline_blank_rounded,
+                        size: 18,
+                      ),
                       label: const Text('Desmarcar Todos'),
                       style: TextButton.styleFrom(
                         minimumSize: const Size(
@@ -1284,9 +1386,7 @@ class _PresencaSheetState extends State<_PresencaSheet> {
           ),
         ),
         if (!_loaded)
-          const Expanded(
-            child: Center(child: CircularProgressIndicator()),
-          )
+          const Expanded(child: Center(child: CircularProgressIndicator()))
         else
           Expanded(
             child: _filtered.isEmpty
@@ -1341,14 +1441,18 @@ class _PresencaSheetState extends State<_PresencaSheet> {
                               ),
                               decoration: BoxDecoration(
                                 color: presente
-                                    ? ThemeCleanPremium.success.withValues(alpha: 0.06)
+                                    ? ThemeCleanPremium.success.withValues(
+                                        alpha: 0.06,
+                                      )
                                     : ThemeCleanPremium.cardBackground,
                                 borderRadius: BorderRadius.circular(
                                   ThemeCleanPremium.radiusMd,
                                 ),
                                 border: Border.all(
                                   color: presente
-                                      ? ThemeCleanPremium.success.withValues(alpha: 0.2)
+                                      ? ThemeCleanPremium.success.withValues(
+                                          alpha: 0.2,
+                                        )
                                       : Colors.grey.shade200,
                                 ),
                               ),
@@ -1357,8 +1461,12 @@ class _PresencaSheetState extends State<_PresencaSheet> {
                                   CircleAvatar(
                                     radius: 18,
                                     backgroundColor: presente
-                                        ? ThemeCleanPremium.success.withValues(alpha: 0.15)
-                                        : ThemeCleanPremium.primary.withValues(alpha: 0.08),
+                                        ? ThemeCleanPremium.success.withValues(
+                                            alpha: 0.15,
+                                          )
+                                        : ThemeCleanPremium.primary.withValues(
+                                            alpha: 0.08,
+                                          ),
                                     child: Text(
                                       initials,
                                       style: TextStyle(
@@ -1370,7 +1478,9 @@ class _PresencaSheetState extends State<_PresencaSheet> {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: ThemeCleanPremium.spaceSm),
+                                  const SizedBox(
+                                    width: ThemeCleanPremium.spaceSm,
+                                  ),
                                   Expanded(
                                     child: Text(
                                       entry.value,

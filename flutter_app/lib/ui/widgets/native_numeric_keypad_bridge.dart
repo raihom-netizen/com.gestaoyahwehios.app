@@ -1,6 +1,6 @@
 import 'package:flutter/services.dart';
 
-/// Eventos do teclado nativo Android → várias instâncias via [instanceId].
+/// Eventos do teclado nativo Android ? várias instâncias via [instanceId].
 class NativeNumericKeypadBridge {
   NativeNumericKeypadBridge._();
 

@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/constants/default_categories.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 
@@ -6,8 +6,6 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 /// igreja** (`igrejas/{churchId}/config/finance_categorias`), compartilhadas
 /// por toda a equipe autorizada, não por login individual.
 class UserCategoriesService {
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
-
   DocumentReference<Map<String, dynamic>> _ref(String uid) =>
       ChurchUiCollections.config(uid.trim()).doc('finance_categorias');
 
@@ -17,16 +15,17 @@ class UserCategoriesService {
 
   /// Chave para ordenação alfabética em português (Água = A, não após Z).
   /// Ordenação alfabética (pt) para listas de categorias (ex.: lançamento expresso, dropdowns).
-  static int compareNamesPt(String a, String b) => _sortKeyPt(a).compareTo(_sortKeyPt(b));
+  static int compareNamesPt(String a, String b) =>
+      _sortKeyPt(a).compareTo(_sortKeyPt(b));
 
   static String _sortKeyPt(String s) {
     const Map<String, String> accents = {
-      'á': 'a', 'à': 'a', 'ã': 'a', 'â': 'a', 'ä': 'a',
-      'é': 'e', 'è': 'e', 'ê': 'e', 'ë': 'e',
-      'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i',
-      'ó': 'o', 'ò': 'o', 'õ': 'o', 'ô': 'o', 'ö': 'o',
-      'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
-      'ç': 'c', 'ñ': 'n',
+      '\u00e1': 'a', '\u00e0': 'a', '\u00e3': 'a', '\u00e2': 'a', '\u00e4': 'a',
+      '\u00e9': 'e', '\u00e8': 'e', '\u00ea': 'e', '\u00eb': 'e',
+      '\u00ed': 'i', '\u00ec': 'i', '\u00ee': 'i', '\u00ef': 'i',
+      '\u00f3': 'o', '\u00f2': 'o', '\u00f5': 'o', '\u00f4': 'o', '\u00f6': 'o',
+      '\u00fa': 'u', '\u00f9': 'u', '\u00fb': 'u', '\u00fc': 'u',
+      '\u00e7': 'c', '\u00f1': 'n',
     };
     return s.toLowerCase().split('').map((c) => accents[c] ?? c).join();
   }
@@ -52,7 +51,10 @@ class UserCategoriesService {
     required List<String> hidden,
     required List<String> custom,
   }) {
-    final hiddenLower = hidden.map((e) => e.toLowerCase().trim()).where((e) => e.isNotEmpty).toSet();
+    final hiddenLower = hidden
+        .map((e) => e.toLowerCase().trim())
+        .where((e) => e.isNotEmpty)
+        .toSet();
     final byKey = <String, String>{};
     void put(String name) {
       final t = name.trim();
@@ -60,6 +62,7 @@ class UserCategoriesService {
       final k = t.toLowerCase();
       byKey.putIfAbsent(k, () => t);
     }
+
     for (final c in defaults) {
       if (!hiddenLower.contains(c.toLowerCase().trim())) put(c);
     }
@@ -72,12 +75,15 @@ class UserCategoriesService {
 
   /// Categorias visíveis = padrão (menos as ocultas) + customizadas.
   /// [hiddenDefaultIncome] / [hiddenDefaultExpense] não aparecem nos dropdowns (mas podem ser restauradas).
-  Future<({
-    List<String> income,
-    List<String> expense,
-    List<String> hiddenDefaultIncome,
-    List<String> hiddenDefaultExpense,
-  })> load(String uid) async {
+  Future<
+    ({
+      List<String> income,
+      List<String> expense,
+      List<String> hiddenDefaultIncome,
+      List<String> hiddenDefaultExpense,
+    })
+  >
+  load(String uid) async {
     try {
       final snap = await _ref(uid).get();
       final data = snap.data();
@@ -96,8 +102,10 @@ class UserCategoriesService {
         hidden: hiddenExpense,
         custom: customExpense,
       );
-      final hiddenIncomeSorted = List<String>.from(hiddenIncome)..sort(compareNamesPt);
-      final hiddenExpenseSorted = List<String>.from(hiddenExpense)..sort(compareNamesPt);
+      final hiddenIncomeSorted = List<String>.from(hiddenIncome)
+        ..sort(compareNamesPt);
+      final hiddenExpenseSorted = List<String>.from(hiddenExpense)
+        ..sort(compareNamesPt);
       return (
         income: [kIncluirNova, ...incomeVisible],
         expense: [kIncluirNova, ...expenseVisible],
@@ -160,7 +168,9 @@ class UserCategoriesService {
     final data = snap.data() ?? {};
     final key = isIncome ? 'hiddenDefaultIncome' : 'hiddenDefaultExpense';
     final list = _listFrom(data[key]);
-    final out = list.where((c) => c.toLowerCase() != can.toLowerCase()).toList();
+    final out = list
+        .where((c) => c.toLowerCase() != can.toLowerCase())
+        .toList();
     if (out.length == list.length) return;
     await _ref(uid).set({
       ...data,
@@ -171,7 +181,10 @@ class UserCategoriesService {
 
   List<String> _listFrom(dynamic v) {
     if (v is! List) return [];
-    return v.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toList();
+    return v
+        .map((e) => e.toString().trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
   }
 
   /// Adiciona uma categoria customizada (receita ou despesa) para o usuário.
@@ -180,7 +193,9 @@ class UserCategoriesService {
   Future<void> addCustom(String uid, bool isIncome, String name) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty || trimmed == kIncluirNova) return;
-    final defaults = isIncome ? kDefaultIncomeCategories : kDefaultExpenseCategories;
+    final defaults = isIncome
+        ? kDefaultIncomeCategories
+        : kDefaultExpenseCategories;
     final snap = await _ref(uid).get();
     final data = snap.data() ?? {};
     final hiddenKey = isIncome ? 'hiddenDefaultIncome' : 'hiddenDefaultExpense';
@@ -188,7 +203,8 @@ class UserCategoriesService {
     final isHiddenDefault = defaults
         .where((c) => c.toLowerCase() == trimmed.toLowerCase())
         .any((c) => hidden.any((h) => h.toLowerCase() == c.toLowerCase()));
-    if (defaults.any((c) => c.toLowerCase() == trimmed.toLowerCase()) && !isHiddenDefault) {
+    if (defaults.any((c) => c.toLowerCase() == trimmed.toLowerCase()) &&
+        !isHiddenDefault) {
       return;
     }
     final key = isIncome ? 'income' : 'expense';
@@ -214,14 +230,18 @@ class UserCategoriesService {
   Future<void> removeCustom(String uid, bool isIncome, String name) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) return;
-    final defaults = isIncome ? kDefaultIncomeCategories : kDefaultExpenseCategories;
+    final defaults = isIncome
+        ? kDefaultIncomeCategories
+        : kDefaultExpenseCategories;
     if (defaults.any((c) => c.toLowerCase() == trimmed.toLowerCase())) return;
 
     final snap = await _ref(uid).get();
     final data = snap.data() ?? {};
     final key = isIncome ? 'income' : 'expense';
     final current = _listFrom(data[key]);
-    final updated = current.where((c) => c.toLowerCase() != trimmed.toLowerCase()).toList();
+    final updated = current
+        .where((c) => c.toLowerCase() != trimmed.toLowerCase())
+        .toList();
     if (updated.length == current.length) return;
 
     await _ref(uid).set({
@@ -232,12 +252,19 @@ class UserCategoriesService {
   }
 
   /// Renomeia categoria customizada. Padrão do app: use [hideDefault] + [addCustom].
-  Future<void> renameCustom(String uid, bool isIncome, String oldName, String newName) async {
+  Future<void> renameCustom(
+    String uid,
+    bool isIncome,
+    String oldName,
+    String newName,
+  ) async {
     final o = oldName.trim();
     final t = newName.trim();
     if (o.isEmpty || t.isEmpty || t == kIncluirNova) return;
     if (o.toLowerCase() == t.toLowerCase()) return;
-    final defaults = isIncome ? kDefaultIncomeCategories : kDefaultExpenseCategories;
+    final defaults = isIncome
+        ? kDefaultIncomeCategories
+        : kDefaultExpenseCategories;
     if (defaults.any((c) => c.toLowerCase() == t.toLowerCase())) return;
     if (defaults.any((c) => c.toLowerCase() == o.toLowerCase())) return;
     final snap = await _ref(uid).get();
@@ -245,9 +272,13 @@ class UserCategoriesService {
     final key = isIncome ? 'income' : 'expense';
     final current = _listFrom(data[key]);
     if (!current.any((c) => c.toLowerCase() == o.toLowerCase())) return;
-    if (current.any((c) => c != o && c.toLowerCase() == t.toLowerCase())) return;
+    if (current.any((c) => c != o && c.toLowerCase() == t.toLowerCase())) {
+      return;
+    }
 
-    final next = current.map((c) => c.toLowerCase() == o.toLowerCase() ? t : c).toList();
+    final next = current
+        .map((c) => c.toLowerCase() == o.toLowerCase() ? t : c)
+        .toList();
     next.sort((a, b) => _sortKeyPt(a).compareTo(_sortKeyPt(b)));
     await _ref(uid).set({
       ...data,

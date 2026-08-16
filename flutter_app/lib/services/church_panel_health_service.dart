@@ -44,7 +44,7 @@ class ChurchPanelHealthSnapshot {
   }
 }
 
-/// Saúde do sistema — painel igreja (Configurações → Saúde do Sistema).
+/// Saúde do sistema ? painel igreja (Configurações ? Saúde do Sistema).
 abstract final class ChurchPanelHealthService {
   ChurchPanelHealthService._();
 

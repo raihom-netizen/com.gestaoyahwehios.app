@@ -28,7 +28,7 @@ abstract final class YahwehPublicFeedRepository {
 
   static const int pageSize = YahwehPerformanceV4.publicFeedPageSize;
 
-  /// Abertura instantânea: disco → opcional refresh CF em background.
+  /// Abertura instantânea: disco ? opcional refresh CF em background.
   static Future<List<Map<String, dynamic>>> readInstantFeed(
     String tenantId, {
     bool refreshServerCacheInBackground = true,

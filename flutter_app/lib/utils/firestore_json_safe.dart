@@ -6,13 +6,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 ///
 /// - Substitui `double.infinity` / `double.nan` por `0.0`.
 /// - Preserva `FieldValue` (serverTimestamp, increment, etc.), `Timestamp`,
-///   `GeoPoint`, `DocumentReference` — o SDK Firestore trata nativamente.
+///   `GeoPoint`, `DocumentReference` ? o SDK Firestore trata nativamente.
 /// - Remove `null` keys e recursa em Maps/Iterables.
 ///
 /// **NÃO** usar para `jsonEncode` — use [firestoreToJsonSafe] / [safeJsonEncode].
 dynamic sanitizeFirestoreData(dynamic v) {
   if (v == null) return null;
-  // Firestore-native sentinel types — pass through unchanged.
+  // Firestore-native sentinel types ? pass through unchanged.
   if (v is FieldValue ||
       v is Timestamp ||
       v is GeoPoint ||

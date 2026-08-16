@@ -14,7 +14,7 @@ import 'package:gestao_yahweh/utils/utilitarios_file_io.dart'
     show utilitariosReadPlatformFileBytes;
 import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 
-/// Resultado do picker (bytes + nome) — Web/Android/iOS iguais.
+/// Resultado do picker (bytes + nome) ? Web/Android/iOS iguais.
 class ChurchCtPickedFile {
   const ChurchCtPickedFile({
     required this.bytes,
@@ -30,7 +30,7 @@ class ChurchCtPickedFile {
 /// **Padrão Controle Total** — entrada única para os módulos do painel:
 /// Cadastro, Membros, Eventos/Avisos, Financeiro, Fornecedores, Património.
 ///
-/// Fluxo: pick → bytes (`Uint8List`) → [ChurchMediaUploadFacade] → URL+path
+/// Fluxo: pick ? bytes (`Uint8List`) ? [ChurchMediaUploadFacade] ? URL+path
 /// no Firestore. Nunca `putFile` na Web; nunca base64 permanente no Firestore.
 abstract final class ChurchCtModuleUpload {
   ChurchCtModuleUpload._();
@@ -95,7 +95,7 @@ abstract final class ChurchCtModuleUpload {
     );
   }
 
-  /// PDF/PNG/JPG — comprovantes (financeiro / fornecedor), padrão CT ≤ 5 MB.
+  /// PDF/PNG/JPG ? comprovantes (financeiro / fornecedor), padrão CT = 5 MB.
   static Future<ChurchCtPickedFile?> pickReceiptOrDocument({
     List<String> allowedExtensions = const ['pdf', 'png', 'jpg', 'jpeg'],
     int maxBytes = kMaxReceiptBytes,

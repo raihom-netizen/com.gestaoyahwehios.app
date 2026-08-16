@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
-/// Caminhos da frota (Jim Sabores) no Firestore — **tudo sob a igreja**.
+/// Caminhos da frota (Jim Sabores) no Firestore ? **tudo sob a igreja**.
 ///
 /// `churchId` vem de [ChurchContext.currentChurchId] ou parâmetro explícito.
 /// Build dedicado: `--dart-define=FROTA_TENANT_ID=outro_id`.

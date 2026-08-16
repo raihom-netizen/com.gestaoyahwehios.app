@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -29,7 +29,7 @@ class ScaleEntrySeiOcorrencia {
   bool get hasOco => oco.isNotEmpty;
 }
 
-/// Nº do **plantão** (Escalas) — com ou sem financeiro; não é SEI nem RAI.
+/// N? do **plantão** (Escalas) ? com ou sem financeiro; não ? SEI nem RAI.
 String scalePlantaoNumberFromEntry(ScaleEntry e) {
   if (e.isAgendaMirror) return '';
   return (e.scaleNumber ?? '').trim();
@@ -64,7 +64,7 @@ ScaleEntrySeiOcorrencia seiOcoFromScaleEntry(ScaleEntry e) {
   return ScaleEntrySeiOcorrencia(sei: '', oco: plantao);
 }
 
-/// Linhas no card: plantão/compromisso (Escalas) → Nº Escala; audiência → Nº Ocorrência.
+/// Linhas no card: plantão/compromisso (Escalas) ? N? Escala; audiência ? N? Ocorr?ncia.
 List<String> scaleEntryResumoNumberLines(ScaleEntry e) {
   if (e.isAgendaMirror) {
     final isAud =
@@ -76,22 +76,22 @@ List<String> scaleEntryResumoNumberLines(ScaleEntry e) {
     }
     final sn = (e.scaleNumber ?? '').trim();
     if (sn.isEmpty) return const [];
-    return ['🏷️ Nº Escala: $sn'];
+    return ['??? N? Escala: $sn'];
   }
   final num = scalePlantaoNumberFromEntry(e);
   if (num.isEmpty) {
     return const [];
   }
-  return ['🏷️ Nº Escala: $num'];
+  return ['??? N? Escala: $num'];
 }
 
 /// Mensagem quando não há número no card (Escalas).
 String scaleEntryResumoNumberEmptyLabel(ScaleEntry e) {
   if (e.isAgendaMirror &&
       (e.agendaType ?? '').toString().trim().toLowerCase() == 'audiencia') {
-    return 'Sem nº ocorrência';
+    return 'Sem n? ocorrência';
   }
-  return 'Sem nº escala';
+  return 'Sem n? escala';
 }
 
 /// Valores da edição rápida de **plantão** (Escalas).
@@ -151,12 +151,12 @@ String scaleEntryResumoDisplayTitle(ScaleEntry e) {
   var label = (e.label ?? 'Plantão').trim();
   if (label.isEmpty) return 'Plantão';
   final seiMatch =
-      RegExp(r'\s*·\s*SEI\s', caseSensitive: false).firstMatch(label);
+      RegExp(r'\s*?\s*SEI\s', caseSensitive: false).firstMatch(label);
   if (seiMatch != null) {
     label = label.substring(0, seiMatch.start).trim();
   }
   final ocoMatch =
-      RegExp(r'\s*·\s*OCO\s', caseSensitive: false).firstMatch(label);
+      RegExp(r'\s*?\s*OCO\s', caseSensitive: false).firstMatch(label);
   if (ocoMatch != null) {
     label = label.substring(0, ocoMatch.start).trim();
   }
@@ -228,13 +228,13 @@ ScaleEntryResumoVisual scaleEntryResumoVisual(ScaleEntry e) {
   if (scaleEntryIsPlantaoEscala(e) || scaleEntryLooksLikePlantaoProfissional(e)) {
     final accent = e.color;
     return ScaleEntryResumoVisual(
-      emoji: '🚓',
+      emoji: '??',
       color: accent.alpha > 0 ? accent : const Color(0xFF2563EB),
     );
   }
 
   return ScaleEntryResumoVisual(
-    emoji: '🚓',
+    emoji: '??',
     color: e.color.alpha > 0 ? e.color : const Color(0xFF2563EB),
   );
 }
@@ -295,12 +295,12 @@ String _cleanScaleEntryTitleLabel(String? raw) {
   var label = (raw ?? '').trim();
   if (label.isEmpty) return '';
   final seiMatch =
-      RegExp(r'\s*·\s*SEI\s', caseSensitive: false).firstMatch(label);
+      RegExp(r'\s*?\s*SEI\s', caseSensitive: false).firstMatch(label);
   if (seiMatch != null) {
     label = label.substring(0, seiMatch.start).trim();
   }
   final ocoMatch =
-      RegExp(r'\s*·\s*OCO\s', caseSensitive: false).firstMatch(label);
+      RegExp(r'\s*?\s*OCO\s', caseSensitive: false).firstMatch(label);
   if (ocoMatch != null) {
     label = label.substring(0, ocoMatch.start).trim();
   }
@@ -349,20 +349,20 @@ TextStyle scaleEntryResumoMetaTextStyle({
   );
 }
 
-/// Dia da semana · data · horário (resumo Escalas).
+/// Dia da semana ? data ? horário (resumo Escalas).
 String scaleEntryDiaSemanaDataHorario(ScaleEntry e) {
   final raw = DateFormat('EEEE', 'pt_BR').format(e.date);
   final diaSemana =
       raw.isEmpty ? raw : '${raw[0].toUpperCase()}${raw.substring(1)}';
   final data = DateFormat('dd/MM/yyyy', 'pt_BR').format(e.date);
-  return '$diaSemana · $data · ${e.start}–${e.end}';
+  return '$diaSemana ? $data ? ${e.start}?${e.end}';
 }
 
-/// Linhas SEI / nº ocorrência (módulo Audiências).
+/// Linhas SEI / n? ocorrência (módulo Audiências).
 List<String> scaleEntryAudienciaResumoLines(ScaleEntrySeiOcorrencia n) {
   final out = <String>[];
-  if (n.hasSei) out.add('📂 Processo (SEI): ${n.sei}');
-  if (n.hasOco) out.add('🏷️ Nº Ocorrência: ${n.oco}');
+  if (n.hasSei) out.add('?? Processo (SEI): ${n.sei}');
+  if (n.hasOco) out.add('??? Nº Ocorrência: ${n.oco}');
   return out;
 }
 
@@ -371,7 +371,7 @@ List<String> scaleEntrySeiOcoLines(ScaleEntrySeiOcorrencia n) {
   return scaleEntryAudienciaResumoLines(n);
 }
 
-/// Audiência / compromisso da Agenda (espelho ou legado) — edição completa, não nº escala.
+/// Audiência / compromisso da Agenda (espelho ou legado) ? edição completa, não n? escala.
 bool scaleEntryUsesAgendaFullEditor(ScaleEntry e) {
   if (e.isAgendaMirror) return true;
   final id = e.id?.trim() ?? '';
@@ -490,7 +490,7 @@ bool scaleEntryLooksLikePlantaoProfissional(ScaleEntry e) {
   return false;
 }
 
-/// Firestore legado: `isCompromisso:true` em plantão da Escalas → corrigir para false.
+/// Firestore legado: `isCompromisso:true` em plantão da Escalas ? corrigir para false.
 bool scaleEntryNeedsCompromissoFlagRepair(Map<String, dynamic> data, String docId) {
   if (data['isAgendaMirror'] == true) return false;
   if (docId.startsWith('agenda_')) return false;

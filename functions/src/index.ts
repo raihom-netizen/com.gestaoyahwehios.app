@@ -7180,6 +7180,8 @@ export {
   onIgrejaFornecedorCompromissoDeleteCleanupStorage,
 } from "./storageCleanupOnFirestoreDelete";
 
+export { onNovoPedidoOracao } from "./prayerRegistrationNotify";
+
 export {
   onNovoAvisoMuralPush,
   onNovoAvisoMuralPublishedPush,
@@ -7323,4 +7325,23 @@ export {
   financeMonthBucketsOnTransactionWrite,
   gyFinanceRebuildOpeningBuckets,
 } from "./userFinanceMonthBuckets";
+
+
+export {
+  onIgrejaMembroDeleteCleanupFirestore,
+  onIgrejaAvisoDeleteCleanupFirestore,
+  onIgrejaEventoDeleteCleanupFirestore,
+  onIgrejaOracaoDeleteCleanupFirestore,
+  onIgrejaPatrimonioDeleteCleanupFirestore,
+  onIgrejaFinanceiroDeleteCleanupFirestore,
+  onIgrejaVisitanteDeleteCleanupFirestore,
+} from './recursiveDeleteOnFirestoreDelete';
+
+
+export {
+  onIgrejaNoticiaDeleteCleanupFirestore,
+  onIgrejaMuralAvisoDeleteCleanupFirestore,
+  onIgrejaAgendaDeleteCleanupFirestore,
+  onIgrejaFornecedorDeleteCleanupFirestore,
+} from './recursiveDeleteOnFirestoreDelete';
 

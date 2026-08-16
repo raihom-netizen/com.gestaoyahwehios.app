@@ -51,11 +51,10 @@ abstract final class ChurchMembersLoadService {
   static const int kDefaultLimit = YahwehPerformanceV4.blindListPageSize;
 
   static final Map<
-      String,
-      ({
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-        DateTime at,
-      })> _ram = {};
+    String,
+    ({List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, DateTime at})
+  >
+  _ram = {};
 
   static const Duration _ramTtl = Duration(minutes: 20);
 
@@ -76,8 +75,7 @@ abstract final class ChurchMembersLoadService {
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekRam(
     String seedTenantId, {
     int limit = kDefaultLimit,
-  }) =>
-      _peekRam(_resolve(seedTenantId), limit);
+  }) => _peekRam(_resolve(seedTenantId), limit);
 
   static List<QueryDocumentSnapshot<Map<String, dynamic>>>? peekRamAny(
     String seedTenantId,
@@ -106,8 +104,10 @@ abstract final class ChurchMembersLoadService {
     if (docs == null) return null;
     for (final d in docs) {
       if (d.id == id) {
-        return BlindMemberDoc.fromFirestore(id: d.id, data: d.data())
-            .toMemberDataMap();
+        return BlindMemberDoc.fromFirestore(
+          id: d.id,
+          data: d.data(),
+        ).toMemberDataMap();
       }
     }
     return null;
@@ -153,12 +153,14 @@ abstract final class ChurchMembersLoadService {
   ) {
     final sorted = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs);
     sorted.sort((a, b) {
-      final na = BlindMemberDoc.fromFirestore(id: a.id, data: a.data())
-          .displayName
-          .toLowerCase();
-      final nb = BlindMemberDoc.fromFirestore(id: b.id, data: b.data())
-          .displayName
-          .toLowerCase();
+      final na = BlindMemberDoc.fromFirestore(
+        id: a.id,
+        data: a.data(),
+      ).displayName.toLowerCase();
+      final nb = BlindMemberDoc.fromFirestore(
+        id: b.id,
+        data: b.data(),
+      ).displayName.toLowerCase();
       return na.compareTo(nb);
     });
     return sorted;
@@ -184,8 +186,7 @@ abstract final class ChurchMembersLoadService {
     final path = 'igrejas/$churchId/membros';
     final ramKey = cacheKey(churchId, limit);
     final reference = ChurchUiCollections.membros(churchId);
-    final capped =
-        FirebasePerformanceLimits.capListLimit('membros', limit);
+    final capped = FirebasePerformanceLimits.capListLimit('membros', limit);
 
     if (!forceRefresh && !forceServer) {
       try {
@@ -201,17 +202,17 @@ abstract final class ChurchMembersLoadService {
           directory = await MembersDirectorySnapshotService.readOnce(churchId);
         }
         if (!directory.hasEntries) {
-          directory = await MembersDirectorySnapshotService
-              .warmFromCallableIfStale(churchId);
+          directory =
+              await MembersDirectorySnapshotService.warmFromCallableIfStale(
+                churchId,
+              );
         }
         if (directory.hasEntries) {
           final merged = MembersDirectorySnapshotService.toMergedQuerySnapshot(
             churchId,
             directory,
           );
-          final docs = _sortByName(
-            merged.docs.take(capped).toList(),
-          );
+          final docs = _sortByName(merged.docs.take(capped).toList());
           _putRam(ramKey, docs);
           return ChurchMembersLoadResult(
             churchId: churchId,
@@ -230,12 +231,14 @@ abstract final class ChurchMembersLoadService {
       if (anyRam != null && anyRam.isNotEmpty) {
         final docs = _sortByName(anyRam);
         _putRam(ramKey, docs);
-        unawaited(_refreshInBackground(
-          churchId: churchId,
-          ramKey: ramKey,
-          limit: capped,
-          reference: reference,
-        ));
+        unawaited(
+          _refreshInBackground(
+            churchId: churchId,
+            ramKey: ramKey,
+            limit: capped,
+            reference: reference,
+          ),
+        );
         return ChurchMembersLoadResult(
           churchId: churchId,
           docs: docs,
@@ -266,15 +269,19 @@ abstract final class ChurchMembersLoadService {
             churchId,
             TenantModuleKeys.membros,
           );
-          final docs = _sortByName(TenantModuleHiveCache.toQueryDocuments(hive));
+          final docs = _sortByName(
+            TenantModuleHiveCache.toQueryDocuments(hive),
+          );
           if (ChurchModuleFirestoreListRead.shouldServeHiveCache(docs)) {
             _putRam(ramKey, docs);
-            unawaited(_refreshInBackground(
-              churchId: churchId,
-              ramKey: ramKey,
-              limit: capped,
-              reference: reference,
-            ));
+            unawaited(
+              _refreshInBackground(
+                churchId: churchId,
+                ramKey: ramKey,
+                limit: capped,
+                reference: reference,
+              ),
+            );
             return ChurchMembersLoadResult(
               churchId: churchId,
               docs: docs,
@@ -330,7 +337,7 @@ abstract final class ChurchMembersLoadService {
         );
       }
     } catch (e, st) {
-      lastError ??= e;
+      lastError = e;
       debugPrint('ChurchMembersLoadService repository: $e\n$st');
     }
 
@@ -416,29 +423,25 @@ abstract final class ChurchMembersLoadService {
   }
 
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
-      _loadFirestore({
+  _loadFirestore({
     required CollectionReference<Map<String, dynamic>> reference,
     required String cacheKey,
     required bool forceServer,
     required int limit,
-  }) =>
-      ChurchModuleFirestoreListRead.queryPlainFirst(
-        reference: reference,
-        cacheKey: cacheKey,
-        limit: limit,
-        forceServer: forceServer,
-        legacyFallbackSubcollections: const ['members'],
-        orderByField: 'updatedAt',
-        sortDocs: _sortByName,
-      ).timeout(ChurchPanelReadTimeouts.queryCap);
+  }) => ChurchModuleFirestoreListRead.queryPlainFirst(
+    reference: reference,
+    cacheKey: cacheKey,
+    limit: limit,
+    forceServer: forceServer,
+    legacyFallbackSubcollections: const ['members'],
+    orderByField: 'updatedAt',
+    sortDocs: _sortByName,
+  ).timeout(ChurchPanelReadTimeouts.queryCap);
 
   static Future<void> invalidate(String seedTenantId) async {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) return;
     _ram.removeWhere((k, _) => k.startsWith(churchId));
-    await TenantModuleHiveCache.clearModule(
-      churchId,
-      TenantModuleKeys.membros,
-    );
+    await TenantModuleHiveCache.clearModule(churchId, TenantModuleKeys.membros);
   }
 }

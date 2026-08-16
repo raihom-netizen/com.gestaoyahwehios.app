@@ -11,7 +11,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isValidImageUrl, sanitizeImageUrl;
 import 'package:visibility_detector/visibility_detector.dart';
 
-/// Vídeo HTML estável (um [VideoElement] por instância), autoplay em mudo quando ≥50% visível.
+/// Vídeo HTML estável (um [VideoElement] por instância), autoplay em mudo quando =50% visível.
 /// Com [startLoadingImmediately] e [preload=auto], o buffer começa ao montar (feed estilo Instagram).
 class PremiumHtmlFeedVideo extends StatefulWidget {
   const PremiumHtmlFeedVideo({

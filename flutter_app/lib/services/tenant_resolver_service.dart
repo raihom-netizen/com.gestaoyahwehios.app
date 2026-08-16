@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Resolve slug/alias legado → doc canónico `igrejas/{churchId}`.
+/// Resolve slug/alias legado ? doc canónico `igrejas/{churchId}`.
 /// Coleção `tenants/` **não** é lida pelo app — só `igrejas/{churchId}`.
 /// Após login, preferir [ChurchContextService.currentChurchId].
 class TenantResolverService {
@@ -19,7 +19,7 @@ class TenantResolverService {
   static const String kBpcCanonicalIgrejaDocId =
       'igreja_o_brasil_para_cristo_jardim_goiano';
 
-  /// IDs legados — redirecionam para [kBpcCanonicalIgrejaDocId].
+  /// IDs legados ? redirecionam para [kBpcCanonicalIgrejaDocId].
   static const List<String> kBpcLegacyTenantIds = [
     'brasilparacristo_sistema',
     'brasilparacristo',
@@ -28,7 +28,7 @@ class TenantResolverService {
   /// Cluster operacional — após consolidação BPC, só o doc canónico.
   static const Map<String, List<String>> _anchoredChurchClusters = {};
 
-  /// Slugs públicos (URL `/igreja/{slug}/cadastro-membro`) → doc canónico operacional.
+  /// Slugs públicos (URL `/igreja/{slug}/cadastro-membro`) ? doc canónico operacional.
   static const Map<String, String> _publicSlugToCanonicalDocId = {
     'o-brasil-cristo-jardim-goiano': kBpcCanonicalIgrejaDocId,
   };
@@ -204,7 +204,7 @@ class TenantResolverService {
   static final Map<String, _AliasCacheEntry> _directDocIdCache = {};
   static const Duration _directDocIdCacheTtl = Duration(hours: 6);
 
-  /// Legado BPC / slug público → doc canónico (sem `church_aliases`).
+  /// Legado BPC / slug público ? doc canónico (sem `church_aliases`).
   static String? mapLegacySeedToCanonical(String raw) {
     var t = raw.trim();
     if (t.isEmpty) return null;
@@ -296,7 +296,7 @@ class TenantResolverService {
     _directDocIdCache.remove(alias.trim());
   }
 
-  /// Contexto operacional completo — alias → canónico + perfil (Regra 3).
+  /// Contexto operacional completo ? alias ? canónico + perfil (Regra 3).
   static Future<({
     String canonicalId,
     String seedId,
@@ -393,7 +393,7 @@ class TenantResolverService {
     }
   }
 
-  /// URL pública → doc `igrejas/{churchId}` (directo; sem `church_aliases`).
+  /// URL pública ? doc `igrejas/{churchId}` (directo; sem `church_aliases`).
   static Future<String?> resolveIgrejaDocIdFromPublicSlug(String rawSlug) async {
     final slugTrim = rawSlug.trim();
     if (slugTrim.isEmpty) return null;
@@ -454,7 +454,7 @@ class TenantResolverService {
     );
   }
 
-  /// Resolve o ID efetivo — directo `igrejas/{churchId}` (contexto + mapa BPC/slug).
+  /// Resolve o ID efetivo ? directo `igrejas/{churchId}` (contexto + mapa BPC/slug).
   static Future<String> resolveEffectiveTenantId(String id) async {
     final raw = id.trim();
     if (raw.isEmpty) return id;
@@ -462,7 +462,7 @@ class TenantResolverService {
     return direct.isNotEmpty ? direct : raw;
   }
 
-  /// Para queries em `igrejas/{id}/…`, prefere o ID que consta em `users/{uid}.igrejaId` /
+  /// Para queries em `igrejas/{id}/?`, prefere o ID que consta em `users/{uid}.igrejaId` /
   /// `tenantId` quando esse doc for **irmão** do resolvido (mesmo slug — via [getAllRelatedIgrejaDocIds]).
   ///
   /// Evita `permission-denied` ou coleções aparentemente vazias: o resolver pode devolver um
@@ -741,7 +741,7 @@ class TenantResolverService {
     return null;
   }
 
-  /// Um doc Firestore em cache local — pinta o formulário no 1.º frame (<1 s).
+  /// Um doc Firestore em cache local ? pinta o formulário no 1.? frame (<1 s).
   static Future<({String operationalId, Map<String, dynamic> profile})>
       loadChurchRegistrationContextFast(
     String seedId, {
@@ -862,7 +862,7 @@ class TenantResolverService {
 
   static const int _richProfileEarlyExitScore = 14;
 
-  /// Perfil de cadastro mais completo no cluster (Cadastro da Igreja — web + mobile).
+  /// Perfil de cadastro mais completo no cluster (Cadastro da Igreja ? web + mobile).
   static Future<Map<String, dynamic>> richestChurchProfileForCadastro(
     String seedOrOperational, {
     bool preferServer = false,
@@ -991,7 +991,7 @@ class TenantResolverService {
     return out.where((x) => x.trim().isNotEmpty).toList();
   }
 
-  /// Departamentos — directo `igrejas/{churchId}` (SaaS isolado).
+  /// Departamentos ? directo `igrejas/{churchId}` (SaaS isolado).
   static Future<String> resolveChurchDocIdPreferringNonEmptyDepartments(
       String seedId) async {
     return resolveEffectiveTenantId(seedId);

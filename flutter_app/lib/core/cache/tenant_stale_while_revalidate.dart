@@ -12,7 +12,7 @@ import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Stale-while-revalidate — mostra Hive / cache Firestore instantaneamente, atualiza em background.
+/// Stale-while-revalidate ? mostra Hive / cache Firestore instantaneamente, atualiza em background.
 abstract final class TenantStaleWhileRevalidate {
   TenantStaleWhileRevalidate._();
 

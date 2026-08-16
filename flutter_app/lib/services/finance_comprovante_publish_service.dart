@@ -1,4 +1,4 @@
-﻿import 'dart:async' show TimeoutException, unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -31,7 +31,7 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Financeiro ÔÇö comprovante: Storage `igrejas/{id}/financeiro/YYYY_MM/{lancamentoId}.ext`
 /// ÔåÆ URL HTTPS ÔåÆ Firestore (`comprovanteUrl`, `hasComprovante`).
-/// Resultado can├│nico ap├│s upload Storage + grava├º├úo Firestore.
+/// Resultado can+?nico ap+?s upload Storage + grava+?+?o Firestore.
 class FinanceComprovantePersistResult {
   const FinanceComprovantePersistResult({
     required this.url,
@@ -64,7 +64,7 @@ abstract final class FinanceComprovantePublishService {
 
   static const String comprovanteUploadStateField = 'comprovanteUploadState';
 
-  /// Campos Firestore can├│nicos (Controle Total) ÔÇö inclui alias [comprovanteLink].
+  /// Campos Firestore can+?nicos (Controle Total) ??? inclui alias [comprovanteLink].
   static Map<String, dynamic> comprovanteFieldsPatch({
     required String url,
     required String storagePath,
@@ -108,7 +108,7 @@ abstract final class FinanceComprovantePublishService {
     return (bytes: optimized, mimeType: 'image/jpeg');
   }
 
-  /// Grava lan├ºamento (sem comprovante ou com estado uploading).
+  /// Grava lan+?amento (sem comprovante ou com estado uploading).
   static Future<DocumentReference<Map<String, dynamic>>> saveLancamentoFirst({
     required CollectionReference<Map<String, dynamic>> financeCol,
     required Map<String, dynamic> payload,
@@ -220,7 +220,7 @@ abstract final class FinanceComprovantePublishService {
     return targetRef;
   }
 
-  /// Confirma Storage + campos no Firestore ap├│s upload (read-back servidor).
+  /// Confirma Storage + campos no Firestore ap+?s upload (read-back servidor).
   static Future<void> verifyComprovantePersisted({
     required DocumentReference<Map<String, dynamic>> docRef,
     required String storagePath,
@@ -239,7 +239,7 @@ abstract final class FinanceComprovantePublishService {
     final data = snap.data() ?? {};
     if (data['hasComprovante'] != true) {
       throw StateError(
-        'Comprovante enviado mas o Firestore n├úo confirmou hasComprovante.',
+        'Comprovante enviado mas o Firestore n+?o confirmou hasComprovante.',
       );
     }
     final url = (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
@@ -248,7 +248,7 @@ abstract final class FinanceComprovantePublishService {
     final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
     if (url.isEmpty && path.isEmpty) {
       throw StateError(
-        'Comprovante enviado mas o link n├úo foi gravado no lan├ºamento.',
+        'Comprovante enviado mas o link n+?o foi gravado no lan+?amento.',
       );
     }
   }
@@ -346,7 +346,7 @@ abstract final class FinanceComprovantePublishService {
     );
   }
 
-  /// Path can├│nico ├║nico: `igrejas/{churchId}/financeiro/YYYY_MM/{lancamentoId}.{ext}`.
+  /// Path can+?nico +?nico: `igrejas/{churchId}/financeiro/YYYY_MM/{lancamentoId}.{ext}`.
   static String comprovantePathFor({
     required String tenantId,
     required String lancamentoId,
@@ -407,7 +407,7 @@ abstract final class FinanceComprovantePublishService {
         referenceDate: referenceDate,
         ext: 'png',
       ),
-      // Legado por tipo (somente limpeza retrocompat├¡vel).
+      // Legado por tipo (somente limpeza retrocompat+?vel).
       ChurchStorageLayout.financeComprovantePathByTipo(
         tenantId: tenantId,
         lancamentoId: lancamentoId,
@@ -442,7 +442,7 @@ abstract final class FinanceComprovantePublishService {
     }
   }
 
-  /// S├│ Storage (sem Firestore) ÔÇö usar antes do `set` completo em lan├ºamento novo.
+  /// S+? Storage (sem Firestore) ??? usar antes do `set` completo em lan+?amento novo.
   static Future<FinanceComprovantePersistResult> uploadComprovanteStorageOnly({
     required String tenantId,
     required String lancamentoId,
@@ -488,14 +488,14 @@ abstract final class FinanceComprovantePublishService {
     await _ensureReady();
     final churchId = ChurchRepository.churchId(tenantId.trim());
     if (churchId.isEmpty) {
-      throw StateError('Igreja n├úo identificada para o comprovante.');
+      throw StateError('Igreja n+?o identificada para o comprovante.');
     }
     if (rawBytes.isEmpty) {
       throw StateError('Arquivo vazio ÔÇö selecione outra imagem ou PDF.');
     }
     final mt = mimeType.toLowerCase();
     if (mt.startsWith('video/')) {
-      throw StateError('V├¡deo n├úo permitido. Use JPEG, PNG ou PDF.');
+      throw StateError('V+?deo n+?o permitido. Use JPEG, PNG ou PDF.');
     }
     ChurchCentralStorageUpload.assertPayloadWithinRules(
       bytes: rawBytes.length,
@@ -506,7 +506,7 @@ abstract final class FinanceComprovantePublishService {
     );
 
     onProgress?.call(0.08);
-    // Placeholder opcional ÔÇö n├úo bloquear upload (CT: put directo).
+    // Placeholder opcional ??? n+?o bloquear upload (CT: put directo).
     unawaited(
       FirebaseStorageService.ensureFinanceiroFolderPlaceholderIfAbsent(
         churchId,
@@ -514,7 +514,7 @@ abstract final class FinanceComprovantePublishService {
     );
 
     onProgress?.call(0.12);
-    // Uma compress├úo s├│ (CT): picker j├í otimizou ÔåÆ alreadyCompressed.
+    // Uma compress+?o s+? (CT): picker j+? otimizou ??? alreadyCompressed.
     final optimized = await _optimizedForUpload(
       rawBytes: rawBytes,
       mimeType: mimeType,
@@ -532,8 +532,8 @@ abstract final class FinanceComprovantePublishService {
       ext: ext,
     );
 
-    // Controle Total: Storage primeiro; apagar antigo s├│ depois do novo OK.
-    // Progresso: bytes 15%ÔåÆ96% (nunca ┬½grudar┬╗ em 90% ├á espera da URL).
+    // Controle Total: Storage primeiro; apagar antigo s+? depois do novo OK.
+    // Progresso: bytes 15%???96% (nunca -?grudar-+ em 90% +? espera da URL).
     final uploaded = await ChurchCentralStorageUpload.uploadAtCanonicalPath(
       storagePath: path,
       bytes: optimized.bytes,
@@ -550,7 +550,7 @@ abstract final class FinanceComprovantePublishService {
     );
 
     onProgress?.call(0.97);
-    // putData OK = objeto existe; verifica├º├úo pesada s├│ em background.
+    // putData OK = objeto existe; verifica+?+?o pesada s+? em background.
     unawaited(
       ChurchStorageMetadataVerify.assertExists(
         path,
@@ -559,7 +559,7 @@ abstract final class FinanceComprovantePublishService {
       ).catchError((_) {}),
     );
 
-    // Apagar s├│ o artefacto anterior distinto do path novo (nunca o ficheiro acabado de subir).
+    // Apagar s+? o artefacto anterior distinto do path novo (nunca o ficheiro acabado de subir).
     final prevPath = (previousStoragePath ?? '').trim();
     final prevUrl = (previousDownloadUrl ?? '').trim();
     if (prevPath.isNotEmpty && prevPath != uploaded.storagePath) {
@@ -588,7 +588,7 @@ abstract final class FinanceComprovantePublishService {
     );
   }
 
-  /// Upload Storage ÔåÆ Firestore ÔÇö padr├úo Controle Total (sem verify bloqueante).
+  /// Upload Storage ??? Firestore ??? padr+?o Controle Total (sem verify bloqueante).
   static Future<String> uploadComprovanteControleTotal({
     required String tenantId,
     required DocumentReference<Map<String, dynamic>> docRef,
@@ -770,7 +770,7 @@ abstract final class FinanceComprovantePublishService {
     );
   }
 
-  /// Corrige lan├ºamentos com `comprovanteUploadState: uploading` quando o ficheiro j├í est├í no Storage.
+  /// Corrige lan+?amentos com `comprovanteUploadState: uploading` quando o ficheiro j+? est+? no Storage.
   static Future<void> reconcileStuckComprovantes({
     required String tenantId,
     required Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
@@ -836,7 +836,7 @@ abstract final class FinanceComprovantePublishService {
             DateTime.now().difference(at) > const Duration(hours: 2)) {
           await markComprovanteUploadFailed(
             docRef: doc.reference,
-            error: 'Upload n├úo conclu├¡do ÔÇö anexe o comprovante novamente.',
+            error: 'Upload n+?o conclu+?do ??? anexe o comprovante novamente.',
           );
         }
         continue;

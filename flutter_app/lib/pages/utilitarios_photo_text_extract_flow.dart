@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -179,7 +179,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
           (!kIsWeb && source == ImageSource.gallery)) {
         final x = await _picker.pickImage(
           source: source,
-          // Sem maxWidth: evita 2º reencode no picker (demora no Android).
+          // Sem maxWidth: evita 2? reencode no picker (demora no Android).
           // Padrão leans: quality 80 para OCR mais preciso (ML Kit / Lens).
           imageQuality: 80,
           requestFullMetadata: false,
@@ -228,7 +228,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
     if (mounted) {
       setState(() {
         _busy = true;
-        _busyLabel = 'Extraindo…';
+        _busyLabel = 'Extraindo?';
         if (bytes.isNotEmpty) _previewImage = bytes;
         _sourceName = sourceName;
       });
@@ -256,7 +256,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
         _sourceName = sourceName;
         _textCtrl.text = r.plainText;
       });
-      // Preview e cota fora do hot path — libera a UI na hora.
+      // Preview e cota fora do hot path ? libera a UI na hora.
       if ((_previewImage == null || _previewImage!.isEmpty) &&
           filePath != null &&
           filePath.isNotEmpty) {
@@ -327,7 +327,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
 
   Future<void> _exportWord() async {
     if (!_hasText) return;
-    await _withBusy('Gerando Word…', () async {
+    await _withBusy('Gerando Word?', () async {
       final paras = _paragraphsFromEditedText();
       final bytes = UtilitariosPhotoTextExtractService.buildDocx(paras);
       if (!mounted) return;
@@ -343,7 +343,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
 
   Future<void> _exportPdf() async {
     if (!_hasText) return;
-    await _withBusy('Gerando PDF…', () async {
+    await _withBusy('Gerando PDF?', () async {
       final paras = _paragraphsFromEditedText();
       final bytes = await UtilitariosPhotoTextExtractService.buildPdf(paras);
       if (!mounted) return;
@@ -497,7 +497,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Câmera do aparelho → texto na hora (ML Kit / Lens). Edite e exporte Word ou PDF.',
+                  'Câmera do aparelho ? texto na hora (ML Kit / Lens). Edite e exporte Word ou PDF.',
                   textAlign: TextAlign.center,
                   style: ModernModuleUI.moduleSubtitleStyle(context),
                 ),
@@ -703,8 +703,8 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '$chars caracteres · ${_wordCountLabel(words)}'
-                        '${headings > 0 ? ' · $headings títulos' : ''}',
+                        '$chars caracteres ? ${_wordCountLabel(words)}'
+                        '${headings > 0 ? ' ? $headings títulos' : ''}',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade700,
@@ -895,7 +895,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
             ),
             const SizedBox(height: 14),
             Text(
-              _busyLabel ?? 'Processando…',
+              _busyLabel ?? 'Processando?',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurface,

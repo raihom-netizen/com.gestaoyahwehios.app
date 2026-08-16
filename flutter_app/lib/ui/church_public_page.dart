@@ -219,7 +219,7 @@ _churchPublicMergedPublicacoesStream(String igrejaId, {int limit = 20}) {
 
     // Só documentos com publicSite == true: o Firestore exige que a query não possa
     // devolver posts privados (publicSite == false); senão visitante sem login leva
-    // permission-denied em listas sem filtro — mesmo que o app filtre depois no cliente.
+    // permission-denied em listas sem filtro ? mesmo que o app filtre depois no cliente.
     final base = ChurchUiCollections.churchDoc(igrejaId);
     final sub1 = base
         .collection(ChurchTenantPostsCollections.eventos)
@@ -2210,7 +2210,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
             if (horariosFromIgreja.isNotEmpty) {
               descParts.add(horariosFromIgreja);
             }
-            final descMeta = descParts.join(' · ');
+            final descMeta = descParts.join(' ? ');
             final seoTitle = '$nome - Portal da Família';
             final canonicalUrl = AppConstants.publicChurchHomeUrlForChurch(
               slugClean,
@@ -2946,7 +2946,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
                             right:
                                 churchPublicSiteMobileFrameSideInset(context) +
                                 12,
-                            bottom: MediaQuery.paddingOf(context).bottom + 12,
+                            top: MediaQuery.paddingOf(context).top + 12,
                             child: YahwehPublicFloatingActions(
                               brandBlue: accent,
                               onLogin: () {
@@ -2976,6 +2976,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                       );
                                     }
                                   : null,
+                              onTop: onScrollInicio,
                               onPrayer: waPrayerUri == null
                                   ? null
                                   : () {
@@ -3142,7 +3143,7 @@ class _PublicNoticiaDeepLinkOpenerState
       if (!context.mounted) return;
       if (kIsWeb) {
         final desc = body.trim();
-        final short = desc.length > 200 ? '${desc.substring(0, 197)}…' : desc;
+        final short = desc.length > 200 ? '${desc.substring(0, 197)}?' : desc;
         updateChurchPublicSeoWeb(
           title: title,
           description: short.isEmpty ? 'Publicação — Gestão YAHWEH.' : short,
@@ -3700,7 +3701,7 @@ class _HorariosCultoSection extends StatelessWidget {
   }
 }
 
-/// Resumo semanal a partir de [event_templates]: dia da semana → programação → hora (sem listar datas).
+/// Resumo semanal a partir de [event_templates]: dia da semana ? programação ? hora (sem listar datas).
 class _HorariosCultoGrid extends StatelessWidget {
   final List<({int weekday, String title, String timeStr})> rows;
 
@@ -3933,7 +3934,7 @@ class _PublicEventosSectionState extends State<_PublicEventosSection> {
                         backgroundColor: Colors.transparent,
                         builder: (_) => ChurchPublicEventDetailSheet(
                           title: title,
-                          subtitle: hasSchedule ? '' : '—',
+                          subtitle: hasSchedule ? '' : '?',
                           weekdayLabel: dayNameLong.isEmpty
                               ? null
                               : dayNameLong,
@@ -4303,7 +4304,7 @@ class _PublicTopBar extends StatelessWidget {
   }
 }
 
-/// Chip de contato (WhatsApp / e-mail) — vidro suave + sombra premium.
+/// Chip de contato (WhatsApp / e-mail) ? vidro suave + sombra premium.
 class _PublicFooterContactChip extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -4669,7 +4670,7 @@ class _PublicFooter extends StatelessWidget {
                     style: const TextStyle(fontStyle: FontStyle.italic),
                   ),
                   TextSpan(
-                    text: '— $kVersiculoRef',
+                    text: '? $kVersiculoRef',
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       color: ThemeCleanPremium.primary,
@@ -4717,7 +4718,7 @@ class _PublicFooter extends StatelessWidget {
                 ),
                 child: const Text('Termos de uso'),
               ),
-              Text('·', style: TextStyle(color: Colors.grey.shade400)),
+              Text('?', style: TextStyle(color: Colors.grey.shade400)),
               TextButton(
                 onPressed: () => unawaited(
                   showGestaoYahwehLegalPreview(

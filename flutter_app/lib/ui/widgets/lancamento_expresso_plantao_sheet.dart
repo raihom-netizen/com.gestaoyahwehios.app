@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -150,7 +150,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
   int _valorRecalcIndex = 0;
   late String _colorHexPicked;
 
-  /// Primeiro plantão Particular com financeiro (Configurações → Plantões), p/ valores padrão no expresso.
+  /// Primeiro plantão Particular com financeiro (Configurações ? Plantões), p/ valores padrão no expresso.
   ShiftLocation? _privateTemplate;
   bool _privateOverride = false;
 
@@ -195,7 +195,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
 
   /// Compromisso particular na CRIAÇÃO = **mesma tela do módulo Compromissos**
   /// ([CompromissoFormPage]), pedido do usuário — painel inicial e Escalas.
-  /// Salvou → fecha o expresso; cancelou → continua em Escala. Edição de
+  /// Salvou ? fecha o expresso; cancelou ? continua em Escala. Edição de
   /// compromisso legado (sem vínculo Agenda) mantém o editor embutido.
   Future<void> _abrirTelaModuloCompromissos() async {
     final saved = await CompromissoExpressFullForm.openNew(
@@ -268,7 +268,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
         'PLANTÃO', '08:00', '18:00');
   }
 
-  /// Nº escala e observações: editar depois na grid do resumo mensal.
+  /// N? escala e observações: editar depois na grid do resumo mensal.
   String get _persistedScaleNumber => _isEditing
       ? (widget.editingEntry?.scaleNumber ?? '').trim().toUpperCase()
       : '';
@@ -536,7 +536,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
   /// também enquanto o usuário ajusta detalhes antes de gravar.
   String _buildShareText() {
     final tipoLabel = _isCompromissoMode ? 'Compromisso' : 'Plantão';
-    final emoji = _isCompromissoMode ? '📅' : '⏰';
+    final emoji = _isCompromissoMode ? '??' : '?';
     final nomeBase = _nomeCtrl.text.trim();
     final titulo = nomeBase.isNotEmpty
         ? uppercaseLatinPreservingEmoji(nomeBase)
@@ -555,16 +555,16 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
 
     final buffer = StringBuffer()
       ..writeln('$emoji *$titulo*')
-      ..writeln('📆 $dataLongCap')
-      ..writeln('🕒 $start às $end');
+      ..writeln('?? $dataLongCap')
+      ..writeln('?? $start ?s $end');
     if (notes.isNotEmpty) {
       buffer
         ..writeln()
-        ..writeln('📝 $notes');
+        ..writeln('?? $notes');
     }
     buffer
       ..writeln()
-      ..write('— via Controle Total App');
+      ..write('? via Controle Total App');
     return buffer.toString();
   }
 
@@ -981,7 +981,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
     final fmt = DateFormat('dd/MM');
     final shown = ds.take(8).map(fmt.format).join(', ');
     if (ds.length > 8) {
-      return '$shown … (+${ds.length - 8})';
+      return '$shown ? (+${ds.length - 8})';
     }
     return shown;
   }
@@ -1294,7 +1294,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
 
       final bool isCompromisso =
           _entryKind == ShiftLocation.entryKindCompromisso;
-      // Modo Compromisso escolhido pelo usuário → sempre Agenda + espelho (barra correta no resumo).
+      // Modo Compromisso escolhido pelo usuário ? sempre Agenda + espelho (barra correta no resumo).
       final bool compromissoParticularNaAgenda = isCompromisso;
       // Mantém o vínculo escolhido mesmo sem financeiro (valor 0); não força Particular.
       final String employerTypeName =
@@ -1322,13 +1322,13 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
 
         final baseMsg = useYearlyRepeat
             ? (_isEditing
-                ? '$baseName atualizado — repete todo ano em Escalas.'
-                : '$baseName salvo — repete automaticamente todo ano.')
+                ? '$baseName atualizado ? repete todo ano em Escalas.'
+                : '$baseName salvo ? repete automaticamente todo ano.')
             : (_isEditing
                 ? '$baseName atualizado na Agenda e no calendário.'
                 : (dias.length == 1
-                    ? '$baseName gravado — aparece no painel, Agenda e Escalas.'
-                    : '${dias.length} compromissos gravados — painel, Agenda e Escalas.'));
+                    ? '$baseName gravado ? aparece no painel, Agenda e Escalas.'
+                    : '${dias.length} compromissos gravados ? painel, Agenda e Escalas.'));
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -1505,7 +1505,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
         ? AppColors.textPrimary
         : Colors.white;
 
-    // Altura aproximada do footer (Cancelar + Gravar) — usada como padding
+    // Altura aproximada do footer (Cancelar + Gravar) ? usada como padding
     // bottom do ListView para que, ao focar um campo, o Flutter role o
     // suficiente e o campo focado fique visível ACIMA do footer (não atrás
     // dele). O footer fica sticky e não duplica o viewInsets — o Scaffold
@@ -1567,7 +1567,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
                       : 'Calendário e relatórios — não grava no pré-cadastro de Plantões.',
                   children: [
                     Text(
-                      'Para reutilizar um nome depois, cadastre em Configurações → Plantões (recorrentes).',
+                      'Para reutilizar um nome depois, cadastre em Configurações ? Plantões (recorrentes).',
                       style: TextStyle(
                           fontSize: 12.5,
                           color: context.appTextSecondary,
@@ -1580,7 +1580,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
               ],
               // Card único "Quando" (Data + Horário). Antes eram dois cards
               // separados; unificados aqui para a tela caber sem rolagem em
-              // iPhone — mesmo com teclado aberto, fica todos os campos
+              // iPhone ? mesmo com teclado aberto, fica todos os campos
               // visíveis. Mantém UX premium e visual.
               _expressoCard(
                 icon: Icons.event_available_rounded,
@@ -1865,8 +1865,8 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
                               if (_privateTemplate != null && !_privateOverride)
                                 Text(
                                   _isPrivateFixedFromTemplate(_privateTemplate!)
-                                      ? 'Valor fixo do plantão «${_privateTemplate!.name}» (Configurações → Plantões).'
-                                      : 'Por hora conforme tabela da escala e o plantão «${_privateTemplate!.name}» (Configurações → Plantões).',
+                                      ? 'Valor fixo do plantão ?${_privateTemplate!.name}? (Configurações ? Plantões).'
+                                      : 'Por hora conforme tabela da escala e o plantão ?${_privateTemplate!.name}? (Configurações ? Plantões).',
                                   style: TextStyle(
                                       fontSize: 12.5,
                                       color: context.appTextSecondary,
@@ -1875,7 +1875,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
                               else if (_privateTemplate == null &&
                                   !_privateOverride)
                                 Text(
-                                  'Nenhum plantão Particular com financeiro no pré-cadastro. Usando a tabela de horas da escala (Configurações → Escala). Use a opção abaixo para informar valor por hora ou fixo.',
+                                  'Nenhum plantão Particular com financeiro no pré-cadastro. Usando a tabela de horas da escala (Configurações ? Escala). Use a opção abaixo para informar valor por hora ou fixo.',
                                   style: TextStyle(
                                       fontSize: 12.5,
                                       color: context.appTextSecondary,
@@ -2046,7 +2046,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
                 title: 'Cor no calendário',
                 subtitle: _isCompromissoMode
                     ? 'Como o compromisso aparece no calendário.'
-                    : 'Mesmas 72 cores do pré-cadastro (Configurações → Plantões).',
+                    : 'Mesmas 72 cores do pré-cadastro (Configurações ? Plantões).',
                 children: [
                   Material(
                     color: pickedFill,
@@ -2112,7 +2112,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: Text(
-                          'Valor estimado para o 1º dia (${DateFormat('dd/MM').format(_daysSorted.first)}); nos demais dias o total segue o dia da semana.',
+                          'Valor estimado para o 1? dia (${DateFormat('dd/MM').format(_daysSorted.first)}); nos demais dias o total segue o dia da semana.',
                           style: TextStyle(
                               fontSize: 11.5,
                               color: context.appTextMuted,
@@ -2197,7 +2197,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
                     ? 'Gravar em ${_daysSorted.length} dias'
                     : 'Gravar'),
             isBusy: _loading,
-            busyLabel: 'Salvando…',
+            busyLabel: 'Salvando?',
             saveIcon: _isEditing ? Icons.save_rounded : Icons.add_task_rounded,
           ),
         ),

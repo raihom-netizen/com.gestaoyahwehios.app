@@ -110,7 +110,7 @@ abstract final class ChurchDashboardCacheService {
     }
   }
 
-  /// Stream nativo — painel atualiza KPIs sem recalcular no cliente.
+  /// Stream nativo ? painel atualiza KPIs sem recalcular no cliente.
   static Stream<ChurchDashboardCacheSnapshot?> watch({
     String? churchIdHint,
   }) {

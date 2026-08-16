@@ -99,7 +99,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   /// Parcelas no cartão (anual + cartão): 1 a 6.
   int _expressCardInstallments = 1;
 
-  /// Safari iOS / modo expresso: opções → confirmação antes do Mercado Pago.
+  /// Safari iOS / modo expresso: opções ? confirmação antes do Mercado Pago.
   _ExpressPayStep _expressPayStep = _ExpressPayStep.options;
   String? _prefetchKey;
   MpCheckoutSession? _prefetchedCheckout;
@@ -110,14 +110,14 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   /// atual + data de vencimento no cabeçalho).
   Map<String, dynamic>? _churchData;
 
-  /// Modo expresso — exibe a tela final «Pagamento confirmado» em vez de
+  /// Modo expresso ? exibe a tela final ?Pagamento confirmado? em vez de
   /// redirecionar (já que o utilizador veio do site público / iPhone).
   bool _expressPaymentDone = false;
   String _resolvedPanelRole = 'membro';
   /// Primeiro snapshot só estabelece linha de base — evita "pagamento confirmado" ao abrir Planos com licença já paga.
   bool _billingBaselineEstablished = false;
   bool _wasBillingPaidAtBaseline = false;
-  /// Na web o 1º snapshot pode vir sem `billing` (cache/rede); esperar o mapa evita falso "unpaid → paid".
+  /// Na web o 1? snapshot pode vir sem `billing` (cache/rede); esperar o mapa evita falso "unpaid ? paid".
   /// Assinatura do estado de cobrança na linha de base (mp|sub|lastPaymentMs).
   String _baselinePaymentSig = '';
 
@@ -254,7 +254,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     if (widget.expressMode) {
       setState(() => _churchData = data);
     }
-    // Sem `billing` ainda: não fixar linha de base (evita falso unpaid→paid no 2º evento na web).
+    // Sem `billing` ainda: não fixar linha de base (evita falso unpaid?paid no 2? evento na web).
     if (data['billing'] is! Map) return;
 
     final nowPaid = _isBillingStatusPaid(data);
@@ -574,7 +574,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
   /// Lista de parcelas do cartão (só ANUAL; mensal é sempre 1x). Mostra o valor
   /// de cada parcela para o usuário ver antes de pagar. Os juros do
   /// parcelamento, quando houver, são aplicados pelo Mercado Pago na finalização.
-  /// Multiplicador "cliente paga" do Mercado Pago por nº de parcelas (cartão),
+  /// Multiplicador "cliente paga" do Mercado Pago por n? de parcelas (cartão),
   /// derivado do simulador oficial do MP (base R$600). O valor final é sempre
   /// confirmado pelo Mercado Pago no checkout — aqui é a ESTIMATIVA para o
   /// gestor ver o total e o valor por parcela antes de pagar.
@@ -645,7 +645,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                     Expanded(
                       child: Text(
                         per == null
-                            ? '—'
+                            ? '?'
                             : (n == 1
                                 ? '${_money(per)} à vista'
                                 : '${n}x de ${_money(per)}'),
@@ -731,7 +731,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
           ),
           const SizedBox(height: 12),
           Text(
-            '${_selectedPlan.name} • ${_billingAnnual ? "Anual" : "Mensal"} • '
+            '${_selectedPlan.name} ? ${_billingAnnual ? "Anual" : "Mensal"} ? '
             'Cartão ${inst}x$parcelHint',
             style: TextStyle(
               fontSize: 14,
@@ -892,7 +892,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'Carregando dados da igreja…',
+                'Carregando dados da igreja?',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.85),
                   fontSize: 12,
@@ -1046,7 +1046,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     }
   }
 
-  /// Preview moderno de checkout — abre ao clicar Mensal/Anual no card.
+  /// Preview moderno de checkout ? abre ao clicar Mensal/Anual no card.
   /// Escolhe PIX ou Cartão (anual: cartão em até 6x com valores). "Gerar
   /// pagamento" fecha o modal e dispara o fluxo existente (PIX/checkout).
   void _openCheckoutSheet() {
@@ -1257,7 +1257,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                                           Expanded(
                                             child: Text(
                                               per == null
-                                                  ? '—'
+                                                  ? '?'
                                                   : (n == 1
                                                       ? '${_money(per)} à vista'
                                                       : '${n}x de ${_money(per)}'),
@@ -1978,7 +1978,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                   const SizedBox(height: 16),
                   Center(
                     child: Text(
-                      '${_selectedPlan.name} • ${_billingAnnual ? "Anual" : "Mensal"} • ${_paymentPix ? "PIX" : (_billingAnnual ? "Cartão ${_expressCardInstallments.clamp(1, 6)}x" : "Cartão 1x")}',
+                      '${_selectedPlan.name} ? ${_billingAnnual ? "Anual" : "Mensal"} ? ${_paymentPix ? "PIX" : (_billingAnnual ? "Cartão ${_expressCardInstallments.clamp(1, 6)}x" : "Cartão 1x")}',
                       style: TextStyle(
                         color: cs.primary,
                         fontWeight: FontWeight.w700,
@@ -2005,7 +2005,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
     }
     final appBarTitle = widget.expressMode
         ? 'Atualizar plano'
-        : 'Assinatura — Escolha seu plano';
+        : 'Assinatura ? Escolha seu plano';
     return Scaffold(
       appBar: AppBar(
         title: Text(appBarTitle),
@@ -2187,7 +2187,7 @@ class _PlanCardOficial extends StatelessWidget {
               const SizedBox(height: 6),
               if ((priceAnnual ?? plan.annualPrice) != null)
                 Text(
-                  'Anual: ${_money((priceAnnual ?? plan.annualPrice)!)} · pague 10 meses e use 12',
+                  'Anual: ${_money((priceAnnual ?? plan.annualPrice)!)} ? pague 10 meses e use 12',
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
               const SizedBox(height: 12),
@@ -2265,7 +2265,7 @@ class _PlanCardOficial extends StatelessWidget {
   }
 }
 
-/// Cor de acento por plano — deixa os cards coloridos/modernos (por faixa).
+/// Cor de acento por plano ? deixa os cards coloridos/modernos (por faixa).
 Color _planCardAccent(String id) {
   switch (id.trim()) {
     case 'inicial':

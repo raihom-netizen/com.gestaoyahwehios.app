@@ -74,7 +74,7 @@ Future<MemberProfilePhotoUpdateResult?> showMemberProfilePhotoEditorSheet(
   );
 }
 
-/// Folha para trocar a foto de perfil — actualiza cadastro + chat.
+/// Folha para trocar a foto de perfil ? actualiza cadastro + chat.
 Future<MemberProfilePhotoUpdateResult?> showChurchChatProfilePhotoSheet(
   BuildContext context, {
   required String tenantId,
@@ -224,9 +224,9 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
     if (bytes == null || bytes.isEmpty || _busy || !widget.canChangePhoto) return;
     setState(() {
       _busy = true;
-      _phaseLabel = 'A preparar…';
+      _phaseLabel = 'A preparar?';
     });
-    GlobalUploadProgress.instance.start('A enviar foto de perfil…');
+    GlobalUploadProgress.instance.start('A enviar foto de perfil?');
     try {
       Future<MemberProfilePhotoUpdateResult> publish() =>
           MemberProfilePhotoUpdateService.uploadAndPatchMember(
@@ -292,7 +292,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
           ],
         ),
         content: Text(
-          'Remover a foto de perfil de «$_memberName»? '
+          'Remover a foto de perfil de ?$_memberName?? '
           'A imagem será apagada do Storage e do cadastro.',
         ),
         actions: [
@@ -315,7 +315,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
   Future<void> _remove() async {
     setState(() {
       _busy = true;
-      _phaseLabel = 'A remover…';
+      _phaseLabel = 'A remover?';
     });
     try {
       await AppFinalizeBootstrap.ensureSessionForPublish(
@@ -563,7 +563,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
                     : const Icon(Icons.cloud_upload_rounded),
                 label: Text(
                   _busy
-                      ? (_phaseLabel.isNotEmpty ? _phaseLabel : 'Salvando…')
+                      ? (_phaseLabel.isNotEmpty ? _phaseLabel : 'Salvando?')
                       : 'Guardar foto',
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),
@@ -572,7 +572,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: Text(
-                    'Escolha uma foto para activar «Guardar foto».',
+                    'Escolha uma foto para activar ?Guardar foto?.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12,

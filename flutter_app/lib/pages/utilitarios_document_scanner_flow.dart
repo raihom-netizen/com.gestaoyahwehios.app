@@ -1,4 +1,4 @@
-﻿import 'dart:typed_data';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -10,10 +10,7 @@ import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
 
 /// Resultado do fluxo Scanner de Documentos (páginas processadas + PDF montado).
 class UtilitariosDocumentScannerResult {
-  const UtilitariosDocumentScannerResult({
-    required this.pages,
-    this.pdfBytes,
-  });
+  const UtilitariosDocumentScannerResult({required this.pages, this.pdfBytes});
 
   final List<Uint8List> pages;
   final Uint8List? pdfBytes;
@@ -53,13 +50,21 @@ const _kGradOrange = [Color(0xFFF59E0B), Color(0xFFEF4444)];
 
 /// Única opção: cor original (sem filtros pesados).
 enum _ScanMode {
-  original('Original', 'Cor natural da foto');
+  document('Documento', 'Limpa sombras e destaca o papel'),
+  original('Original', 'Mantém as cores naturais'),
+  color('Colorido', 'Realça cor e contraste'),
+  vivid('Vivo', 'Mais contraste para leitura rápida');
 
   final String label;
   final String description;
   const _ScanMode(this.label, this.description);
 
-  String get engineKey => UtilitariosLocalService.scanModeOriginal;
+  String get engineKey => switch (this) {
+    _ScanMode.document => UtilitariosLocalService.scanModeDocument,
+    _ScanMode.original => UtilitariosLocalService.scanModeOriginal,
+    _ScanMode.color => UtilitariosLocalService.scanModeColor,
+    _ScanMode.vivid => UtilitariosLocalService.scanModeVivid,
+  };
 }
 
 /// Página escaneada — [original] é a foto de trabalho (borda detectada em nx..nh).
@@ -112,7 +117,7 @@ class _DocumentScannerPageState extends State<_DocumentScannerPage> {
   final List<_ScannedPage> _pages = [];
   bool _busy = false;
   String? _busyLabel;
-  static const _ScanMode _currentMode = _ScanMode.original;
+  _ScanMode _currentMode = _ScanMode.document;
 
   bool get _atLimit => _pages.length >= kDocScannerMaxPages;
 
@@ -208,7 +213,9 @@ class _DocumentScannerPageState extends State<_DocumentScannerPage> {
       mode: _currentMode.engineKey,
     );
     if (!mounted) return;
-    setState(() => _pages.add(_ScannedPage(
+    setState(
+      () => _pages.add(
+        _ScannedPage(
           original: result.original,
           preview: result.preview,
           mode: _currentMode,
@@ -216,7 +223,9 @@ class _DocumentScannerPageState extends State<_DocumentScannerPage> {
           ny: result.ny,
           nw: result.nw,
           nh: result.nh,
-        )));
+        ),
+      ),
+    );
   }
 
   void _removeAt(int index) {
@@ -268,7 +277,7 @@ class _DocumentScannerPageState extends State<_DocumentScannerPage> {
           ny: page.ny,
           nw: page.nw,
           nh: page.nh,
-          mode: UtilitariosLocalService.scanModeOriginal,
+          mode: page.mode.engineKey,
         );
         exportPages.add(exported);
         if (!mounted) return;
@@ -277,10 +286,7 @@ class _DocumentScannerPageState extends State<_DocumentScannerPage> {
       final pdf = await UtilitariosLocalService.imagesToPdf(exportPages);
       if (!mounted) return;
       Navigator.of(context).pop(
-        UtilitariosDocumentScannerResult(
-          pages: exportPages,
-          pdfBytes: pdf,
-        ),
+        UtilitariosDocumentScannerResult(pages: exportPages, pdfBytes: pdf),
       );
     }, label: 'Gerando PDF…');
   }
@@ -291,8 +297,10 @@ class _DocumentScannerPageState extends State<_DocumentScannerPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: _kSurface,
-        title: const Text('Descartar escaneamento?',
-            style: TextStyle(color: Colors.white)),
+        title: const Text(
+          'Descartar escaneamento?',
+          style: TextStyle(color: Colors.white),
+        ),
         content: Text(
           'Você tem ${_pages.length} página(s). Deseja sair e descartar?',
           style: TextStyle(color: Colors.white.withValues(alpha: 0.75)),
@@ -396,6 +404,52 @@ class _DocumentScannerPageState extends State<_DocumentScannerPage> {
     );
   }
 
+  Future<void> _selectScanMode(_ScanMode mode) async {
+    if (_busy || _currentMode == mode) return;
+    setState(() => _currentMode = mode);
+    if (_pages.isEmpty) return;
+    await _withBusy(() async {
+      for (var i = 0; i < _pages.length; i++) {
+        final page = _pages[i];
+        final preview = await UtilitariosLocalService.rebuildScanPreview(
+          page.original,
+          nx: page.nx,
+          ny: page.ny,
+          nw: page.nw,
+          nh: page.nh,
+          mode: mode.engineKey,
+        );
+        if (!mounted) return;
+        setState(() => _pages[i] = page.copyWith(preview: preview, mode: mode));
+      }
+    }, label: 'Aplicando modo ${mode.label}…');
+  }
+
+  Widget _buildModePicker() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: _ScanMode.values.map((mode) {
+          final selected = _currentMode == mode;
+          return ChoiceChip(
+            label: Text(mode.label),
+            selected: selected,
+            onSelected: _busy ? null : (_) => _selectScanMode(mode),
+            selectedColor: _kAccent.withValues(alpha: 0.92),
+            backgroundColor: _kSurface2,
+            labelStyle: TextStyle(
+              color: selected ? Colors.white : Colors.white70,
+              fontWeight: FontWeight.w700,
+            ),
+            side: BorderSide(color: selected ? _kAccent2 : Colors.white24),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   Widget _buildBody() {
     if (_pages.isEmpty) {
       return Center(
@@ -478,6 +532,7 @@ class _DocumentScannerPageState extends State<_DocumentScannerPage> {
             ],
           ),
         ),
+        _buildModePicker(),
         Expanded(
           child: GridView.builder(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -564,8 +619,11 @@ class _DocumentScannerPageState extends State<_DocumentScannerPage> {
                                 child: const SizedBox(
                                   width: 40,
                                   height: 40,
-                                  child: Icon(Icons.delete_outline,
-                                      color: Colors.white, size: 20),
+                                  child: Icon(
+                                    Icons.delete_outline,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
                                 ),
                               ),
                             ),
@@ -731,9 +789,7 @@ class _DocumentScannerPageState extends State<_DocumentScannerPage> {
               width: 54,
               height: 54,
               decoration: BoxDecoration(
-                gradient: enabled
-                    ? LinearGradient(colors: colors)
-                    : null,
+                gradient: enabled ? LinearGradient(colors: colors) : null,
                 color: enabled ? null : Colors.white12,
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: enabled
@@ -746,10 +802,7 @@ class _DocumentScannerPageState extends State<_DocumentScannerPage> {
                       ]
                     : null,
               ),
-              child: Icon(
-                icon,
-                color: enabled ? Colors.white : Colors.white38,
-              ),
+              child: Icon(icon, color: enabled ? Colors.white : Colors.white38),
             ),
           ),
         ),
@@ -883,19 +936,21 @@ class _ScanPageEditorState extends State<_ScanPageEditor> {
         ny: _page.ny,
         nw: _page.nw,
         nh: _page.nh,
-        mode: UtilitariosLocalService.scanModeOriginal,
+        mode: _page.mode.engineKey,
         quarterTurns: -1,
       );
       if (!mounted) return;
-      setState(() => _page = _ScannedPage(
-            original: r.original,
-            preview: r.preview,
-            mode: _ScanMode.original,
-            nx: r.nx,
-            ny: r.ny,
-            nw: r.nw,
-            nh: r.nh,
-          ));
+      setState(
+        () => _page = _ScannedPage(
+          original: r.original,
+          preview: r.preview,
+          mode: widget.page.mode,
+          nx: r.nx,
+          ny: r.ny,
+          nw: r.nw,
+          nh: r.nh,
+        ),
+      );
     });
   }
 
@@ -982,17 +1037,19 @@ class _ScanPageEditorState extends State<_ScanPageEditor> {
           ny: r.ny,
           nw: r.nw,
           nh: r.nh,
-          mode: UtilitariosLocalService.scanModeOriginal,
+          mode: _page.mode.engineKey,
         );
         if (!mounted) return;
-        setState(() => _page = _page.copyWith(
-              preview: preview,
-              mode: _ScanMode.original,
-              nx: r.nx,
-              ny: r.ny,
-              nw: r.nw,
-              nh: r.nh,
-            ));
+        setState(
+          () => _page = _page.copyWith(
+            preview: preview,
+            mode: widget.page.mode,
+            nx: r.nx,
+            ny: r.ny,
+            nw: r.nw,
+            nh: r.nh,
+          ),
+        );
       });
       return;
     }
@@ -1067,8 +1124,10 @@ class _ScanPageEditorState extends State<_ScanPageEditor> {
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right_rounded,
-                  color: Colors.white.withValues(alpha: 0.5)),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: Colors.white.withValues(alpha: 0.5),
+              ),
             ],
           ),
         ),
@@ -1145,8 +1204,10 @@ class _ScanPageEditorState extends State<_ScanPageEditor> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
@@ -1161,8 +1222,11 @@ class _ScanPageEditorState extends State<_ScanPageEditor> {
                     ),
                     child: const Row(
                       children: [
-                        Icon(Icons.palette_outlined,
-                            color: _kAccentSoft, size: 18),
+                        Icon(
+                          Icons.palette_outlined,
+                          color: _kAccentSoft,
+                          size: 18,
+                        ),
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -1182,8 +1246,9 @@ class _ScanPageEditorState extends State<_ScanPageEditor> {
                   padding: const EdgeInsets.fromLTRB(8, 12, 8, 16),
                   decoration: BoxDecoration(
                     color: _kSurface,
-                    borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(22)),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(22),
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.3),
@@ -1224,8 +1289,9 @@ class _ScanPageEditorState extends State<_ScanPageEditor> {
                             width: 58,
                             height: 58,
                             decoration: BoxDecoration(
-                              gradient:
-                                  const LinearGradient(colors: _kGradTeal),
+                              gradient: const LinearGradient(
+                                colors: _kGradTeal,
+                              ),
                               borderRadius: BorderRadius.circular(16),
                               boxShadow: [
                                 BoxShadow(
@@ -1304,9 +1370,7 @@ class _ScanPageEditorState extends State<_ScanPageEditor> {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  gradient: enabled
-                      ? LinearGradient(colors: colors)
-                      : null,
+                  gradient: enabled ? LinearGradient(colors: colors) : null,
                   color: enabled ? null : Colors.white12,
                   borderRadius: BorderRadius.circular(14),
                   boxShadow: enabled
@@ -1319,8 +1383,11 @@ class _ScanPageEditorState extends State<_ScanPageEditor> {
                         ]
                       : null,
                 ),
-                child: Icon(icon,
-                    color: enabled ? Colors.white : Colors.white30, size: 22),
+                child: Icon(
+                  icon,
+                  color: enabled ? Colors.white : Colors.white30,
+                  size: 22,
+                ),
               ),
               const SizedBox(height: 5),
               Text(
@@ -1407,14 +1474,14 @@ class _ScanCropEditorState extends State<_ScanCropEditor> {
         ny: _ny,
         nw: _nw,
         nh: _nh,
-        mode: UtilitariosLocalService.scanModeOriginal,
+        mode: widget.page.mode.engineKey,
       );
       if (!mounted) return;
       Navigator.pop(
         context,
         widget.page.copyWith(
           preview: preview,
-          mode: _ScanMode.original,
+          mode: widget.page.mode,
           nx: _nx,
           ny: _ny,
           nw: _nw,
@@ -1495,17 +1562,21 @@ class _ScanCropEditorState extends State<_ScanCropEditor> {
                       onTap: _busy ? null : _autoDetect,
                       child: Ink(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
-                          gradient:
-                              const LinearGradient(colors: _kGradTeal),
+                          gradient: const LinearGradient(colors: _kGradTeal),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.auto_fix_high_rounded,
-                                color: Colors.white, size: 16),
+                            Icon(
+                              Icons.auto_fix_high_rounded,
+                              color: Colors.white,
+                              size: 16,
+                            ),
                             SizedBox(width: 6),
                             Text(
                               'Auto',
@@ -1570,9 +1641,9 @@ class _ScanCropEditorState extends State<_ScanCropEditor> {
                                       1 => _kGradViolet,
                                       2 => _kGradOrange,
                                       _ => const [
-                                          Color(0xFF38BDF8),
-                                          Color(0xFF22D3EE),
-                                        ],
+                                        Color(0xFF38BDF8),
+                                        Color(0xFF22D3EE),
+                                      ],
                                     };
                                     return Positioned(
                                       left: left
@@ -1657,8 +1728,10 @@ class _ScanCropEditorState extends State<_ScanCropEditor> {
                             : const Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.check_rounded,
-                                      color: Colors.white),
+                                  Icon(
+                                    Icons.check_rounded,
+                                    color: Colors.white,
+                                  ),
                                   SizedBox(width: 8),
                                   Text(
                                     'Aplicar recorte',

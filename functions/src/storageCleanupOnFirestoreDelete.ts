@@ -144,7 +144,7 @@ export const onIgrejaPatrimonioDeleteCleanupStorage = functions
  */
 export const onIgrejaFinanceDeleteCleanupStorage = functions
   .region("us-central1")
-  .firestore.document("igrejas/{tenantId}/finance/{docId}")
+  .firestore.document("igrejas/{tenantId}/financeiro/{docId}")
   .onDelete(async (snap, ctx) => {
     const tenantId = safeSeg(ctx.params.tenantId as string);
     const docId = safeSeg(ctx.params.docId as string);

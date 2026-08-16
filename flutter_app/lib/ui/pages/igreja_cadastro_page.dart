@@ -57,6 +57,7 @@ import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Gera slug (link/domínio) a partir do nome da igreja: normaliza, remove acentos e palavras comuns, usa hífens.
 String _slugFromChurchName(String name) {
@@ -79,11 +80,11 @@ String _slugFromChurchName(String name) {
   final normalized = name
       .trim()
       .toLowerCase()
-      .replaceAll(RegExp('[àáâãäåāăą]'), 'a')
-      .replaceAll(RegExp('[èéêëēėę]'), 'e')
-      .replaceAll(RegExp('[ìíîïīį]'), 'i')
-      .replaceAll(RegExp('[òóôõöōő]'), 'o')
-      .replaceAll(RegExp('[ùúûüūů]'), 'u')
+      .replaceAll(RegExp('[??????aaa]'), 'a')
+      .replaceAll(RegExp('[????eee]'), 'e')
+      .replaceAll(RegExp('[????ii]'), 'i')
+      .replaceAll(RegExp('[?????oo]'), 'o')
+      .replaceAll(RegExp('[????uu]'), 'u')
       .replaceAll(RegExp('[ç]'), 'c')
       .replaceAll(RegExp('[ñ]'), 'n');
   final words = normalized
@@ -221,7 +222,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   bool _notedNonexistentIgrejaDoc = false;
   bool _logoTokenRefreshAttempted = false;
 
-  /// Evita múltiplas resoluções Storage→URL para o mesmo tenant na mesma sessão.
+  /// Evita múltiplas resoluções Storage?URL para o mesmo tenant na mesma sessão.
   String? _logoStorageHydrationTenantId;
   String? _operationalTenantId;
   Map<String, dynamic> _tenantLiveData = {};
@@ -242,7 +243,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Uint8List? _gPhotoBytes;
   String? _gestorExistingPhotoUrl;
 
-  /// Snapshot do doc `membros` do gestor — usado por [FotoMembroWidget] (path/`gs://` sem URL https).
+  /// Snapshot do doc `membros` do gestor ? usado por [FotoMembroWidget] (path/`gs://` sem URL https).
   Map<String, dynamic>? _gestorMemberData;
 
   /// ID real do documento em `membros` (padrão: UID do Firebase; legado: CPF).
@@ -406,7 +407,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           _cadastroBootstrapDone = true;
           _cadastroBootstrapError = null;
           _cadastroSoftSyncWarning =
-              'Tempo esgotado ao sincronizar. Exibindo cadastro local — toque em Atualizar.';
+              'Tempo esgotado ao sincronizar. Exibindo cadastro local ? toque em Atualizar.';
         });
         unawaited(_reloadChurchDataInBackground());
         return;
@@ -414,7 +415,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       setState(() {
         _cadastroBootstrapDone = true;
         _cadastroBootstrapError =
-            'Tempo esgotado ao carregar o cadastro. Toque em «Tentar novamente».';
+            'Tempo esgotado ao carregar o cadastro. Toque em ?Tentar novamente?.';
       });
     } catch (e) {
       if (!mounted) return;
@@ -922,7 +923,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     _gestorMemberData = null;
   }
 
-  /// `endereco` legado (string única) → CEP, rua, bairro, cidade, UF.
+  /// `endereco` legado (string ?nica) ? CEP, rua, bairro, cidade, UF.
   void _hydrateAddressFromCompositeEndereco(Map<String, dynamic> data) {
     final hasParts =
         _cepCtrl.text.trim().isNotEmpty ||
@@ -1109,10 +1110,10 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     const chunk = 400;
     final list = refs.toList();
     for (var i = 0; i < list.length; i += chunk) {
-      final batch = ChurchRepository.batch();
+      final batch = YahwehBatch();
       final end = (i + chunk > list.length) ? list.length : i + chunk;
       for (var j = i; j < end; j++) {
-        batch.delete(list[j]);
+        batch.deleteDoc(list[j]);
       }
       await batch.commit();
     }
@@ -2420,7 +2421,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Carregando igrejas/$resolvedId…',
+                  'Carregando igrejas/$resolvedId?',
                   style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
@@ -3058,7 +3059,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                               readOnly: !_canEdit,
                               decoration: const InputDecoration(
                                 labelText: 'Quadra, Lote e Número',
-                                hintText: 'Qd 1, Lt 5, Nº 123',
+                                hintText: 'Qd 1, Lt 5, N? 123',
                                 border: OutlineInputBorder(),
                               ),
                             ),
@@ -3207,7 +3208,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                             ),
                             const SizedBox(height: ThemeCleanPremium.spaceLg),
                             _cadastroSectionLabel(
-                              'Carteirinha de membro — validade',
+                              'Carteirinha de membro ? validade',
                             ),
                             const SizedBox(height: 6),
                             Text(
@@ -3344,7 +3345,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                               keyboardType: TextInputType.phone,
                               inputFormatters: const [BrPhoneInputFormatter()],
                               decoration: _premiumInputDeco(
-                                'WhatsApp — telefone (opcional)',
+                                'WhatsApp ? telefone (opcional)',
                                 '62 9.9170-5247',
                               ),
                             ),

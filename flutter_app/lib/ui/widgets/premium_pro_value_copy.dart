@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
 
 import 'package:gestao_yahweh/constants/premium_pro_limits.dart';
@@ -76,7 +76,7 @@ class PremiumProDepoisChecklist extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const items = [
-      'Compra → já aparece no app',
+      'Compra ? já aparece no app',
       'Já categorizado automaticamente',
       'Controle total sem esforço',
     ];
@@ -251,13 +251,13 @@ class PremiumProMarketingHighlights extends StatelessWidget {
                     ],
                   ),
                   Text(
-                    '${p.premiumProAnnualLine} (${p.premiumProAnnualEquivPerMonthLine} em média) · referência: ${p.premiumProMonthlyLine}',
+                    '${p.premiumProAnnualLine} (${p.premiumProAnnualEquivPerMonthLine} em mídia) ? referência: ${p.premiumProMonthlyLine}',
                     style: TextStyle(fontSize: 11, color: context.appTextMuted, height: 1.35),
                   ),
                 ] else ...[
                   SizedBox(height: 8),
                   Text(
-                    '${p.premiumProAnnualLine} ou ${p.premiumProMonthlyLine} — valores em tempo real no checkout.',
+                    '${p.premiumProAnnualLine} ou ${p.premiumProMonthlyLine} ? valores em tempo real no checkout.',
                     style: TextStyle(fontSize: 12, color: context.appTextSecondary, height: 1.35),
                   ),
                 ],

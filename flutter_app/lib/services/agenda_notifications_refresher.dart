@@ -1,4 +1,4 @@
-/// Stub — AgendaNotificationsRefresher (CT compat).
+/// Stub ? AgendaNotificationsRefresher (CT compat).
 /// Versão simplificada para YAHWEH: apenas invalida epoch de mutações.
 library;
 

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -109,7 +109,7 @@ class FinanceMonthCache {
     return (monthStart, monthEnd);
   }
 
-  /// Retorna dados do mês: memória → cache Firestore → servidor.
+  /// Retorna dados do mês: memória ? cache Firestore ? servidor.
   /// Com cache em memória: devolve na hora e sincroniza servidor em background.
   static Future<MonthFinanceData> fetchMonth(
     String uid,

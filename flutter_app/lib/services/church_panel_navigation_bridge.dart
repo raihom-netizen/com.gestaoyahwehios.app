@@ -1,8 +1,8 @@
 import 'package:gestao_yahweh/core/church_shell_indices.dart';
 import 'package:gestao_yahweh/core/church_panel_modules_removed.dart';
 
-/// Pedido de abrir uma conversa concreta (ex.: push FCM ou atalho «Yahweh Chat»).
-/// O hub nativo consome [threadId] / [peerUid] (DM Firestore `dm_…`).
+/// Pedido de abrir uma conversa concreta (ex.: push FCM ou atalho ?Yahweh Chat?).
+/// O hub nativo consome [threadId] / [peerUid] (DM Firestore `dm_?`).
 class PendingChatThreadOpen {
   final String threadId;
   final String? tenantId;
@@ -12,7 +12,7 @@ class PendingChatThreadOpen {
   final String? displayName;
   final String? initialDraftText;
 
-  /// Telefone do membro (≥10 dígitos) — opcional (atalhos externos).
+  /// Telefone do membro (=10 dígitos) ? opcional (atalhos externos).
   final String? phoneDigits;
 
   const PendingChatThreadOpen({
@@ -173,6 +173,8 @@ class ChurchPanelNavigationBridge {
         return kChurchShellIndexMySchedules;
       case 'fornecedor_agenda_reminder':
         return kChurchShellIndexFornecedores;
+      case 'novo_pedido_oracao':
+        return ChurchShellIndices.pedidosOracao;
       case 'new_member':
         return kChurchShellIndexMembers;
       case 'birthday_daily':

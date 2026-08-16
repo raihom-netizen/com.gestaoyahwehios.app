@@ -10,7 +10,7 @@ import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 
-/// Upload directo Storage → URL — port 1:1 do EcoFire `StorageUploadService`,
+/// Upload directo Storage ? URL ? port 1:1 do EcoFire `StorageUploadService`,
 /// com paths canónicos `igrejas/{churchId}/…` do Gestão YAHWEH.
 abstract final class EcoFireStorageUpload {
   EcoFireStorageUpload._();
@@ -93,7 +93,7 @@ abstract final class EcoFireStorageUpload {
     throw lastError ?? StateError('storage_upload_failed:$storagePath');
   }
 
-  /// Logo igreja — sobrescreve `configuracoes/logo_igreja.png`.
+  /// Logo igreja ? sobrescreve `configuracoes/logo_igreja.png`.
   static Future<({String url, String storagePath})> uploadChurchLogo({
     required String churchId,
     required Uint8List bytes,

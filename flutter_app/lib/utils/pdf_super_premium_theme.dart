@@ -10,7 +10,7 @@ import 'package:gestao_yahweh/utils/pdf_text_sanitize.dart';
 import 'package:gestao_yahweh/utils/report_pdf_branding.dart';
 
 /// Tema Super Premium para relatórios PDF.
-/// Cabeçalho = dados/logo da igreja · Rodapé = autoria Gestão YAHWEH.
+/// Cabeçalho = dados/logo da igreja ? Rodap? = autoria Gestão YAHWEH.
 class PdfSuperPremiumTheme {
   PdfSuperPremiumTheme._();
 
@@ -44,7 +44,7 @@ class PdfSuperPremiumTheme {
         boldItalic: pw.Font.ttf(bold),
       );
     } catch (e, st) {
-      debugPrint('PdfSuperPremiumTheme: Roboto PDF — $e\n$st');
+      debugPrint('PdfSuperPremiumTheme: Roboto PDF ? $e\n$st');
       _robotoPdfTheme = null;
     }
     return _robotoPdfTheme;
@@ -73,7 +73,7 @@ class PdfSuperPremiumTheme {
   static PdfColor get _ink => PdfColor.fromInt(0xFF0F172A);
   static PdfColor get _tableHeaderBg => PdfColor.fromInt(0xFFF1F5F9);
 
-  /// Largura fixa da coluna índice (# / ordem). ≥44pt para 3 dígitos sem empilhar caracteres no `pdf`.
+  /// Largura fixa da coluna ?ndice (# / ordem). =44pt para 3 dígitos sem empilhar caracteres no `pdf`.
   static const double indexColumnPt = 44;
 
   /// Margem uniforme A4 nos PDFs do painel (relatórios, recibos).
@@ -428,7 +428,7 @@ class PdfSuperPremiumTheme {
       cityLine = uf;
     }
     if (cep.isNotEmpty) {
-      cityLine = cityLine.isEmpty ? 'CEP $cep' : '$cityLine · CEP $cep';
+      cityLine = cityLine.isEmpty ? 'CEP $cep' : '$cityLine ? CEP $cep';
     }
 
     final addrParts = <String>[
@@ -475,7 +475,7 @@ class PdfSuperPremiumTheme {
                   else ...[
                     if (addrParts.isNotEmpty)
                       pw.Text(
-                        pdfSafeText(addrParts.join(' — ')),
+                        pdfSafeText(addrParts.join(' ? ')),
                         style: pw.TextStyle(fontSize: 9.2, color: _muted),
                       ),
                     if (cityLine.isNotEmpty) ...[
@@ -615,14 +615,14 @@ class PdfSuperPremiumTheme {
                   ),
                 ),
                 pw.Text(
-                  'Sistema de gestão ministerial · Autoria oficial',
+                  'Sistema de gestão ministerial ? Autoria oficial',
                   style: pw.TextStyle(fontSize: 6.8, color: muted),
                 ),
               ],
             ),
           ),
           pw.Text(
-            'Emitido $emitido  ·  Pag. ${context.pageNumber}/${context.pagesCount}',
+            'Emitido $emitido  ?  Pag. ${context.pageNumber}/${context.pagesCount}',
             style: pw.TextStyle(fontSize: 7.2, color: muted),
           ),
         ],
@@ -754,7 +754,7 @@ class PdfSuperPremiumTheme {
     }
 
     // A SELEÇÃO manda (padrão certificado): renderiza só os slots com signatário.
-    // 1 preenchido → 1 assinatura CENTRALIZADA; 2 → duas colunas; 0 → duas (linhas
+    // 1 preenchido ? 1 assinatura CENTRALIZADA; 2 ? duas colunas; 0 ? duas (linhas
     // em branco para assinar à mão, como antes).
     bool has(String name, Uint8List? sig, PdfDigitalStampInput? stamp) =>
         name.trim().isNotEmpty ||
@@ -766,7 +766,7 @@ class PdfSuperPremiumTheme {
         has(rightSignerName, rightSignatureImageBytes, rightDigitalStamp);
 
     if (hasLeft != hasRight) {
-      // Exatamente um signatário → centralizado.
+      // Exatamente um signatário ? centralizado.
       final title = hasLeft ? leftTitle : rightTitle;
       final name = hasLeft ? leftSignerName : rightSignerName;
       final sig = hasLeft ? leftSignatureImageBytes : rightSignatureImageBytes;

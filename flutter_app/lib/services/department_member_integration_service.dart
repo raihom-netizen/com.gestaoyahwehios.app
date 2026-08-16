@@ -1,11 +1,16 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
+    show firestoreRestCommit, RestWrite;
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
+import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
-import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show imageUrlFromMap;
 
 /// Integração Membros ↔ Departamentos ↔ Escalas (denormalização + limpeza de escalas futuras).
 class DepartmentMemberIntegrationService {
@@ -20,15 +25,17 @@ class DepartmentMemberIntegrationService {
     String memberDocId,
     Map<String, dynamic> memberData,
   ) {
-    final nome = (memberData['NOME_COMPLETO'] ??
-            memberData['nome'] ??
-            memberData['name'] ??
-            memberDocId)
-        .toString()
-        .trim();
+    final nome =
+        (memberData['NOME_COMPLETO'] ??
+                memberData['nome'] ??
+                memberData['name'] ??
+                memberDocId)
+            .toString()
+            .trim();
     final foto = imageUrlFromMap(memberData);
     final cpf = _normCpf(
-        (memberData['CPF'] ?? memberData['cpf'] ?? '').toString());
+      (memberData['CPF'] ?? memberData['cpf'] ?? '').toString(),
+    );
     return {
       'memberDocId': memberDocId,
       'nome': nome,
@@ -41,29 +48,26 @@ class DepartmentMemberIntegrationService {
   static DocumentReference<Map<String, dynamic>> _memberRef(
     String tenantId,
     String memberDocId,
-  ) =>
-                ChurchOperationalPaths.churchDoc(tenantId)
-          .collection('membros')
-          .doc(memberDocId);
+  ) => ChurchOperationalPaths.churchDoc(
+    tenantId,
+  ).collection('membros').doc(memberDocId);
 
   static DocumentReference<Map<String, dynamic>> _linkedRef(
     String tenantId,
     String departmentId,
     String memberDocId,
-  ) =>
-                ChurchOperationalPaths.churchDoc(tenantId)
-          .collection('departamentos')
-          .doc(departmentId)
-          .collection('membros_vinculados')
-          .doc(memberDocId);
+  ) => ChurchOperationalPaths.churchDoc(tenantId)
+      .collection('departamentos')
+      .doc(departmentId)
+      .collection('membros_vinculados')
+      .doc(memberDocId);
 
   static DocumentReference<Map<String, dynamic>> _deptRef(
     String tenantId,
     String departmentId,
-  ) =>
-                ChurchOperationalPaths.churchDoc(tenantId)
-          .collection('departamentos')
-          .doc(departmentId);
+  ) => ChurchOperationalPaths.churchDoc(
+    tenantId,
+  ).collection('departamentos').doc(departmentId);
 
   /// Atualiza a lista completa de departamentos do membro + subcoleções + contadores em **um ou mais**
   /// [WriteBatch] (até ~450 operações por batch). Depois remove o CPF das escalas futuras dos
@@ -90,28 +94,20 @@ class DepartmentMemberIntegrationService {
     final extra = extraMemberFields ?? {};
 
     void applyMemberAndDiff(WriteBatch b) {
-      b.set(
-        _memberRef(tid, mid),
-        {
-          'DEPARTAMENTOS': listIds,
-          'departamentosIds': listIds,
-          'DEPARTAMENTOS_ATUALIZADO_EM': FieldValue.serverTimestamp(),
-          ...extra,
-        },
-        SetOptions(merge: true),
-      );
+      b.set(_memberRef(tid, mid), {
+        'DEPARTAMENTOS': listIds,
+        'departamentosIds': listIds,
+        'DEPARTAMENTOS_ATUALIZADO_EM': FieldValue.serverTimestamp(),
+        ...extra,
+      }, SetOptions(merge: true));
       for (final did in removed) {
         final d = did.trim();
         if (d.isEmpty) continue;
         b.delete(_linkedRef(tid, d, mid));
-        b.set(
-          _deptRef(tid, d),
-          {
-            'membrosVinculadosCount': FieldValue.increment(-1),
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
+        b.set(_deptRef(tid, d), {
+          'membrosVinculadosCount': FieldValue.increment(-1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       }
       for (final did in added) {
         final d = did.trim();
@@ -121,14 +117,10 @@ class DepartmentMemberIntegrationService {
           _linkedMemberSnapshot(mid, memberData),
           SetOptions(merge: true),
         );
-        b.set(
-          _deptRef(tid, d),
-          {
-            'membrosVinculadosCount': FieldValue.increment(1),
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
+        b.set(_deptRef(tid, d), {
+          'membrosVinculadosCount': FieldValue.increment(1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       }
     }
 
@@ -138,7 +130,7 @@ class DepartmentMemberIntegrationService {
     if (diffOps <= maxOps) {
       final batch = firebaseDefaultFirestore.batch();
       applyMemberAndDiff(batch);
-      await batch.commit();
+      await FirestoreWebGuard.runWithWebRecovery(() => batch.commit());
     } else {
       // Primeiro batch: documento do membro + parte dos removes/adds.
       final remList = removed.toList();
@@ -149,21 +141,17 @@ class DepartmentMemberIntegrationService {
       var count = 0;
 
       Future<void> commitBatch() async {
-        await batch.commit();
+        await FirestoreWebGuard.runWithWebRecovery(() => batch.commit());
         batch = firebaseDefaultFirestore.batch();
         count = 0;
       }
 
-      batch.set(
-        _memberRef(tid, mid),
-        {
-          'DEPARTAMENTOS': listIds,
-          'departamentosIds': listIds,
-          'DEPARTAMENTOS_ATUALIZADO_EM': FieldValue.serverTimestamp(),
-          ...extra,
-        },
-        SetOptions(merge: true),
-      );
+      batch.set(_memberRef(tid, mid), {
+        'DEPARTAMENTOS': listIds,
+        'departamentosIds': listIds,
+        'DEPARTAMENTOS_ATUALIZADO_EM': FieldValue.serverTimestamp(),
+        ...extra,
+      }, SetOptions(merge: true));
       count = 1;
 
       Future<void> flushIfNeeded(int nextDelta) async {
@@ -177,14 +165,10 @@ class DepartmentMemberIntegrationService {
         final d = remList[ri++].trim();
         if (d.isEmpty) continue;
         batch.delete(_linkedRef(tid, d, mid));
-        batch.set(
-          _deptRef(tid, d),
-          {
-            'membrosVinculadosCount': FieldValue.increment(-1),
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
+        batch.set(_deptRef(tid, d), {
+          'membrosVinculadosCount': FieldValue.increment(-1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
         count += 2;
       }
       while (ai < addList.length) {
@@ -196,17 +180,14 @@ class DepartmentMemberIntegrationService {
           _linkedMemberSnapshot(mid, memberData),
           SetOptions(merge: true),
         );
-        batch.set(
-          _deptRef(tid, d),
-          {
-            'membrosVinculadosCount': FieldValue.increment(1),
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
+        batch.set(_deptRef(tid, d), {
+          'membrosVinculadosCount': FieldValue.increment(1),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
         count += 2;
       }
-      if (count > 0) await batch.commit();
+      if (count > 0)
+        await FirestoreWebGuard.runWithWebRecovery(() => batch.commit());
     }
 
     for (final did in removed) {
@@ -232,30 +213,57 @@ class DepartmentMemberIntegrationService {
     final mid = memberDocId.trim();
     if (tid.isEmpty || did.isEmpty || mid.isEmpty) return;
 
+    // Web: o WriteBatch do SDK falha com a INTERNAL ASSERTION ("Não foi possível
+    // vincular os membros"). Vai por REST `:commit`, que é igualmente atómico e
+    // suporta os transforms (arrayUnion/increment/serverTimestamp).
+    if (kIsWeb) {
+      await firestoreRestCommit([
+        RestWrite.update(
+          _memberRef(tid, mid).path,
+          arrayUnion: {
+            'DEPARTAMENTOS': [did],
+            'departamentosIds': [did],
+          },
+          serverTimestamp: const ['DEPARTAMENTOS_ATUALIZADO_EM'],
+        ),
+        RestWrite.update(
+          _linkedRef(tid, did, mid).path,
+          // Tira os FieldValue do mapa: por REST eles virariam hora do cliente.
+          // Vão como transform de verdade (hora do servidor).
+          setFields: {
+            for (final e in _linkedMemberSnapshot(mid, memberData).entries)
+              if (e.value is! FieldValue) e.key: e.value,
+          },
+          serverTimestamp: [
+            for (final e in _linkedMemberSnapshot(mid, memberData).entries)
+              if (e.value is FieldValue) e.key,
+          ],
+        ),
+        RestWrite.update(
+          _deptRef(tid, did).path,
+          increment: const {'membrosVinculadosCount': 1},
+          serverTimestamp: const ['updatedAt'],
+        ),
+      ]);
+      return;
+    }
+
     final batch = firebaseDefaultFirestore.batch();
-    batch.set(
-      _memberRef(tid, mid),
-      {
-        'DEPARTAMENTOS': FieldValue.arrayUnion([did]),
-        'departamentosIds': FieldValue.arrayUnion([did]),
-        'DEPARTAMENTOS_ATUALIZADO_EM': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+    batch.set(_memberRef(tid, mid), {
+      'DEPARTAMENTOS': FieldValue.arrayUnion([did]),
+      'departamentosIds': FieldValue.arrayUnion([did]),
+      'DEPARTAMENTOS_ATUALIZADO_EM': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     batch.set(
       _linkedRef(tid, did, mid),
       _linkedMemberSnapshot(mid, memberData),
       SetOptions(merge: true),
     );
-    batch.set(
-      _deptRef(tid, did),
-      {
-        'membrosVinculadosCount': FieldValue.increment(1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
-    await batch.commit();
+    batch.set(_deptRef(tid, did), {
+      'membrosVinculadosCount': FieldValue.increment(1),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    await FirestoreWebGuard.runWithWebRecovery(() => batch.commit());
   }
 
   /// Só subcoleção + contador + escalas futuras (o doc do membro já foi atualizado em outro write).
@@ -271,15 +279,11 @@ class DepartmentMemberIntegrationService {
     if (tid.isEmpty || did.isEmpty || mid.isEmpty) return;
     final batch = firebaseDefaultFirestore.batch();
     batch.delete(_linkedRef(tid, did, mid));
-    batch.set(
-      _deptRef(tid, did),
-      {
-        'membrosVinculadosCount': FieldValue.increment(-1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
-    await batch.commit();
+    batch.set(_deptRef(tid, did), {
+      'membrosVinculadosCount': FieldValue.increment(-1),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    await FirestoreWebGuard.runWithWebRecovery(() => batch.commit());
     await removeMemberFromFutureSchedulesOfDepartment(
       tenantId: tid,
       departmentId: did,
@@ -304,15 +308,11 @@ class DepartmentMemberIntegrationService {
       _linkedMemberSnapshot(mid, memberData),
       SetOptions(merge: true),
     );
-    batch.set(
-      _deptRef(tid, did),
-      {
-        'membrosVinculadosCount': FieldValue.increment(1),
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
-    await batch.commit();
+    batch.set(_deptRef(tid, did), {
+      'membrosVinculadosCount': FieldValue.increment(1),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    await FirestoreWebGuard.runWithWebRecovery(() => batch.commit());
   }
 
   /// Remove vínculo e retira o membro das escalas **futuras** daquele departamento.
@@ -327,26 +327,38 @@ class DepartmentMemberIntegrationService {
     final mid = memberDocId.trim();
     if (tid.isEmpty || did.isEmpty || mid.isEmpty) return;
 
-    final batch = firebaseDefaultFirestore.batch();
-    batch.set(
-      _memberRef(tid, mid),
-      {
+    // Web: mesmo motivo do [linkMember] — `:commit` por REST em vez do batch.
+    if (kIsWeb) {
+      await firestoreRestCommit([
+        RestWrite.update(
+          _memberRef(tid, mid).path,
+          arrayRemove: {
+            'DEPARTAMENTOS': [did],
+            'departamentosIds': [did],
+          },
+          serverTimestamp: const ['DEPARTAMENTOS_ATUALIZADO_EM'],
+        ),
+        RestWrite.delete(_linkedRef(tid, did, mid).path),
+        RestWrite.update(
+          _deptRef(tid, did).path,
+          increment: const {'membrosVinculadosCount': -1},
+          serverTimestamp: const ['updatedAt'],
+        ),
+      ]);
+    } else {
+      final batch = firebaseDefaultFirestore.batch();
+      batch.set(_memberRef(tid, mid), {
         'DEPARTAMENTOS': FieldValue.arrayRemove([did]),
         'departamentosIds': FieldValue.arrayRemove([did]),
         'DEPARTAMENTOS_ATUALIZADO_EM': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
-    batch.delete(_linkedRef(tid, did, mid));
-    batch.set(
-      _deptRef(tid, did),
-      {
+      }, SetOptions(merge: true));
+      batch.delete(_linkedRef(tid, did, mid));
+      batch.set(_deptRef(tid, did), {
         'membrosVinculadosCount': FieldValue.increment(-1),
         'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
-    await batch.commit();
+      }, SetOptions(merge: true));
+      await FirestoreWebGuard.runWithWebRecovery(() => batch.commit());
+    }
 
     await removeMemberFromFutureSchedulesOfDepartment(
       tenantId: tid,
@@ -357,21 +369,21 @@ class DepartmentMemberIntegrationService {
 
   static Set<String> _cpfKeysForMember(Map<String, dynamic> memberData) {
     final out = <String>{};
-    final c = _normCpf((memberData['CPF'] ?? memberData['cpf'] ?? '').toString());
+    final c = _normCpf(
+      (memberData['CPF'] ?? memberData['cpf'] ?? '').toString(),
+    );
     if (c.isNotEmpty) {
       out.add(c);
       if (c.length == 11) {
         out.add(
-            '${c.substring(0, 3)}.${c.substring(3, 6)}.${c.substring(6, 9)}-${c.substring(9)}');
+          '${c.substring(0, 3)}.${c.substring(3, 6)}.${c.substring(6, 9)}-${c.substring(9)}',
+        );
       }
     }
     return out;
   }
 
-  static bool _rowMatchesMember(
-    String rawCpfInEscala,
-    Set<String> keys,
-  ) {
+  static bool _rowMatchesMember(String rawCpfInEscala, Set<String> keys) {
     final n = _normCpf(rawCpfInEscala);
     if (keys.contains(rawCpfInEscala.trim())) return true;
     if (n.isNotEmpty && keys.contains(n)) return true;
@@ -395,7 +407,7 @@ class DepartmentMemberIntegrationService {
     final startOfToday = DateTime(now.year, now.month, now.day);
 
     final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-    final snap = await         ChurchOperationalPaths.churchDoc(op)
+    final snap = await ChurchOperationalPaths.churchDoc(op)
         .collection('escalas')
         .where('departmentId', isEqualTo: did)
         .limit(400)
@@ -406,7 +418,7 @@ class DepartmentMemberIntegrationService {
 
     Future<void> commitIfNeeded() async {
       if (batch != null && ops > 0) {
-        await batch!.commit();
+        await FirestoreWebGuard.runWithWebRecovery(() => batch!.commit());
         batch = null;
         ops = 0;
       }
@@ -447,7 +459,7 @@ class DepartmentMemberIntegrationService {
       });
       ops++;
       if (ops >= 450) {
-        await batch!.commit();
+        await FirestoreWebGuard.runWithWebRecovery(() => batch!.commit());
         batch = null;
         ops = 0;
       }
@@ -462,16 +474,19 @@ class DepartmentMemberIntegrationService {
     Map<String, Map<String, dynamic>>? memberDataByCpf,
     Map<String, String>? nameByCpf,
   }) async {
-    final cpfs = ChurchDepartmentLeaders.cpfsFromDepartmentData(<String, dynamic>{
-      'leaderCpfs': leaderCpfs,
-    });
-    final members = Map<String, Map<String, dynamic>>.from(memberDataByCpf ?? {});
+    final cpfs = ChurchDepartmentLeaders.cpfsFromDepartmentData(
+      <String, dynamic>{'leaderCpfs': leaderCpfs},
+    );
+    final members = Map<String, Map<String, dynamic>>.from(
+      memberDataByCpf ?? {},
+    );
     final names = Map<String, String>.from(nameByCpf ?? {});
 
     if (cpfs.isNotEmpty) {
       try {
-        final directory =
-            await MembersDirectorySnapshotService.readOnce(tenantId);
+        final directory = await MembersDirectorySnapshotService.readOnce(
+          tenantId,
+        );
         for (final cpf in cpfs) {
           if (names.containsKey(cpf) && members.containsKey(cpf)) continue;
           for (final e in directory.entries) {
@@ -492,13 +507,11 @@ class DepartmentMemberIntegrationService {
         try {
           final tid = ChurchRepository.churchId(tenantId);
           if (tid.isNotEmpty) {
-            final snap = await ChurchRepository.collection(
-              'membros',
-              churchIdHint: tid,
-            )
-                .limit(200)
-                .get(const GetOptions(source: Source.serverAndCache))
-                .timeout(const Duration(seconds: 10));
+            final snap =
+                await ChurchRepository.collection('membros', churchIdHint: tid)
+                    .limit(200)
+                    .get(const GetOptions(source: Source.serverAndCache))
+                    .timeout(const Duration(seconds: 10));
             for (final d in snap.docs) {
               final data = d.data();
               final raw = (data['CPF'] ?? data['cpf'] ?? '').toString();
@@ -507,12 +520,10 @@ class DepartmentMemberIntegrationService {
               );
               if (c.length != 11 || !missing.contains(c)) continue;
               members[c] = data;
-              final n = (data['NOME_COMPLETO'] ??
-                      data['nome'] ??
-                      data['name'] ??
-                      '')
-                  .toString()
-                  .trim();
+              final n =
+                  (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '')
+                      .toString()
+                      .trim();
               if (n.isNotEmpty) names.putIfAbsent(c, () => n);
             }
           }
@@ -535,7 +546,10 @@ class DepartmentMemberIntegrationService {
     final my = _normCpf(cpfDigits);
     if (my.length < 11) return {};
     final tid = await _operationalId(tenantId);
-    final snap = await ChurchTenantResilientReads.departamentos(tid, limit: 120);
+    final snap = await ChurchTenantResilientReads.departamentos(
+      tid,
+      limit: 120,
+    );
     final out = <String>{};
     for (final d in snap.docs) {
       if (ChurchDepartmentLeaders.memberIsLeaderOfDepartment(d.data(), my)) {
@@ -552,7 +566,7 @@ class DepartmentMemberIntegrationService {
   }) async {
     final tid = await _operationalId(tenantId);
     final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-    final col =         ChurchOperationalPaths.churchDoc(op)
+    final col = ChurchOperationalPaths.churchDoc(op)
         .collection('departamentos')
         .doc(departmentId.trim())
         .collection('membros_vinculados');
@@ -563,11 +577,11 @@ class DepartmentMemberIntegrationService {
       batch.delete(d.reference);
       n++;
       if (n >= 450) {
-        await batch.commit();
+        await FirestoreWebGuard.runWithWebRecovery(() => batch.commit());
         batch = firebaseDefaultFirestore.batch();
         n = 0;
       }
     }
-    if (n > 0) await batch.commit();
+    if (n > 0) await FirestoreWebGuard.runWithWebRecovery(() => batch.commit());
   }
 }

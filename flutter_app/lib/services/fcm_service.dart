@@ -55,7 +55,7 @@ class FcmService {
     return s;
   }
 
-  /// Alinhado a Cloud Functions [topicPushNovo] (`gypush_{tenant}_{aviso|evento|…}`).
+  /// Alinhado a Cloud Functions [topicPushNovo] (`gypush_{tenant}_{aviso|evento|?}`).
   static String fcmTenantSafe(String tenantId) =>
       tenantId.replaceAll(RegExp(r'[^a-zA-Z0-9\-_.~%]'), '_');
 

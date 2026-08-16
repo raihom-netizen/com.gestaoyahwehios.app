@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/utils/finance_transaction_datetime.dart';
 import 'finance_comprovante_publish_service.dart';
 import 'finance_lancamento_write_service.dart';
 import 'logs_service.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Cria transferência entre contas (Cloud Function com fallback em batch local).
 class FinanceTransferService {
@@ -119,13 +120,13 @@ class FinanceTransferService {
     if (docIds.isEmpty) return;
     final fsUid = uid.trim();
     final col = ChurchUiCollections.financeiro(fsUid);
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = YahwehBatch();
     for (final id in docIds) {
       if (id.trim().isEmpty) continue;
       batch.update(col.doc(id), {
-        'receipt': FieldValue.delete(),
+        'receipt': YahwehFv.deleteField,
         'hasReceipt': false,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       });
     }
     await batch.commit();

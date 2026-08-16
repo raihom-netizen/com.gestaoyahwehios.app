@@ -80,7 +80,7 @@ class MasterDashboardSummary {
 
   final int igrejas;
   final int usuarios;
-  /// Soma de `membros` / `_panel_cache/members_directory` — cadastro real nas igrejas.
+  /// Soma de `membros` / `_panel_cache/members_directory` ? cadastro real nas igrejas.
   final int membrosTotal;
   final double receita;
   final int alertas;
@@ -317,7 +317,7 @@ abstract final class MasterDashboardCacheService {
     return summary;
   }
 
-  /// RAM → prefs (stale ok) → Firestore cache → null. Sem rede.
+  /// RAM ? prefs (stale ok) ? Firestore cache ? null. Sem rede.
   static Future<MasterDashboardSummary?> readCachedInstant() async {
     if (_memFresh() && _memSummary != null) {
       return _alignChurchCount(_memSummary!);
@@ -329,7 +329,7 @@ abstract final class MasterDashboardCacheService {
     return null;
   }
 
-  /// Atualiza em background (callable → fallback cliente) sem bloquear UI.
+  /// Atualiza em background (callable ? fallback cliente) sem bloquear UI.
   static void revalidateInBackground({
     void Function(MasterDashboardSummary summary)? onUpdated,
   }) {
@@ -392,7 +392,7 @@ abstract final class MasterDashboardCacheService {
     ).call({'tenantId': tid});
   }
 
-  /// Leitura rápida: cache instantâneo → Firestore fresco → callable → scan cliente.
+  /// Leitura rápida: cache instantâneo ? Firestore fresco ? callable ? scan cliente.
   /// Alinha contagem de igrejas com [MasterChurchesListService] (badge vs KPI).
   static Future<MasterDashboardSummary> refresh({bool force = false}) async {
     // Offline: só disco/RAM — sync silenciosa quando voltar a rede.

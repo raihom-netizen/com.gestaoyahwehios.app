@@ -49,13 +49,13 @@ abstract final class MediaService {
 
   /// Chat: 800px JPEG ~70% (upload ultra-rápido em 4G).
   static const int chatImageMaxEdge = 800;
-  /// Feed (avisos/eventos) — 1440px WebP ~75% (bom visual + upload leve).
+  /// Feed (avisos/eventos) ? 1440px WebP ~75% (bom visual + upload leve).
   static const int feedImageMaxEdge = 1440;
   static const int feedImageMaxHeight = 1440;
   static const int thumbMaxEdge = 480;
 
   static const int chatJpegQuality = 70;
-  /// Qualidade feed — 75% (visual bom, ~50% do tamanho do 85%).
+  /// Qualidade feed ? 75% (visual bom, ~50% do tamanho do 85%).
   static const int feedWebpQuality = 75;
   static const int thumbJpegQuality = 72;
 
@@ -104,16 +104,16 @@ abstract final class MediaService {
     return _formatFor(profile) == CompressFormat.webp ? 'image/webp' : 'image/jpeg';
   }
 
-  /// Leitura multiplataforma — preferir isto em vez de `File(path).readAsBytes()`.
+  /// Leitura multiplataforma ? preferir isto em vez de `File(path).readAsBytes()`.
   static Future<Uint8List> readXFileBytes(XFile file) async {
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) {
-      throw StateError('Ficheiro vazio — selecione outro.');
+      throw StateError('Ficheiro vazio ? selecione outro.');
     }
     return bytes;
   }
 
-  /// Compacta [XFile] — Web (Dart puro) ou mobile (nativo).
+  /// Compacta [XFile] ? Web (Dart puro) ou mobile (nativo).
   static Future<({Uint8List bytes, String contentType})> compressXFile(
     XFile file, {
     MediaImageProfile profile = MediaImageProfile.feed,
@@ -126,7 +126,7 @@ abstract final class MediaService {
     );
   }
 
-  /// Comprime [File] de imagem — reduz ~6 MB para <400 KB mantendo nitidez em smartphones.
+  /// Comprime [File] de imagem ? reduz ~6 MB para <400 KB mantendo nitidez em smartphones.
   static Future<File?> compressImage(
     File file, {
     MediaImageProfile profile = MediaImageProfile.feed,
@@ -177,7 +177,7 @@ abstract final class MediaService {
     if (profile == MediaImageProfile.feed && bytesLookLikeWebp(input)) {
       return input;
     }
-    // Isolate compression (Controle Total pattern) — no UI blocking.
+    // Isolate compression (Controle Total pattern) ? no UI blocking.
     final isolateProfile = _isolateProfileFor(profile);
     final compressed = await YahwehIsolateCompress.compress(input, profile: isolateProfile);
     if (compressed.isNotEmpty && compressed.length < input.length) return compressed;
@@ -213,7 +213,7 @@ abstract final class MediaService {
     };
   }
 
-  /// Comprime ficheiro de imagem no disco → bytes (chat/upload).
+  /// Comprime ficheiro de imagem no disco ? bytes (chat/upload).
   static Future<Uint8List?> compressImageFile(
     String path, {
     MediaImageProfile profile = MediaImageProfile.chat,

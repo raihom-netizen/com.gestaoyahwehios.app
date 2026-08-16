@@ -64,10 +64,10 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   String? _operationalTenantId;
 
   String get _effectiveTenantId => ChurchPanelTenant.resolve(
-        (_operationalTenantId ?? '').isNotEmpty
-            ? _operationalTenantId
-            : widget.tenantId,
-      );
+    (_operationalTenantId ?? '').isNotEmpty
+        ? _operationalTenantId
+        : widget.tenantId,
+  );
 
   DateTime? _birthDate;
   final _birthDateCtrl = TextEditingController();
@@ -85,8 +85,33 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   Timer? _citySearchDebounce;
 
   static const List<String> _ufs = [
-    'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS',
-    'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
+    'AC',
+    'AL',
+    'AP',
+    'AM',
+    'BA',
+    'CE',
+    'DF',
+    'ES',
+    'GO',
+    'MA',
+    'MT',
+    'MS',
+    'MG',
+    'PA',
+    'PB',
+    'PR',
+    'PE',
+    'PI',
+    'RJ',
+    'RN',
+    'RS',
+    'RO',
+    'RR',
+    'SC',
+    'SP',
+    'SE',
+    'TO',
   ];
   @override
   void initState() {
@@ -141,8 +166,12 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         final data = d.data() ?? {};
         setState(() {
           _tenantName = (data['name'] ?? data['nome'] ?? 'Igreja').toString();
-          _tenantAlias = (data['alias'] ?? data['slug'] ?? tid).toString().trim();
-          _tenantSlug = (data['slug'] ?? data['alias'] ?? tid).toString().trim();
+          _tenantAlias = (data['alias'] ?? data['slug'] ?? tid)
+              .toString()
+              .trim();
+          _tenantSlug = (data['slug'] ?? data['alias'] ?? tid)
+              .toString()
+              .trim();
           if (_tenantAlias.isEmpty) _tenantAlias = tid;
           if (_tenantSlug.isEmpty) _tenantSlug = tid;
           _loading = false;
@@ -163,14 +192,23 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       if (!mounted) return;
       if (!result.ok) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('CEP não encontrado. Preencha manualmente ou tente outro CEP.')),
+          const SnackBar(
+            content: Text(
+              'CEP não encontrado. Preencha manualmente ou tente outro CEP.',
+            ),
+          ),
         );
       } else {
-        if (result.logradouro != null && result.logradouro!.isNotEmpty) _enderecoCtrl.text = result.logradouro!;
-        if (result.bairro != null && result.bairro!.isNotEmpty) _bairroCtrl.text = result.bairro!;
-        if (result.localidade != null && result.localidade!.isNotEmpty) _cityCtrl.text = result.localidade!;
-        if (result.uf != null && result.uf!.isNotEmpty) _estadoCtrl.text = result.uf!;
-        if (result.cep != null && result.cep!.isNotEmpty) _cepCtrl.text = result.cep!;
+        if (result.logradouro != null && result.logradouro!.isNotEmpty)
+          _enderecoCtrl.text = result.logradouro!;
+        if (result.bairro != null && result.bairro!.isNotEmpty)
+          _bairroCtrl.text = result.bairro!;
+        if (result.localidade != null && result.localidade!.isNotEmpty)
+          _cityCtrl.text = result.localidade!;
+        if (result.uf != null && result.uf!.isNotEmpty)
+          _estadoCtrl.text = result.uf!;
+        if (result.cep != null && result.cep!.isNotEmpty)
+          _cepCtrl.text = result.cep!;
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Endereço preenchido pelo CEP.')),
@@ -178,7 +216,10 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao buscar CEP: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao buscar CEP: $e')));
     } finally {
       if (mounted) setState(() => _loadingCep = false);
     }
@@ -223,7 +264,8 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   }
 
   Future<void> _pickBirthDate() async {
-    final initial = _birthDate ??
+    final initial =
+        _birthDate ??
         memberSignupParseBirthDateBr(_birthDateCtrl.text.trim()) ??
         DateTime(2000, 1, 1);
     final picked = await showDatePicker(
@@ -253,8 +295,12 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
 
   /// Avatar automático quando não há upload de foto.
   String _buildAutoAvatarUrl(String docId) {
-    final name = _nameCtrl.text.trim().isEmpty ? 'Membro' : _nameCtrl.text.trim();
-    final seed = _onlyDigits(_cpfCtrl.text).isNotEmpty ? _onlyDigits(_cpfCtrl.text) : docId;
+    final name = _nameCtrl.text.trim().isEmpty
+        ? 'Membro'
+        : _nameCtrl.text.trim();
+    final seed = _onlyDigits(_cpfCtrl.text).isNotEmpty
+        ? _onlyDigits(_cpfCtrl.text)
+        : docId;
     return 'https://api.dicebear.com/7.x/initials/png?seed=${Uri.encodeComponent('$name-$seed')}&backgroundColor=e2e8f0,bae6fd,c7d2fe,d9f99d&fontWeight=700';
   }
 
@@ -262,7 +308,9 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     if (birth == null) return null;
     final now = DateTime.now();
     int age = now.year - birth.year;
-    if (now.month < birth.month || (now.month == birth.month && now.day < birth.day)) age--;
+    if (now.month < birth.month ||
+        (now.month == birth.month && now.day < birth.day))
+      age--;
     return age;
   }
 
@@ -286,17 +334,19 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   Future<void> _submit() async {
     if (_saving) return;
     if (!_formKey.currentState!.validate()) return;
-    final birthParsed = memberSignupParseBirthDateBr(_birthDateCtrl.text.trim());
+    final birthParsed = memberSignupParseBirthDateBr(
+      _birthDateCtrl.text.trim(),
+    );
     if (birthParsed == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Informe a data de nascimento (DD/MM/AAAA).')),
+          content: Text('Informe a data de nascimento (DD/MM/AAAA).'),
+        ),
       );
       return;
     }
     final today = DateTime.now();
-    if (birthParsed
-        .isAfter(DateTime(today.year, today.month, today.day))) {
+    if (birthParsed.isAfter(DateTime(today.year, today.month, today.day))) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Data de nascimento inválida.')),
       );
@@ -345,33 +395,54 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       if (byCpf.docs.isNotEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Já existe um cadastro com este CPF nesta igreja.')),
+          const SnackBar(
+            content: Text('Já existe um cadastro com este CPF nesta igreja.'),
+          ),
         );
         return;
       }
-      final byCpfLower = await col.where('cpf', isEqualTo: cpfDigits).limit(1).get();
+      final byCpfLower = await col
+          .where('cpf', isEqualTo: cpfDigits)
+          .limit(1)
+          .get();
       if (byCpfLower.docs.isNotEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Já existe um cadastro com este CPF nesta igreja.')),
+          const SnackBar(
+            content: Text('Já existe um cadastro com este CPF nesta igreja.'),
+          ),
         );
         return;
       }
     }
     if (emailNorm.isNotEmpty) {
-      final byEmail = await col.where('EMAIL', isEqualTo: emailNorm).limit(1).get();
+      final byEmail = await col
+          .where('EMAIL', isEqualTo: emailNorm)
+          .limit(1)
+          .get();
       if (byEmail.docs.isNotEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Já existe um cadastro com este e-mail nesta igreja.')),
+          const SnackBar(
+            content: Text(
+              'Já existe um cadastro com este e-mail nesta igreja.',
+            ),
+          ),
         );
         return;
       }
-      final byEmailLower = await col.where('email', isEqualTo: emailNorm).limit(1).get();
+      final byEmailLower = await col
+          .where('email', isEqualTo: emailNorm)
+          .limit(1)
+          .get();
       if (byEmailLower.docs.isNotEmpty) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Já existe um cadastro com este e-mail nesta igreja.')),
+          const SnackBar(
+            content: Text(
+              'Já existe um cadastro com este e-mail nesta igreja.',
+            ),
+          ),
         );
         return;
       }
@@ -384,8 +455,8 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       final emailForAuth = emailNorm.isNotEmpty
           ? emailNorm
           : (cpfDigits.length == 11
-              ? '$cpfDigits@membro.gestaoyahweh.com.br'
-              : '');
+                ? '$cpfDigits@membro.gestaoyahweh.com.br'
+                : '');
       if (emailForAuth.isEmpty) {
         if (mounted) {
           setState(() => _saving = false);
@@ -400,14 +471,15 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         return;
       }
       final pwd = _passwordCtrl.text.trim();
-      final authRes =
-          await functions.httpsCallable('createMemberAuthAccountForGestor').call({
-        'tenantId': widget.tenantId,
-        'email': emailForAuth,
-        'password': pwd.length >= 6 ? pwd : '123456',
-        'displayName': _nameCtrl.text.trim(),
-        'cpf': cpfDigits,
-      });
+      final authRes = await functions
+          .httpsCallable('createMemberAuthAccountForGestor')
+          .call({
+            'tenantId': widget.tenantId,
+            'email': emailForAuth,
+            'password': pwd.length >= 6 ? pwd : '123456',
+            'displayName': _nameCtrl.text.trim(),
+            'cpf': cpfDigits,
+          });
       final authMap = Map<String, dynamic>.from(authRes.data as Map? ?? {});
       final uid = (authMap['uid'] ?? '').toString().trim();
       if (uid.isEmpty) {
@@ -415,17 +487,18 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       }
 
       final ref = col.doc(uid);
-      final photoBytes =
-          _photoFile != null ? await _photoFile!.readAsBytes() : null;
-      final photoUrl = photoBytes != null
-          ? ''
-          : _buildAutoAvatarUrl(ref.id);
+      final photoBytes = _photoFile != null
+          ? await _photoFile!.readAsBytes()
+          : null;
+      final photoUrl = photoBytes != null ? '' : _buildAutoAvatarUrl(ref.id);
       final age = _calcAge(birthParsed) ?? 0;
       final ageRange = _ageRange(age);
       final alias = _tenantAlias.isNotEmpty ? _tenantAlias : widget.tenantId;
       final slug = _tenantSlug.isNotEmpty ? _tenantSlug : widget.tenantId;
 
-      final codigoMembro = await MemberCodigoService.allocateNext(widget.tenantId);
+      final codigoMembro = await MemberCodigoService.allocateNext(
+        widget.tenantId,
+      );
 
       final data = {
         'MEMBER_ID': uid,
@@ -458,7 +531,9 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         'FOTO_URL_OU_ID': photoUrl.isNotEmpty ? photoUrl : null,
         'fotoUrl': photoUrl.isNotEmpty ? photoUrl : null,
         'photoURL': photoUrl.isNotEmpty ? photoUrl : null,
-        'avatarUrl': photoUrl.isNotEmpty ? photoUrl : _buildAutoAvatarUrl(ref.id),
+        'avatarUrl': photoUrl.isNotEmpty
+            ? photoUrl
+            : _buildAutoAvatarUrl(ref.id),
         if (photoBytes != null)
           ...MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
         'PUBLIC_SIGNUP': false,
@@ -472,7 +547,10 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
           'fotoUrlCacheRevision': DateTime.now().millisecondsSinceEpoch,
         'FILIACAO_PAI': _filiacaoPaiCtrl.text.trim(),
         'FILIACAO_MAE': _filiacaoMaeCtrl.text.trim(),
-        'FILIACAO': _buildFiliacaoLegado(_filiacaoPaiCtrl.text.trim(), _filiacaoMaeCtrl.text.trim()),
+        'FILIACAO': _buildFiliacaoLegado(
+          _filiacaoPaiCtrl.text.trim(),
+          _filiacaoMaeCtrl.text.trim(),
+        ),
       };
 
       await ref.set(data);
@@ -505,14 +583,14 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       final msg = e.message ?? e.code;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao criar login: $msg')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro ao criar login: $msg')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao cadastrar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro ao cadastrar: $e')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -581,17 +659,28 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.check_circle_rounded, size: 72, color: Colors.green.shade600),
+                    Icon(
+                      Icons.check_circle_rounded,
+                      size: 72,
+                      color: Colors.green.shade600,
+                    ),
                     const SizedBox(height: 24),
                     Text(
                       'Membro cadastrado',
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.green.shade800),
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.green.shade800,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 12),
                     Text(
                       'O membro foi cadastrado como ativo e já pode aparecer na lista.',
-                      style: TextStyle(fontSize: 15, color: Colors.grey.shade700),
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: Colors.grey.shade700,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 32),
@@ -606,13 +695,16 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                           label: const Text('Voltar aos membros'),
                           style: FilledButton.styleFrom(
                             backgroundColor: ThemeCleanPremium.primary,
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 14,
+                            ),
                           ),
                         ),
                         OutlinedButton.icon(
                           onPressed: _clearAndNew,
                           icon: const Icon(Icons.person_add_rounded, size: 20),
-                          label: const Text('Cadastrar outro'),
+                          label: const Text('Câmera'),
                         ),
                       ],
                     ),
@@ -658,22 +750,10 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                       ),
                       validator: _reqName,
                     ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _filiacaoMaeCtrl,
-                      decoration: memberSignupInputDecoration(
-                        label: 'Filiação (mãe)',
-                        icon: Icons.family_restroom_rounded,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _filiacaoPaiCtrl,
-                      decoration: memberSignupInputDecoration(
-                        label: 'Filiação (pai)',
-                        icon: Icons.family_restroom_rounded,
-                      ),
-                    ),
+                    // Filiação (mãe/pai) saiu daqui para a secção «Família»:
+                    // são dados dos pais e vinham antes do CPF/nascimento do
+                    // próprio membro, fazendo o cadastro parecer que começava
+                    // pela família.
                     const SizedBox(height: 12),
                     Row(
                       children: [
@@ -684,17 +764,20 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                             inputFormatters: [
                               FilteringTextInputFormatter.digitsOnly,
                               LengthLimitingTextInputFormatter(14),
-                              TextInputFormatter.withFunction(
-                                (oldValue, newValue) {
-                                  final masked =
-                                      memberSignupFormatCpfMask(newValue.text);
-                                  return TextEditingValue(
-                                    text: masked,
-                                    selection: TextSelection.collapsed(
-                                        offset: masked.length),
-                                  );
-                                },
-                              ),
+                              TextInputFormatter.withFunction((
+                                oldValue,
+                                newValue,
+                              ) {
+                                final masked = memberSignupFormatCpfMask(
+                                  newValue.text,
+                                );
+                                return TextEditingValue(
+                                  text: masked,
+                                  selection: TextSelection.collapsed(
+                                    offset: masked.length,
+                                  ),
+                                );
+                              }),
                             ],
                             decoration: memberSignupInputDecoration(
                               label: 'CPF',
@@ -724,8 +807,10 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                               icon: Icons.cake_rounded,
                               hint: 'DD/MM/AAAA',
                               suffixIcon: IconButton(
-                                icon: Icon(Icons.calendar_month_rounded,
-                                    color: ThemeCleanPremium.primary),
+                                icon: Icon(
+                                  Icons.calendar_month_rounded,
+                                  color: ThemeCleanPremium.primary,
+                                ),
                                 tooltip: 'Calendário',
                                 onPressed: _pickBirthDate,
                               ),
@@ -737,7 +822,8 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                               if (p == null) return 'Use DD/MM/AAAA';
                               final now = DateTime.now();
                               if (p.isAfter(
-                                  DateTime(now.year, now.month, now.day))) {
+                                DateTime(now.year, now.month, now.day),
+                              )) {
                                 return 'Data inválida';
                               }
                               return null;
@@ -764,11 +850,17 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                             ),
                             items: const [
                               DropdownMenuItem(
-                                  value: 'Masculino', child: Text('Masculino')),
+                                value: 'Masculino',
+                                child: Text('Masculino'),
+                              ),
                               DropdownMenuItem(
-                                  value: 'Feminino', child: Text('Feminino')),
+                                value: 'Feminino',
+                                child: Text('Feminino'),
+                              ),
                               DropdownMenuItem(
-                                  value: 'Outro', child: Text('Outro')),
+                                value: 'Outro',
+                                child: Text('Outro'),
+                              ),
                             ],
                             onChanged: (v) =>
                                 setState(() => _sexo = v ?? 'Masculino'),
@@ -779,9 +871,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                           child: TextFormField(
                             controller: _phoneCtrl,
                             keyboardType: TextInputType.phone,
-                            inputFormatters: const [
-                              BrPhoneInputFormatter(),
-                            ],
+                            inputFormatters: const [BrPhoneInputFormatter()],
                             decoration: memberSignupInputDecoration(
                               label: 'Telefone',
                               icon: Icons.phone_rounded,
@@ -804,8 +894,10 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      initialValue: MemberSignupPremiumUi.escolaridadeOptions
-                              .contains(_escolaridadeCtrl.text.trim())
+                      initialValue:
+                          MemberSignupPremiumUi.escolaridadeOptions.contains(
+                            _escolaridadeCtrl.text.trim(),
+                          )
                           ? _escolaridadeCtrl.text.trim()
                           : null,
                       decoration: memberSignupInputDecoration(
@@ -815,11 +907,16 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                       hint: const Text('Opcional'),
                       isExpanded: true,
                       items: MemberSignupPremiumUi.escolaridadeOptions
-                          .map((e) => DropdownMenuItem<String>(
-                              value: e, child: Text(e)))
+                          .map(
+                            (e) => DropdownMenuItem<String>(
+                              value: e,
+                              child: Text(e),
+                            ),
+                          )
                           .toList(),
                       onChanged: (v) => setState(
-                          () => _escolaridadeCtrl.text = (v ?? '').trim()),
+                        () => _escolaridadeCtrl.text = (v ?? '').trim(),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -835,8 +932,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                       obscureText: true,
                       decoration: memberSignupInputDecoration(
                         label: 'Senha (opcional)',
-                        hint:
-                            'Mín. 6 caracteres — para o membro acessar o app',
+                        hint: 'Mín. 6 caracteres — para o membro acessar o app',
                         icon: Icons.lock_outline_rounded,
                       ),
                       autofillHints: const [AutofillHints.newPassword],
@@ -846,7 +942,10 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                     const SizedBox(height: 10),
                     Text(
                       'Digite o CEP e saia do campo para preencher automaticamente.',
-                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
@@ -864,7 +963,9 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                                 child: SizedBox(
                                   width: 20,
                                   height: 20,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 ),
                               )
                             : null,
@@ -890,7 +991,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                       decoration: memberSignupInputDecoration(
                         label: 'Quadra, Lote e Número',
                         icon: Icons.tag_rounded,
-                        hint: 'Qd 1, Lt 5, Nº 123',
+                        hint: 'Qd 1, Lt 5, N� 123',
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -922,15 +1023,18 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                       ),
                       isExpanded: true,
                       items: _ufs
-                          .map((uf) =>
-                              DropdownMenuItem(value: uf, child: Text(uf)))
+                          .map(
+                            (uf) =>
+                                DropdownMenuItem(value: uf, child: Text(uf)),
+                          )
                           .toList(),
                       onChanged: (v) {
                         if (v != null) _estadoCtrl.text = v;
                         setState(() {});
                       },
                     ),
-                    if (_loadingCitySuggestions || _citySuggestions.isNotEmpty) ...[
+                    if (_loadingCitySuggestions ||
+                        _citySuggestions.isNotEmpty) ...[
                       const SizedBox(height: 8),
                       Container(
                         decoration: BoxDecoration(
@@ -943,7 +1047,13 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                                 padding: EdgeInsets.all(12),
                                 child: Row(
                                   children: [
-                                    SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                                    SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
                                     SizedBox(width: 10),
                                     Text('Buscando cidades...'),
                                   ],
@@ -953,12 +1063,16 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                                 shrinkWrap: true,
                                 physics: const NeverScrollableScrollPhysics(),
                                 itemCount: _citySuggestions.length,
-                                separatorBuilder: (_, _) => const Divider(height: 1),
+                                separatorBuilder: (_, _) =>
+                                    const Divider(height: 1),
                                 itemBuilder: (_, i) {
                                   final s = _citySuggestions[i];
                                   return ListTile(
                                     dense: true,
-                                    leading: const Icon(Icons.location_city_rounded, size: 20),
+                                    leading: const Icon(
+                                      Icons.location_city_rounded,
+                                      size: 20,
+                                    ),
                                     title: Text(s.city),
                                     subtitle: Text(s.state),
                                     onTap: () => _applyCitySuggestion(s),
@@ -971,8 +1085,10 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                     MemberSignupSectionTitle(title: 'Família'),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      initialValue: MemberSignupPremiumUi.estadoCivilOptions
-                              .contains(_estadoCivilCtrl.text.trim())
+                      initialValue:
+                          MemberSignupPremiumUi.estadoCivilOptions.contains(
+                            _estadoCivilCtrl.text.trim(),
+                          )
                           ? _estadoCivilCtrl.text.trim()
                           : null,
                       decoration: memberSignupInputDecoration(
@@ -982,11 +1098,16 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                       hint: const Text('Opcional'),
                       isExpanded: true,
                       items: MemberSignupPremiumUi.estadoCivilOptions
-                          .map((e) => DropdownMenuItem<String>(
-                              value: e, child: Text(e)))
+                          .map(
+                            (e) => DropdownMenuItem<String>(
+                              value: e,
+                              child: Text(e),
+                            ),
+                          )
                           .toList(),
                       onChanged: (v) => setState(
-                          () => _estadoCivilCtrl.text = (v ?? '').trim()),
+                        () => _estadoCivilCtrl.text = (v ?? '').trim(),
+                      ),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -994,6 +1115,22 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                       decoration: memberSignupInputDecoration(
                         label: 'Nome cônjuge',
                         icon: Icons.people_alt_rounded,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _filiacaoMaeCtrl,
+                      decoration: memberSignupInputDecoration(
+                        label: 'Filiação (mãe)',
+                        icon: Icons.family_restroom_rounded,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _filiacaoPaiCtrl,
+                      decoration: memberSignupInputDecoration(
+                        label: 'Filiação (pai)',
+                        icon: Icons.family_restroom_rounded,
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -1008,8 +1145,11 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                               ? null
                               : MemoryImage(_photoBytes!),
                           child: _photoBytes == null
-                              ? Icon(Icons.person_rounded,
-                                  size: 40, color: Colors.grey.shade400)
+                              ? Icon(
+                                  Icons.person_rounded,
+                                  size: 40,
+                                  color: Colors.grey.shade400,
+                                )
                               : null,
                         ),
                         const SizedBox(width: 14),
@@ -1020,15 +1160,19 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                                 child: OutlinedButton.icon(
                                   onPressed: () =>
                                       _pickPhoto(fromCamera: false),
-                                  icon: const Icon(Icons.photo_library_outlined,
-                                      size: 20),
+                                  icon: const Icon(
+                                    Icons.photo_library_outlined,
+                                    size: 20,
+                                  ),
                                   label: const Text('Galeria'),
                                   style: OutlinedButton.styleFrom(
                                     padding: const EdgeInsets.symmetric(
-                                        vertical: 12),
+                                      vertical: 12,
+                                    ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusLg),
+                                        ThemeCleanPremium.radiusLg,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -1036,17 +1180,20 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: OutlinedButton.icon(
-                                  onPressed: () =>
-                                      _pickPhoto(fromCamera: true),
-                                  icon: const Icon(Icons.photo_camera_outlined,
-                                      size: 20),
+                                  onPressed: () => _pickPhoto(fromCamera: true),
+                                  icon: const Icon(
+                                    Icons.photo_camera_outlined,
+                                    size: 20,
+                                  ),
                                   label: const Text('Câmera'),
                                   style: OutlinedButton.styleFrom(
                                     padding: const EdgeInsets.symmetric(
-                                        vertical: 12),
+                                      vertical: 12,
+                                    ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusLg),
+                                        ThemeCleanPremium.radiusLg,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -1059,7 +1206,10 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                     const SizedBox(height: 8),
                     Text(
                       'A foto será usada na carteirinha e no painel da igreja.',
-                      style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600),
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        color: Colors.grey.shade600,
+                      ),
                     ),
                     const SizedBox(height: 24),
                     SizedBox(
@@ -1071,13 +1221,17 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                                 width: 22,
                                 height: 22,
                                 child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: Colors.white),
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
                               )
                             : const Icon(Icons.verified_rounded, size: 22),
                         label: Text(
                           _saving ? 'Salvando...' : 'Cadastrar membro',
                           style: const TextStyle(
-                              fontWeight: FontWeight.w800, fontSize: 15),
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                          ),
                         ),
                         style: FilledButton.styleFrom(
                           backgroundColor: ThemeCleanPremium.primary,
@@ -1085,7 +1239,8 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                           elevation: 0,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusLg),
+                              ThemeCleanPremium.radiusLg,
+                            ),
                           ),
                         ),
                       ),
@@ -1101,4 +1256,3 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     );
   }
 }
-

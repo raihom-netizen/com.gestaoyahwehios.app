@@ -30,7 +30,8 @@ class MembersLimitResult {
   bool get isBlocked => !canAdd;
 
   /// Está no aviso: passou do limite do plano mas ainda dentro da tolerância de 5.
-  bool get isOverLimitWarning => currentCount >= planLimit && currentCount < hardLimit;
+  bool get isOverLimitWarning =>
+      currentCount >= planLimit && currentCount < hardLimit;
 
   /// Quantas vagas restam antes de bloquear (pode ser negativo se já bloqueado).
   int get slotsLeftBeforeBlock => hardLimit - currentCount;
@@ -115,10 +116,9 @@ class MembersLimitService {
       if (n is num && n >= 0) return n.toInt();
     } catch (_) {}
     try {
-      final snap = await ChurchRepository.churchDoc(op)
-          .collection('_panel_cache')
-          .doc('members_directory')
-          .get();
+      final snap = await ChurchRepository.churchDoc(
+        op,
+      ).collection('_panel_cache').doc('members_directory').get();
       final n = snap.data()?['totalCount'];
       if (n is num && n >= 0) return n.toInt();
     } catch (_) {}
@@ -166,7 +166,9 @@ class MembersLimitService {
     final op = ChurchRepository.churchId(tenantId);
     final tenantSnap = await ChurchTenantResilientReads.churchDocument(op);
     final tenantData = tenantSnap.data();
-    String planId = (tenantData?['planId'] ?? tenantData?['plan'] ?? '').toString().trim();
+    String planId = (tenantData?['planId'] ?? tenantData?['plan'] ?? '')
+        .toString()
+        .trim();
     if (planId.isNotEmpty) return planId;
     try {
       final subSnap = await _db
@@ -195,9 +197,11 @@ class MembersLimitService {
     final planLimit = cfg?.maxMembers ?? getPlanLimit(planId);
     final maxPerSource = planLimit > 0 ? planLimit + 200 : 2500;
     final cached = await _cachedMembersTotalCount(tenantId);
-    final currentCount = cached ??
-        await countMembers(tenantId, maxPerSource: maxPerSource);
-    final hardLimit = planLimit > 0 ? planLimit + AppConstants.membersGraceOverLimit : 99999;
+    final currentCount =
+        cached ?? await countMembers(tenantId, maxPerSource: maxPerSource);
+    final hardLimit = planLimit > 0
+        ? planLimit + AppConstants.membersGraceOverLimit
+        : 99999;
     final planName = cfg?.name ?? getPlanName(planId);
     return MembersLimitResult(
       currentCount: currentCount,

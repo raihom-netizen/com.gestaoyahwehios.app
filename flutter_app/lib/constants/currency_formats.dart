@@ -54,7 +54,7 @@ class CurrencyFormats {
     return _brl.format(v).replaceFirst('R\$ ', '').trim();
   }
 
-  /// Parte inteira com separador de milhar (pt_BR), sem intl — uso interno no teclado.
+  /// Parte inteira com separador de milhar (pt_BR), sem intl ? uso interno no teclado.
   static String _thousandsBr(int n) {
     if (n <= 0) return n.toString();
     final s = n.toString();
@@ -67,7 +67,7 @@ class CurrencyFormats {
     return buf.toString();
   }
 
-  /// Máscara BRL a partir de centavos (ex.: 25000 → "250,00"), **sem** [NumberFormat].
+  /// Máscara BRL a partir de centavos (ex.: 25000 ? "250,00"), **sem** [NumberFormat].
   /// Usado no [CurrencyInputFormatter] para não travar o frame a cada tecla.
   static String formatBRLInputFromCents(int cents) {
     if (cents < 0) cents = 0;

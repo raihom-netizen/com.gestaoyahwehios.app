@@ -128,7 +128,7 @@ String _formatArchiveEventDatePt(DateTime? d) {
 
 /// Barra de navegação fixa (abaixo da AppBar): âncoras da página.
 /// Fundo **opaco** + gradiente alinhado ao site de divulgação Gestão YAHWEH (evita o conteúdo
-/// “passar por cima” da faixa quando o fundo era branco semitransparente).
+/// «passar por cima» da faixa quando o fundo era branco semitransparente).
 class ChurchPublicPortalNavSliver extends StatelessWidget {
   final Color accent;
   final VoidCallback onInicio;
@@ -617,7 +617,7 @@ class _SocialGridTileState extends State<_SocialGridTile> {
     await Clipboard.setData(ClipboardData(text: url));
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      ThemeCleanPremium.feedbackSnackBar('Link copiado — cole no WhatsApp.'),
+      ThemeCleanPremium.feedbackSnackBar('Link copiado ? cole no WhatsApp.'),
     );
   }
 
@@ -1861,7 +1861,7 @@ class _LightboxTextPanel extends StatelessWidget {
                         postFirestore: post,
                       ),
                       icon: const Icon(Icons.share_rounded, size: 18),
-                      label: const Text('Compartilhar…'),
+                      label: const Text('Compartilhar?'),
                     ),
                     if (!kIsWeb)
                       TextButton.icon(

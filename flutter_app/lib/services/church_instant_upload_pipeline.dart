@@ -17,7 +17,7 @@ import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isValidImageUrl, sanitizeImageUrl;
 
-/// Resultado de um slot de foto — path Storage + URL HTTPS para o Firestore.
+/// Resultado de um slot de foto ? path Storage + URL HTTPS para o Firestore.
 class FeedPhotoSlotResult {
   const FeedPhotoSlotResult({
     required this.fullPath,
@@ -32,11 +32,11 @@ class FeedPhotoSlotResult {
   /// URL HTTPS do ficheiro principal (getDownloadURL após upload).
   final String? downloadUrl;
 
-  /// URL HTTPS da miniatura (lista/painel); igual a [downloadUrl] — 1 ficheiro por slot.
+  /// URL HTTPS da miniatura (lista/painel); igual a [downloadUrl] ? 1 ficheiro por slot.
   final String? thumbDownloadUrl;
 }
 
-/// Pipeline instantâneo: **1 JPEG 1080px** por foto → upload Storage (sem tiers WebP).
+/// Pipeline instantâneo: **1 JPEG 1080px** por foto ? upload Storage (sem tiers WebP).
 abstract final class ChurchInstantUploadPipeline {
   ChurchInstantUploadPipeline._();
 
@@ -123,7 +123,7 @@ abstract final class ChurchInstantUploadPipeline {
     );
   }
 
-  /// Upload de um slot — **1 ficheiro** `capa_aviso.jpg` / `galeria_XX.jpg` / `banner_evento.jpg`.
+  /// Upload de um slot ? **1 ficheiro** `capa_aviso.jpg` / `galeria_XX.jpg` / `banner_evento.jpg`.
   static Future<FeedPhotoSlotResult> uploadFeedPhotoSlot({
     required String tenantId,
     required String postType,

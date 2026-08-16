@@ -60,7 +60,7 @@ class MemberDirectoryEntry {
   final Timestamp? updatedAt;
   final dynamic dataNascimento;
 
-  /// Timestamp Firestore ou ISO local — estado da assinatura da carteirinha.
+  /// Timestamp Firestore ou ISO local ? estado da assinatura da carteirinha.
   final dynamic carteirinhaAssinadaEm;
   final String? carteirinhaAssinadaPor;
   final String? carteirinhaAssinadaPorNome;
@@ -201,7 +201,7 @@ class MemberDirectoryEntry {
     };
   }
 
-  /// Mescla campos gravados no Firestore — lista/painel actualizam sem reload.
+  /// Mescla campos gravados no Firestore ? lista/painel actualizam sem reload.
   MemberDirectoryEntry mergeFirestoreFields(Map<String, dynamic> fields) {
     final name = FirestoreMapFields.pickString(fields, const [
       'NOME_COMPLETO',

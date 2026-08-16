@@ -43,7 +43,7 @@ class ChurchCanonicalMediaRef {
 abstract final class ChurchCanonicalMediaContract {
   ChurchCanonicalMediaContract._();
 
-  // ─── Chaves canónicas (documentação + grep) ─────────────────────────────
+  // --- Chaves canónicas (documentação + grep) -----------------------------
 
   static const chatStoragePathKeys = ['storagePath', 'storage_path'];
   static const chatThumbStoragePathKeys = [
@@ -102,7 +102,7 @@ abstract final class ChurchCanonicalMediaContract {
     return normalizeFirebaseStorageObjectPath(p);
   }
 
-  // ─── Leitura — Chat ───────────────────────────────────────────────────────
+  // --- Leitura ? Chat -------------------------------------------------------
 
   static ChurchCanonicalMediaRef resolveChat(Map<String, dynamic> data) {
     final path = _normalizePath(
@@ -156,7 +156,7 @@ abstract final class ChurchCanonicalMediaContract {
     return ds == 'uploading' || ds == 'queued' || ds == 'sending';
   }
 
-  // ─── Leitura — Financeiro ─────────────────────────────────────────────────
+  // --- Leitura ? Financeiro -------------------------------------------------
 
   static ChurchCanonicalMediaRef resolveFinanceComprovante(
     Map<String, dynamic>? data,
@@ -197,7 +197,7 @@ abstract final class ChurchCanonicalMediaContract {
   static String financeComprovanteStoragePath(Map<String, dynamic>? data) =>
       resolveFinanceComprovante(data).storagePath;
 
-  // ─── Leitura — Patrimônio ─────────────────────────────────────────────────
+  // --- Leitura ? Patrimônio -------------------------------------------------
 
   static List<ChurchCanonicalMediaRef> resolvePatrimonioPhotos(
     Map<String, dynamic> data,
@@ -319,7 +319,7 @@ abstract final class ChurchCanonicalMediaContract {
       resolvePatrimonioPhotos(data).isNotEmpty ||
       patrimonioImageUrlsLegacy(data).isNotEmpty;
 
-  // ─── Escrita — Chat (Storage path + URL https para visualização) ─────────
+  // --- Escrita ? Chat (Storage path + URL https para visualização) ---------
 
   /// Campos de mídia após upload Storage — path + URL https (painel, site, chat).
   static Map<String, dynamic> chatMediaWritePatch({
@@ -366,7 +366,7 @@ abstract final class ChurchCanonicalMediaContract {
     return patch;
   }
 
-  // ─── Escrita — Financeiro ───────────────────────────────────────────────
+  // --- Escrita ? Financeiro -----------------------------------------------
 
   static Map<String, dynamic> financeComprovanteWritePatch({
     required String url,
@@ -399,7 +399,7 @@ abstract final class ChurchCanonicalMediaContract {
     return patch;
   }
 
-  // ─── Escrita — Patrimônio (foto01…foto04 + paths) ───────────────────────
+  // --- Escrita ? Patrimônio (foto01?foto04 + paths) -----------------------
 
   static const patrimonioLegacyKeysToDelete = [
     'fotos',
@@ -433,7 +433,7 @@ abstract final class ChurchCanonicalMediaContract {
     }
   }
 
-  /// [allowDeleteSentinels] — false em cadastro novo (sem merge).
+  /// [allowDeleteSentinels] ? false em cadastro novo (sem merge).
   static void patrimonioApplyIndexedSlots(
     Map<String, dynamic> payload,
     List<String> slotUrls,
@@ -442,7 +442,7 @@ abstract final class ChurchCanonicalMediaContract {
     bool allowDeleteSentinels = true,
   }) {
     final rev = cacheRevision ?? DateTime.now().millisecondsSinceEpoch;
-    // Path fixo foto_N.jpg (overwrite) — bust na URL para Web/lista verem o ficheiro novo.
+    // Path fixo foto_N.jpg (overwrite) ? bust na URL para Web/lista verem o ficheiro novo.
     payload['fotosCacheRevision'] = rev;
     for (var i = 0; i < patrimonioMaxPhotos; i++) {
       final u = sanitizeImageUrl(i < slotUrls.length ? slotUrls[i] : '');
@@ -472,7 +472,7 @@ abstract final class ChurchCanonicalMediaContract {
     );
   }
 
-  // ─── Escrita — outros módulos (reutilizado pelo publish) ─────────────────
+  // --- Escrita ? outros módulos (reutilizado pelo publish) -----------------
 
   static Map<String, dynamic> memberProfileWritePatch({
     required String downloadUrl,
@@ -516,7 +516,7 @@ abstract final class ChurchCanonicalMediaContract {
     final path = _normalizePath(storagePath);
     final rev = cacheRevision ?? DateTime.now().millisecondsSinceEpoch;
     final safeUrl = sanitizeImageUrl(downloadUrl.trim());
-    // Path fixo capa.jpg — bust para site/painel verem overwrite.
+    // Path fixo capa.jpg ? bust para site/painel verem overwrite.
     final displayUrl = YahwehMediaCacheBust.apply(safeUrl, rev);
     return {
       if (path.isNotEmpty) 'fotoPath': path,
@@ -588,7 +588,7 @@ abstract final class ChurchCanonicalMediaContract {
     return 'image/jpeg';
   }
 
-  // ─── Limpeza Firestore (exclusão instantânea de mídia) ─────────────────
+  // --- Limpeza Firestore (exclusão instantânea de mídia) -----------------
 
   static Map<String, dynamic> comprovanteClearFirestorePatch() => {
         'hasComprovante': false,

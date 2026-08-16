@@ -28,7 +28,7 @@ typedef YahwehModuleLoader = Future<YahwehModuleLoadSnapshot> Function(
   bool forceServer,
 });
 
-/// Base ChangeNotifier — RAM + SharedPreferences (Web/mobile) + dedupe `_inFlight`.
+/// Base ChangeNotifier ? RAM + SharedPreferences (Web/mobile) + dedupe `_inFlight`.
 class YahwehModuleCacheBase extends ChangeNotifier {
   YahwehModuleCacheBase({
     required this.prefsKeyPrefix,

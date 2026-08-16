@@ -13,13 +13,13 @@ enum MemberPhotoCropMode {
   /// Centro 1:1 automático — sem editor (mais rápido).
   auto,
 
-  /// Editor «Ajustar foto de perfil» (manual).
+  /// Editor ?Ajustar foto de perfil? (manual).
   manual,
 }
 
 /// Escolha de foto de perfil — painel + cadastro público.
 ///
-/// Fluxo moderno: origem → **Usar automaticamente** ou **Ajustar manualmente** → WebP.
+/// Fluxo moderno: origem ? **Usar automaticamente** ou **Ajustar manualmente** ? WebP.
 abstract final class MemberProfilePhotoPickService {
   MemberProfilePhotoPickService._();
 
@@ -36,6 +36,8 @@ abstract final class MemberProfilePhotoPickService {
       return null;
     }
 
+    if (!context.mounted) return null;
+
     final choice = await showModalBottomSheet<_PickChoice>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -43,6 +45,8 @@ abstract final class MemberProfilePhotoPickService {
       builder: (ctx) => _MemberPhotoPickSheet(web: kIsWeb),
     );
     if (choice == null || !context.mounted) return null;
+
+    if (!context.mounted) return null;
 
     return _pickAndEncode(
       context,
@@ -64,6 +68,8 @@ abstract final class MemberProfilePhotoPickService {
     )) {
       return null;
     }
+    if (!context.mounted) return null;
+
     return _pickAndEncode(
       context,
       sourceKey: 'gallery',
@@ -85,6 +91,8 @@ abstract final class MemberProfilePhotoPickService {
     )) {
       return null;
     }
+    if (!context.mounted) return null;
+
     return _pickAndEncode(
       context,
       sourceKey: 'camera',
@@ -93,8 +101,9 @@ abstract final class MemberProfilePhotoPickService {
     );
   }
 
-  /// Web: ficheiro local → auto ou crop.
-  static Future<({Uint8List bytes, String displayName})?> pickFromWebFileWithCrop(
+  /// Web: ficheiro local ? auto ou crop.
+  static Future<({Uint8List bytes, String displayName})?>
+  pickFromWebFileWithCrop(
     BuildContext context, {
     bool requireAuth = true,
     MemberPhotoCropMode cropMode = MemberPhotoCropMode.manual,
@@ -106,6 +115,8 @@ abstract final class MemberProfilePhotoPickService {
     )) {
       return null;
     }
+    if (!context.mounted) return null;
+
     return _pickAndEncode(
       context,
       sourceKey: 'file',
@@ -127,21 +138,25 @@ abstract final class MemberProfilePhotoPickService {
         maxBytes: ChurchCtModuleUpload.kMaxImageBytes,
       );
       if (ct == null) return null;
-      final name =
-          ct.fileName.trim().isNotEmpty ? ct.fileName.trim() : 'foto_perfil.webp';
+      final name = ct.fileName.trim().isNotEmpty
+          ? ct.fileName.trim()
+          : 'foto_perfil.webp';
       picked = XFile.fromData(ct.bytes, name: name);
     } else {
       final ct = await ChurchCtModuleUpload.pickImage(
-        source: sourceKey == 'camera' ? ImageSource.camera : ImageSource.gallery,
-        // Full HD (mesmo teto do feed) — antes ficava em 512px final e a
+        source: sourceKey == 'camera'
+            ? ImageSource.camera
+            : ImageSource.gallery,
+        // Full HD (mesmo teto do feed) ? antes ficava em 512px final e a
         // foto perdia nitidez visivelmente (câmeras atuais entregam bem
         // mais que isso sem custo relevante de tempo).
         imageQuality: 90,
         maxWidth: 1600,
       );
       if (ct == null) return null;
-      final name =
-          ct.fileName.trim().isNotEmpty ? ct.fileName.trim() : 'foto_perfil.jpg';
+      final name = ct.fileName.trim().isNotEmpty
+          ? ct.fileName.trim()
+          : 'foto_perfil.jpg';
       picked = XFile.fromData(ct.bytes, name: name);
     }
     if (!context.mounted) return null;
@@ -165,8 +180,9 @@ abstract final class MemberProfilePhotoPickService {
     if (file == null) return null;
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) return null;
-    final name =
-        file.name.trim().isNotEmpty ? file.name.trim() : 'foto_perfil.webp';
+    final name = file.name.trim().isNotEmpty
+        ? file.name.trim()
+        : 'foto_perfil.webp';
     return (bytes: bytes, displayName: name);
   }
 }
@@ -219,7 +235,7 @@ class _MemberPhotoPickSheet extends StatelessWidget {
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Escolha a origem e o enquadramento. Uma foto por membro — '
+                    'Escolha a origem e o enquadramento. Uma foto por membro ? '
                     'ao guardar, a anterior é substituída no Storage.',
                     style: TextStyle(
                       fontSize: 13,
@@ -278,8 +294,8 @@ class _MemberPhotoPickSheet extends StatelessWidget {
                 _tile(
                   context,
                   icon: Icons.crop_rounded,
-                  title: 'Galeria — recortar',
-                  subtitle: 'Abrir «Ajustar foto de perfil»',
+                  title: 'Galeria ? recortar',
+                  subtitle: 'Abrir ?Ajustar foto de perfil?',
                   choice: const _PickChoice(
                     source: 'gallery',
                     cropMode: MemberPhotoCropMode.manual,
@@ -288,7 +304,7 @@ class _MemberPhotoPickSheet extends StatelessWidget {
                 _tile(
                   context,
                   icon: Icons.crop_free_rounded,
-                  title: 'Arquivo — recortar',
+                  title: 'Arquivo ? recortar',
                   subtitle: 'Escolher e ajustar a área',
                   choice: const _PickChoice(
                     source: 'file',
@@ -299,7 +315,7 @@ class _MemberPhotoPickSheet extends StatelessWidget {
                 _tile(
                   context,
                   icon: Icons.crop_rounded,
-                  title: 'Galeria — recortar',
+                  title: 'Galeria ? recortar',
                   subtitle: 'Abrir editor de enquadramento',
                   choice: const _PickChoice(
                     source: 'gallery',

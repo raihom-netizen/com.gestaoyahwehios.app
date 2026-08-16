@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -152,7 +152,7 @@ class PublicDivulgacaoPromo {
 
   /// Uma promoção pública: a mais recente por [createdAt] entre as elegíveis.
   ///
-  /// Web: poll leve em vez de `.snapshots()` — evita somar mais um alvo de
+  /// Web: poll leve em vez de `.snapshots()` ? evita somar mais um alvo de
   /// watch simultâneo (landing/divulgação já tem outros listeners na mesma
   /// tela) e provocar `INTERNAL ASSERTION FAILED` no SDK JS.
   static Stream<PublicDivulgacaoPromo?> watchFeatured() {
@@ -339,7 +339,7 @@ class DivulgacaoPublicPromoCard extends StatelessWidget {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    '${promo.priceLabel} · +${promo.durationDays} dias de licença após pagamento aprovado',
+                    '${promo.priceLabel} ? +${promo.durationDays} dias de licença após pagamento aprovado',
                     style: GoogleFonts.inter(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -407,7 +407,7 @@ String normalizePlanCodeForMpCheckout(String? raw) {
   return 'premium_monthly';
 }
 
-/// Escolhe PIX ou cartão e abre [CheckoutScreen] (Mercado Pago + webhook → licença).
+/// Escolhe PIX ou cartão e abre [CheckoutScreen] (Mercado Pago + webhook ? licença).
 void openPublicPromoMercadoPagoCheckout(
     BuildContext context, PublicDivulgacaoPromo promo) {
   final plan = normalizePlanCodeForMpCheckout(promo.planCode);
@@ -448,7 +448,7 @@ void openPublicPromoMercadoPagoCheckout(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Pagamento — Mercado Pago',
+              'Pagamento ? Mercado Pago',
               style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,

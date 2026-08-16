@@ -25,14 +25,14 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Patrimônio Ecofire — Storage (5 fotos) → URLs → Firestore **uma vez** (`foto01`…`foto05`).
+/// Patrimônio Ecofire ? Storage (5 fotos) ? URLs ? Firestore **uma vez** (`foto01`?`foto05`).
 abstract final class PatrimonioPublishService {
   PatrimonioPublishService._();
 
   static const String photoUploadStateField =
       EntityPublishStatus.photoUploadStateField;
 
-  /// Entrada pública — online linear; offline/rede fraca → fila silenciosa.
+  /// Entrada pública ? online linear; offline/rede fraca ? fila silenciosa.
   static Future<void> publish({
     required String seedTenantId,
     required String itemId,
@@ -313,7 +313,7 @@ abstract final class PatrimonioPublishService {
       }
     }
     // Não aguardar: são só chamadas de exclusão de artefatos legados de slots
-    // vazios (dezenas de `delete()` sem timeout individual por slot) — travava
+    // vazios (dezenas de `delete()` sem timeout individual por slot) ? travava
     // o "Salvar" em segundo plano em vez de gravar o Firestore logo (o usuário
     // via a barra presa em "Enviando fotos... 84%" até estourar o timeout).
     if (emptySlotFutures.isNotEmpty) {
@@ -486,7 +486,7 @@ abstract final class PatrimonioPublishService {
     }());
   }
 
-  /// Metadados imediatos com fotos pendentes — UI fecha; upload continua em background.
+  /// Metadados imediatos com fotos pendentes ? UI fecha; upload continua em background.
   static Future<void> publishMetadataWithPendingUploads({
     required String seedTenantId,
     required String itemId,
@@ -580,7 +580,7 @@ abstract final class PatrimonioPublishService {
             slotPaths[slot] = path;
             slotUrls[slot] = sanitizeImageUrl(url);
           } else {
-            // Ficheiro pode existir sem URL imediata — ainda assim guarda path.
+            // Ficheiro pode existir sem URL imediata ? ainda assim guarda path.
             try {
               await firebaseDefaultStorage
                   .ref(path)

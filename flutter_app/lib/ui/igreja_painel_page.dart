@@ -30,7 +30,6 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
   bool _menuCollapsed = false;
   String? _tenantId;
   int _membros = 0, _homens = 0, _mulheres = 0, _criancas = 0, _departamentos = 0;
-  double _totalOfertas = 0, _totalDespesas = 0;
   List<Map<String, dynamic>> _aniversariantes = [];
   List<Map<String, dynamic>> _lideres = [];
   List<Map<String, dynamic>> _avisos = [];
@@ -202,12 +201,10 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
       final snaps = await Future.wait([
         ChurchTenantResilientReads.membrosRecent(tid, limit: 500),
         ChurchTenantResilientReads.departamentos(tid, limit: 120),
-        ChurchTenantResilientReads.financeRecent(tid, limit: 500),
       ]);
 
       final membrosSnap = snaps[0];
       final depsSnap = snaps[1];
-      final financeSnap = snaps[2];
 
       QuerySnapshot<Map<String, dynamic>> avisosSnap;
       try {
@@ -226,8 +223,6 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
         return false;
       }).length;
       _departamentos = depsSnap.size;
-      _totalOfertas = financeSnap.docs.fold(0.0, (a, b) => a + _financeEntrada(b.data()));
-      _totalDespesas = financeSnap.docs.fold(0.0, (a, b) => a + _financeSaida(b.data()));
       _aniversariantes = membrosSnap.docs.where((d) {
         final dt = _nascimentoMembro(d.data());
         if (dt == null) return false;
@@ -366,8 +361,6 @@ class _IgrejaPainelPageState extends State<IgrejaPainelPage> {
                                 _MetricCard(label: 'Mulheres', value: _mulheres, icon: Icons.female),
                                 _MetricCard(label: 'Crianças', value: _criancas, icon: Icons.child_care),
                                 _MetricCard(label: 'Departamentos', value: _departamentos, icon: Icons.groups),
-                                _MetricCardMoney(label: r'Ofertas / entradas (R$)', value: _totalOfertas, icon: Icons.attach_money),
-                                _MetricCardMoney(label: r'Despesas / saídas (R$)', value: _totalDespesas, icon: Icons.money_off),
                               ],
                             ),
                             const SizedBox(height: 32),
@@ -532,38 +525,6 @@ class _MetricCard extends StatelessWidget {
             Text(label, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey.shade700)),
             const SizedBox(height: 4),
             Text(value.toString(), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Color(0xFF0D47A1))),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MetricCardMoney extends StatelessWidget {
-  final String label;
-  final double value;
-  final IconData icon;
-  const _MetricCardMoney({required this.label, required this.value, required this.icon});
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: Colors.grey.shade200, width: 1)),
-      color: Colors.white,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: const Color(0xFF0D47A1).withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)),
-              child: Icon(icon, color: const Color(0xFF0D47A1), size: 28),
-            ),
-            const SizedBox(height: 14),
-            Text(label, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Colors.grey.shade700)),
-            const SizedBox(height: 4),
-            Text(value.toStringAsFixed(2), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Color(0xFF0D47A1))),
           ],
         ),
       ),

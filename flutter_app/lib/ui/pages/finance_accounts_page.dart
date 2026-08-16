@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
 import 'package:gestao_yahweh/ui/widgets/fast_text_field.dart';
 import 'package:intl/intl.dart';
@@ -74,7 +74,7 @@ class FinanceAccountsScreen extends StatelessWidget {
                     border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
                   ),
                   child: Text(
-                    'Escolha o tipo, a instituição, a cor do card no Financeiro e um apelido. A prévia mostra como ficará na faixa de contas. Toque no card para editar; arraste ≡ para reordenar.',
+                    'Escolha o tipo, a instituição, a cor do card no Financeiro e um apelido. A prévia mostra como ficar? na faixa de contas. Toque no card para editar; arraste = para reordenar.',
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.35,
@@ -190,7 +190,7 @@ class FinanceAccountsScreen extends StatelessWidget {
 /// sheet), para iOS/Android/Web instalável: o usuário vê todos os campos sem
 /// precisar rolar metade da tela e o teclado não disputa espaço com a barra
 /// inferior. Mantido o nome da classe (`_AccountEditorSheet`) para não tocar
-/// nos call-sites; o que mudou foi apenas o transport (sheet → page).
+/// nos call-sites; o que mudou foi apenas o transport (sheet ? page).
 class _AccountEditorSheet extends StatefulWidget {
   const _AccountEditorSheet({required this.uid, this.account, this.role = ''});
 
@@ -1390,7 +1390,7 @@ class _AccountTile extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '${account.productTypeLabel} • ${p?.name ?? account.presetId}',
+              '${account.productTypeLabel} ? ${p?.name ?? account.presetId}',
               style: TextStyle(fontSize: 12, color: context.appTextSecondary),
             ),
             if (account.isCardProduct && account.statementClosingDay != null) ...[

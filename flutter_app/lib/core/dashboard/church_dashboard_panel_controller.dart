@@ -58,7 +58,7 @@ abstract final class ChurchDashboardPanelController {
   static Future<PanelFinanceSnapshot> readFinanceSummary(String churchIdHint) =>
       PanelFinanceSnapshotService.readOnceFromServer(churchIdHint);
 
-  /// Avisos ativos no painel — one-shot, limit baixo.
+  /// Avisos ativos no painel ? one-shot, limit baixo.
   static Future<QuerySnapshot<Map<String, dynamic>>> avisosPainel(
     String churchIdHint, {
     int limit = 10,

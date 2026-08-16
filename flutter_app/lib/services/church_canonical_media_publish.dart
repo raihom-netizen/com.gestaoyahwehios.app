@@ -32,9 +32,9 @@ class ChurchCanonicalUploadResult {
   final int? cacheRevision;
 }
 
-/// Núcleo único — compressão (quando imagem) → Storage putData → campos Firestore.
+/// Núcleo ?nico ? compressão (quando imagem) ? Storage putData ? campos Firestore.
 ///
-/// Padrão Controle Total (anexo): **1 compressão** → putData → URL → Firestore.
+/// Padrão Controle Total (anexo): **1 compressão** ? putData ? URL ? Firestore.
 /// Sem recompressão; path = MIME real.
 abstract final class ChurchCanonicalMediaPublish {
   ChurchCanonicalMediaPublish._();
@@ -47,7 +47,7 @@ abstract final class ChurchCanonicalMediaPublish {
     LegacyPathGuard.assertCanonicalStoragePath(path, context: context);
   }
 
-  /// Imagem: gate → comprimir **uma vez** → putData → URL https.
+  /// Imagem: gate ? comprimir **uma vez** ? putData ? URL https.
   ///
   /// Com [alreadyCompressed] — NÃO recomprimir (bytes já JPEG/WebP do picker).
   static Future<ChurchCanonicalUploadResult> compressAndUploadImage({
@@ -62,7 +62,7 @@ abstract final class ChurchCanonicalMediaPublish {
   }) async {
     _assertPath(storagePath, context: logLabel);
     if (rawBytes.isEmpty) {
-      throw StateError('Imagem vazia — selecione outro ficheiro.');
+      throw StateError('Imagem vazia ? selecione outro ficheiro.');
     }
     // Mesmo gate dos avisos/membros/patrimônio.
     await ChurchMediaUploadFacade.ensureReady(requireAuth: requireAuth);
@@ -83,7 +83,7 @@ abstract final class ChurchCanonicalMediaPublish {
     }
     onProgress?.call(0.15);
 
-    // Uma compressão só → putData directo (padrão CT / finance/patrimônio).
+    // Uma compressão só ? putData directo (padrão CT / finance/patrim?nio).
     final uploaded = await ChurchCentralStorageUpload.uploadAtCanonicalPath(
       storagePath: storagePath,
       bytes: uploadBytes,
@@ -118,7 +118,7 @@ abstract final class ChurchCanonicalMediaPublish {
   }) async {
     _assertPath(storagePath, context: logLabel);
     if (bytes.isEmpty) {
-      throw StateError('Ficheiro vazio — selecione outro.');
+      throw StateError('Ficheiro vazio ? selecione outro.');
     }
     await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
 
@@ -149,7 +149,7 @@ abstract final class ChurchCanonicalMediaPublish {
         thumbStoragePath: thumbStoragePath,
       );
 
-  /// Master — capa de igreja cliente em destaque (`marketing_clientes`).
+  /// Master ? capa de igreja cliente em destaque (`marketing_clientes`).
   static Map<String, dynamic> marketingClienteCapaFields({
     required String downloadUrl,
     required String storagePath,

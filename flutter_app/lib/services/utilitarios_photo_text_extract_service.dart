@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
@@ -267,14 +267,14 @@ abstract final class UtilitariosPhotoTextExtractService {
 
   /// OCR estilo Google Lens (Android/iOS = on-device ML Kit).
   ///
-  /// Prioridade: **arquivo nativo da câmera** → ML Kit imediato (sem reencode).
+  /// Prioridade: **arquivo nativo da câmera** ? ML Kit imediato (sem reencode).
   /// Fallback: resize leve só se não houver path.
   static Future<UtilPhotoTextExtractResult> extractFromImage(
     Uint8List raw, {
     String? filePath,
   }) async {
     if (!kIsWeb && SmartInputImageOcrService.mlKitTextRecognitionSupported) {
-      // 1) Path nativo — caminho Lens (sem decode/encode Flutter).
+      // 1) Path nativo ? caminho Lens (sem decode/encode Flutter).
       if (filePath != null &&
           filePath.isNotEmpty &&
           await File(filePath).exists()) {
@@ -313,7 +313,7 @@ abstract final class UtilitariosPhotoTextExtractService {
         );
       }
 
-      // Fallback: Cloud Vision (logado) → Textify para garantir que o usuário
+      // Fallback: Cloud Vision (logado) ? Textify para garantir que o usuário
       // receba o texto real da foto, mesmo quando o ML Kit on-device falha.
       final fallback =
           await SmartInputImageOcrService.recognizeFromGalleryBytes(
@@ -421,7 +421,7 @@ abstract final class UtilitariosPhotoTextExtractService {
       );
     }
 
-    // Blocos ordenados por posição (topo→base, esquerda→direita) —
+    // Blocos ordenados por posição (topo?base, esquerda?direita) ?
     // preserva a estrutura visual original do documento/rótulo.
     final blocks = recognized.blocks.toList()
       ..sort((a, b) {
@@ -529,7 +529,7 @@ abstract final class UtilitariosPhotoTextExtractService {
           .where((p) => p.text.trim().isNotEmpty)
           .map(
             (p) => (
-              text: p.isBullet ? '• ${p.text.trim()}' : p.text.trim(),
+              text: p.isBullet ? '? ${p.text.trim()}' : p.text.trim(),
               isHeading: p.isHeading,
               isBold: p.isBold && !p.isHeading,
             ),
@@ -544,7 +544,7 @@ abstract final class UtilitariosPhotoTextExtractService {
             .where((p) => p.text.trim().isNotEmpty)
             .map(
               (p) => (
-                text: p.isBullet ? '• ${p.text.trim()}' : p.text.trim(),
+                text: p.isBullet ? '? ${p.text.trim()}' : p.text.trim(),
                 isHeading: p.isHeading,
                 isBold: p.isBold && !p.isHeading,
               ),

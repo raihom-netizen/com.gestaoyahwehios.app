@@ -122,3 +122,77 @@
 - Ponto ativo: `PONTO_BASE_MEMORIA_2026-08-02_11.2.305+2153.md`
 - Regra Cursor: `.cursor/rules/ponto-base-memoria-11-2-305-2153.mdc`
 - Memórias `2145`, `2143`, `2134`, `2122` e anteriores são históricas.
+
+
+## Atualização Painel Master — 2026-08-13
+
+Foi modernizado o Command Center Master em lutter_app/lib/ui/master_command_center_page.dart com cabeçalho executivo de operação protegida, identificação visual das contas Master Raíhom e Isabelle, melhor hierarquia visual e compatibilidade responsiva por Wrap. Foi criado backup em lutter_app/lib/ui/master_command_center_page.dart.bak-master-modernize.
+
+Também foi corrigido o logout por inatividade em lutter_app/lib/ui/admin_panel_page.dart, removendo o SnackBar inalcançável após redirecionamento e ajustando guards de contexto assíncrono. A análise estática dos quatro arquivos principais (master_command_center_page.dart, dmin_panel_page.dart, pp_session_stability.dart e pp_constants.dart) terminou sem issues.
+
+As duas contas Master continuam preservadas em AppConstants.productMasterUids: o UID de Raíhom Barbosa (O0qRLmLER2hwBFqvlzqSdtAUC3D3) e o UID de Isabelle (PljAYp6FBuWlGNl69Q2vnRp6gZh2). A lógica existente de claims, e-mails e UIDs permanece como fonte de autorização.
+
+**Pendente para a próxima etapa:** validação visual completa no Web, revisão dos módulos de divulgação/Galeria de Clientes, teste do fluxo de publicação manual de igrejas e eventual deploy; ainda não foi alterada a versão nem executado deploy nesta sessão.
+
+
+
+## Atualização visão 360° e plano por membros — 2026-08-13
+
+Foi criada e integrada a ficha MasterPlanUsageCard em lutter_app/lib/ui/widgets/master_plan_usage_card.dart, exibida ao abrir uma igreja no detalhe Master. O cartão mostra o plano atual, membros utilizados, limite, saldo restante, barra de progresso e estados profissionais de plano dentro do limite, upgrade recomendado e limite ultrapassado. A regra de alerta visual considera os últimos 5 membros do limite, conforme solicitado.
+
+A ficha foi integrada em lutter_app/lib/ui/widgets/master_church_detail_sheet.dart e mantém o cálculo de membros já existente no snapshot/cache do painel da igreja. O plano usa SaasPlanLimits, com Bronze até 100 membros, Prata até 500 e Ouro ilimitado, sem criar consultas globais novas.
+
+Validação executada sem issues em: master_plan_usage_card.dart, master_church_detail_sheet.dart, members_limit_service.dart, saas_plan_limits.dart e master_command_center_page.dart.
+
+**Pendente:** concluir os alertas persistentes para a igreja e Masters, ampliar a visão 360° com métricas de cartões, eventos, armazenamento e módulos, validar isolamento de tenant e corrigir o erro de exclusão de Visitantes antes de publicar.
+
+
+
+## Atualização Cargos, Departamentos e cadastro público de membro — 2026-08-13
+
+A auditoria confirmou que o cadastro público grava no caminho canônico igrejas/{churchId}/membros, envia status pendente para Aprovações e inclui churchId, PUBLIC_SIGNUP, campos de foto canônicos do Storage e miniatura quando o upload é concluído. O fluxo usa ChurchMediaUploadFacade, MemberProfilePhotoPickService e MemberProfilePhotoSaveService antes do envio à callable pública.
+
+Foi corrigido o uso de BuildContext após operações assíncronas em member_profile_photo_pick_service.dart; o arquivo agora passa no lutter analyze sem issues. A auditoria das páginas cargos_page.dart, departments_page.dart, public_member_signup_page.dart e provar_membros_pendentes_page.dart identificou avisos preexistentes não fatais, mas nenhum erro de compilação.
+
+**Próximo passo:** finalizar a modernização visual e funcional de Cargos/Departamentos, validar em execução o upload da foto e a chegada na fila de Aprovações e limpar os avisos estáticos restantes antes do deploy.
+
+
+
+## Visão 360° Master e alertas persistentes — 2026-08-13
+
+Foi criado master_church_360_metrics.dart, integrado à ficha master_church_detail_sheet.dart. Ao abrir uma igreja no Painel Master, o sistema exibe cartões por tenant para Membros, Cartões de membro, Eventos, Visitantes, Orações, Patrimônio, Financeiro e Armazenamento. As contagens usam consultas agregadas limitadas ao caminho igrejas/{tenantId}/{subcoleção}; estados indisponíveis aparecem como —, sem inventar números.
+
+Foi criada a persistência MasterPlanAlertPersistence. Quando uma igreja está a até 5 membros do limite, grava o alerta em igrejas/{tenantId}/administrativo/plan_alerts e em master_alerts/plan_{tenantId} para acompanhamento Master. O alerta registra plano, contagem, limite, saldo, severidade, mensagem, status ativo e timestamp. No limite ultrapassado, a severidade passa para locked; em plano ilimitado, não é gerado alerta de limite.
+
+Validação: lutter analyze sem issues em master_church_360_metrics.dart, master_church_detail_sheet.dart e master_plan_usage_card.dart. Ainda não foi feito deploy nem alteração de versão.
+
+
+
+## Navegação detalhada da visão 360° — 2026-08-13
+
+Os cartões da visão 360° agora são clicáveis. Foi criada a tela master_module_detail_page.dart, que abre uma listagem detalhada por módulo para Membros, Cartões de membro, Eventos, Visitantes, Orações, Patrimônio e Financeiro, sempre consultando igrejas/{tenantId}/{subcoleção} e limitando a 80 registros. Cada registro exibe título, subtítulo, foto quando disponível e um painel com os campos detalhados.
+
+master_church_detail_sheet.dart agora encaminha o clique do cartão para a tela correspondente. O componente master_church_360_metrics.dart recebeu callback de navegação e foi validado após correções de sintaxe e formatação.
+
+A análise conjunta dos novos arquivos e dos módulos Cargos, Departamentos, Aprovações e cadastro público não encontrou erros de compilação nos novos componentes. Permanecem avisos estáticos preexistentes em arquivos legados, sem impedir a compilação. Ainda não houve deploy nem alteração de versão.
+
+
+
+## Agenda moderna e varredura geral — 2026-08-13
+
+O módulo genda_calendario_page.dart foi modernizado para tornar os cards-resumo de Todos, Reuniões, Eventos e Cultos clicáveis. Cada card abre uma tela de preview em grid responsiva com cards coloridos por tipo, data, horário, local e ícone. A tela possui botão de retorno no AppBar e botão de retorno dentro do detalhe rápido. A Agenda foi formatada e validada com lutter analyze: No issues found.
+
+A varredura ampla de lib/ui/pages, lib/ui/widgets, lib/services e lib/core/data foi concluída. Resultado: 0 erros de compilação, 242 warnings e 241 infos legados. Os avisos estão distribuídos em arquivos antigos e não impedem a compilação; devem ser tratados em uma etapa separada, módulo a módulo, para evitar alterações destrutivas. Relatório salvo em lutter_app/analysis_full_2026-08-13.txt.
+
+Ainda não foi feito deploy nem alteração de versão.
+
+
+
+## Calendário maior e auditoria Agenda/Escala — 2026-08-13
+
+O calendário mensal recebeu células maiores, números de dia maiores, badge ampliado para contagem de compromissos e proporção mais alta no mobile e mais confortável no Web. A Agenda foi validada sem issues após a implementação de preview em grid: os cards de Todos, Reuniões, Eventos e Cultos são clicáveis, exibem cards coloridos por tipo, data, horário e local, e possuem botão de retorno.
+
+A auditoria do módulo Escala confirmou que schedules_page.dart já contém estruturas de publicação, confirmações, faltas, trocas e relatórios, incluindo cards de instância, filtros de membros e exportação. A próxima correção deve conectar essas estruturas aos indicadores e notificações finais, em vez de duplicar serviços.
+
+Validação direcionada: Agenda e calendário sem erros; o conjunto Agenda/Fornecedores/Escala apresentou apenas warnings/infos legados, sem erro de compilação. Ainda não houve deploy nem alteração de versão.
+

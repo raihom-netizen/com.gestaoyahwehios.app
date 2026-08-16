@@ -179,7 +179,7 @@ final Map<String, Uint8List?> _certificateBackgroundOptimizedCache =
 final Map<String, Uint8List?> _logoOptimizedBytesCache = <String, Uint8List?>{};
 final Map<String, Uint8List?> _signatureOptimizedBytesCache =
     <String, Uint8List?>{};
-/// Assinatura institucional (configuracoes/assinatura) por igreja — evita Storage a cada PDF.
+/// Assinatura institucional (configuracoes/assinatura) por igreja ? evita Storage a cada PDF.
 final Map<String, Uint8List?> _institutionalPastorSigRawCache =
     <String, Uint8List?>{};
 final Map<String, Uint8List?> _institutionalPastorSigOptCache =
@@ -259,7 +259,7 @@ Future<Uint8List?> _fetchCertificateTemplateBackgroundBytes({
 }
 
 Future<Uint8List?> _optimizeBackgroundForPrintPdf(Uint8List bytes) async {
-  /// ~300 DPI no lado longo do A4 paisagem (11,7") ≈ 3500 px; limitamos para PDF leve (~200 DPI efetivo).
+  /// ~300 DPI no lado longo do A4 paisagem (11,7") ? 3500 px; limitamos para PDF leve (~200 DPI efetivo).
   final msg = CertPdfImageOptimizeMessage(
     bytes: bytes,
     maxW: 2400,
@@ -976,7 +976,7 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
             List<Uint8List?>.filled(p.signatoriesForPdf.length, null));
   }
 
-  report('Processando certificado 1 de 1 — baixando imagens em paralelo…', 0.14);
+  report('Processando certificado 1 de 1 ? baixando imagens em paralelo?', 0.14);
 
   final packedFutures = <Future<Object?>>[
     logoFuture,
@@ -1006,7 +1006,7 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
       ? List<Uint8List?>.filled(p.signatoriesForPdf.length, null)
       : packed[allFontsCached ? 3 : 4] as List<Uint8List?>;
 
-  report('Processando certificado 1 de 1 — otimizando fotos…', 0.38);
+  report('Processando certificado 1 de 1 ? otimizando fotos?', 0.38);
 
   const sigMaxW = 800;
   const sigMaxH = 400;
@@ -1159,10 +1159,10 @@ Future<CertPdfResolvedShared> _resolveCertificatePdfShared(
         cpfDigits: p.signatoriesForPdf[i].cpfDigits,
       ),
   ];
-  // ⭐ A SELEÇÃO É AUTORITATIVA: se o usuário marcou signatários, o PDF mostra
-  // SÓ eles (marcou 1 → 1 assinatura; marcou 2 → 2). A assinatura institucional
+  // ? A SELEÇÃO ? AUTORITATIVA: se o usuário marcou signatários, o PDF mostra
+  // Só eles (marcou 1 ? 1 assinatura; marcou 2 ? 2). A assinatura institucional
   // do "Pastor(a) Presidente" só entra como FALLBACK quando NENHUM signatário
-  // foi marcado. (Antes, era sempre anexada → marcava 1 e saíam 2 no PDF.)
+  // foi marcado. (Antes, era sempre anexada ? marcava 1 e sa?am 2 no PDF.)
   if (p.includeInstitutionalPastorSignature && p.signatoriesForPdf.isEmpty) {
     var nomeInst = p.institutionalPastorNome.trim();
     if (nomeInst.isEmpty) {
@@ -1278,7 +1278,7 @@ Future<Uint8List> runCertificatePdfPipeline(
     churchTaxIdDigits: p.churchTaxIdDigits,
   );
 
-  report('Processando certificado 1 de 1 — compactando PDF…', 0.88);
+  report('Processando certificado 1 de 1 ? compactando PDF?', 0.88);
   final pdfBytes =
       await runGeraPdfCertificadoIsolate(certificatePdfInputToMap(input));
   report('Concluído', 1.0);
@@ -1304,7 +1304,7 @@ Future<Uint8List> runCertificateGalaLuxoBatchPdfPipeline({
 
   void report(String m, double p) => onProgress?.call(m, p.clamp(0.0, 1.0));
 
-  report('Lote: a preparar imagens e fontes…', 0.06);
+  report('Lote: a preparar imagens e fontes?', 0.06);
   final resolved = await _resolveCertificatePdfShared(
     shared,
     onProgress: (msg, pr) => report(msg, 0.06 + pr * 0.54),

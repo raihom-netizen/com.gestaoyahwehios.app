@@ -308,7 +308,7 @@ class MemberCardCnhPdfWidget extends pw.StatelessWidget {
     PdfColor? valueColor,
     int maxLines = 1,
   }) {
-    final v = value.trim().isEmpty ? '—' : value.trim();
+    final v = value.trim().isEmpty ? '?' : value.trim();
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [

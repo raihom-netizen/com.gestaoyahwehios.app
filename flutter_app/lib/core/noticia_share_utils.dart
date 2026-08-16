@@ -91,7 +91,7 @@ Uint8List _shrinkSharePhotoIsolate(Uint8List raw) {
   }
 }
 
-/// Baixa a mesma capa usada na partilha nativa (até ~4 MB).
+/// Baixa a mesma capa usada na partilha nativa (até ~4?MB).
 Future<Uint8List?> fetchNoticiaCoverImageBytes(Map<String, dynamic> post) async {
   final imgHttps = await resolveNoticiaSharePreviewImageUrl(post);
   if (imgHttps == null || !isValidImageUrl(imgHttps)) return null;
@@ -120,7 +120,7 @@ Future<Uint8List?> fetchNoticiaCoverImageBytes(Map<String, dynamic> post) async 
   return bytes;
 }
 
-/// Dias da semana (Dart: weekday 1 = segunda … 7 = domingo) — formato longo na mensagem premium.
+/// Dias da semana (Dart: weekday 1 = segunda ? 7 = domingo) ? formato longo na mensagem premium.
 String buildNoticiaInviteShareMessage({
   required String churchName,
   required String noticiaKind,
@@ -162,9 +162,9 @@ String buildNoticiaInviteShareMessage({
       .trim();
 
   final buf = StringBuffer();
-  final kindEmoji = noticiaKind == 'evento' ? '🎉' : '📢';
+  final kindEmoji = noticiaKind == 'evento' ? '??' : '??';
   buf.writeln('$kindEmoji *${cn.toUpperCase()}*');
-  buf.writeln('━━━━━━━━━━━━━━━━━━');
+  buf.writeln('??????????????????');
   buf.writeln();
 
   if (startAt != null) {
@@ -181,16 +181,16 @@ String buildNoticiaInviteShareMessage({
       buf.writeln(highlight);
       buf.writeln();
     }
-    buf.writeln('🎯 *${t.toUpperCase()}*');
-    buf.writeln('🗓 *$wd*');
-    buf.writeln('⏰ *$dd/$mm/$yyyy · $hm*');
+    buf.writeln('?? *${t.toUpperCase()}*');
+    buf.writeln('?? *$wd*');
+    buf.writeln('? *$dd/$mm/$yyyy ? $hm*');
   } else {
-    buf.writeln('📌 *$t*');
+    buf.writeln('?? *$t*');
   }
 
   if (cleanText.isNotEmpty) {
     buf.writeln();
-    buf.writeln('💬 $cleanText');
+    buf.writeln('?? $cleanText');
   }
 
   final locBlock = _formatShareLocationBlock(
@@ -205,26 +205,26 @@ String buildNoticiaInviteShareMessage({
 
   if (site.isNotEmpty || eventUrl.isNotEmpty) {
     buf.writeln();
-    buf.writeln('━━━━━━━━━━━━━━━━━━');
+    buf.writeln('??????????????????');
   }
 
-  // Link do aviso/evento PRIMEIRO — o WhatsApp pré-visualiza o 1.º URL da mensagem.
+  // Link do aviso/evento PRIMEIRO ? o WhatsApp pré-visualiza o 1.? URL da mensagem.
   if (eventUrl.isNotEmpty) {
     final cta = noticiaKind == 'evento'
-        ? '🎟 *Ver evento completo* — fotos e vídeos'
-        : '📢 *Ver aviso completo* — fotos e detalhes';
+        ? '?? *Ver evento completo* ? fotos e vídeos'
+        : '?? *Ver aviso completo* ? fotos e detalhes';
     buf.writeln(cta);
-    buf.writeln('🔗 $eventUrl');
+    buf.writeln('?? $eventUrl');
   }
 
   if (site.isNotEmpty) {
     if (eventUrl.isNotEmpty) buf.writeln();
-    buf.writeln('🌐 *Site da igreja*');
-    buf.writeln('🔗 $site');
+    buf.writeln('?? *Site da igreja*');
+    buf.writeln('?? $site');
   }
 
   buf.writeln();
-  buf.writeln('✨ _Gestão YAHWEH_');
+  buf.writeln('? _Gestão YAHWEH_');
 
   return buf.toString().trimRight();
 }
@@ -247,10 +247,10 @@ String? _eventCountdownHighlight(DateTime startAt) {
   final evDay = DateTime(startAt.year, startAt.month, startAt.day);
   final diffDays = evDay.difference(today).inDays;
   if (diffDays < 0) return null;
-  if (diffDays == 0) return '🔥 *É HOJE!*';
-  if (diffDays == 1) return '⚡ *É AMANHÃ!*';
-  if (diffDays <= 7) return '⏳ *Faltam $diffDays dias*';
-  if (diffDays <= 60) return '📆 *Faltam $diffDays dias*';
+  if (diffDays == 0) return '?? *? HOJE!*';
+  if (diffDays == 1) return '? *? AMANH?!*';
+  if (diffDays <= 7) return '? *Faltam $diffDays dias*';
+  if (diffDays <= 60) return '?? *Faltam $diffDays dias*';
   return null;
 }
 
@@ -267,7 +267,7 @@ String _formatShareLocationBlock({
   if (mapsUrl.isEmpty) return '';
 
   final label = _shortLocationLabel(location, lat, lng);
-  return '📍 *$label*\n🗺 _Abrir no mapa:_\n$mapsUrl';
+  return '?? *$label*\n?? _Abrir no mapa:_\n$mapsUrl';
 }
 
 String _shortLocationLabel(String? location, double? lat, double? lng) {
@@ -284,12 +284,12 @@ String _shortLocationLabel(String? location, double? lat, double? lng) {
         final city = parts[parts.length - 2];
         final uf = parts.last.replaceAll(RegExp(r'\d.*'), '').trim();
         if (city.isNotEmpty && uf.isNotEmpty && uf.length <= 3) {
-          return '$city · $uf';
+          return '$city ? $uf';
         }
         return '${parts[parts.length - 2]}, ${parts.last}';
       }
     }
-    if (s.length > 56) s = '${s.substring(0, 53)}…';
+    if (s.length > 56) s = '${s.substring(0, 53)}?';
     return s;
   }
   if (lat != null && lng != null) return 'Abrir no mapa';
@@ -442,7 +442,7 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
       if (!isValidImageUrl(u) || looksLikeHostedVideoFileUrl(u)) return null;
       Uint8List? bytes;
       if (isFirebaseStorageHttpUrl(u)) {
-        // 12s (era 3s): no web/rede móvel um flyer grande não baixava em 3s →
+        // 12s (era 3s): no web/rede móvel um flyer grande não baixava em 3s ?
         // a foto era descartada e o compartilhamento ia só com texto/link.
         bytes = await firebaseStorageBytesFromDownloadUrl(
           u,
@@ -524,7 +524,7 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
   for (var i = 0; i < photoCount; i++) {
     final f = results[i];
     if (f == null) continue;
-    // Mesma imagem baixada por 2 URLs diferentes (bytes iguais) → 1 anexo.
+    // Mesma imagem baixada por 2 URLs diferentes (bytes iguais) ? 1 anexo.
     final head = f.bytes.length > 64 ? f.bytes.sublist(0, 64) : f.bytes;
     final fingerprint = '${f.bytes.length}:${head.join(',')}';
     if (!seenContent.add(fingerprint)) continue;

@@ -524,7 +524,7 @@ Future<void> showChurchNoticiaShareSheet(
               ),
               _ShareSheetTile(
                 icon: Icons.ios_share_rounded,
-                label: 'Compartilhar…',
+                label: 'Compartilhar?',
                 subtitle: 'Escolher app (mensagens, e-mail, etc.)',
                 onTap: () {
                   Navigator.pop(ctx);

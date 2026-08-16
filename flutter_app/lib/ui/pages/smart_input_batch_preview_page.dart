@@ -150,7 +150,7 @@ class _SmartInputBatchPreviewScreenState
   bool _isInstallmentOrFinancingText(String text) {
     final t = text.toLowerCase();
     return RegExp(
-      r'\b(parcelad[oa]?|parcela(?:s)?|financiament[oa]|emprestim[oa]s?|consignad[oa]|credi[aá]rio|carn[eê])\b',
+      r'\b(parcelad[oa]?|parcela(?:s)?|financiament[oa]|emprestim[oa]só|consignad[oa]|credi[aá]rio|carn[eê])\b',
       caseSensitive: false,
       unicode: true,
     ).hasMatch(t);

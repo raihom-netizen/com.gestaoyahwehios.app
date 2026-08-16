@@ -24,9 +24,9 @@ import 'package:gestao_yahweh/services/system_log_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show dedupeImageRefsByStorageIdentity, isValidImageUrl, sanitizeImageUrl;
 
-/// Pipeline ├║nico e s├¡ncrono (Controle Total):
-/// comprimir ÔåÆ Storage ÔåÆ URL/storagePath ÔåÆ Firestore ÔåÆ agenda ÔåÆ distribui├º├úo.
-/// UI dos m├│dulos s├│ l├¬ o link ÔÇö nunca bytes no documento.
+/// Pipeline +?nico e s+?ncrono (Controle Total):
+/// comprimir ??? Storage ??? URL/storagePath ??? Firestore ??? agenda ??? distribui+?+?o.
+/// UI dos m+?dulos s+? l+? o link ??? nunca bytes no documento.
 abstract final class ChurchFeedLinearPublishService {
   ChurchFeedLinearPublishService._();
 
@@ -178,7 +178,7 @@ abstract final class ChurchFeedLinearPublishService {
                 .where((p) => p.isNotEmpty)
                 .toList() ??
             const <String>[];
-        // Paridade Web: se j├í h├í bytes preparados, N├âO reler paths (evita duplicar + falha).
+        // Paridade Web: se j+? h+? bytes preparados, N+?O reler paths (evita duplicar + falha).
         final allBytes = <Uint8List>[
           for (final b in images)
             if (b.isNotEmpty) b,
@@ -186,14 +186,14 @@ abstract final class ChurchFeedLinearPublishService {
         if (allBytes.isEmpty && imagePaths.isNotEmpty) {
           if (kIsWeb) {
             throw StateError(
-              'As fotos do evento na web devem ser enviadas em mem├│ria (bytes).',
+              'As fotos do evento na web devem ser enviadas em mem+?ria (bytes).',
             );
           }
           final files = <File>[];
           for (final localPath in imagePaths) {
             final file = File(localPath);
             if (!await file.exists()) {
-              throw StateError('Foto do evento n├úo encontrada no aparelho.');
+              throw StateError('Foto do evento n+?o encontrada no aparelho.');
             }
             files.add(file);
           }
@@ -283,14 +283,14 @@ abstract final class ChurchFeedLinearPublishService {
         if (allBytes.isEmpty && imagePaths.isNotEmpty) {
           if (kIsWeb) {
             throw StateError(
-              'As fotos do aviso na web devem ser enviadas em mem├│ria (bytes).',
+              'As fotos do aviso na web devem ser enviadas em mem+?ria (bytes).',
             );
           }
           final files = <File>[];
           for (final localPath in imagePaths) {
             final file = File(localPath);
             if (!await file.exists()) {
-              throw StateError('Foto do aviso n├úo encontrada no aparelho.');
+              throw StateError('Foto do aviso n+?o encontrada no aparelho.');
             }
             files.add(file);
           }
@@ -366,14 +366,14 @@ abstract final class ChurchFeedLinearPublishService {
       _report(onUploadProgress, 0.82);
       if (uploadedCount == 0) {
         throw StateError(
-          'N├úo foi poss├¡vel enviar as fotos para o Storage. '
-          'Verifique a rede e toque em ┬½Tentar novamente┬╗.',
+          'N+?o foi poss+?vel enviar as fotos para o Storage. '
+          'Verifique a rede e toque em -?Tentar novamente-+.',
         );
       }
       if (isEvento &&
           alignedThumbUrls.isEmpty &&
           alignedThumbPaths.isNotEmpty) {
-        // Best-effort: n├úo bloquear publish se getDownloadURL dos thumbs falhar.
+        // Best-effort: n+?o bloquear publish se getDownloadURL dos thumbs falhar.
         try {
           final thumbFutures = alignedThumbPaths.map(
             (tp) => EcoFireFeedPublishService.refsToPlayableUrls([tp]),
@@ -396,8 +396,8 @@ abstract final class ChurchFeedLinearPublishService {
     ]);
 
     if (hasNewPhotos && uploadedPaths.isNotEmpty) {
-      // Happy path CT: putData j├í confirmou o objeto ÔÇö N├âO bloquear em getMetadata
-      // (era o trav├úo ~74ÔÇô88% ┬½A gravar eventoÔÇª┬╗ na Web).
+      // Happy path CT: putData j+? confirmou o objeto ??? N+?O bloquear em getMetadata
+      // (era o trav+?o ~74???88% -?A gravar evento?O-+ na Web).
       unawaited(
         ChurchStorageMetadataVerify.assertAllExist(
           uploadedPaths,
@@ -452,8 +452,8 @@ abstract final class ChurchFeedLinearPublishService {
       payload['imagemUrl'] = first;
       payload['imagem_url'] = first;
     } else if (allPaths.isNotEmpty) {
-      // Sem https (token/getDownloadURL falhou): gravar paths como refs de m├¡dia
-      // para painel, m├│dulo e site p├║blico resolverem via Storage.
+      // Sem https (token/getDownloadURL falhou): gravar paths como refs de m+?dia
+      // para painel, m+?dulo e site p+?blico resolverem via Storage.
       final first = allPaths.first;
       payload['fotos'] = allPaths;
       payload['imageUrl'] = first;
@@ -482,7 +482,7 @@ abstract final class ChurchFeedLinearPublishService {
       onProgress: onUploadProgress,
     );
     if (isEvento) {
-      // Mirror legado em background ÔÇö n├úo segurar o progresso em ~78ÔÇô88%.
+      // Mirror legado em background ??? n+?o segurar o progresso em ~78???88%.
       unawaited(
         _mirrorEventoToLegacyEventsCollection(
           churchId: churchId,
@@ -492,7 +492,7 @@ abstract final class ChurchFeedLinearPublishService {
       );
     }
 
-    // Verify em background ÔÇö n├úo segurar a UI em 78ÔÇô88%.
+    // Verify em background ??? n+?o segurar a UI em 78???88%.
     unawaited(
       _verifyFeedDocPublished(docRef: docRef, isEvento: isEvento).catchError((
         Object e,
@@ -506,7 +506,7 @@ abstract final class ChurchFeedLinearPublishService {
     );
     _report(onUploadProgress, 0.96);
 
-    // Agenda/calend├írio em background ÔÇö n├úo segurar UI em ~88% (Web).
+    // Agenda/calend+?rio em background ??? n+?o segurar UI em ~88% (Web).
     if (isEvento && syncAgenda) {
       final start = eventStartAt ?? _startAtFromPayload(payload);
       if (start != null) {
@@ -690,7 +690,7 @@ abstract final class ChurchFeedLinearPublishService {
       try {
         await verify().timeout(const Duration(seconds: 10));
       } catch (_) {
-        // CF Admin SDK j├í gravou ÔÇö n├úo bloquear por lag de leitura web.
+        // CF Admin SDK j+? gravou ??? n+?o bloquear por lag de leitura web.
       }
       return;
     }

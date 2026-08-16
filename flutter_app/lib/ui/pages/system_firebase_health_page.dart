@@ -19,7 +19,7 @@ import 'package:gestao_yahweh/services/storage_upload_queue_service.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Painel Master / ADM — Firebase, uploads pendentes (global) e filas locais.
+/// Painel Master / ADM ? Firebase, uploads pendentes (global) e filas locais.
 class SystemFirebaseHealthPage extends StatefulWidget {
   const SystemFirebaseHealthPage({super.key});
 
@@ -250,7 +250,7 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
                   ...h.blockingReasons.map(
                     (r) => Padding(
                       padding: const EdgeInsets.only(bottom: 4),
-                      child: Text('• $r', style: TextStyle(color: Colors.red.shade800)),
+                      child: Text('? $r', style: TextStyle(color: Colors.red.shade800)),
                     ),
                   ),
                 ],
@@ -414,8 +414,8 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
           label: 'Health check (5 min)',
           ok: SystemHealthService.lastPeriodicError == null,
           detail: SystemHealthService.lastPeriodicAt == null
-              ? 'A aguardar primeiro ciclo…'
-              : '${SystemHealthService.lastPeriodicAt!.toLocal()} · '
+              ? 'A aguardar primeiro ciclo?'
+              : '${SystemHealthService.lastPeriodicAt!.toLocal()} ? '
                   '${SystemHealthService.lastPeriodicSnapshot?.productionReady == true ? 'OK' : 'atenção'}',
         ),
         _StatusTile(
@@ -459,11 +459,11 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
   }
 
   String _checkDetail(SystemHealthSnapshot? h, String label) {
-    if (h == null) return '—';
+    if (h == null) return '?';
     for (final c in h.checks) {
       if (c.label == label) return c.detail;
     }
-    return '—';
+    return '?';
   }
 
   Widget _qaTab() {
@@ -545,7 +545,7 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Modo QA — Fase Final de Qualidade',
+                  'Modo QA ? Fase Final de Qualidade',
                   style: TextStyle(
                     fontWeight: FontWeight.w900,
                     fontSize: 16,
@@ -558,8 +558,8 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
                 Text(
                   q == null
                       ? 'A executar 28 verificações…'
-                      : '${q.passCount} OK · ${q.failCount} falha(s) · '
-                          '${q.warnCount} aviso(s) · ${q.manualCount} manual(is)',
+                      : '${q.passCount} OK ? ${q.failCount} falha(s) ? '
+                          '${q.warnCount} aviso(s) ? ${q.manualCount} manual(is)',
                   style: TextStyle(color: Colors.grey.shade800),
                 ),
                 if (q != null) ...[
@@ -583,7 +583,7 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.play_arrow_rounded),
-          label: Text(_qaRunning ? 'A executar…' : 'Executar 28 testes QA'),
+          label: Text(_qaRunning ? 'A executar?' : 'Executar 28 testes QA'),
         ),
         const SizedBox(height: 16),
         if (_qaRunning && q == null)
@@ -649,14 +649,14 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
             label: m.label,
             ok: !measured || ok,
             detail: measured
-                ? '${m.lastMs}ms · meta ${m.targetLabel}'
+                ? '${m.lastMs}ms ? meta ${m.targetLabel}'
                 : 'Ainda não medido nesta sessão',
           );
         }),
         const SizedBox(height: 16),
         const Text(
-          'Metas finais: Dashboard e Painel Master < 1s · Chat/Avisos/Eventos instantâneos · '
-          'Upload foto < 3s · sem travamentos · sem perda de dados.',
+          'Metas finais: Dashboard e Painel Master < 1s ? Chat/Avisos/Eventos instantâneos ? '
+          'Upload foto < 3s ? sem travamentos ? sem perda de dados.',
           style: TextStyle(fontSize: 12),
         ),
       ],
@@ -776,7 +776,7 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
                     dense: true,
-                    title: Text('$mod · $st', maxLines: 1),
+                    title: Text('$mod ? $st', maxLines: 1),
                     subtitle: Text(
                       path.isEmpty ? d.id : path,
                       maxLines: 2,
@@ -934,7 +934,7 @@ class _StatusTile extends StatelessWidget {
         title: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
         subtitle: Text(detail, maxLines: 3, overflow: TextOverflow.ellipsis),
         trailing: Text(
-          ok ? '🟢 Online' : '🔴 Offline',
+          ok ? '?? Online' : '?? Offline',
           style: TextStyle(
             color: ok ? ThemeCleanPremium.primary : Colors.red.shade700,
             fontWeight: FontWeight.w800,

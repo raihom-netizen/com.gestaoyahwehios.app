@@ -16,6 +16,7 @@ import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Resultado da carga pedidos de oração — `igrejas/{churchId}/pedidosOracao`.
 class ChurchPedidosOracaoLoadResult {
@@ -805,9 +806,9 @@ abstract final class ChurchPedidosOracaoLoadService {
         await FirestoreWebGuard.runWithWebRecovery(
           () => runFirestorePublishWithRecovery(
             () async {
-              final batch = ChurchRepository.batch();
+              final batch = YahwehBatch();
               for (final id in slice) {
-                batch.delete(col.doc(id));
+                batch.deleteDoc(col.doc(id));
               }
               await batch.commit();
             },

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
@@ -23,13 +23,13 @@ Future<List<DateTime>?> showMultiDateMonthPickerDialog({
   List<DateTime>? initialSelected,
   /// Quando `1`, só um dia pode ficar marcado (fluxo "trocar plantão").
   int? maxSelection,
-  /// Primeiro mês permitido (inclusive). `null` → jan/2020.
+  /// Primeiro mês permitido (inclusive). `null` ? jan/2020.
   DateTime? firstMonthAllowed,
-  /// Último mês permitido (inclusive). `null` → dez/2100.
+  /// ?ltimo mês permitido (inclusive). `null` ? dez/2100.
   DateTime? lastMonthAllowed,
-  /// Limite inferior do **dia civil** clicável (inclusive). `null` → sem limite.
+  /// Limite inferior do **dia civil** clicável (inclusive). `null` ? sem limite.
   DateTime? selectableMinDay,
-  /// Limite superior do **dia civil** clicável (inclusive). `null` → sem limite.
+  /// Limite superior do **dia civil** clicável (inclusive). `null` ? sem limite.
   DateTime? selectableMaxDay,
   /// UID do usuário — alinha início da semana com Escalas (segunda ou domingo).
   String? uid,
@@ -155,7 +155,7 @@ class _MultiDateMonthBodyState extends State<_MultiDateMonthBody> {
   /// Vermelho **negrito** para sáb/dom e feriados (contraste sobre fundo claro).
   static const Color _weekendHolidayRed = Color(0xFFC62828);
 
-  /// Botões ◀ ▶ — gradiente logo (super premium), ícone branco e sombra suave.
+  /// Botões ? ? ? gradiente logo (super premium), ?cone branco e sombra suave.
   Widget _premiumMonthNavButton({
     required IconData icon,
     required VoidCallback? onTap,
@@ -387,7 +387,7 @@ class _MultiDateMonthBodyState extends State<_MultiDateMonthBody> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Cabeçalho com navegação ◀ mês ▶
+                  // Cabeçalho com navegação ? mês ?
                   Container(
                     padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
                     decoration: context.appPanelDecoration(radius: 18),
@@ -648,7 +648,7 @@ class _MultiDateMonthBodyState extends State<_MultiDateMonthBody> {
                                       CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      '• ',
+                                      '? ',
                                       style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w900,
@@ -674,7 +674,7 @@ class _MultiDateMonthBodyState extends State<_MultiDateMonthBody> {
                                               ),
                                             ),
                                             TextSpan(
-                                              text: ' — ${f.name}',
+                                              text: ' ? ${f.name}',
                                               style: TextStyle(
                                                 fontWeight: f.isOptional
                                                     ? FontWeight.w600

@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:io' show File;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -62,8 +62,8 @@ class UtilPdfPageAnnotation {
   /// Exportação integrada ao fundo (sem caixa branca visível).
   final bool seamless;
 
-  /// Texto original do campo — usado no export para localizar e substituir
-  /// no PDF (findText) sem “mancha” maior que o trecho.
+  /// Texto original do campo ? usado no export para localizar e substituir
+  /// no PDF (findText) sem ?mancha? maior que o trecho.
   final String? replaceSourceText;
 
   UtilPdfPageAnnotation copyWith({
@@ -199,21 +199,21 @@ extension UtilitariosCompressLevelX on UtilitariosCompressLevel {
 
   String get subtitle => switch (this) {
         UtilitariosCompressLevel.baixa =>
-          'Quase original · ~15–25% menor (imagem, PDF, MP4)',
+          'Quase original ? ~15?25% menor (imagem, PDF, MP4)',
         UtilitariosCompressLevel.media =>
-          'Smart Compress · ~40–55% menor · recomendado',
+          'Smart Compress ? ~40?55% menor ? recomendado',
         UtilitariosCompressLevel.alta =>
-          'Ultra Smart · até ~80% menor · nitidez recuperada',
+          'Ultra Smart ? até ~80% menor ? nitidez recuperada',
       };
 
   /// Resumo técnico exibido na UI do compressor.
   String get techSummary => switch (this) {
         UtilitariosCompressLevel.baixa =>
-          'Imagem até 2K · PDF legível · vídeo até 1080p',
+          'Imagem até 2K ? PDF legível ? vídeo até 1080p',
         UtilitariosCompressLevel.media =>
-          'Resize + sharpen Smart · PDF otimizado · vídeo 900p',
+          'Resize + sharpen Smart ? PDF otimizado ? vídeo 900p',
         UtilitariosCompressLevel.alta =>
-          'Máxima redução · sharpen forte · vídeo 720p preset slow',
+          'Máxima redução ? sharpen forte ? vídeo 720p preset slow',
       };
 
   /// Faixa estimada de redução (UI).
@@ -243,7 +243,7 @@ extension UtilitariosCompressLevelX on UtilitariosCompressLevel {
         UtilitariosCompressLevel.alta => 960,
       };
 
-  /// Largura de render do PDF — Alta mais agressiva, com JPEG + sharpen compensando.
+  /// Largura de render do PDF ? Alta mais agressiva, com JPEG + sharpen compensando.
   double get pdfRenderWidth => switch (this) {
         UtilitariosCompressLevel.baixa => 1100,
         UtilitariosCompressLevel.media => 820,
@@ -279,10 +279,10 @@ extension UtilitariosArchiveFormatX on UtilitariosArchiveFormat {
       };
 
   String get subtitle => switch (this) {
-        UtilitariosArchiveFormat.zip => 'Rápido · compatível com tudo',
-        UtilitariosArchiveFormat.zipMax => 'Menor tamanho · extensão .zip',
+        UtilitariosArchiveFormat.zip => 'Rápido ? compatível com tudo',
+        UtilitariosArchiveFormat.zipMax => 'Menor tamanho ? extensão .zip',
         UtilitariosArchiveFormat.rar =>
-          'Ultra-compacto · .zip no celular (padrão universal)',
+          'Ultra-compacto ? .zip no celular (padrão universal)',
       };
 
   String get fileExtension => 'zip';
@@ -299,7 +299,7 @@ abstract final class UtilitariosLocalService {
 
   static bool _pdfrxReady = false;
 
-  /// Limites defensivos — evita OOM / travamento em PDFs/fotos grandes.
+  /// Limites defensivos ? evita OOM / travamento em PDFs/fotos grandes.
   static const int kMaxPdfPagesRender = 15;
   static const int kMaxPdfPagesCompress = 20;
 
@@ -316,7 +316,7 @@ abstract final class UtilitariosLocalService {
   static const int kMaxVideoInputBytes = 500 * 1024 * 1024; // 500 MB
   static const double kPdfRenderWidth = 900;
 
-  /// Largura de render no editor PDF — ~A4 @ ~200 dpi (2480 px no lado longo)
+  /// Largura de render no editor PDF ? ~A4 @ ~200 dpi (2480 px no lado longo)
   /// para tipografia fina e export próximo ao padrão Adobe ao compartilhar.
   static const double kPdfEditRenderWidth = 2480;
   static const double kPdfCompressWidth = 780;
@@ -366,7 +366,7 @@ abstract final class UtilitariosLocalService {
 
   static Future<void> _yieldUi() => Future<void>.delayed(Duration.zero);
 
-  /// JPEG/PNG → PDF (1 página por imagem) — encode em isolate.
+  /// JPEG/PNG ? PDF (1 página por imagem) ? encode em isolate.
   /// [level] controla qualidade/tamanho. Conversões usam [baixa]; compressor passa Média/Alta.
   static Future<Uint8List> imagesToPdf(
     List<Uint8List> images, {
@@ -387,7 +387,7 @@ abstract final class UtilitariosLocalService {
     );
   }
 
-  /// Compressor de imagem (JPEG mais leve) — isolate.
+  /// Compressor de imagem (JPEG mais leve) ? isolate.
   /// Use [level] (Baixa/Média/Alta) ou [quality]/[maxSide] manuais.
   static Future<Uint8List> compressImage(
     Uint8List raw, {
@@ -573,7 +573,7 @@ abstract final class UtilitariosLocalService {
     );
   }
 
-  /// Gira a página 90° (quarterTurns: -1 = esquerda / +1 = direita) e reprocessa preview.
+  /// Gira a página 90? (quarterTurns: -1 = esquerda / +1 = direita) e reprocessa preview.
   static Future<
       ({
         Uint8List original,
@@ -628,11 +628,11 @@ abstract final class UtilitariosLocalService {
     return out;
   }
 
-  /// Formato de imagem na exportação PDF → imagem.
+  /// Formato de imagem na exportação PDF ? imagem.
   static const String imageFormatJpeg = 'jpeg';
   static const String imageFormatPng = 'png';
 
-  /// PDF → imagens (JPEG ou PNG), até [maxPages] páginas.
+  /// PDF ? imagens (JPEG ou PNG), até [maxPages] páginas.
   static Future<List<Uint8List>> pdfToImages(
     Uint8List pdfBytes, {
     int maxPages = kMaxPdfPagesRender,
@@ -680,7 +680,7 @@ abstract final class UtilitariosLocalService {
     }
   }
 
-  /// PDF → JPEG (atalho).
+  /// PDF ? JPEG (atalho).
   static Future<List<Uint8List>> pdfToJpegs(
     Uint8List pdfBytes, {
     int maxPages = kMaxPdfPagesRender,
@@ -693,7 +693,7 @@ abstract final class UtilitariosLocalService {
         format: imageFormatJpeg,
       );
 
-  /// PDF → PNG (atalho).
+  /// PDF ? PNG (atalho).
   static Future<List<Uint8List>> pdfToPngs(
     Uint8List pdfBytes, {
     int maxPages = kMaxPdfPagesRender,
@@ -733,7 +733,7 @@ abstract final class UtilitariosLocalService {
       if (s.isEmpty) {
         return 'Documento convertido no Gestão Yahweh.\n'
             'Este PDF não possui texto selecionável (pode ser imagem/scan).\n'
-            'Use «PDF → JPEG» ou «PDF → PNG» para obter as páginas em imagem.';
+            'Use ?PDF ? JPEG? ou ?PDF ? PNG? para obter as páginas em imagem.';
       }
       return s;
     } finally {
@@ -741,13 +741,13 @@ abstract final class UtilitariosLocalService {
     }
   }
 
-  /// PDF → DOCX com parágrafos, títulos e tabelas preservados (layout local).
+  /// PDF ? DOCX com parágrafos, títulos e tabelas preservados (layout local).
   static Future<Uint8List> pdfToDocx(Uint8List pdfBytes) async {
     final doc = await _pdfExtractStructuredDocument(pdfBytes);
     return compute(_buildFormattedDocxIsolate, doc);
   }
 
-  /// PDF → DOCX **visual** (1 imagem por página) — preserva formato/tamanho
+  /// PDF ? DOCX **visual** (1 imagem por página) ? preserva formato/tamanho
   /// do documento original (tabelas, formulários, scans) sem manchas.
   static Future<Uint8List> pdfToVisualDocx(Uint8List pdfBytes) async {
     ensureWithinSize(pdfBytes, label: 'PDF');
@@ -774,13 +774,13 @@ abstract final class UtilitariosLocalService {
     );
   }
 
-  /// PDF → Excel (XLSX): linhas/colunas e tabelas alinhadas ao documento.
+  /// PDF ? Excel (XLSX): linhas/colunas e tabelas alinhadas ao documento.
   static Future<Uint8List> pdfToXlsx(Uint8List pdfBytes) async {
     final doc = await _pdfExtractStructuredDocument(pdfBytes);
     return compute(_buildFormattedXlsxIsolate, doc);
   }
 
-  /// PDF → PowerPoint (PPTX): cada página do PDF vira um slide (imagem).
+  /// PDF ? PowerPoint (PPTX): cada página do PDF vira um slide (imagem).
   static Future<Uint8List> pdfToPptx(Uint8List pdfBytes) async {
     ensureWithinSize(pdfBytes, label: 'PDF');
     // Largura moderada = rápido na web e JPEG estável no PowerPoint.
@@ -813,7 +813,7 @@ abstract final class UtilitariosLocalService {
     return compute(_buildMinimalPptxFromImagesIsolate, safe);
   }
 
-  /// Excel (XLSX/CSV) → PDF (tabela local).
+  /// Excel (XLSX/CSV) ? PDF (tabela local).
   static Future<Uint8List> excelToPdf(
     Uint8List bytes,
     String fileName,
@@ -828,7 +828,7 @@ abstract final class UtilitariosLocalService {
     return _rowsToPdfWithTheme(rows, theme);
   }
 
-  /// DOCX/TXT/RTF → PDF (texto local, fonte Noto com acentos pt-BR).
+  /// DOCX/TXT/RTF ? PDF (texto local, fonte Noto com acentos pt-BR).
   static Future<Uint8List> documentToPdf(
     Uint8List bytes,
     String fileName,
@@ -851,7 +851,7 @@ abstract final class UtilitariosLocalService {
   static Uint8List buildMinimalDocx(String plainText) =>
       _buildMinimalDocxIsolate(plainText);
 
-  /// Parágrafos com títulos/negrito → DOCX formatado (exportação Controletotalapp).
+  /// Parágrafos com títulos/negrito ? DOCX formatado (exportação Controletotalapp).
   static Uint8List buildFormattedDocxFromParagraphs(
     List<({String text, bool isHeading, bool isBold})> paragraphs,
   ) {
@@ -873,7 +873,7 @@ abstract final class UtilitariosLocalService {
     );
   }
 
-  /// Texto com parágrafos formatados → PDF A4.
+  /// Texto com parágrafos formatados ? PDF A4.
   static Future<Uint8List> plainTextToFormattedPdf(
     List<({String text, bool isHeading, bool isBold})> paragraphs,
   ) async {
@@ -881,7 +881,7 @@ abstract final class UtilitariosLocalService {
     return _formattedParagraphsToPdf(paragraphs, theme);
   }
 
-  /// Texto puro → PDF A4 com fonte Noto (acentos pt-BR).
+  /// Texto puro ? PDF A4 com fonte Noto (acentos pt-BR).
   static Future<Uint8List> plainTextToPdf(String plainText) async {
     final theme = await RelatorioService.latinPdfThemeForExport();
     return _textToPdfWithTheme(plainText, theme);
@@ -903,7 +903,7 @@ abstract final class UtilitariosLocalService {
     );
   }
 
-  /// Atalho legado — ZIP de JPEGs.
+  /// Atalho legado ? ZIP de JPEGs.
   static Future<Uint8List> zipJpegs(List<Uint8List> pages, String stem) =>
       zipImages(pages, stem, extension: 'jpg');
 
@@ -1160,7 +1160,7 @@ abstract final class UtilitariosLocalService {
         format: imageFormatJpeg,
       );
 
-  /// Une páginas na ordem escolhida (vários PDFs → 1 PDF).
+  /// Une páginas na ordem escolhida (vários PDFs ? 1 PDF).
   /// Une páginas preservando o PDF original (vetor/fonte/nitidez) — cópia
   /// nativa via template do Syncfusion, sem rasterizar para JPEG.
   static Future<Uint8List> mergeOrderedPdfPages(
@@ -1185,7 +1185,7 @@ abstract final class UtilitariosLocalService {
     }
   }
 
-  /// Divide PDF: páginas selecionadas → 1 PDF ou ZIP (1 PDF por página).
+  /// Divide PDF: páginas selecionadas ? 1 PDF ou ZIP (1 PDF por página).
   /// Cópia nativa (vetor/fonte/nitidez preservados), sem rasterizar.
   static Future<({Uint8List bytes, String fileName, String mime})>
       splitPdfPages(
@@ -1265,7 +1265,7 @@ abstract final class UtilitariosLocalService {
   ///
   /// Duas fases: o isolate prepara o fundo (inpainting seamless, destaque,
   /// check); o texto novo é desenhado com fonte vetorial real (TextPainter),
-  /// no tamanho exato do campo original — sem desconfigurar o layout.
+  /// no tamanho exato do campo original ? sem desconfigurar o layout.
   static Future<Uint8List> flattenPdfPageWithAnnotations(
     Uint8List pageJpeg,
     List<UtilPdfPageAnnotation> annotations,
@@ -1755,7 +1755,7 @@ abstract final class UtilitariosLocalService {
           blocks: const [],
           plainFallback: 'Documento convertido no Gestão Yahweh.\n'
               'Este PDF não possui texto selecionável (pode ser imagem/scan).\n'
-              'Use «PDF → JPEG» ou «PDF → PNG» para obter as páginas em imagem.',
+              'Use ?PDF ? JPEG? ou ?PDF ? PNG? para obter as páginas em imagem.',
         );
       }
       final fallbackBlocks = plain
@@ -1862,7 +1862,7 @@ abstract final class UtilitariosLocalService {
           continue;
         }
       }
-      final text = cells.join(cells.length > 1 ? ' · ' : ' ').trim();
+      final text = cells.join(cells.length > 1 ? ' ? ' : ' ').trim();
       if (text.isNotEmpty) {
         blocks.add(
           _PdfExportBlock(
@@ -1891,7 +1891,7 @@ abstract final class UtilitariosLocalService {
   static bool _looksLikeHeading(String text) => _pdfLooksLikeHeading(text);
 }
 
-// ─── Isolates (funções top-level / estáticas serializáveis) ─────────────────
+// --- Isolates (funções top-level / est?ticas serializáveis) -----------------
 
 bool _pdfLooksLikeHeading(String text) {
   final s = text.trim();
@@ -2056,7 +2056,7 @@ List<double> _rotateCropNorm(
   var w = nw;
   var h = nh;
   for (var i = 0; i < q; i++) {
-    // 90° horário: (x,y,w,h) → (1-y-h, x, h, w)
+    // 90? horário: (x,y,w,h) ? (1-y-h, x, h, w)
     final nx2 = 1.0 - y - h;
     final ny2 = x;
     final nw2 = h;
@@ -2381,7 +2381,7 @@ img.Image _finalizeScanExport(img.Image work, _EnhanceScanArgs a) {
   return _fitScanExportA4(work, a.maxSide);
 }
 
-/// Enquadra o documento (estilo CamScanner) — borda por contraste + papel.
+/// Enquadra o documento (estilo CamScanner) ? borda por contraste + papel.
 img.Image _autoCropDocument(img.Image src) {
   final w = src.width;
   final h = src.height;
@@ -2749,7 +2749,7 @@ img.Image _suppressCreaseHighlights(img.Image src) {
   return out;
 }
 
-/// Papel limpo estilo CamScanner "Melhorar" — preserva detalhe, sem estourar branco.
+/// Papel limpo estilo CamScanner "Melhorar" ? preserva detalhe, sem estourar branco.
 img.Image _flattenCrumpledDocument(
   img.Image src, {
   bool vivid = false,
@@ -2986,7 +2986,7 @@ img.ColorRgb8 _medianPaperColorAround(
     // dominada pelos próprios traços de tinta (anti-aliasing incluso) em
     // vez de uma célula de tabela realmente colorida. Um resultado muito
     // escuro quase nunca é o fundo pretendido — é a tinta sendo
-    // confundida com fundo — e pintar essa cor por cima do texto ao
+    // confundida com fundo ? e pintar essa cor por cima do texto ao
     // editar o campo produzia uma barra preta cobrindo o conteúdo. Nesse
     // caso preferimos não sobrescrever (mantém branco no chamador) a
     // arriscar uma barra escura indevida.
@@ -3166,7 +3166,7 @@ Uint8List _flattenPdfAnnotationsIsolate(_FlattenAnnotationsArgs a) {
       );
     } else {
       // Texto: aqui só o preparo do fundo (inpainting). Os glifos são
-      // desenhados depois com fonte vetorial em _paintTextAnnotationsVector —
+      // desenhados depois com fonte vetorial em _paintTextAnnotationsVector ?
       // as fontes bitmap arial14/24/48 desconfiguravam o documento.
       if (ann.seamless) {
         _fillSeamlessRegion(work, x, y, rw, rh);
@@ -3869,7 +3869,7 @@ Uint8List _buildVisualDocxFromImagesIsolate(_VisualDocxArgs args) {
     }
     final cx = (ptW * emuPerPt).round();
     final cy = (ptH * emuPerPt).round();
-    // Page margins 0 — imagem full page.
+    // Page margins 0 ? imagem full page.
     final pgWTwips = (ptW * 20).round();
     final pgHTwips = (ptH * 20).round();
 
@@ -4099,7 +4099,7 @@ Uint8List _buildFormattedXlsxIsolate(_PdfExportDocument doc) {
  xmlns:dc="http://purl.org/dc/elements/1.1/"
  xmlns:dcterms="http://purl.org/dc/terms/"
  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dc:title>PDF → Excel</dc:title>
+  <dc:title>PDF ? Excel</dc:title>
   <dc:creator>Gestão Yahweh</dc:creator>
   <cp:lastModifiedBy>Gestão Yahweh</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">$now</dcterms:created>
@@ -4265,7 +4265,7 @@ String _xmlEscape(String s) => s
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&apos;');
 
-/// Páginas JPEG → PPTX válido (1 slide por página) — abre no PowerPoint sem reparo.
+/// Páginas JPEG ? PPTX válido (1 slide por página) ? abre no PowerPoint sem reparo.
 Uint8List _buildMinimalPptxFromImagesIsolate(List<Uint8List> pages) {
   if (pages.isEmpty) {
     throw StateError('Nenhuma página para o PowerPoint.');
@@ -4580,7 +4580,7 @@ $presRels</Relationships>''';
   return Uint8List.fromList(encoded);
 }
 
-/// Lê XLSX/CSV → lista de linhas (máx. 80 linhas × 12 colunas).
+/// Lê XLSX/CSV ? lista de linhas (máx. 80 linhas ? 12 colunas).
 List<List<String>> _excelRowsIsolate(_DocumentTextArgs a) {
   final lower = a.fileName;
   if (lower.endsWith('.csv') || lower.endsWith('.txt')) {
@@ -4735,7 +4735,7 @@ Future<Uint8List> _rowsToPdfWithTheme(
           pw.Padding(
             padding: const pw.EdgeInsets.only(top: 8),
             child: pw.Text(
-              '… linhas extras omitidas para manter o PDF leve.',
+              '? linhas extras omitidas para manter o PDF leve.',
               style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
             ),
           ),

@@ -471,7 +471,7 @@ class MemberCardCnhDigital extends StatelessWidget {
           ),
         ),
         Text(
-          value.isEmpty ? '—' : value,
+          value.isEmpty ? '?' : value,
           maxLines: maxLines,
           overflow: TextOverflow.ellipsis,
           style: GoogleFonts.poppins(

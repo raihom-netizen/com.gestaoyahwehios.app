@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_status_resolver.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'finance_month_cache.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Representa um lançamento financeiro pendente exibido no calendário.
 class CalendarFinanceEntry {
@@ -244,12 +245,12 @@ abstract final class FinanceCalendarBridge {
           .where('date', isLessThan: Timestamp.fromDate(end))
           .get();
       if (snap.docs.isEmpty) return 0;
-      final batch = FirebaseFirestore.instance.batch();
+      final batch = YahwehBatch();
       int count = 0;
       final fixedUpdates = <String, ({String collection, String monthKey})>{};
       for (final doc in snap.docs) {
         final d = doc.data();
-        batch.delete(doc.reference);
+        batch.deleteDoc(doc.reference);
         count++;
         final feId = (d['fixedExpenseId'] ?? '').toString().trim();
         final fiId = (d['fixedIncomeId'] ?? '').toString().trim();
@@ -273,8 +274,8 @@ abstract final class FinanceCalendarBridge {
           uid.trim(),
         ).collection(entry.value.collection).doc(entry.key);
         batch.update(ref, {
-          'excludedMonths': FieldValue.arrayUnion([entry.value.monthKey]),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'excludedMonths': YahwehFv.arrayUnion([entry.value.monthKey]),
+          'updatedAt': YahwehFv.serverTimestamp,
         });
       }
       await batch.commit();

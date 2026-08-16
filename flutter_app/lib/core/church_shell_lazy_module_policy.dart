@@ -37,7 +37,7 @@ abstract final class ChurchShellLazyModulePolicy {
     ChurchShellIndices.fornecedores,
   };
 
-  /// Compat — preferir [retainLimitForPlatform].
+  /// Compat ? preferir [retainLimitForPlatform].
   static const int kMaxRetainedMaterializedModules = 8;
 
   /// Web: 2 (ativo+anterior) | Mobile: 3 | Desktop: 8 — nav rápida CT-like.

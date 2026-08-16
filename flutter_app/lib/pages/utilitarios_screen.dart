@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -350,16 +350,20 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _pdfToWord() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo PDF → Word…', () async {
+    await _runBusy('Convertendo PDF ? Word?', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['pdf'],
       );
       if (picked == null) return;
       final out = await UtilitariosLocalService.pdfToDocx(picked.bytes);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
-          isAdmin: _isAdmin);
-      final base =
-          picked.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
+      await UtilitariosDailyQuotaService.consumeLight(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      );
+      final base = picked.name.replaceAll(
+        RegExp(r'\.pdf$', caseSensitive: false),
+        '',
+      );
       await _afterResult(
         bytes: out,
         fileName: '${base.isEmpty ? 'documento' : base}.docx',
@@ -373,16 +377,20 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _pdfToJpeg() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo PDF → JPEG…', () async {
+    await _runBusy('Convertendo PDF ? JPEG?', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['pdf'],
       );
       if (picked == null) return;
       final pages = await UtilitariosLocalService.pdfToJpegs(picked.bytes);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
-          isAdmin: _isAdmin);
-      final base =
-          picked.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
+      await UtilitariosDailyQuotaService.consumeLight(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      );
+      final base = picked.name.replaceAll(
+        RegExp(r'\.pdf$', caseSensitive: false),
+        '',
+      );
       final stem = base.isEmpty ? 'pagina' : base;
       if (pages.length == 1) {
         await _afterResult(
@@ -409,16 +417,20 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _pdfToPng() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo PDF → PNG…', () async {
+    await _runBusy('Convertendo PDF ? PNG?', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['pdf'],
       );
       if (picked == null) return;
       final pages = await UtilitariosLocalService.pdfToPngs(picked.bytes);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
-          isAdmin: _isAdmin);
-      final base =
-          picked.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
+      await UtilitariosDailyQuotaService.consumeLight(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      );
+      final base = picked.name.replaceAll(
+        RegExp(r'\.pdf$', caseSensitive: false),
+        '',
+      );
       final stem = base.isEmpty ? 'pagina' : base;
       if (pages.length == 1) {
         await _afterResult(
@@ -445,7 +457,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _imagesToPdf() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Imagens → PDF…', () async {
+    await _runBusy('Imagens ? PDF?', () async {
       final picked = await utilitariosPickMultipleFileBytes(
         allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
         preferBytes: true,
@@ -460,8 +472,10 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         throw StateError('Nenhuma imagem válida selecionada.');
       }
       final out = await UtilitariosLocalService.imagesToPdf(images);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
-          isAdmin: _isAdmin);
+      await UtilitariosDailyQuotaService.consumeLight(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      );
       await _afterResult(
         bytes: out,
         fileName: 'imagens_gestao_yahweh.pdf',
@@ -476,17 +490,23 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _wordToPdf() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo Word → PDF…', () async {
+    await _runBusy('Convertendo Word ? PDF?', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['docx', 'txt', 'rtf'],
       );
       if (picked == null) return;
       final out = await UtilitariosLocalService.documentToPdf(
-          picked.bytes, picked.name);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
-          isAdmin: _isAdmin);
-      final base = picked.name
-          .replaceAll(RegExp(r'\.(docx|txt|rtf)$', caseSensitive: false), '');
+        picked.bytes,
+        picked.name,
+      );
+      await UtilitariosDailyQuotaService.consumeLight(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      );
+      final base = picked.name.replaceAll(
+        RegExp(r'\.(docx|txt|rtf)$', caseSensitive: false),
+        '',
+      );
       await _afterResult(
         bytes: out,
         fileName: '${base.isEmpty ? 'documento' : base}.pdf',
@@ -498,16 +518,20 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _pdfToExcel() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo PDF → Excel…', () async {
+    await _runBusy('Convertendo PDF ? Excel?', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['pdf'],
       );
       if (picked == null) return;
       final out = await UtilitariosLocalService.pdfToXlsx(picked.bytes);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
-          isAdmin: _isAdmin);
-      final base =
-          picked.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
+      await UtilitariosDailyQuotaService.consumeLight(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      );
+      final base = picked.name.replaceAll(
+        RegExp(r'\.pdf$', caseSensitive: false),
+        '',
+      );
       await _afterResult(
         bytes: out,
         fileName: '${base.isEmpty ? 'planilha' : base}.xlsx',
@@ -523,17 +547,23 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _excelToPdf() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo Excel → PDF…', () async {
+    await _runBusy('Convertendo Excel ? PDF?', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['xlsx', 'csv'],
       );
       if (picked == null) return;
-      final out =
-          await UtilitariosLocalService.excelToPdf(picked.bytes, picked.name);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
-          isAdmin: _isAdmin);
-      final base = picked.name
-          .replaceAll(RegExp(r'\.(xlsx|csv)$', caseSensitive: false), '');
+      final out = await UtilitariosLocalService.excelToPdf(
+        picked.bytes,
+        picked.name,
+      );
+      await UtilitariosDailyQuotaService.consumeLight(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      );
+      final base = picked.name.replaceAll(
+        RegExp(r'\.(xlsx|csv)$', caseSensitive: false),
+        '',
+      );
       await _afterResult(
         bytes: out,
         fileName: '${base.isEmpty ? 'planilha' : base}.pdf',
@@ -547,16 +577,20 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _pdfToPowerPoint() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo PDF → PowerPoint…', () async {
+    await _runBusy('Convertendo PDF ? PowerPoint?', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['pdf'],
       );
       if (picked == null) return;
       final out = await UtilitariosLocalService.pdfToPptx(picked.bytes);
-      await UtilitariosDailyQuotaService.consumeLight(_quotaUid,
-          isAdmin: _isAdmin);
-      final base =
-          picked.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
+      await UtilitariosDailyQuotaService.consumeLight(
+        _quotaUid,
+        isAdmin: _isAdmin,
+      );
+      final base = picked.name.replaceAll(
+        RegExp(r'\.pdf$', caseSensitive: false),
+        '',
+      );
       await _afterResult(
         bytes: out,
         fileName: '${base.isEmpty ? 'apresentacao' : base}.pptx',
@@ -613,8 +647,10 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
               ),
               child: Container(
                 constraints: BoxConstraints(maxHeight: maxH),
-                decoration:
-                    ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
+                decoration: ModernModuleUI.previewSheetDecoration(
+                  ctx,
+                  radius: 22,
+                ),
                 child: SafeArea(
                   top: false,
                   child: SingleChildScrollView(
@@ -624,9 +660,11 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          'Vídeo → MP4',
-                          style: ModernModuleUI.moduleTitleStyle(ctx,
-                              fontSize: 18),
+                          'Vídeo ? MP4',
+                          style: ModernModuleUI.moduleTitleStyle(
+                            ctx,
+                            fontSize: 18,
+                          ),
                         ),
                         const SizedBox(height: 6),
                         Text(
@@ -652,17 +690,19 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                   border: Border.all(
                                     color: resolution == res
                                         ? const Color(0xFF7C3AED)
-                                        : const Color(0xFF64748B)
-                                            .withValues(alpha: 0.25),
+                                        : const Color(
+                                            0xFF64748B,
+                                          ).withValues(alpha: 0.25),
                                     width: resolution == res ? 2 : 1,
                                   ),
                                   color: resolution == res
-                                      ? const Color(0xFF7C3AED)
-                                          .withValues(alpha: 0.10)
+                                      ? const Color(
+                                          0xFF7C3AED,
+                                        ).withValues(alpha: 0.10)
                                       : Theme.of(ctx)
-                                          .colorScheme
-                                          .surfaceContainerHighest
-                                          .withValues(alpha: 0.35),
+                                            .colorScheme
+                                            .surfaceContainerHighest
+                                            .withValues(alpha: 0.35),
                                 ),
                                 child: Row(
                                   children: [
@@ -685,19 +725,19 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                             style: TextStyle(
                                               fontWeight: FontWeight.w900,
                                               fontSize: 15,
-                                              color: Theme.of(ctx)
-                                                  .colorScheme
-                                                  .onSurface,
+                                              color: Theme.of(
+                                                ctx,
+                                              ).colorScheme.onSurface,
                                             ),
                                           ),
                                           const SizedBox(height: 2),
                                           Text(
                                             res.subtitle,
-                                            style: ModernModuleUI
-                                                .moduleSubtitleStyle(
-                                              ctx,
-                                              fontSize: 12,
-                                            ),
+                                            style:
+                                                ModernModuleUI.moduleSubtitleStyle(
+                                                  ctx,
+                                                  fontSize: 12,
+                                                ),
                                           ),
                                         ],
                                       ),
@@ -717,8 +757,10 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                           ),
                           subtitle: Text(
                             'Reduz tamanho após converter',
-                            style: ModernModuleUI.moduleSubtitleStyle(ctx,
-                                fontSize: 12),
+                            style: ModernModuleUI.moduleSubtitleStyle(
+                              ctx,
+                              fontSize: 12,
+                            ),
                           ),
                           value: compressAlso,
                           onChanged: (v) => setModal(() => compressAlso = v),
@@ -734,8 +776,9 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                 onTap: () =>
                                     setModal(() => compressLevel = level),
                                 child: Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                  ),
                                   child: Row(
                                     children: [
                                       Icon(
@@ -754,22 +797,22 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                               CrossAxisAlignment.start,
                                           children: [
                                             Text(
-                                              '${level.label} · ${level.reductionBadge}',
+                                              '${level.label} ? ${level.reductionBadge}',
                                               style: TextStyle(
                                                 fontWeight: FontWeight.w800,
                                                 fontSize: 13,
-                                                color: Theme.of(ctx)
-                                                    .colorScheme
-                                                    .onSurface,
+                                                color: Theme.of(
+                                                  ctx,
+                                                ).colorScheme.onSurface,
                                               ),
                                             ),
                                             Text(
                                               level.subtitle,
-                                              style: ModernModuleUI
-                                                  .moduleSubtitleStyle(
-                                                ctx,
-                                                fontSize: 11,
-                                              ),
+                                              style:
+                                                  ModernModuleUI.moduleSubtitleStyle(
+                                                    ctx,
+                                                    fontSize: 11,
+                                                  ),
                                             ),
                                           ],
                                         ),
@@ -794,8 +837,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                           icon: const Icon(Icons.movie_creation_rounded),
                           label: Text(
                             compressAlso
-                                ? 'Converter · ${resolution.label} · ${compressLevel.label}'
-                                : 'Converter · ${resolution.label}',
+                                ? 'Converter ? ${resolution.label} ? ${compressLevel.label}'
+                                : 'Converter ? ${resolution.label}',
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -831,8 +874,10 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         return StatefulBuilder(
           builder: (ctx, setModal) {
             return Container(
-              decoration:
-                  ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
+              decoration: ModernModuleUI.previewSheetDecoration(
+                ctx,
+                radius: 22,
+              ),
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -865,17 +910,19 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                             border: Border.all(
                               color: selected == fmt
                                   ? const Color(0xFFDB2777)
-                                  : const Color(0xFF64748B)
-                                      .withValues(alpha: 0.25),
+                                  : const Color(
+                                      0xFF64748B,
+                                    ).withValues(alpha: 0.25),
                               width: selected == fmt ? 2 : 1,
                             ),
                             color: selected == fmt
-                                ? const Color(0xFFDB2777)
-                                    .withValues(alpha: 0.10)
+                                ? const Color(
+                                    0xFFDB2777,
+                                  ).withValues(alpha: 0.10)
                                 : Theme.of(ctx)
-                                    .colorScheme
-                                    .surfaceContainerHighest
-                                    .withValues(alpha: 0.35),
+                                      .colorScheme
+                                      .surfaceContainerHighest
+                                      .withValues(alpha: 0.35),
                           ),
                           child: Row(
                             children: [
@@ -897,8 +944,9 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                       style: TextStyle(
                                         fontWeight: FontWeight.w900,
                                         fontSize: 15,
-                                        color:
-                                            Theme.of(ctx).colorScheme.onSurface,
+                                        color: Theme.of(
+                                          ctx,
+                                        ).colorScheme.onSurface,
                                       ),
                                     ),
                                     const SizedBox(height: 2),
@@ -944,8 +992,9 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content:
-              Text('Conversão de vídeo disponível no app Android e iPhone.'),
+          content: Text(
+            'Conversão de vídeo disponível no app Android e iPhone.',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -954,7 +1003,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     final options = await _pickVideoConvertOptions();
     if (options == null || !mounted) return;
 
-    await _runBusy('Convertendo para MP4…', () async {
+    await _runBusy('Convertendo para MP4?', () async {
       final picked = await _pickVideoFile();
       if (picked == null) return;
       final f = picked.file;
@@ -988,7 +1037,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         compressedBytes: converted.bytes.lengthInBytes,
         title: 'Conversão concluída',
         subtitle:
-            '${options.resolution.label}${options.compressAlso ? ' · ${options.compressLevel.label}' : ''} · MP4',
+            '${options.resolution.label}${options.compressAlso ? ' ? ${options.compressLevel.label}' : ''} ? MP4',
       );
     });
   }
@@ -999,8 +1048,9 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content:
-              Text('Extração de áudio disponível no app Android e iPhone.'),
+          content: Text(
+            'Extração de ?udio disponível no app Android e iPhone.',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -1037,7 +1087,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         bytes: extracted.bytes,
         fileName: fileName,
         mimeType: outMime,
-        okMessage: extracted.note ??
+        okMessage:
+            extracted.note ??
             'Áudio extraído localmente (${format.label}). Tamanho original do vídeo: ${_humanSize(before)}.',
         preferShareFirst: true,
         shareButtonLabel: 'Compartilhar áudio',
@@ -1077,8 +1128,10 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
               ),
               child: Container(
                 constraints: BoxConstraints(maxHeight: maxH),
-                decoration:
-                    ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
+                decoration: ModernModuleUI.previewSheetDecoration(
+                  ctx,
+                  radius: 22,
+                ),
                 child: SafeArea(
                   top: false,
                   child: SingleChildScrollView(
@@ -1095,7 +1148,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                 gradient: const LinearGradient(
                                   colors: [
                                     Color(0xFF4F46E5),
-                                    Color(0xFF06B6D4)
+                                    Color(0xFF06B6D4),
                                   ],
                                 ),
                                 borderRadius: BorderRadius.circular(14),
@@ -1113,14 +1166,17 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                 children: [
                                   Text(
                                     'Smart Compress Pro',
-                                    style: ModernModuleUI.moduleTitleStyle(ctx,
-                                        fontSize: 18),
+                                    style: ModernModuleUI.moduleTitleStyle(
+                                      ctx,
+                                      fontSize: 18,
+                                    ),
                                   ),
                                   Text(
-                                    '100% no aparelho · imagem, PDF e vídeo',
+                                    '100% no aparelho ? imagem, PDF e vídeo',
                                     style: ModernModuleUI.moduleSubtitleStyle(
-                                        ctx,
-                                        fontSize: 12),
+                                      ctx,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -1150,16 +1206,17 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                       border: Border.all(
                                         color: isSelected
                                             ? accent
-                                            : const Color(0xFF64748B)
-                                                .withValues(alpha: 0.25),
+                                            : const Color(
+                                                0xFF64748B,
+                                              ).withValues(alpha: 0.25),
                                         width: isSelected ? 2 : 1,
                                       ),
                                       color: isSelected
                                           ? accent.withValues(alpha: 0.10)
                                           : Theme.of(ctx)
-                                              .colorScheme
-                                              .surfaceContainerHighest
-                                              .withValues(alpha: 0.35),
+                                                .colorScheme
+                                                .surfaceContainerHighest
+                                                .withValues(alpha: 0.35),
                                     ),
                                     child: Row(
                                       crossAxisAlignment:
@@ -1169,10 +1226,12 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                           width: 40,
                                           height: 40,
                                           decoration: BoxDecoration(
-                                            color:
-                                                accent.withValues(alpha: 0.16),
-                                            borderRadius:
-                                                BorderRadius.circular(12),
+                                            color: accent.withValues(
+                                              alpha: 0.16,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
                                           ),
                                           child: Icon(
                                             _compressLevelIcon(level),
@@ -1198,23 +1257,25 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                                       fontWeight:
                                                           FontWeight.w900,
                                                       fontSize: 15,
-                                                      color: Theme.of(ctx)
-                                                          .colorScheme
-                                                          .onSurface,
+                                                      color: Theme.of(
+                                                        ctx,
+                                                      ).colorScheme.onSurface,
                                                     ),
                                                   ),
                                                   Container(
-                                                    padding: const EdgeInsets
-                                                        .symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 3,
-                                                    ),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 3,
+                                                        ),
                                                     decoration: BoxDecoration(
                                                       color: accent.withValues(
-                                                          alpha: 0.18),
+                                                        alpha: 0.18,
+                                                      ),
                                                       borderRadius:
                                                           BorderRadius.circular(
-                                                              8),
+                                                            8,
+                                                          ),
                                                     ),
                                                     child: Text(
                                                       level.reductionBadge,
@@ -1230,19 +1291,22 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                                       UtilitariosCompressLevel
                                                           .media)
                                                     Container(
-                                                      padding: const EdgeInsets
-                                                          .symmetric(
-                                                        horizontal: 8,
-                                                        vertical: 3,
-                                                      ),
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 8,
+                                                            vertical: 3,
+                                                          ),
                                                       decoration: BoxDecoration(
-                                                        color: const Color(
-                                                                0xFF4F46E5)
-                                                            .withValues(
-                                                                alpha: 0.15),
+                                                        color:
+                                                            const Color(
+                                                              0xFF4F46E5,
+                                                            ).withValues(
+                                                              alpha: 0.15,
+                                                            ),
                                                         borderRadius:
-                                                            BorderRadius
-                                                                .circular(8),
+                                                            BorderRadius.circular(
+                                                              8,
+                                                            ),
                                                       ),
                                                       child: const Text(
                                                         'Padrão',
@@ -1250,8 +1314,9 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                                           fontSize: 10,
                                                           fontWeight:
                                                               FontWeight.w800,
-                                                          color:
-                                                              Color(0xFF4F46E5),
+                                                          color: Color(
+                                                            0xFF4F46E5,
+                                                          ),
                                                         ),
                                                       ),
                                                     ),
@@ -1259,19 +1324,22 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                                       UtilitariosCompressLevel
                                                           .alta)
                                                     Container(
-                                                      padding: const EdgeInsets
-                                                          .symmetric(
-                                                        horizontal: 8,
-                                                        vertical: 3,
-                                                      ),
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 8,
+                                                            vertical: 3,
+                                                          ),
                                                       decoration: BoxDecoration(
-                                                        color: const Color(
-                                                                0xFF7C3AED)
-                                                            .withValues(
-                                                                alpha: 0.15),
+                                                        color:
+                                                            const Color(
+                                                              0xFF7C3AED,
+                                                            ).withValues(
+                                                              alpha: 0.15,
+                                                            ),
                                                         borderRadius:
-                                                            BorderRadius
-                                                                .circular(8),
+                                                            BorderRadius.circular(
+                                                              8,
+                                                            ),
                                                       ),
                                                       child: const Text(
                                                         'Máxima redução',
@@ -1279,8 +1347,9 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                                           fontSize: 10,
                                                           fontWeight:
                                                               FontWeight.w800,
-                                                          color:
-                                                              Color(0xFF7C3AED),
+                                                          color: Color(
+                                                            0xFF7C3AED,
+                                                          ),
                                                         ),
                                                       ),
                                                     ),
@@ -1289,22 +1358,23 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                               const SizedBox(height: 4),
                                               Text(
                                                 level.subtitle,
-                                                style: ModernModuleUI
-                                                    .moduleSubtitleStyle(
-                                                  ctx,
-                                                  fontSize: 12,
-                                                ),
+                                                style:
+                                                    ModernModuleUI.moduleSubtitleStyle(
+                                                      ctx,
+                                                      fontSize: 12,
+                                                    ),
                                               ),
                                               const SizedBox(height: 2),
                                               Text(
                                                 level.techSummary,
-                                                style: ModernModuleUI
-                                                    .moduleSubtitleStyle(
-                                                  ctx,
-                                                  fontSize: 11,
-                                                ).copyWith(
-                                                  fontStyle: FontStyle.italic,
-                                                ),
+                                                style:
+                                                    ModernModuleUI.moduleSubtitleStyle(
+                                                      ctx,
+                                                      fontSize: 11,
+                                                    ).copyWith(
+                                                      fontStyle:
+                                                          FontStyle.italic,
+                                                    ),
                                               ),
                                             ],
                                           ),
@@ -1312,7 +1382,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                         Icon(
                                           isSelected
                                               ? Icons
-                                                  .radio_button_checked_rounded
+                                                    .radio_button_checked_rounded
                                               : Icons.radio_button_off_rounded,
                                           color: isSelected
                                               ? accent
@@ -1332,7 +1402,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                           onPressed: () => Navigator.pop(ctx, selected),
                           icon: const Icon(Icons.compress_rounded),
                           label: Text(
-                            'Comprimir · ${selected.reductionBadge} (${selected.label})',
+                            'Comprimir ? ${selected.reductionBadge} (${selected.label})',
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -1364,7 +1434,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     final level = await _pickCompressLevel();
     if (level == null || !mounted) return;
 
-    await _runBusy('Comprimindo (${level.label})…', () async {
+    await _runBusy('Comprimindo (${level.label})?', () async {
       final files = await utilitariosPickPlatformFiles(
         allowedExtensions: const [
           'jpg',
@@ -1416,22 +1486,20 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         final bytes = await utilitariosReadPlatformFileBytes(f);
         before = bytes.lengthInBytes;
         if (name.endsWith('.pdf')) {
-          out = await UtilitariosLocalService.compressPdf(
-            bytes,
-            level: level,
+          out = await UtilitariosLocalService.compressPdf(bytes, level: level);
+          final base = f.name.replaceAll(
+            RegExp(r'\.pdf$', caseSensitive: false),
+            '',
           );
-          final base =
-              f.name.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
           fileName =
               '${base.isEmpty ? 'documento' : base}_compacto_${level.fileSuffix}.pdf';
           mimeType = 'application/pdf';
         } else if (name.endsWith('.docx')) {
-          out = await UtilitariosLocalService.compressDocx(
-            bytes,
-            level: level,
+          out = await UtilitariosLocalService.compressDocx(bytes, level: level);
+          final base = f.name.replaceAll(
+            RegExp(r'\.docx$', caseSensitive: false),
+            '',
           );
-          final base =
-              f.name.replaceAll(RegExp(r'\.docx$', caseSensitive: false), '');
           fileName =
               '${base.isEmpty ? 'documento' : base}_compacto_${level.fileSuffix}.docx';
           mimeType =
@@ -1442,7 +1510,9 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
             level: level,
           );
           final base = f.name.replaceAll(
-              RegExp(r'\.(jpe?g|png|webp)$', caseSensitive: false), '');
+            RegExp(r'\.(jpe?g|png|webp)$', caseSensitive: false),
+            '',
+          );
           fileName =
               '${base.isEmpty ? 'imagem' : base}_compacta_${level.fileSuffix}.jpg';
           mimeType = 'image/jpeg';
@@ -1516,7 +1586,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
               const SizedBox(height: 4),
               Text(
                 subtitle ??
-                    '${level.reductionBadge} · ${level.label} · ${level.techSummary}',
+                    '${level.reductionBadge} ? ${level.label} ? ${level.techSummary}',
                 style: ModernModuleUI.moduleSubtitleStyle(ctx),
               ),
               const SizedBox(height: 16),
@@ -1532,12 +1602,12 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                         ? const [
                             Color(0xFF1E1B4B),
                             Color(0xFF312E81),
-                            Color(0xFF0F766E)
+                            Color(0xFF0F766E),
                           ]
                         : const [
                             Color(0xFFEEF2FF),
                             Color(0xFFE0E7FF),
-                            Color(0xFFCCFBF1)
+                            Color(0xFFCCFBF1),
                           ],
                   ),
                   border: Border.all(
@@ -1564,8 +1634,9 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: Icon(
                             Icons.arrow_forward_rounded,
-                            color:
-                                dark ? Colors.white70 : const Color(0xFF6366F1),
+                            color: dark
+                                ? Colors.white70
+                                : const Color(0xFF6366F1),
                           ),
                         ),
                         Expanded(
@@ -1602,8 +1673,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                             color: grew
                                 ? const Color(0xFFF87171)
                                 : (dark
-                                    ? const Color(0xFF34D399)
-                                    : const Color(0xFF059669)),
+                                      ? const Color(0xFF34D399)
+                                      : const Color(0xFF059669)),
                           ),
                           const SizedBox(width: 10),
                           Expanded(
@@ -1629,13 +1700,14 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       child: LinearProgressIndicator(
                         value: grew ? 1 : (1 - (pct / 100)).clamp(0.08, 1.0),
                         minHeight: 8,
-                        backgroundColor:
-                            dark ? Colors.white12 : const Color(0xFFCBD5E1),
+                        backgroundColor: dark
+                            ? Colors.white12
+                            : const Color(0xFFCBD5E1),
                         color: grew
                             ? const Color(0xFFF87171)
                             : (dark
-                                ? const Color(0xFF22D3EE)
-                                : const Color(0xFF4F46E5)),
+                                  ? const Color(0xFF22D3EE)
+                                  : const Color(0xFF4F46E5)),
                       ),
                     ),
                     if (note != null && note.isNotEmpty) ...[
@@ -1645,8 +1717,9 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                           Icon(
                             Icons.info_outline_rounded,
                             size: 16,
-                            color:
-                                dark ? Colors.white60 : const Color(0xFF64748B),
+                            color: dark
+                                ? Colors.white60
+                                : const Color(0xFF64748B),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -1700,8 +1773,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         SnackBar(
           content: Text(
             action == 'share'
-                ? 'Arquivo pronto — escolha WhatsApp, e-mail ou outro app.'
-                : 'Download iniciado — arquivo no aparelho.',
+                ? 'Arquivo pronto ? escolha WhatsApp, e-mail ou outro app.'
+                : 'Download iniciado ? arquivo no aparelho.',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -1734,8 +1807,10 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         return StatefulBuilder(
           builder: (ctx, setModal) {
             return Container(
-              decoration:
-                  ModernModuleUI.previewSheetDecoration(ctx, radius: 22),
+              decoration: ModernModuleUI.previewSheetDecoration(
+                ctx,
+                radius: 22,
+              ),
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1747,7 +1822,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Um ou vários arquivos · 100% no aparelho',
+                    'Um ou vários arquivos ? 100% no aparelho',
                     style: ModernModuleUI.moduleSubtitleStyle(ctx),
                   ),
                   const SizedBox(height: 14),
@@ -1768,17 +1843,19 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                             border: Border.all(
                               color: selected == f
                                   ? const Color(0xFF0EA5E9)
-                                  : const Color(0xFF64748B)
-                                      .withValues(alpha: 0.25),
+                                  : const Color(
+                                      0xFF64748B,
+                                    ).withValues(alpha: 0.25),
                               width: selected == f ? 2 : 1,
                             ),
                             color: selected == f
-                                ? const Color(0xFF0EA5E9)
-                                    .withValues(alpha: 0.10)
+                                ? const Color(
+                                    0xFF0EA5E9,
+                                  ).withValues(alpha: 0.10)
                                 : Theme.of(ctx)
-                                    .colorScheme
-                                    .surfaceContainerHighest
-                                    .withValues(alpha: 0.35),
+                                      .colorScheme
+                                      .surfaceContainerHighest
+                                      .withValues(alpha: 0.35),
                           ),
                           child: Row(
                             children: [
@@ -1798,8 +1875,9 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                       style: TextStyle(
                                         fontWeight: FontWeight.w900,
                                         fontSize: 15,
-                                        color:
-                                            Theme.of(ctx).colorScheme.onSurface,
+                                        color: Theme.of(
+                                          ctx,
+                                        ).colorScheme.onSurface,
                                       ),
                                     ),
                                     Text(
@@ -1830,7 +1908,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                   FilledButton.icon(
                     onPressed: () => Navigator.pop(ctx, selected),
                     icon: const Icon(Icons.folder_zip_rounded),
-                    label: Text('Continuar · ${selected.label}'),
+                    label: Text('Continuar ? ${selected.label}'),
                   ),
                   TextButton(
                     onPressed: () => Navigator.pop(ctx),
@@ -1850,7 +1928,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     final format = await _pickArchiveFormat();
     if (format == null || !mounted) return;
 
-    await _runBusy('Compactando (${format.label})…', () async {
+    await _runBusy('Compactando (${format.label})?', () async {
       final picked = await utilitariosPickMultipleFileBytes(
         allowedExtensions: const [],
         type: FileType.any,
@@ -1876,7 +1954,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         fileName: fileName,
         mimeType: format.mimeType,
         okMessage:
-            '${entries.length} arquivo(s) compactados em ${format.label} — local.',
+            '${entries.length} arquivo(s) compactados em ${format.label} ? local.',
         preferShareFirst: true,
         shareButtonLabel: 'Compartilhar arquivo',
       );
@@ -1914,7 +1992,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       return;
     }
 
-    await _runBusy('Gerando PDF…', () async {
+    await _runBusy('Gerando PDF?', () async {
       final pdf = await UtilitariosLocalService.imagesToPdf(pages);
       await deliver(pdf, pages.length);
     });
@@ -1951,7 +2029,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       return;
     }
 
-    await _runBusy('Gerando PDF…', () async {
+    await _runBusy('Gerando PDF?', () async {
       final pdf = await UtilitariosLocalService.imagesToPdf(pages);
       await deliver(pdf, pages.length);
     });
@@ -2072,69 +2150,69 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       gradient: const [Color(0xFF14B8A6), Color(0xFF0EA5E9)],
                       title: 'Foto/Câmera para PDF',
                       subtitle:
-                          'Câmera do aparelho · até ${UtilitariosLocalService.kMaxImagesPerPdf} fotos · PDF rápido',
+                          'Câmera do aparelho ? até ${UtilitariosLocalService.kMaxImagesPerPdf} fotos ? PDF rápido',
                       onTap: lightOk ? _openPhotoCameraPdf : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.documentScanner,
                       gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
                       title: 'Scanner de Documentos',
-                      subtitle: 'Original · recorte auto/manual · PDF rápido',
+                      subtitle: 'Original ? recorte auto/manual ? PDF rápido',
                       onTap: lightOk ? _openDocumentScanner : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.pdfWord,
                       gradient: const [Color(0xFF2563EB), Color(0xFF7C3AED)],
-                      title: 'PDF → Word',
+                      title: 'PDF ? Word',
                       subtitle: 'DOCX com formatação e tabelas',
                       onTap: lightOk ? _pdfToWord : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.pdfJpeg,
                       gradient: const [Color(0xFFEA580C), Color(0xFFF59E0B)],
-                      title: 'PDF → JPEG',
+                      title: 'PDF ? JPEG',
                       subtitle: 'Páginas em imagem',
                       onTap: lightOk ? _pdfToJpeg : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.pdfPng,
                       gradient: const [Color(0xFF7C3AED), Color(0xFFA855F7)],
-                      title: 'PDF → PNG',
+                      title: 'PDF ? PNG',
                       subtitle: 'Páginas em PNG',
                       onTap: lightOk ? _pdfToPng : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.jpegPdf,
                       gradient: const [Color(0xFFDC2626), Color(0xFFEF4444)],
-                      title: 'Imagens → PDF',
-                      subtitle: 'JPEG, PNG ou WebP · uma ou várias',
+                      title: 'Imagens ? PDF',
+                      subtitle: 'JPEG, PNG ou WebP ? uma ou várias',
                       onTap: lightOk ? _imagesToPdf : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.wordPdf,
                       gradient: const [Color(0xFF0D9488), Color(0xFF14B8A6)],
-                      title: 'Word → PDF',
+                      title: 'Word ? PDF',
                       subtitle: 'DOCX / TXT / RTF',
                       onTap: lightOk ? _wordToPdf : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.pdfExcel,
                       gradient: const [Color(0xFF15803D), Color(0xFF22C55E)],
-                      title: 'PDF → Excel',
+                      title: 'PDF ? Excel',
                       subtitle: 'Planilha com linhas e tabelas',
                       onTap: lightOk ? _pdfToExcel : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.excelPdf,
                       gradient: const [Color(0xFF166534), Color(0xFF4ADE80)],
-                      title: 'Excel → PDF',
+                      title: 'Excel ? PDF',
                       subtitle: 'XLSX / CSV em tabela',
                       onTap: lightOk ? _excelToPdf : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.pdfPpt,
                       gradient: const [Color(0xFFC2410C), Color(0xFFF97316)],
-                      title: 'PDF → PowerPoint',
+                      title: 'PDF ? PowerPoint',
                       subtitle: '1 slide por página',
                       onTap: lightOk ? _pdfToPowerPoint : null,
                     ),
@@ -2142,7 +2220,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       icon: UtilitariosModuleIcons.compress,
                       gradient: const [Color(0xFF4F46E5), Color(0xFF06B6D4)],
                       title: 'Compressor',
-                      subtitle: 'Ultra Smart · Imagem · PDF · Word · MP4',
+                      subtitle: 'Ultra Smart ? Imagem ? PDF ? Word ? MP4',
                       onTap: heavyOk ? _compress : null,
                     ),
                   ];
@@ -2161,10 +2239,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                     runSpacing: 8,
                     children: [
                       for (final w in cards)
-                        SizedBox(
-                          width: (c.maxWidth - 10) / 2,
-                          child: w,
-                        ),
+                        SizedBox(width: (c.maxWidth - 10) / 2, child: w),
                     ],
                   );
                 },
@@ -2183,14 +2258,14 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       icon: UtilitariosModuleIcons.videoDownload,
                       gradient: const [Color(0xFFE11D48), Color(0xFF7C3AED)],
                       title: 'Baixar Vídeo',
-                      subtitle: 'TikTok · YouTube · IG · FB · MP4/MP3',
+                      subtitle: 'TikTok ? YouTube ? IG ? FB ? MP4/MP3',
                       onTap: lightOk ? _openVideoDownloader : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.videoMp4,
                       gradient: const [Color(0xFF7C3AED), Color(0xFF2563EB)],
-                      title: 'Vídeo → MP4',
-                      subtitle: 'Full HD · 4K · comprimir opcional',
+                      title: 'Vídeo ? MP4',
+                      subtitle: 'Full HD ? 4K ? comprimir opcional',
                       onTap: heavyOk ? _videoToMp4 : null,
                     ),
                     _ToolTile(
@@ -2206,7 +2281,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       children: [
                         for (final w in videoTools) ...[
                           w,
-                          const SizedBox(height: 8)
+                          const SizedBox(height: 8),
                         ],
                       ],
                     );
@@ -2216,10 +2291,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                     runSpacing: 8,
                     children: [
                       for (final w in videoTools)
-                        SizedBox(
-                          width: (c.maxWidth - 10) / 2,
-                          child: w,
-                        ),
+                        SizedBox(width: (c.maxWidth - 10) / 2, child: w),
                     ],
                   );
                 },
@@ -2238,7 +2310,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       icon: UtilitariosModuleIcons.mergePdf,
                       gradient: const [Color(0xFF2563EB), Color(0xFF6366F1)],
                       title: 'Juntar PDF',
-                      subtitle: 'Vários PDFs · reordenar páginas',
+                      subtitle: 'Vários PDFs ? reordenar páginas',
                       onTap: lightOk
                           ? () => _openPdfTool(UtilitariosPdfToolMode.merge)
                           : null,
@@ -2267,7 +2339,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       children: [
                         for (final w in pdfTools) ...[
                           w,
-                          const SizedBox(height: 8)
+                          const SizedBox(height: 8),
                         ],
                       ],
                     );
@@ -2296,21 +2368,21 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       icon: UtilitariosModuleIcons.photoTextExtract,
                       gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
                       title: 'Controletotalapp extração de texto',
-                      subtitle: 'OCR rápido · editar · Word e PDF',
+                      subtitle: 'OCR rápido ? editar ? Word e PDF',
                       onTap: lightOk ? _openPhotoTextExtract : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.archiveZip,
                       gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
                       title: 'Compactar arquivos',
-                      subtitle: 'ZIP · ZIP máximo · RAR (local)',
+                      subtitle: 'ZIP ? ZIP máximo ? RAR (local)',
                       onTap: lightOk ? _compactarArquivos : null,
                     ),
                     _ToolTile(
                       icon: UtilitariosModuleIcons.photoEdit,
                       gradient: const [Color(0xFFDB2777), Color(0xFF7C3AED)],
                       title: 'Editor de Foto',
-                      subtitle: 'Melhorar · cortar · borrar · colagem',
+                      subtitle: 'Melhorar ? cortar ? borrar ? colagem',
                       onTap: heavyOk ? _openPhotoEditor : null,
                     ),
                   ];
@@ -2329,10 +2401,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                     runSpacing: 8,
                     children: [
                       for (final w in extraTools)
-                        SizedBox(
-                          width: (c.maxWidth - 10) / 2,
-                          child: w,
-                        ),
+                        SizedBox(width: (c.maxWidth - 10) / 2, child: w),
                     ],
                   );
                 },
@@ -2340,8 +2409,10 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
               const SizedBox(height: 12),
               Text(
                 _footerQuotaText(),
-                style:
-                    ModernModuleUI.moduleSubtitleStyle(context, fontSize: 11.5),
+                style: ModernModuleUI.moduleSubtitleStyle(
+                  context,
+                  fontSize: 11.5,
+                ),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -2364,7 +2435,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                         const CircularProgressIndicator(),
                         const SizedBox(height: 12),
                         Text(
-                          _busyLabel ?? 'Processando…',
+                          _busyLabel ?? 'Processando?',
                           textAlign: TextAlign.center,
                           style: ModernModuleUI.moduleTitleStyle(
                             context,
@@ -2399,14 +2470,16 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     if (_lightLocked || _heavyLocked) {
       final parts = <String>[];
       if (_lightLocked) {
-        final at = _lightUnlockAt ??
+        final at =
+            _lightUnlockAt ??
             DateTime.now().add(UtilitariosDailyQuotaService.kLockDuration);
         parts.add(
           'Conversões: ${UtilitariosDailyQuotaService.unlockPhrase(at)}',
         );
       }
       if (_heavyLocked) {
-        final at = _heavyUnlockAt ??
+        final at =
+            _heavyUnlockAt ??
             DateTime.now().add(UtilitariosDailyQuotaService.kLockDuration);
         parts.add(
           'Compressões: ${UtilitariosDailyQuotaService.unlockPhrase(at)}',
@@ -2414,7 +2487,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       }
       return parts.join('\n');
     }
-    return 'Limites no aparelho: ${UtilitariosDailyQuotaService.kLightLimitPerDay} conversões · '
+    return 'Limites no aparelho: ${UtilitariosDailyQuotaService.kLightLimitPerDay} conversões ? '
         '${UtilitariosDailyQuotaService.kHeavyLimitPerDay} compressões. Ao estourar, libera em 24h.';
   }
 }
@@ -2478,23 +2551,22 @@ class _QuotaStatusCard extends StatelessWidget {
     final heavyLeft = (heavyLimit - heavyUsed).clamp(0, heavyLimit);
     final lightHint = lightLeft == 0
         ? (lightUnlockAt != null
-            ? UtilitariosDailyQuotaService.unlockPhrase(lightUnlockAt!)
-            : 'Esgotado')
+              ? UtilitariosDailyQuotaService.unlockPhrase(lightUnlockAt!)
+              : 'Esgotado')
         : 'Restam $lightLeft';
     final heavyHint = heavyLeft == 0
         ? (heavyUnlockAt != null
-            ? UtilitariosDailyQuotaService.unlockPhrase(heavyUnlockAt!)
-            : 'Esgotado')
+              ? UtilitariosDailyQuotaService.unlockPhrase(heavyUnlockAt!)
+              : 'Esgotado')
         : 'Restam $heavyLeft';
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        color: Theme.of(context)
-            .colorScheme
-            .surfaceContainerHighest
-            .withValues(alpha: 0.45),
+        color: Theme.of(
+          context,
+        ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
         border: Border.all(
           color: const Color(0xFF64748B).withValues(alpha: 0.22),
         ),
@@ -2597,11 +2669,7 @@ class _SecurityHeroCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [
-            Color(0xFF0F172A),
-            Color(0xFF1D4ED8),
-            Color(0xFF0EA5E9),
-          ],
+          colors: [Color(0xFF0F172A), Color(0xFF1D4ED8), Color(0xFF0EA5E9)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -2634,7 +2702,7 @@ class _SecurityHeroCard extends StatelessWidget {
               const SizedBox(width: 10),
               const Expanded(
                 child: Text(
-                  'Ferramentas locais · 100% no aparelho',
+                  'Ferramentas locais ? 100% no aparelho',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,
@@ -2697,7 +2765,10 @@ class _ToolTile extends StatelessWidget {
               child: Row(
                 children: [
                   ModernModuleUI.iconBadge(
-                      icon: icon, gradient: gradient, size: 40),
+                    icon: icon,
+                    gradient: gradient,
+                    size: 40,
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -2714,7 +2785,7 @@ class _ToolTile extends StatelessWidget {
                         ),
                         const SizedBox(height: 1),
                         Text(
-                          enabled ? subtitle : 'Limite atingido — aguarde 24h',
+                          enabled ? subtitle : 'Limite atingido ? aguarde 24h',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: ModernModuleUI.moduleSubtitleStyle(context),

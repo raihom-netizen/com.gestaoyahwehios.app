@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/utils/connectivity_offline.dart';
 import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'package:gestao_yahweh/utils/module_write_guard.dart';
 import 'scales_entries_hub.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Item para gravação em lote na coleção `scales`.
 class ScaleEntryWriteItem {
@@ -85,7 +86,7 @@ class ScaleEntrySaveService {
     List<ScaleEntryWriteItem> slice,
     Duration localWait,
   ) async {
-    final batch = FirebaseFirestore.instance.batch();
+    final batch = YahwehBatch();
     for (final item in slice) {
       if (item.isUpdate) {
         batch.update(item.ref, item.data);

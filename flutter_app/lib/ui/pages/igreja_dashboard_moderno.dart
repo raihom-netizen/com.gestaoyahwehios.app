@@ -1,4 +1,4 @@
-﻿import 'dart:async' show StreamSubscription, unawaited;
+import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -187,7 +187,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
   /// Eventos especiais (`noticias`) com data futura / ainda no Feed — nunca o que já caiu para a Galeria.
   Stream<QuerySnapshot<Map<String, dynamic>>>? _noticiasPainelStream;
 
-  /// ID efetivo da igreja (resolve slug/alias) — mesmo usado em Storage `igrejas/{id}/membros/...`.
+  /// ID efetivo da igreja (resolve slug/alias) ? mesmo usado em Storage `igrejas/{id}/membros/...`.
   String _effectiveTenantId = '';
   String _churchSlug = '';
   String _churchNome = '';
@@ -213,7 +213,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   StreamSubscription<ChurchDashboardCacheSnapshot?>? _dashboardMainSub;
 
-  /// Cache `_panel_cache/members_directory` — fallback quando stream `membros` falha na web.
+  /// Cache `_panel_cache/members_directory` ? fallback quando stream `membros` falha na web.
   MembersDirectorySnapshot _membersDirectory = const MembersDirectorySnapshot();
 
   StreamSubscription<MembersDirectorySnapshot>? _membersDirectorySub;
@@ -230,48 +230,6 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
         preset: _dashFinancePreset,
         custom: _dashCustomFinanceRange,
       );
-
-  Future<void> _onDashFinancePresetTap(
-    ChurchDashboardFinancePreset preset,
-  ) async {
-    if (preset == ChurchDashboardFinancePreset.custom) {
-      final now = DateTime.now();
-      final initial =
-          _dashCustomFinanceRange ??
-          DateTimeRange(
-            start: DateTime(now.year, now.month, 1),
-            end: DateTime(now.year, now.month, now.day),
-          );
-      final picked = await showDateRangePicker(
-        context: context,
-        firstDate: DateTime(now.year - 6),
-        lastDate: DateTime(now.year + 1, 12, 31),
-        initialDateRange: initial,
-        locale: const Locale('pt', 'BR'),
-        builder: (context, child) {
-          return Theme(
-            data: Theme.of(context).copyWith(
-              colorScheme: ColorScheme.fromSeed(
-                seedColor: ThemeCleanPremium.primary,
-                brightness: Brightness.light,
-              ),
-            ),
-            child: child ?? const SizedBox.shrink(),
-          );
-        },
-      );
-      if (!mounted || picked == null) return;
-      setState(() {
-        _dashFinancePreset = ChurchDashboardFinancePreset.custom;
-        _dashCustomFinanceRange = picked;
-      });
-      return;
-    }
-    setState(() {
-      _dashFinancePreset = preset;
-      _dashCustomFinanceRange = null;
-    });
-  }
 
   @override
   void initState() {
@@ -321,7 +279,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
 
   void _attachHeavyDashboardStreamsInline(String churchId) {
     _heavyDashboardStreamsScheduled = true;
-    // Controle Total: directory + one-shot dept — evita 2+ listeners live por tenant no mobile.
+    // Controle Total: directory + one-shot dept ? evita 2+ listeners live por tenant no mobile.
     _membersStream = null;
     _deptStream = _createDepartmentsOneShotStream(churchId);
     unawaited(_hydrateMembersDirectory(_effectiveTenantId));
@@ -614,7 +572,7 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
     });
   }
 
-  /// Cache Firestore local antes do bootstrap — evita skeleton prolongado na web.
+  /// Cache Firestore local antes do bootstrap ? evita skeleton prolongado na web.
   Future<void> _paintPanelFromLocalCacheFirst(String resolved) async {
     final tid = resolved.trim();
     if (tid.isEmpty) return;
@@ -1320,7 +1278,9 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                   tenantId: _effectiveTenantId,
                   role: widget.role,
                   memberDocs: mergedSnap.data?.docs ?? const [],
-                  canViewFinance: _dashCanFinance,
+                  // false: o painel inicial já não mostra finanças, então não vale
+                  // abrir streams/leituras de lançamentos que ninguém exibe.
+                  canViewFinance: false,
                   financePeriodRange: _dashCanFinance
                       ? _resolvedDashFinanceRange
                       : ChurchDashboardFinancePeriod.resolve(
@@ -1395,37 +1355,10 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                 width: isNarrow ? double.infinity : 380,
                 child: _GraficoMembros(snap: mergedSnap),
               ),
-              if (_dashCanFinance) ...[
-                const SizedBox(height: ThemeCleanPremium.spaceXl),
-                _DashboardFinancePeriodStrip(
-                  resolvedRange: _resolvedDashFinanceRange,
-                  preset: _dashFinancePreset,
-                  isNarrow: isNarrow,
-                  onSelect: (p) {
-                    unawaited(_onDashFinancePresetTap(p));
-                  },
-                ),
-                const SizedBox(height: ThemeCleanPremium.spaceMd),
-                if (!AppPermissions.isRestrictedMember(widget.role))
-                  Builder(
-                    builder: (context) {
-                      final extra = _ministryHealthKey.currentState
-                          ?.buildDeferredFinanceSection(context);
-                      if (extra == null) {
-                        return const SizedBox.shrink();
-                      }
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          extra,
-                          SizedBox(height: ThemeCleanPremium.spaceLg),
-                        ],
-                      );
-                    },
-                  ),
-                // Card "Despesas (painel)" removido a pedido do usuário —
-                // o painel inicial mostra apenas o "Saldo por conta" (acima).
-              ],
+              // Bloco financeiro removido do painel inicial a pedido do usuário:
+              // finanças ficam apenas no módulo Financeiro. Saiu daqui a faixa de
+              // período (Mês anterior/atual/Semanal/Anual) e o card "Finanças no
+              // painel" — a faixa só existia para filtrar esse card.
               const SizedBox(height: 32),
             ],
           ),
@@ -2037,7 +1970,7 @@ class _AniversariantesPushInfoBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final parts = previewNames.where((s) => s.isNotEmpty).take(4).toList();
     final preview = parts.join(', ');
-    final more = count > parts.length ? '…' : '';
+    final more = count > parts.length ? '?' : '';
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(14),
@@ -2117,7 +2050,7 @@ class _AniversariantesPushInfoBanner extends StatelessWidget {
   }
 }
 
-/// Falha ao ler Firestore no painel — permite religar streams sem sair da tela.
+/// Falha ao ler Firestore no painel ? permite religar streams sem sair da tela.
 class _DashboardPanelLoadError extends StatelessWidget {
   final String message;
   final Future<void> Function() onRetry;
@@ -2609,7 +2542,7 @@ class _AniversariantesCard extends StatelessWidget {
         .where((u) => u.trim().isNotEmpty)
         .take(24)
         .toList();
-    // Warmup resolve as fotos (thumb/Storage) em paralelo antes do scroll —
+    // Warmup resolve as fotos (thumb/Storage) em paralelo antes do scroll ?
     // sem isso, cada avatar resolvia a URL sozinho e demorava a aparecer.
     ChurchGalleryPhotoWarmup.schedule(
       context: context,
@@ -3893,7 +3826,7 @@ class _PieCard extends StatelessWidget {
   }
 }
 
-/// Pizza percentual com legenda — dados coerentes com o total, layout mobile em coluna, visual premium.
+/// Pizza percentual com legenda ? dados coerentes com o total, layout mobile em coluna, visual premium.
 class _PieMembros extends StatelessWidget {
   final String title;
   final IconData icon;
@@ -3971,7 +3904,7 @@ class _PieMembros extends StatelessWidget {
                     ),
                   ),
                   TextSpan(
-                    text: '  ·  $count ${count == 1 ? 'membro' : 'membros'}',
+                    text: '  ?  $count ${count == 1 ? 'membro' : 'membros'}',
                     style: TextStyle(
                       fontWeight: FontWeight.w500,
                       fontSize: 12,
@@ -4302,149 +4235,6 @@ class _GraficoMembros extends StatelessWidget {
           ],
         ),
         duration: const Duration(milliseconds: 800),
-      ),
-    );
-  }
-}
-
-class _DashboardFinancePeriodStrip extends StatelessWidget {
-  const _DashboardFinancePeriodStrip({
-    required this.resolvedRange,
-    required this.preset,
-    required this.isNarrow,
-    required this.onSelect,
-  });
-
-  final DateTimeRange resolvedRange;
-  final ChurchDashboardFinancePreset preset;
-  final bool isNarrow;
-  final ValueChanged<ChurchDashboardFinancePreset> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final items = <({ChurchDashboardFinancePreset p, String label})>[
-      (p: ChurchDashboardFinancePreset.previousMonth, label: 'Mês anterior'),
-      (p: ChurchDashboardFinancePreset.currentMonth, label: 'Mês atual'),
-      (p: ChurchDashboardFinancePreset.weekly, label: 'Semanal'),
-      (p: ChurchDashboardFinancePreset.yearly, label: 'Anual'),
-      (p: ChurchDashboardFinancePreset.custom, label: 'Período'),
-    ];
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            ThemeCleanPremium.primary.withValues(alpha: 0.09),
-            const Color(0xFFECFDF5),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFBFDBFE)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Icon(
-                Icons.date_range_rounded,
-                color: ThemeCleanPremium.primary,
-                size: isNarrow ? 20 : 22,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Filtro financeiro do painel',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: isNarrow ? 14 : 15,
-                    color: const Color(0xFF0F172A),
-                    letterSpacing: -0.2,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${resolvedRange.start.day.toString().padLeft(2, '0')}/${resolvedRange.start.month.toString().padLeft(2, '0')}/${resolvedRange.start.year} — '
-            '${resolvedRange.end.day.toString().padLeft(2, '0')}/${resolvedRange.end.month.toString().padLeft(2, '0')}/${resolvedRange.end.year}',
-            style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: items.map((e) {
-              final selected = preset == e.p;
-              return Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => onSelect(e.p),
-                  borderRadius: BorderRadius.circular(12),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    curve: Curves.easeOutCubic,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      gradient: selected
-                          ? LinearGradient(
-                              colors: [
-                                ThemeCleanPremium.primary,
-                                ThemeCleanPremium.primary.withValues(
-                                  alpha: 0.88,
-                                ),
-                              ],
-                            )
-                          : null,
-                      color: selected ? null : Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: selected
-                            ? ThemeCleanPremium.primary
-                            : const Color(0xFFE2E8F0),
-                      ),
-                      boxShadow: selected
-                          ? [
-                              BoxShadow(
-                                color: ThemeCleanPremium.primary.withValues(
-                                  alpha: 0.32,
-                                ),
-                                blurRadius: 14,
-                                offset: const Offset(0, 5),
-                              ),
-                            ]
-                          : null,
-                    ),
-                    child: Text(
-                      e.label,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 11,
-                        color: selected
-                            ? Colors.white
-                            : const Color(0xFF334155),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
       ),
     );
   }
@@ -4910,9 +4700,9 @@ class _GraficoFinanceiroState extends State<_GraficoFinanceiro> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} · '
+          '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} ? '
           '${widget.range.start.day.toString().padLeft(2, '0')}/${widget.range.start.month.toString().padLeft(2, '0')} '
-          '— ${widget.range.end.day.toString().padLeft(2, '0')}/${widget.range.end.month.toString().padLeft(2, '0')}/${widget.range.end.year}',
+          '? ${widget.range.end.day.toString().padLeft(2, '0')}/${widget.range.end.month.toString().padLeft(2, '0')}/${widget.range.end.year}',
           style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
         ),
         const SizedBox(height: 8),
@@ -5262,7 +5052,7 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} · mesmo período do fluxo',
+                '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} ? mesmo período do fluxo',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
               const SizedBox(height: 8),
@@ -5656,7 +5446,7 @@ _painelDestaqueStableParamsFromRef(String raw) {
   return (storagePath: null, imageUrl: s, gsUrl: null);
 }
 
-/// Legenda do post no painel — trunca com "Veja mais" (estilo feed).
+/// Legenda do post no painel ? trunca com "Veja mais" (estilo feed).
 class _PainelDestaqueExpandableText extends StatefulWidget {
   final String text;
   final int maxLines;
@@ -6242,7 +6032,7 @@ void _showPainelProgramacaoEventoPreview(
     backgroundColor: Colors.transparent,
     builder: (_) => ChurchPublicEventDetailSheet(
       title: title.isEmpty ? 'Evento' : title,
-      subtitle: hasSchedule ? '' : '—',
+      subtitle: hasSchedule ? '' : '?',
       weekdayLabel: dayName.isEmpty ? null : dayName,
       dateLabel: dateStr.isEmpty ? null : dateStr,
       timeLabel: time.isEmpty ? null : time,
@@ -7273,7 +7063,7 @@ List<String> _painelDestaqueGalleryPhotos(Map<String, dynamic> d) {
   if (!eventNoticiaDocHasPlayableVideo(d)) {
     return raw;
   }
-  // Só exclui thumbs dedicadas de vídeo (não a 1ª foto usada como poster).
+  // Só exclui thumbs dedicadas de vídeo (não a 1? foto usada como poster).
   final t2 = sanitizeImageUrl(eventNoticiaVideoThumbUrl(d) ?? '');
   final dedicated = sanitizeImageUrl(
     (d['posterUrl'] ?? d['videoPosterUrl'] ?? d['videoThumbUrl'] ?? '')
@@ -7466,7 +7256,7 @@ class _PainelDestaqueMediaCarouselState
       final yt = _DestaqueCard._videoThumbnailUrl(d);
       thumb = yt != null ? sanitizeImageUrl(yt) : '';
     }
-    // Sem thumb dedicada de vídeo, a capa reaproveita a 1ª foto — mas se essa
+    // Sem thumb dedicada de vídeo, a capa reaproveita a 1? foto ? mas se essa
     // mesma foto já é um slide próprio do carrossel, isso duplicava a foto
     // visualmente no slide do vídeo. Nesse caso mostra o fundo com play.
     if (refs.isNotEmpty &&

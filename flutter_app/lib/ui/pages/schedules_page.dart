@@ -36,14 +36,21 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
-import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart' show StableChurchLogo;
+import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
+    show StableChurchLogo;
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_membro_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show SafeCircleAvatarImage, churchTenantLogoUrl, imageUrlFromMap, isValidImageUrl, memCacheExtentForLogicalSize, sanitizeImageUrl;
+    show
+        SafeCircleAvatarImage,
+        churchTenantLogoUrl,
+        imageUrlFromMap,
+        isValidImageUrl,
+        memCacheExtentForLogicalSize,
+        sanitizeImageUrl;
 import 'package:gestao_yahweh/utils/church_department_list.dart'
     show
         churchDepartmentNameFromDoc,
@@ -59,6 +66,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 Map<String, dynamic> _remapScheduleCpfKeyedMap(
   Map<String, dynamic> old,
@@ -80,9 +88,8 @@ Map<String, dynamic> _remapScheduleCpfKeyedMap(
 /// Limite seguro para diálogos de escala (Controle Total — sem `.get()` ilimitado).
 const int _kScheduleMembersFetchLimit = 600;
 
-Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadScheduleMemberDocs(
-  String tenantId,
-) async {
+Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+_loadScheduleMemberDocs(String tenantId) async {
   final tid = tenantId.trim();
   if (tid.isEmpty) return const [];
   try {
@@ -94,10 +101,9 @@ Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadScheduleMemberDoc
   } catch (_) {}
   try {
     final op = ChurchRepository.churchId(tid);
-    return (await ChurchUiCollections.membros(op)
-            .limit(_kScheduleMembersFetchLimit)
-            .get())
-        .docs;
+    return (await ChurchUiCollections.membros(
+      op,
+    ).limit(_kScheduleMembersFetchLimit).get()).docs;
   } catch (_) {
     return const [];
   }
@@ -108,7 +114,7 @@ Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _loadScheduleMemberDoc
 ///   `departamentosIds` (corrige vínculo gravado só num dos campos);
 /// - a subcoleção autoritativa `departamentos/{id}/membros_vinculados`
 ///   (cobre membros sem os arrays e/ou sem `updatedAt`, que o `membrosRecent`
-///   — ordenado por updatedAt — silenciosamente descarta).
+///   ? ordenado por updatedAt ? silenciosamente descarta).
 Future<List<_MemberSelect>> _buildDeptMemberSelects({
   required String tenantId,
   required String departmentId,
@@ -135,24 +141,26 @@ Future<List<_MemberSelect>> _buildDeptMemberSelects({
   void addFromDoc(QueryDocumentSnapshot<Map<String, dynamic>> m) {
     final data = m.data();
     final cpf = normCpf(data['CPF'] ?? data['cpf']);
-    final name =
-        (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '').toString();
+    final name = (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '')
+        .toString();
     if (cpf.isEmpty && name.isEmpty) return;
     final key = cpf.isNotEmpty ? cpf : 'doc_${m.id}';
     if (!seen.add(key)) return;
     final photoUrl = imageUrlFromMap(data);
-    result.add(_MemberSelect(
-      cpf: cpf,
-      name: name,
-      photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '',
-      frequency: freq[cpf] ?? 0,
-      memberDocId: m.id,
-      unavailableYmds: MemberScheduleAvailability.parseYmdList(
-        data[MemberScheduleAvailability.fieldYmds],
+    result.add(
+      _MemberSelect(
+        cpf: cpf,
+        name: name,
+        photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '',
+        frequency: freq[cpf] ?? 0,
+        memberDocId: m.id,
+        unavailableYmds: MemberScheduleAvailability.parseYmdList(
+          data[MemberScheduleAvailability.fieldYmds],
+        ),
+        tenantId: tid,
+        memberData: data,
       ),
-      tenantId: tid,
-      memberData: data,
-    ));
+    );
   }
 
   // 1) Vínculo por arrays (DEPARTAMENTOS ou departamentosIds).
@@ -193,16 +201,18 @@ Future<List<_MemberSelect>> _buildDeptMemberSelects({
       final name = (ld['nome'] ?? ld['NOME_COMPLETO'] ?? '').toString();
       if (cpf.isEmpty && name.isEmpty) continue;
       final photoUrl = (ld['fotoUrl'] ?? '').toString();
-      result.add(_MemberSelect(
-        cpf: cpf,
-        name: name,
-        photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '',
-        frequency: freq[cpf] ?? 0,
-        memberDocId: linkedDocId.isNotEmpty ? linkedDocId : l.id,
-        unavailableYmds: const <String>[],
-        tenantId: tid,
-        memberData: ld,
-      ));
+      result.add(
+        _MemberSelect(
+          cpf: cpf,
+          name: name,
+          photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '',
+          frequency: freq[cpf] ?? 0,
+          memberDocId: linkedDocId.isNotEmpty ? linkedDocId : l.id,
+          unavailableYmds: const <String>[],
+          tenantId: tid,
+          memberData: ld,
+        ),
+      );
     }
   } catch (_) {}
 
@@ -256,9 +266,13 @@ bool _memberMatchesInstanceDetailFilter(
     return keyNorm.length == 11 && set.contains(keyNorm);
   }
   if (f == _InstanceDetailMemberFilter.confirmados) return raw == 'confirmado';
-  if (f == _InstanceDetailMemberFilter.indisponiveis) return raw == 'indisponivel';
-  if (f == _InstanceDetailMemberFilter.faltaNj) return raw == 'falta_nao_justificada';
-  return raw != 'confirmado' && raw != 'indisponivel' && raw != 'falta_nao_justificada';
+  if (f == _InstanceDetailMemberFilter.indisponiveis)
+    return raw == 'indisponivel';
+  if (f == _InstanceDetailMemberFilter.faltaNj)
+    return raw == 'falta_nao_justificada';
+  return raw != 'confirmado' &&
+      raw != 'indisponivel' &&
+      raw != 'falta_nao_justificada';
 }
 
 String _maskCpfListaEscala(String raw) {
@@ -397,13 +411,15 @@ abstract final class _SchedulesPageRamCache {
   _SchedulesPageRamCache._();
 
   static final Map<
-      String,
-      ({
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> templates,
-        List<QueryDocumentSnapshot<Map<String, dynamic>>> instances,
-        List<_DeptItem> depts,
-        DateTime at,
-      })> _byTenant = {};
+    String,
+    ({
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> templates,
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> instances,
+      List<_DeptItem> depts,
+      DateTime at,
+    })
+  >
+  _byTenant = {};
 
   static const Duration _ttl = Duration(minutes: 20);
 
@@ -411,7 +427,8 @@ abstract final class _SchedulesPageRamCache {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> templates,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> instances,
     List<_DeptItem> depts,
-  })? peek(String tenantId) {
+  })?
+  peek(String tenantId) {
     final key = tenantId.trim();
     if (key.isEmpty) return null;
     final hit = _byTenant[key];
@@ -420,7 +437,11 @@ abstract final class _SchedulesPageRamCache {
       _byTenant.remove(key);
       return null;
     }
-    return (templates: hit.templates, instances: hit.instances, depts: hit.depts);
+    return (
+      templates: hit.templates,
+      instances: hit.instances,
+      depts: hit.depts,
+    );
   }
 
   static void put(
@@ -444,6 +465,7 @@ class SchedulesPage extends StatefulWidget {
   final String tenantId;
   final String role;
   final String cpf;
+
   /// Dentro de [IgrejaCleanShell]: abas “pill” coladas ao cartão do módulo + [SafeArea] ajustado.
   final bool embeddedInShell;
   const SchedulesPage({
@@ -458,9 +480,11 @@ class SchedulesPage extends StatefulWidget {
   State<SchedulesPage> createState() => _SchedulesPageState();
 }
 
-class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProviderStateMixin {
+class _SchedulesPageState extends State<SchedulesPage>
+    with SingleTickerProviderStateMixin {
   late final TabController _tab;
-  /// ID real da igreja (resolve slug/alias) — alinhado a Membros/claims para escrita no Firestore.
+
+  /// ID real da igreja (resolve slug/alias) ? alinhado a Membros/claims para escrita no Firestore.
   late final Future<String> _effectiveTidFuture;
   late Future<List<_DeptItem>> _deptsFuture;
   late Future<QuerySnapshot<Map<String, dynamic>>> _templatesFuture;
@@ -469,9 +493,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   String _filterDeptId = '';
   String _reportDeptId = ''; // filtro de departamento no relatório
   /// `todos` = sem filtro de data nas escalas já carregadas (até 200) — padrão para não “sumir” escalas geradas noutro mês.
-  String _periodFilter = 'todos'; // todos, diario, semanal, mes_anterior, mes_atual, anual, periodo
+  String _periodFilter =
+      'todos'; // todos, diario, semanal, mes_anterior, mes_atual, anual, periodo
   DateTime? _periodStart;
   DateTime? _periodEnd;
+
   /// Lista (0) ou calendário interativo (1) na aba “Escalas Geradas”.
   int _instancesViewSegment = 0;
   DateTime _schedCalFocused = DateTime.now();
@@ -506,7 +532,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   String? _instancesLoadHint;
   Timer? _webLoadCap;
 
-  DocumentReference<Map<String, dynamic>> _churchDoc(String tid) => ChurchUiCollections.churchDoc(tid);
+  DocumentReference<Map<String, dynamic>> _churchDoc(String tid) =>
+      ChurchUiCollections.churchDoc(tid);
   CollectionReference<Map<String, dynamic>> _templatesCol(String tid) =>
       ChurchUiCollections.escalaTemplates(tid);
   CollectionReference<Map<String, dynamic>> _instancesCol(String tid) =>
@@ -519,8 +546,14 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       ChurchUiCollections.escalaTrocas(tid);
 
   static const _deptColors = [
-    Color(0xFF3B82F6), Color(0xFF16A34A), Color(0xFFE11D48), Color(0xFFF59E0B),
-    Color(0xFF8B5CF6), Color(0xFF0891B2), Color(0xFFDB2777), Color(0xFF059669),
+    Color(0xFF3B82F6),
+    Color(0xFF16A34A),
+    Color(0xFFE11D48),
+    Color(0xFFF59E0B),
+    Color(0xFF8B5CF6),
+    Color(0xFF0891B2),
+    Color(0xFFDB2777),
+    Color(0xFF059669),
   ];
 
   static const Color _wisdomAccent = Color(0xFF0891B2);
@@ -557,7 +590,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         );
       } catch (_) {}
     }
-    // Caminho direto — sem runWithWebRecovery (multiplicava timeouts e
+    // Caminho direto ? sem runWithWebRecovery (multiplicava timeouts e
     // gerava «Sincronização com o servidor em curso» na Web).
     final queryCap = kIsWeb
         ? const Duration(seconds: 12)
@@ -619,38 +652,42 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   void _refreshEscalasFullInBackground(String churchId) {
     unawaited(
       ChurchSchedulesLoadService.loadEscalas(
-        seedTenantId: churchId,
-        limit: ChurchSchedulesLoadService.kEscalasDefaultLimit,
-        forceRefresh: false,
-        forceServer: false,
-      ).then((r) async {
-        if (r.docs.isEmpty) return;
-        await ChurchSchedulesLoadService.persistEscalas(r);
-        if (!mounted) return;
-        setState(() {
-          _instancesDocs = r.docs;
-          _instancesFuture = Future.value(r.snapshot);
-          _instancesLoadHint = null;
-        });
-        _SchedulesPageRamCache.put(
-          churchId,
-          templates: _templatesDocs,
-          instances: r.docs,
-          depts: _deptsItems,
-        );
-      }).catchError((_) {}),
+            seedTenantId: churchId,
+            limit: ChurchSchedulesLoadService.kEscalasDefaultLimit,
+            forceRefresh: false,
+            forceServer: false,
+          )
+          .then((r) async {
+            if (r.docs.isEmpty) return;
+            await ChurchSchedulesLoadService.persistEscalas(r);
+            if (!mounted) return;
+            setState(() {
+              _instancesDocs = r.docs;
+              _instancesFuture = Future.value(r.snapshot);
+              _instancesLoadHint = null;
+            });
+            _SchedulesPageRamCache.put(
+              churchId,
+              templates: _templatesDocs,
+              instances: r.docs,
+              depts: _deptsItems,
+            );
+          })
+          .catchError((_) {}),
     );
   }
 
   String get _churchId => ChurchPanelTenant.forFirestore(
-        _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
-      );
+    _effectiveTenantId.isNotEmpty ? _effectiveTenantId : widget.tenantId,
+  );
 
   void _syncLegacyFutures() {
-    _templatesFuture =
-        Future.value(MergedFirestoreQuerySnapshot(_templatesDocs));
-    _instancesFuture =
-        Future.value(MergedFirestoreQuerySnapshot(_instancesDocs));
+    _templatesFuture = Future.value(
+      MergedFirestoreQuerySnapshot(_templatesDocs),
+    );
+    _instancesFuture = Future.value(
+      MergedFirestoreQuerySnapshot(_instancesDocs),
+    );
     _deptsFuture = _deptsItems.isNotEmpty
         ? Future.value(_deptsItems)
         : _loadDepartmentsForTenant(_churchId);
@@ -734,14 +771,14 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     } else {
       _templatesDocs =
           ChurchSchedulesLoadService.peekTemplatesRam(churchId, limit: 120) ??
-              const [];
+          const [];
       _instancesDocs =
           ChurchSchedulesLoadService.peekEscalasRam(
-                churchId,
-                limit: ChurchSchedulesLoadService.kEscalasPanelFirstPaintLimit,
-              ) ??
-              ChurchSchedulesLoadService.peekEscalasRam(churchId, limit: 200) ??
-              const [];
+            churchId,
+            limit: ChurchSchedulesLoadService.kEscalasPanelFirstPaintLimit,
+          ) ??
+          ChurchSchedulesLoadService.peekEscalasRam(churchId, limit: 200) ??
+          const [];
       _deptsItems = const [];
     }
     _templatesFetching = _templatesDocs.isEmpty;
@@ -852,7 +889,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           logToCrashlytics: false,
         );
       }
-      // Silenciar soft "sync in progress" — retry em background.
+      // Silenciar soft "sync in progress" ? retry em background.
       if (templates.isEmpty && templatesErr != null && !forceFresh) {
         unawaited(_softRetryTemplates(churchId));
       }
@@ -863,22 +900,24 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     });
     _refreshEscalasFullInBackground(churchId);
     unawaited(
-      _loadDepartmentsForTenant(churchId).then((depts) {
-        if (!mounted) return;
-        setState(() {
-          _deptsItems = depts;
-          _deptsFetching = false;
-          _deptsFuture = Future.value(depts);
-        });
-        _SchedulesPageRamCache.put(
-          churchId,
-          templates: _templatesDocs,
-          instances: _instancesDocs,
-          depts: depts,
-        );
-      }).catchError((_) {
-        if (mounted) setState(() => _deptsFetching = false);
-      }),
+      _loadDepartmentsForTenant(churchId)
+          .then((depts) {
+            if (!mounted) return;
+            setState(() {
+              _deptsItems = depts;
+              _deptsFetching = false;
+              _deptsFuture = Future.value(depts);
+            });
+            _SchedulesPageRamCache.put(
+              churchId,
+              templates: _templatesDocs,
+              instances: _instancesDocs,
+              depts: depts,
+            );
+          })
+          .catchError((_) {
+            if (mounted) setState(() => _deptsFetching = false);
+          }),
     );
     _webLoadCap?.cancel();
   }
@@ -909,9 +948,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }
 
   Future<List<_DeptItem>> _loadDepartmentsForTenant(String tid) async {
-    final result = await ChurchDepartmentsLoadService.load(
-      seedTenantId: tid,
-    );
+    final result = await ChurchDepartmentsLoadService.load(seedTenantId: tid);
     final snap = result.snapshot;
     final deduped = dedupeChurchDepartmentDocuments(snap.docs);
     final list = deduped
@@ -926,24 +963,27 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         )
         .where((d) => d.name.isNotEmpty)
         .toList();
-    list.sort(
-        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     return list;
   }
 
-  Future<QuerySnapshot<Map<String, dynamic>>> _fetchInstancesForEffectiveTenant() =>
-      _effectiveTidFuture.then(
-        (tid) => _fetchEscalas(tid),
-      );
+  Future<QuerySnapshot<Map<String, dynamic>>>
+  _fetchInstancesForEffectiveTenant() =>
+      _effectiveTidFuture.then((tid) => _fetchEscalas(tid));
 
   static DateTime _startOfDay(DateTime d) => DateTime(d.year, d.month, d.day);
-  static DateTime _endOfDay(DateTime d) => DateTime(d.year, d.month, d.day, 23, 59, 59);
+  static DateTime _endOfDay(DateTime d) =>
+      DateTime(d.year, d.month, d.day, 23, 59, 59);
   static DateTime _startOfMonth(DateTime d) => DateTime(d.year, d.month, 1);
-  static DateTime _endOfMonth(DateTime d) => DateTime(d.year, d.month + 1, 0, 23, 59, 59);
+  static DateTime _endOfMonth(DateTime d) =>
+      DateTime(d.year, d.month + 1, 0, 23, 59, 59);
   static DateTime _startOfYear(DateTime d) => DateTime(d.year, 1, 1);
-  static DateTime _endOfYear(DateTime d) => DateTime(d.year, 12, 31, 23, 59, 59);
+  static DateTime _endOfYear(DateTime d) =>
+      DateTime(d.year, 12, 31, 23, 59, 59);
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterInstancesByPeriod(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterInstancesByPeriod(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
     final now = DateTime.now();
     bool inRange(DateTime? dt) {
       if (_periodFilter == 'todos') return true;
@@ -954,23 +994,29 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           return !dt.isBefore(today) && !dt.isAfter(_endOfDay(now));
         case 'semanal':
           final weekStart = now.subtract(Duration(days: now.weekday - 1));
-          return !dt.isBefore(_startOfDay(weekStart)) && !dt.isAfter(_endOfDay(now));
+          return !dt.isBefore(_startOfDay(weekStart)) &&
+              !dt.isAfter(_endOfDay(now));
         case 'mes_anterior':
           final prev = DateTime(now.year, now.month - 1);
-          return !dt.isBefore(_startOfMonth(prev)) && !dt.isAfter(_endOfMonth(prev));
+          return !dt.isBefore(_startOfMonth(prev)) &&
+              !dt.isAfter(_endOfMonth(prev));
         case 'mes_atual':
-          return !dt.isBefore(_startOfMonth(now)) && !dt.isAfter(_endOfMonth(now));
+          return !dt.isBefore(_startOfMonth(now)) &&
+              !dt.isAfter(_endOfMonth(now));
         case 'anual':
-          return !dt.isBefore(_startOfYear(now)) && !dt.isAfter(_endOfYear(now));
+          return !dt.isBefore(_startOfYear(now)) &&
+              !dt.isAfter(_endOfYear(now));
         case 'periodo':
           if (_periodStart != null && _periodEnd != null) {
-            return !dt.isBefore(_startOfDay(_periodStart!)) && !dt.isAfter(_endOfDay(_periodEnd!));
+            return !dt.isBefore(_startOfDay(_periodStart!)) &&
+                !dt.isAfter(_endOfDay(_periodEnd!));
           }
           return true;
         default:
           return true;
       }
     }
+
     return docs.where((d) {
       final dt = EscalaFirestoreFields.parseDate(d.data());
       return inRange(dt);
@@ -990,14 +1036,18 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           return !day.isBefore(today) && !day.isAfter(_endOfDay(now));
         case 'semanal':
           final weekStart = now.subtract(Duration(days: now.weekday - 1));
-          return !day.isBefore(_startOfDay(weekStart)) && !day.isAfter(_endOfDay(now));
+          return !day.isBefore(_startOfDay(weekStart)) &&
+              !day.isAfter(_endOfDay(now));
         case 'mes_anterior':
           final prev = DateTime(now.year, now.month - 1);
-          return !day.isBefore(_startOfMonth(prev)) && !day.isAfter(_endOfMonth(prev));
+          return !day.isBefore(_startOfMonth(prev)) &&
+              !day.isAfter(_endOfMonth(prev));
         case 'mes_atual':
-          return !day.isBefore(_startOfMonth(now)) && !day.isAfter(_endOfMonth(now));
+          return !day.isBefore(_startOfMonth(now)) &&
+              !day.isAfter(_endOfMonth(now));
         case 'anual':
-          return !day.isBefore(_startOfYear(now)) && !day.isAfter(_endOfYear(now));
+          return !day.isBefore(_startOfYear(now)) &&
+              !day.isAfter(_endOfYear(now));
         case 'periodo':
           if (_periodStart != null && _periodEnd != null) {
             return !day.isBefore(_startOfDay(_periodStart!)) &&
@@ -1019,13 +1069,19 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     var deptFiltered = _filterDeptId.isEmpty
         ? allDocs
         : allDocs
-            .where((d) =>
-                (d.data()['departmentId'] ?? '').toString() == _filterDeptId)
-            .toList();
+              .where(
+                (d) =>
+                    (d.data()['departmentId'] ?? '').toString() ==
+                    _filterDeptId,
+              )
+              .toList();
     if (_scopedDeptLeader) {
       deptFiltered = deptFiltered
-          .where((d) => _managedDeptIds
-              .contains((d.data()['departmentId'] ?? '').toString()))
+          .where(
+            (d) => _managedDeptIds.contains(
+              (d.data()['departmentId'] ?? '').toString(),
+            ),
+          )
           .toList();
     }
     return deptFiltered;
@@ -1037,13 +1093,19 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     var deptFiltered = _filterDeptId.isEmpty
         ? allDocs
         : allDocs
-            .where((d) =>
-                (d.data()['departmentId'] ?? '').toString() == _filterDeptId)
-            .toList();
+              .where(
+                (d) =>
+                    (d.data()['departmentId'] ?? '').toString() ==
+                    _filterDeptId,
+              )
+              .toList();
     if (_scopedDeptLeader) {
       deptFiltered = deptFiltered
-          .where((d) => _managedDeptIds
-              .contains((d.data()['departmentId'] ?? '').toString()))
+          .where(
+            (d) => _managedDeptIds.contains(
+              (d.data()['departmentId'] ?? '').toString(),
+            ),
+          )
           .toList();
     }
     return _filterInstancesByPeriod(deptFiltered);
@@ -1132,30 +1194,34 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       _instancesLoadHint = null;
     });
     unawaited(
-      _fetchEscalas(tid, forceServer: false, forceRefresh: true).then((snap) {
-        if (!mounted) return;
-        setState(() {
-          _instancesDocs = snap.docs;
-          _instancesFetching = false;
-          _instancesFuture = Future.value(snap);
-        });
-        _refreshEscalasFullInBackground(tid);
-      }).catchError((e) {
-        if (!mounted) return;
-        setState(() {
-          _instancesFetching = false;
-          if (_instancesDocs.isEmpty) {
-            _instancesLoadHint = formatFirebaseErrorForUser(
-              e,
-              logToCrashlytics: false,
-            );
-          }
-        });
-      }),
+      _fetchEscalas(tid, forceServer: false, forceRefresh: true)
+          .then((snap) {
+            if (!mounted) return;
+            setState(() {
+              _instancesDocs = snap.docs;
+              _instancesFetching = false;
+              _instancesFuture = Future.value(snap);
+            });
+            _refreshEscalasFullInBackground(tid);
+          })
+          .catchError((e) {
+            if (!mounted) return;
+            setState(() {
+              _instancesFetching = false;
+              if (_instancesDocs.isEmpty) {
+                _instancesLoadHint = formatFirebaseErrorForUser(
+                  e,
+                  logToCrashlytics: false,
+                );
+              }
+            });
+          }),
     );
   }
 
-  Future<void> _exportEscalaInstancePdf(DocumentSnapshot<Map<String, dynamic>> doc) async {
+  Future<void> _exportEscalaInstancePdf(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
     final path = doc.reference.path.split('/');
     if (path.length < 2 || path[0] != 'igrejas') return;
     final tid = path[1];
@@ -1163,7 +1229,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Gerando PDF…'),
+            content: Text('Gerando PDF?'),
             duration: Duration(seconds: 2),
           ),
         );
@@ -1174,18 +1240,21 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       final tenantSnap = await ChurchUiCollections.churchDoc(op).get();
       final t = tenantSnap.data() ?? {};
       final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
-      final phone =
-          (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '').toString().trim();
+      final phone = (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '')
+          .toString()
+          .trim();
       final ed = doc.data() ?? {};
       final sigCfg = await _pickScheduleSignatureConfig(
         tid,
-        initialPreparedByMemberId:
-            (ed['preparedByMemberId'] ?? '').toString().trim(),
-        initialApproverMemberId:
-            (ed['approverMemberId'] ?? '').toString().trim(),
+        initialPreparedByMemberId: (ed['preparedByMemberId'] ?? '')
+            .toString()
+            .trim(),
+        initialApproverMemberId: (ed['approverMemberId'] ?? '')
+            .toString()
+            .trim(),
         initialShowDigitalSignatures:
             (ed['signatureMode'] ?? '').toString().trim().toLowerCase() ==
-                'digital',
+            'digital',
       );
       if (sigCfg == null) return;
       final bytes = await buildScheduleEscalaPdf(
@@ -1218,10 +1287,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     for (final e in depts) {
       if (e.id == deptId) return e.name;
     }
-    return deptId.isNotEmpty ? deptId : '—';
+    return deptId.isNotEmpty ? deptId : '?';
   }
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterTrocasConcluidasForReport(
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>
+  _filterTrocasConcluidasForReport(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
     var list = docs.where((d) {
@@ -1250,7 +1320,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }
 
   /// Pedidos de troca no período (data de criação do registro).
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _filterTrocasByCreatedForReport(
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>
+  _filterTrocasByCreatedForReport(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
     var list = docs.where((d) {
@@ -1296,7 +1367,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     try {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Gerando PDF…'), duration: Duration(seconds: 2)),
+          const SnackBar(
+            content: Text('Gerando PDF?'),
+            duration: Duration(seconds: 2),
+          ),
         );
       }
       unawaited(RelatorioService.ensureSystemReportFooterLogo());
@@ -1305,13 +1379,16 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       final tenantSnap = await ChurchUiCollections.churchDoc(op).get();
       final t = tenantSnap.data() ?? {};
       final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
-      final phone = (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '').toString().trim();
+      final phone = (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '')
+          .toString()
+          .trim();
       final bytes = await buildEscalaPremiumTablePdf(
         branding: branding,
         reportTitle: reportTitle,
         churchAddress: address,
         churchPhone: phone,
-        periodLabel: 'Período: $_periodLabelUppercase · Depart.: ${_reportDeptId.isEmpty ? 'Todos' : _reportDeptId}',
+        periodLabel:
+            'Período: $_periodLabelUppercase ? Depart.: ${_reportDeptId.isEmpty ? 'Todos' : _reportDeptId}',
         columnHeaders: columnHeaders,
         rows: rows,
       );
@@ -1319,7 +1396,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       await showPdfActions(context, bytes: bytes, filename: filenameSafe);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('PDF: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('PDF: $e')));
       }
     }
   }
@@ -1344,7 +1423,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       try {
         dt = (m['date'] as Timestamp?)?.toDate();
       } catch (_) {}
-      final ds = dt != null ? DateFormat('dd/MM/yyyy', 'pt_BR').format(dt) : '—';
+      final ds = dt != null
+          ? DateFormat('dd/MM/yyyy', 'pt_BR').format(dt)
+          : '?';
       rows.add([
         ds,
         (m['title'] ?? '').toString(),
@@ -1391,9 +1472,17 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     }
     await _exportPremiumTablePdf(
       reportTitle: 'Trocas de escala (registros)',
-      columnHeaders: const ['Status', 'Depart.', 'Escala', 'Data esc.', 'Solicitante', 'Substituto'],
+      columnHeaders: const [
+        'Status',
+        'Depart.',
+        'Escala',
+        'Data esc.',
+        'Solicitante',
+        'Substituto',
+      ],
       rows: rows,
-      filenameSafe: 'trocas_escala_periodo_${DateTime.now().millisecondsSinceEpoch}.pdf',
+      filenameSafe:
+          'trocas_escala_periodo_${DateTime.now().millisecondsSinceEpoch}.pdf',
     );
   }
 
@@ -1421,7 +1510,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Gerando PDF de trocas…'),
+            content: Text('Gerando PDF de trocas?'),
             duration: Duration(seconds: 2),
           ),
         );
@@ -1432,17 +1521,17 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       final tenantSnap = await ChurchUiCollections.churchDoc(op).get();
       final t = tenantSnap.data() ?? {};
       final address = (t['address'] ?? t['endereco'] ?? '').toString().trim();
-      final phone = (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '').toString().trim();
-      final rows = trocas
-          .map((d) {
-            final m = d.data();
-            final deptId = (m['departmentId'] ?? '').toString();
-            return rowMapFromTrocaDoc(
-              m,
-              departmentName: _deptDisplayNameForReport(deptId, depts),
-            );
-          })
-          .toList();
+      final phone = (t['phone'] ?? t['telefone'] ?? t['whatsapp'] ?? '')
+          .toString()
+          .trim();
+      final rows = trocas.map((d) {
+        final m = d.data();
+        final deptId = (m['departmentId'] ?? '').toString();
+        return rowMapFromTrocaDoc(
+          m,
+          departmentName: _deptDisplayNameForReport(deptId, depts),
+        );
+      }).toList();
       final bytes = await buildScheduleSwapsReportPdf(
         rows: rows,
         branding: branding,
@@ -1465,48 +1554,58 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     }
   }
 
-  Future<({
-    String preparedByName,
-    String approverName,
-    Uint8List? preparedBySignatureBytes,
-    Uint8List? approverSignatureBytes,
-    bool showDigitalSignatures
-  })?> _pickScheduleSignatureConfig(
+  Future<
+    ({
+      String preparedByName,
+      String approverName,
+      Uint8List? preparedBySignatureBytes,
+      Uint8List? approverSignatureBytes,
+      bool showDigitalSignatures,
+    })?
+  >
+  _pickScheduleSignatureConfig(
     String tid, {
     String initialPreparedByMemberId = '',
     String initialApproverMemberId = '',
     bool initialShowDigitalSignatures = false,
   }) async {
     final snap = await _loadScheduleMemberDocs(tid);
-    final options = snap
-        .map((d) {
-          final m = d.data();
-          return (
-            id: d.id,
-            nome: (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
-                .toString()
-                .trim(),
-            assinatura:
-                (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim(),
+    final options =
+        snap
+            .map((d) {
+              final m = d.data();
+              return (
+                id: d.id,
+                nome: (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
+                    .toString()
+                    .trim(),
+                assinatura: (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '')
+                    .toString()
+                    .trim(),
+              );
+            })
+            .where((e) => e.nome.isNotEmpty)
+            .toList()
+          ..sort(
+            (a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()),
           );
-        })
-        .where((e) => e.nome.isNotEmpty)
-        .toList()
-      ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
     if (!mounted) return null;
-    String? preparedId =
-        initialPreparedByMemberId.isNotEmpty ? initialPreparedByMemberId : null;
-    String? approverId =
-        initialApproverMemberId.isNotEmpty ? initialApproverMemberId : null;
+    String? preparedId = initialPreparedByMemberId.isNotEmpty
+        ? initialPreparedByMemberId
+        : null;
+    String? approverId = initialApproverMemberId.isNotEmpty
+        ? initialApproverMemberId
+        : null;
     var digital = initialShowDigitalSignatures;
     return showDialog<
-        ({
-          String preparedByName,
-          String approverName,
-          Uint8List? preparedBySignatureBytes,
-          Uint8List? approverSignatureBytes,
-          bool showDigitalSignatures
-        })>(
+      ({
+        String preparedByName,
+        String approverName,
+        Uint8List? preparedBySignatureBytes,
+        Uint8List? approverSignatureBytes,
+        bool showDigitalSignatures,
+      })
+    >(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlg) {
@@ -1520,8 +1619,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               isExpanded: true,
               decoration: InputDecoration(
                 labelText: label,
-                border:
-                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 filled: true,
                 fillColor: const Color(0xFFF8FAFC),
               ),
@@ -1530,10 +1630,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                   value: null,
                   child: Text('— Não definido —'),
                 ),
-                ...options.map((e) => DropdownMenuItem<String>(
-                      value: e.id,
-                      child: Text(e.nome, overflow: TextOverflow.ellipsis),
-                    )),
+                ...options.map(
+                  (e) => DropdownMenuItem<String>(
+                    value: e.id,
+                    child: Text(e.nome, overflow: TextOverflow.ellipsis),
+                  ),
+                ),
               ],
               onChanged: onChanged,
             );
@@ -1579,7 +1681,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               ),
               FilledButton(
                 onPressed: () async {
-                  ({String id, String nome, String assinatura})? byId(String? id) {
+                  ({String id, String nome, String assinatura})? byId(
+                    String? id,
+                  ) {
                     if (id == null || id.isEmpty) return null;
                     for (final e in options) {
                       if (e.id == id) return e;
@@ -1606,16 +1710,13 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                     }
                   }
                   if (!ctx.mounted) return;
-                  Navigator.pop(
-                    ctx,
-                    (
-                      preparedByName: prep?.nome ?? '',
-                      approverName: appr?.nome ?? '',
-                      preparedBySignatureBytes: prepSig,
-                      approverSignatureBytes: apprSig,
-                      showDigitalSignatures: digital,
-                    ),
-                  );
+                  Navigator.pop(ctx, (
+                    preparedByName: prep?.nome ?? '',
+                    approverName: appr?.nome ?? '',
+                    preparedBySignatureBytes: prepSig,
+                    approverSignatureBytes: apprSig,
+                    showDigitalSignatures: digital,
+                  ));
                 },
                 child: const Text('Aplicar'),
               ),
@@ -1629,8 +1730,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   Future<void> _notifySchedulePublished(String scheduleId) async {
     try {
       final tid = await _effectiveTidFuture;
-      final fn = FirebaseFunctions.instanceFor(region: 'us-central1')
-          .httpsCallable('notifySchedulePublished');
+      final fn = FirebaseFunctions.instanceFor(
+        region: 'us-central1',
+      ).httpsCallable('notifySchedulePublished');
       final res = await fn.call(<String, dynamic>{
         'tenantId': tid,
         'scheduleId': scheduleId,
@@ -1639,7 +1741,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       final n = map['count'] ?? 0;
       final emails = map['emailsSent'];
       if (mounted) {
-        final extra = emails is int && emails > 0 ? ' + $emails e-mail(s).' : '';
+        final extra = emails is int && emails > 0
+            ? ' + $emails e-mail(s).'
+            : '';
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
             'Notificações enviadas ($n envio(s) FCM$extra',
@@ -1654,9 +1758,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Falha ao notificar: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Falha ao notificar: $e')));
       }
     }
   }
@@ -1670,7 +1774,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     final tid = pathParts[1];
     final td = troca.data();
     final escalaId = (td['escalaId'] ?? '').toString();
-    final sol = (td['solicitanteCpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
+    final sol = (td['solicitanteCpf'] ?? '').toString().replaceAll(
+      RegExp(r'\D'),
+      '',
+    );
     final alvo = (td['alvoCpf'] ?? '').toString().replaceAll(RegExp(r'\D'), '');
     if (escalaId.isEmpty || sol.length != 11 || alvo.length != 11) return;
 
@@ -1687,7 +1794,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Erro: $e')));
         }
       }
       return;
@@ -1695,13 +1804,16 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
     try {
       final op = ChurchRepository.churchId(tid.trim());
-      final escRef =
-          ChurchUiCollections.escalas(op).doc(escalaId);
+      final escRef = ChurchUiCollections.escalas(op).doc(escalaId);
       final escSnap = await escRef.get();
       if (!escSnap.exists) return;
       final ed = escSnap.data() ?? {};
-      final cpfs = ((ed['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
-      final names = ((ed['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
+      final cpfs = ((ed['memberCpfs'] as List?) ?? [])
+          .map((e) => e.toString())
+          .toList();
+      final names = ((ed['memberNames'] as List?) ?? [])
+          .map((e) => e.toString())
+          .toList();
       int idx = -1;
       for (var i = 0; i < cpfs.length; i++) {
         if (cpfs[i].replaceAll(RegExp(r'\D'), '') == sol) {
@@ -1712,7 +1824,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       if (idx < 0) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Solicitante não está mais nesta escala.')),
+            const SnackBar(
+              content: Text('Solicitante não está mais nesta escala.'),
+            ),
           );
         }
         return;
@@ -1723,12 +1837,18 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         final mSnap = await _membersCol(tid).doc(alvo).get();
         if (mSnap.exists) {
           final md = mSnap.data() ?? {};
-          alvoNome = (md['NOME_COMPLETO'] ?? md['nome'] ?? alvo).toString().trim();
+          alvoNome = (md['NOME_COMPLETO'] ?? md['nome'] ?? alvo)
+              .toString()
+              .trim();
         } else {
-          final q = await _membersCol(tid).where('CPF', isEqualTo: alvo).limit(1).get();
+          final q = await _membersCol(
+            tid,
+          ).where('CPF', isEqualTo: alvo).limit(1).get();
           if (q.docs.isNotEmpty) {
             final md = q.docs.first.data();
-            alvoNome = (md['NOME_COMPLETO'] ?? md['nome'] ?? alvo).toString().trim();
+            alvoNome = (md['NOME_COMPLETO'] ?? md['nome'] ?? alvo)
+                .toString()
+                .trim();
           }
         }
       } catch (_) {}
@@ -1745,8 +1865,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         newNames[idx] = alvoNome;
       }
 
-      final oldConf = Map<String, dynamic>.from((ed['confirmations'] as Map?) ?? {});
-      final oldUnav = Map<String, dynamic>.from((ed['unavailabilityReasons'] as Map?) ?? {});
+      final oldConf = Map<String, dynamic>.from(
+        (ed['confirmations'] as Map?) ?? {},
+      );
+      final oldUnav = Map<String, dynamic>.from(
+        (ed['unavailabilityReasons'] as Map?) ?? {},
+      );
       oldConf.remove(cpfs[idx]);
       oldUnav.remove(cpfs[idx]);
       final remappedConf = _remapScheduleCpfKeyedMap(oldConf, newCpfs);
@@ -1766,12 +1890,16 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       if (mounted) {
         _refreshInstances();
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Troca aprovada. Escala atualizada.'),
+          ThemeCleanPremium.successSnackBar(
+            'Troca aprovada. Escala atualizada.',
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro: $e')));
       }
     }
   }
@@ -1790,14 +1918,17 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     _effectiveTidFuture = _resolveTenantAndSeedPresets();
     _effectiveTidFuture.then((tid) async {
       try {
-        final s = await DepartmentMemberIntegrationService.managedDepartmentIdsForCpf(
-          tenantId: tid,
-          cpfDigits: widget.cpf.replaceAll(RegExp(r'[^0-9]'), ''),
-        );
+        final s =
+            await DepartmentMemberIntegrationService.managedDepartmentIdsForCpf(
+              tenantId: tid,
+              cpfDigits: widget.cpf.replaceAll(RegExp(r'[^0-9]'), ''),
+            );
         if (mounted) {
-          setState(() => _managedDeptIds
-          ..clear()
-          ..addAll(s));
+          setState(
+            () => _managedDeptIds
+              ..clear()
+              ..addAll(s),
+          );
         }
       } catch (_) {}
     });
@@ -1805,14 +1936,22 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
   String get _periodLabelUppercase {
     switch (_periodFilter) {
-      case 'todos': return 'TODAS (CARREGADAS)';
-      case 'diario': return 'DIÁRIO';
-      case 'semanal': return 'SEMANAL';
-      case 'mes_anterior': return 'MÊS ANTERIOR';
-      case 'mes_atual': return 'MÊS ATUAL';
-      case 'anual': return 'ANUAL';
-      case 'periodo': return 'PERÍODO';
-      default: return 'PERÍODO';
+      case 'todos':
+        return 'TODAS (CARREGADAS)';
+      case 'diario':
+        return 'DIÁRIO';
+      case 'semanal':
+        return 'SEMANAL';
+      case 'mes_anterior':
+        return 'MÊS ANTERIOR';
+      case 'mes_atual':
+        return 'MÊS ATUAL';
+      case 'anual':
+        return 'ANUAL';
+      case 'periodo':
+        return 'PERÍODO';
+      default:
+        return 'PERÍODO';
     }
   }
 
@@ -1823,8 +1962,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     super.dispose();
   }
 
-  // ── Criar/Editar modelo de escala ──────────────────────────────────────────
-  Future<void> _editTemplate({DocumentSnapshot<Map<String, dynamic>>? doc}) async {
+  // -- Criar/Editar modelo de escala ------------------------------------------
+  Future<void> _editTemplate({
+    DocumentSnapshot<Map<String, dynamic>>? doc,
+  }) async {
     if (!_canWrite) return;
     final tid = await _effectiveTidFuture;
     final depts = await _deptsFuture;
@@ -1836,7 +1977,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-              'Seu CPF não está como líder/vice em nenhum departamento.'),
+            'Seu CPF não está como líder/vice em nenhum departamento.',
+          ),
         );
       }
       return;
@@ -1849,7 +1991,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-              'Você só pode editar modelos do seu departamento.'),
+            'Você só pode editar modelos do seu departamento.',
+          ),
         );
       }
       return;
@@ -1873,23 +2016,28 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     if (result == true && mounted) {
       _refreshTemplates();
       _refreshInstances();
-      ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Escala salva.'));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(ThemeCleanPremium.successSnackBar('Escala salva.'));
     }
   }
 
   /// Diálogo premium: período explícito (início/fim) — evita “próximos 30 dias” ou mês inteiro sem controlo.
-  Future<({
-    DateTime start,
-    DateTime end,
-    int members,
-    String preparedByName,
-    String approverName,
-    String preparedByMemberId,
-    String approverMemberId,
-    bool showDigitalSignatures,
-    Uint8List? preparedBySignatureBytes,
-    Uint8List? approverSignatureBytes
-  })?> _showPremiumGenerateScheduleDialog() async {
+  Future<
+    ({
+      DateTime start,
+      DateTime end,
+      int members,
+      String preparedByName,
+      String approverName,
+      String preparedByMemberId,
+      String approverMemberId,
+      bool showDigitalSignatures,
+      Uint8List? preparedBySignatureBytes,
+      Uint8List? approverSignatureBytes,
+    })?
+  >
+  _showPremiumGenerateScheduleDialog() async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     var rangeStart = today;
@@ -1903,527 +2051,621 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     );
     final tid = await _effectiveTidFuture;
     final membersSnap = await _loadScheduleMemberDocs(tid);
-    final signerOptions = membersSnap
-        .map((d) {
-          final m = d.data();
-          return (
-            id: d.id,
-            nome: (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
-                .toString()
-                .trim(),
-            assinatura:
-                (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim(),
+    final signerOptions =
+        membersSnap
+            .map((d) {
+              final m = d.data();
+              return (
+                id: d.id,
+                nome: (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
+                    .toString()
+                    .trim(),
+                assinatura: (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '')
+                    .toString()
+                    .trim(),
+              );
+            })
+            .where((e) => e.nome.isNotEmpty)
+            .toList()
+          ..sort(
+            (a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()),
           );
-        })
-        .where((e) => e.nome.isNotEmpty)
-        .toList()
-      ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
     String? preparedByMemberId;
     String? approverMemberId;
     var showDigitalSignatures = false;
     String? errText;
 
-    final result = await showDialog<
-        ({
-          DateTime start,
-          DateTime end,
-          int members,
-          String preparedByName,
-          String approverName,
-          String preparedByMemberId,
-          String approverMemberId,
-          bool showDigitalSignatures,
-          Uint8List? preparedBySignatureBytes,
-          Uint8List? approverSignatureBytes
-        })?>(
-      context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.45),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setS) {
-            Future<void> pickStart() async {
-              final d = await showDatePicker(
-                context: ctx,
-                initialDate: rangeStart,
-                firstDate: DateTime(today.year - 1, 1, 1),
-                lastDate: DateTime(today.year + 2, 12, 31),
-                locale: const Locale('pt', 'BR'),
-                helpText: 'Data inicial',
-                cancelText: 'Cancelar',
-                confirmText: 'Definir',
-                builder: (c, child) => Theme(
-                  data: Theme.of(c).copyWith(
-                    colorScheme: Theme.of(c).colorScheme.copyWith(
+    final result =
+        await showDialog<
+          ({
+            DateTime start,
+            DateTime end,
+            int members,
+            String preparedByName,
+            String approverName,
+            String preparedByMemberId,
+            String approverMemberId,
+            bool showDigitalSignatures,
+            Uint8List? preparedBySignatureBytes,
+            Uint8List? approverSignatureBytes,
+          })?
+        >(
+          context: context,
+          barrierColor: Colors.black.withValues(alpha: 0.45),
+          builder: (ctx) {
+            return StatefulBuilder(
+              builder: (ctx, setS) {
+                Future<void> pickStart() async {
+                  final d = await showDatePicker(
+                    context: ctx,
+                    initialDate: rangeStart,
+                    firstDate: DateTime(today.year - 1, 1, 1),
+                    lastDate: DateTime(today.year + 2, 12, 31),
+                    locale: const Locale('pt', 'BR'),
+                    helpText: 'Data inicial',
+                    cancelText: 'Cancelar',
+                    confirmText: 'Definir',
+                    builder: (c, child) => Theme(
+                      data: Theme.of(c).copyWith(
+                        colorScheme: Theme.of(c).colorScheme.copyWith(
                           primary: ThemeCleanPremium.primary,
                         ),
-                  ),
-                  child: child!,
-                ),
-              );
-              if (d != null) {
-                setS(() {
-                  rangeStart = DateTime(d.year, d.month, d.day);
-                  startCtrl.text = DateFormat('dd/MM/yyyy').format(rangeStart);
-                  errText = null;
-                });
-              }
-            }
+                      ),
+                      child: child!,
+                    ),
+                  );
+                  if (d != null) {
+                    setS(() {
+                      rangeStart = DateTime(d.year, d.month, d.day);
+                      startCtrl.text = DateFormat(
+                        'dd/MM/yyyy',
+                      ).format(rangeStart);
+                      errText = null;
+                    });
+                  }
+                }
 
-            Future<void> pickEnd() async {
-              final d = await showDatePicker(
-                context: ctx,
-                initialDate: rangeEnd,
-                firstDate: DateTime(today.year - 1, 1, 1),
-                lastDate: DateTime(today.year + 2, 12, 31),
-                locale: const Locale('pt', 'BR'),
-                helpText: 'Data final',
-                cancelText: 'Cancelar',
-                confirmText: 'Definir',
-                builder: (c, child) => Theme(
-                  data: Theme.of(c).copyWith(
-                    colorScheme: Theme.of(c).colorScheme.copyWith(
+                Future<void> pickEnd() async {
+                  final d = await showDatePicker(
+                    context: ctx,
+                    initialDate: rangeEnd,
+                    firstDate: DateTime(today.year - 1, 1, 1),
+                    lastDate: DateTime(today.year + 2, 12, 31),
+                    locale: const Locale('pt', 'BR'),
+                    helpText: 'Data final',
+                    cancelText: 'Cancelar',
+                    confirmText: 'Definir',
+                    builder: (c, child) => Theme(
+                      data: Theme.of(c).copyWith(
+                        colorScheme: Theme.of(c).colorScheme.copyWith(
                           primary: ThemeCleanPremium.primary,
                         ),
+                      ),
+                      child: child!,
+                    ),
+                  );
+                  if (d != null) {
+                    setS(() {
+                      rangeEnd = DateTime(d.year, d.month, d.day);
+                      endCtrl.text = DateFormat('dd/MM/yyyy').format(rangeEnd);
+                      errText = null;
+                    });
+                  }
+                }
+
+                final parsedStart = _parseBrDateDdMmYyyy(startCtrl.text);
+                final parsedEnd = _parseBrDateDdMmYyyy(endCtrl.text);
+                final span =
+                    (parsedStart != null &&
+                        parsedEnd != null &&
+                        !parsedEnd.isBefore(parsedStart))
+                    ? parsedEnd.difference(parsedStart).inDays + 1
+                    : 0;
+                final border = OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusMd,
                   ),
-                  child: child!,
-                ),
-              );
-              if (d != null) {
-                setS(() {
-                  rangeEnd = DateTime(d.year, d.month, d.day);
-                  endCtrl.text = DateFormat('dd/MM/yyyy').format(rangeEnd);
-                  errText = null;
-                });
-              }
-            }
+                  borderSide: BorderSide(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.15),
+                  ),
+                );
+                final focusedBorder = OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusMd,
+                  ),
+                  borderSide: BorderSide(
+                    color: ThemeCleanPremium.primary.withValues(alpha: 0.55),
+                    width: 1.5,
+                  ),
+                );
 
-            final parsedStart = _parseBrDateDdMmYyyy(startCtrl.text);
-            final parsedEnd = _parseBrDateDdMmYyyy(endCtrl.text);
-            final span = (parsedStart != null &&
-                    parsedEnd != null &&
-                    !parsedEnd.isBefore(parsedStart))
-                ? parsedEnd.difference(parsedStart).inDays + 1
-                : 0;
-            final border = OutlineInputBorder(
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              borderSide: BorderSide(
-                color: ThemeCleanPremium.primary.withValues(alpha: 0.15),
-              ),
-            );
-            final focusedBorder = OutlineInputBorder(
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-              borderSide: BorderSide(
-                color: ThemeCleanPremium.primary.withValues(alpha: 0.55),
-                width: 1.5,
-              ),
-            );
-
-            return Dialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
-              ),
-              backgroundColor: ThemeCleanPremium.cardBackground,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 460),
-                child: Padding(
-                  padding: const EdgeInsets.all(22),
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                return Dialog(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(
+                      ThemeCleanPremium.radiusXl,
+                    ),
+                  ),
+                  backgroundColor: ThemeCleanPremium.cardBackground,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 460),
+                    child: Padding(
+                      padding: const EdgeInsets.all(22),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            IconButton(
-                              tooltip: 'Voltar',
-                              onPressed: () => Navigator.pop(ctx, null),
-                              icon: Icon(
-                                Icons.arrow_back_ios_new_rounded,
-                                color: ThemeCleanPremium.onSurface,
-                                size: 20,
-                              ),
-                              style: IconButton.styleFrom(
-                                padding: const EdgeInsets.all(8),
-                                minimumSize: const Size(40, 40),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                IconButton(
+                                  tooltip: 'Voltar',
+                                  onPressed: () => Navigator.pop(ctx, null),
+                                  icon: Icon(
+                                    Icons.arrow_back_ios_new_rounded,
+                                    color: ThemeCleanPremium.onSurface,
+                                    size: 20,
+                                  ),
+                                  style: IconButton.styleFrom(
+                                    padding: const EdgeInsets.all(8),
+                                    minimumSize: const Size(40, 40),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        ThemeCleanPremium.primary.withValues(
+                                          alpha: 0.14,
+                                        ),
+                                        ThemeCleanPremium.navSidebarAccent
+                                            .withValues(alpha: 0.22),
+                                      ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                    borderRadius: BorderRadius.circular(14),
+                                    boxShadow:
+                                        ThemeCleanPremium.softUiCardShadow,
+                                  ),
+                                  child: Icon(
+                                    Icons.event_available_rounded,
+                                    color: ThemeCleanPremium.primary,
+                                    size: 26,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Gerar escalas',
+                                        style: TextStyle(
+                                          fontSize: 19,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: -0.4,
+                                          color: ThemeCleanPremium.onSurface,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                    'Escolha só o intervalo desejado. Nada é criado fora dessas datas.',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          height: 1.4,
+                                          fontWeight: FontWeight.w500,
+                                          color: ThemeCleanPremium
+                                              .onSurfaceVariant,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 20),
+                            Text(
+                          'Período (inicial e final)',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5,
+                                color: ThemeCleanPremium.onSurfaceVariant,
                               ),
                             ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: startCtrl,
+                              keyboardType: TextInputType.text,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: ThemeCleanPremium.onSurface,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: 'Data inicial',
+                                hintText: 'dd/MM/aaaa',
+                                suffixIcon: IconButton(
+                              tooltip: 'Calendário',
+                                  icon: Icon(
+                                    Icons.calendar_month_rounded,
+                                    color: ThemeCleanPremium.primary,
+                                  ),
+                                  onPressed: pickStart,
+                                ),
+                                filled: true,
+                                fillColor: ThemeCleanPremium.surface.withValues(
+                                  alpha: 0.65,
+                                ),
+                                border: border,
+                                enabledBorder: border,
+                                focusedBorder: focusedBorder,
+                              ),
+                              onChanged: (_) => setS(() => errText = null),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: endCtrl,
+                              keyboardType: TextInputType.text,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: ThemeCleanPremium.onSurface,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: 'Data final',
+                                hintText: 'dd/MM/aaaa',
+                                suffixIcon: IconButton(
+                              tooltip: 'Calendário',
+                                  icon: Icon(
+                                    Icons.calendar_month_rounded,
+                                    color: ThemeCleanPremium.primary,
+                                  ),
+                                  onPressed: pickEnd,
+                                ),
+                                filled: true,
+                                fillColor: ThemeCleanPremium.surface.withValues(
+                                  alpha: 0.65,
+                                ),
+                                border: border,
+                                enabledBorder: border,
+                                focusedBorder: focusedBorder,
+                              ),
+                              onChanged: (_) => setS(() => errText = null),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              parsedStart != null &&
+                                      parsedEnd != null &&
+                                      parsedEnd.isBefore(parsedStart)
+                              ? 'A data final não pode ser anterior à inicial.'
+                                  : span >= 1
+                                  ? '$span dia(s) no período'
+                                  : 'Informe datas válidas (dd/MM/aaaa)',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color:
+                                    parsedStart != null &&
+                                        parsedEnd != null &&
+                                        parsedEnd.isBefore(parsedStart)
+                                    ? ThemeCleanPremium.error
+                                    : ThemeCleanPremium.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: membersCtrl,
+                              keyboardType: TextInputType.number,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: ThemeCleanPremium.onSurface,
+                              ),
+                              decoration: InputDecoration(
+                                labelText: 'Membros por escala',
+                                prefixIcon: Icon(
+                                  Icons.groups_rounded,
+                                  color: ThemeCleanPremium.primary,
+                                ),
+                                filled: true,
+                                fillColor: ThemeCleanPremium.surface.withValues(
+                                  alpha: 0.65,
+                                ),
+                                border: border,
+                                enabledBorder: border,
+                                focusedBorder: focusedBorder,
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            DropdownButtonFormField<String>(
+                              initialValue: preparedByMemberId,
+                              isExpanded: true,
+                              decoration: InputDecoration(
+                                labelText: 'Quem montou a escala',
+                                filled: true,
+                                fillColor: ThemeCleanPremium.surface.withValues(
+                                  alpha: 0.65,
+                                ),
+                                border: border,
+                                enabledBorder: border,
+                                focusedBorder: focusedBorder,
+                              ),
+                              items: [
+                                const DropdownMenuItem<String>(
+                                  value: null,
+                              child: Text('— Não definido —'),
+                                ),
+                                ...signerOptions.map(
+                                  (e) => DropdownMenuItem<String>(
+                                    value: e.id,
+                                    child: Text(e.nome),
+                                  ),
+                                ),
+                              ],
+                              onChanged: (v) =>
+                                  setS(() => preparedByMemberId = v),
+                            ),
+                            const SizedBox(height: 12),
+                            DropdownButtonFormField<String>(
+                              initialValue: approverMemberId,
+                              isExpanded: true,
+                              decoration: InputDecoration(
+                                labelText: 'Quem aprova/assina',
+                                filled: true,
+                                fillColor: ThemeCleanPremium.surface.withValues(
+                                  alpha: 0.65,
+                                ),
+                                border: border,
+                                enabledBorder: border,
+                                focusedBorder: focusedBorder,
+                              ),
+                              items: [
+                                const DropdownMenuItem<String>(
+                                  value: null,
+                              child: Text('— Não definido —'),
+                                ),
+                                ...signerOptions.map(
+                                  (e) => DropdownMenuItem<String>(
+                                    value: e.id,
+                                    child: Text(e.nome),
+                                  ),
+                                ),
+                              ],
+                              onChanged: (v) =>
+                                  setS(() => approverMemberId = v),
+                            ),
+                            const SizedBox(height: 8),
+                            SwitchListTile.adaptive(
+                              value: showDigitalSignatures,
+                              onChanged: (v) =>
+                                  setS(() => showDigitalSignatures = v),
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                              title: const Text('Assinatura digital no PDF'),
+                              subtitle: const Text(
+                            'Desative para assinar manualmente após impressão.',
+                              ),
+                            ),
+                            const SizedBox(height: 14),
                             Container(
-                              padding: const EdgeInsets.all(12),
+                              padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusMd,
+                                ),
                                 gradient: LinearGradient(
                                   colors: [
-                                    ThemeCleanPremium.primary.withValues(alpha: 0.14),
-                                    ThemeCleanPremium.navSidebarAccent.withValues(alpha: 0.22),
+                                    ThemeCleanPremium.primary.withValues(
+                                      alpha: 0.08,
+                                    ),
+                                    ThemeCleanPremium.navSidebarAccent
+                                        .withValues(alpha: 0.12),
                                   ],
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
                                 ),
-                                borderRadius: BorderRadius.circular(14),
-                                boxShadow: ThemeCleanPremium.softUiCardShadow,
+                                border: Border.all(
+                                  color: ThemeCleanPremium.primary.withValues(
+                                    alpha: 0.12,
+                                  ),
+                                ),
                               ),
-                              child: Icon(Icons.event_available_rounded,
-                                  color: ThemeCleanPremium.primary, size: 26),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
+                              child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text(
-                                    'Gerar escalas',
-                                    style: TextStyle(
-                                      fontSize: 19,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: -0.4,
-                                      color: ThemeCleanPremium.onSurface,
-                                    ),
+                                  Icon(
+                                    Icons.auto_awesome_rounded,
+                                    color: ThemeCleanPremium.primary,
+                                    size: 20,
                                   ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Escolha só o intervalo desejado. Nada é criado fora dessas datas.',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      height: 1.4,
-                                      fontWeight: FontWeight.w500,
-                                      color: ThemeCleanPremium.onSurfaceVariant,
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                  'Rodízio: quem serviu menos entra primeiro. '
+                                  'A periodicidade do modelo (diária, semanal, mensal ou anual) aplica-se apenas dentro do período escolhido.',
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        height: 1.4,
+                                        fontWeight: FontWeight.w600,
+                                        color: ThemeCleanPremium.onSurface,
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          'Período (inicial e final)',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.5,
-                            color: ThemeCleanPremium.onSurfaceVariant,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: startCtrl,
-                          keyboardType: TextInputType.text,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: ThemeCleanPremium.onSurface,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Data inicial',
-                            hintText: 'dd/MM/aaaa',
-                            suffixIcon: IconButton(
-                              tooltip: 'Calendário',
-                              icon: Icon(Icons.calendar_month_rounded,
-                                  color: ThemeCleanPremium.primary),
-                              onPressed: pickStart,
-                            ),
-                            filled: true,
-                            fillColor: ThemeCleanPremium.surface.withValues(alpha: 0.65),
-                            border: border,
-                            enabledBorder: border,
-                            focusedBorder: focusedBorder,
-                          ),
-                          onChanged: (_) => setS(() => errText = null),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: endCtrl,
-                          keyboardType: TextInputType.text,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: ThemeCleanPremium.onSurface,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Data final',
-                            hintText: 'dd/MM/aaaa',
-                            suffixIcon: IconButton(
-                              tooltip: 'Calendário',
-                              icon: Icon(Icons.calendar_month_rounded,
-                                  color: ThemeCleanPremium.primary),
-                              onPressed: pickEnd,
-                            ),
-                            filled: true,
-                            fillColor: ThemeCleanPremium.surface.withValues(alpha: 0.65),
-                            border: border,
-                            enabledBorder: border,
-                            focusedBorder: focusedBorder,
-                          ),
-                          onChanged: (_) => setS(() => errText = null),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          parsedStart != null &&
-                                  parsedEnd != null &&
-                                  parsedEnd.isBefore(parsedStart)
-                              ? 'A data final não pode ser anterior à inicial.'
-                              : span >= 1
-                                  ? '$span dia(s) no período'
-                                  : 'Informe datas válidas (dd/MM/aaaa)',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: parsedStart != null &&
-                                    parsedEnd != null &&
-                                    parsedEnd.isBefore(parsedStart)
-                                ? ThemeCleanPremium.error
-                                : ThemeCleanPremium.onSurfaceVariant,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: membersCtrl,
-                          keyboardType: TextInputType.number,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: ThemeCleanPremium.onSurface,
-                          ),
-                          decoration: InputDecoration(
-                            labelText: 'Membros por escala',
-                            prefixIcon:
-                                Icon(Icons.groups_rounded, color: ThemeCleanPremium.primary),
-                            filled: true,
-                            fillColor: ThemeCleanPremium.surface.withValues(alpha: 0.65),
-                            border: border,
-                            enabledBorder: border,
-                            focusedBorder: focusedBorder,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        DropdownButtonFormField<String>(
-                          initialValue: preparedByMemberId,
-                          isExpanded: true,
-                          decoration: InputDecoration(
-                            labelText: 'Quem montou a escala',
-                            filled: true,
-                            fillColor:
-                                ThemeCleanPremium.surface.withValues(alpha: 0.65),
-                            border: border,
-                            enabledBorder: border,
-                            focusedBorder: focusedBorder,
-                          ),
-                          items: [
-                            const DropdownMenuItem<String>(
-                              value: null,
-                              child: Text('— Não definido —'),
-                            ),
-                            ...signerOptions.map((e) => DropdownMenuItem<String>(
-                                  value: e.id,
-                                  child: Text(e.nome),
-                                )),
-                          ],
-                          onChanged: (v) =>
-                              setS(() => preparedByMemberId = v),
-                        ),
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          initialValue: approverMemberId,
-                          isExpanded: true,
-                          decoration: InputDecoration(
-                            labelText: 'Quem aprova/assina',
-                            filled: true,
-                            fillColor:
-                                ThemeCleanPremium.surface.withValues(alpha: 0.65),
-                            border: border,
-                            enabledBorder: border,
-                            focusedBorder: focusedBorder,
-                          ),
-                          items: [
-                            const DropdownMenuItem<String>(
-                              value: null,
-                              child: Text('— Não definido —'),
-                            ),
-                            ...signerOptions.map((e) => DropdownMenuItem<String>(
-                                  value: e.id,
-                                  child: Text(e.nome),
-                                )),
-                          ],
-                          onChanged: (v) =>
-                              setS(() => approverMemberId = v),
-                        ),
-                        const SizedBox(height: 8),
-                        SwitchListTile.adaptive(
-                          value: showDigitalSignatures,
-                          onChanged: (v) =>
-                              setS(() => showDigitalSignatures = v),
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                          title: const Text('Assinatura digital no PDF'),
-                          subtitle: const Text(
-                            'Desative para assinar manualmente após impressão.',
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                            gradient: LinearGradient(
-                              colors: [
-                                ThemeCleanPremium.primary.withValues(alpha: 0.08),
-                                ThemeCleanPremium.navSidebarAccent.withValues(alpha: 0.12),
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            border: Border.all(
-                              color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
-                            ),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(Icons.auto_awesome_rounded,
-                                  color: ThemeCleanPremium.primary, size: 20),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Rodízio: quem serviu menos entra primeiro. '
-                                  'A periodicidade do modelo (diária, semanal, mensal ou anual) aplica-se apenas dentro do período escolhido.',
-                                  style: TextStyle(
-                                    fontSize: 12.5,
-                                    height: 1.4,
-                                    fontWeight: FontWeight.w600,
-                                    color: ThemeCleanPremium.onSurface,
-                                  ),
+                            if (errText != null) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                errText!,
+                                style: TextStyle(
+                                  color: ThemeCleanPremium.error,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12.5,
                                 ),
                               ),
                             ],
-                          ),
-                        ),
-                        if (errText != null) ...[
-                          const SizedBox(height: 10),
-                          Text(
-                            errText!,
-                            style: TextStyle(
-                              color: ThemeCleanPremium.error,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12.5,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 20),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () => Navigator.pop(ctx, null),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                  foregroundColor: ThemeCleanPremium.onSurface,
-                                  side: BorderSide(
-                                    color: ThemeCleanPremium.primary.withValues(alpha: 0.35),
+                            const SizedBox(height: 20),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: () => Navigator.pop(ctx, null),
+                                    style: OutlinedButton.styleFrom(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
+                                      foregroundColor:
+                                          ThemeCleanPremium.onSurface,
+                                      side: BorderSide(
+                                        color: ThemeCleanPremium.primary
+                                            .withValues(alpha: 0.35),
+                                      ),
+                                    ),
+                                    child: const Text('Cancelar'),
                                   ),
                                 ),
-                                child: const Text('Cancelar'),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              flex: 2,
-                              child: FilledButton(
-                                onPressed: () async {
-                                  final n = int.tryParse(membersCtrl.text.trim()) ?? 5;
-                                  final pS = _parseBrDateDdMmYyyy(startCtrl.text);
-                                  final pE = _parseBrDateDdMmYyyy(endCtrl.text);
-                                  if (pS == null) {
-                                    setS(() => errText =
-                                        'Data inicial inválida. Use dd/MM/aaaa.');
-                                    return;
-                                  }
-                                  if (pE == null) {
-                                    setS(() => errText =
-                                        'Data final inválida. Use dd/MM/aaaa.');
-                                    return;
-                                  }
-                                  if (pE.isBefore(pS)) {
-                                    setS(() => errText =
-                                        'A data final não pode ser anterior à inicial.');
-                                    return;
-                                  }
-                                  final spanDays = pE.difference(pS).inDays + 1;
-                                  if (spanDays > 731) {
-                                    setS(() => errText =
-                                        'Período máximo: 731 dias (2 anos). Reduza o intervalo.');
-                                    return;
-                                  }
-                                  if (n < 1) {
-                                    setS(() =>
-                                        errText = 'Informe ao menos 1 membro por escala.');
-                                    return;
-                                  }
-                                  ({String id, String nome, String assinatura})? pickById(
-                                      String? id) {
-                                    if (id == null || id.isEmpty) return null;
-                                    for (final e in signerOptions) {
-                                      if (e.id == id) return e;
-                                    }
-                                    return null;
-                                  }
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  flex: 2,
+                                  child: FilledButton(
+                                    onPressed: () async {
+                                      final n =
+                                          int.tryParse(
+                                            membersCtrl.text.trim(),
+                                          ) ??
+                                          5;
+                                      final pS = _parseBrDateDdMmYyyy(
+                                        startCtrl.text,
+                                      );
+                                      final pE = _parseBrDateDdMmYyyy(
+                                        endCtrl.text,
+                                      );
+                                      if (pS == null) {
+                                        setS(
+                                          () => errText =
+                                              'Data inicial inválida. Use dd/MM/aaaa.',
+                                        );
+                                        return;
+                                      }
+                                      if (pE == null) {
+                                        setS(
+                                          () => errText =
+                                              'Data final inválida. Use dd/MM/aaaa.',
+                                        );
+                                        return;
+                                      }
+                                      if (pE.isBefore(pS)) {
+                                        setS(
+                                          () => errText =
+                                              'A data final não pode ser anterior ? inicial.',
+                                        );
+                                        return;
+                                      }
+                                      final spanDays =
+                                          pE.difference(pS).inDays + 1;
+                                      if (spanDays > 731) {
+                                        setS(
+                                          () => errText =
+                                              'Período máximo: 731 dias (2 anos). Reduza o intervalo.',
+                                        );
+                                        return;
+                                      }
+                                      if (n < 1) {
+                                        setS(
+                                          () => errText =
+                                              'Informe ao menos 1 membro por escala.',
+                                        );
+                                        return;
+                                      }
+                                      ({
+                                        String id,
+                                        String nome,
+                                        String assinatura,
+                                      })?
+                                      pickById(String? id) {
+                                        if (id == null || id.isEmpty)
+                                          return null;
+                                        for (final e in signerOptions) {
+                                          if (e.id == id) return e;
+                                        }
+                                        return null;
+                                      }
 
-                                  final prep = pickById(preparedByMemberId);
-                                  final appr = pickById(approverMemberId);
-                                  Uint8List? prepSig;
-                                  Uint8List? apprSig;
-                                  if (showDigitalSignatures) {
-                                    if (prep != null && prep.assinatura.isNotEmpty) {
-                                      prepSig = await ImageHelper.getBytesFromUrlOrNull(
-                                        sanitizeImageUrl(prep.assinatura),
-                                        timeout: const Duration(seconds: 14),
-                                      );
-                                    }
-                                    if (appr != null && appr.assinatura.isNotEmpty) {
-                                      apprSig = await ImageHelper.getBytesFromUrlOrNull(
-                                        sanitizeImageUrl(appr.assinatura),
-                                        timeout: const Duration(seconds: 14),
-                                      );
-                                    }
-                                  }
-                                  Navigator.pop(
-                                    ctx,
-                                    (
-                                      start: pS,
-                                      end: pE,
-                                      members: n.clamp(1, 999),
-                                      preparedByName: prep?.nome ?? '',
-                                      approverName: appr?.nome ?? '',
-                                      preparedByMemberId: prep?.id ?? '',
-                                      approverMemberId: appr?.id ?? '',
-                                      showDigitalSignatures: showDigitalSignatures,
-                                      preparedBySignatureBytes: prepSig,
-                                      approverSignatureBytes: apprSig,
+                                      final prep = pickById(preparedByMemberId);
+                                      final appr = pickById(approverMemberId);
+                                      Uint8List? prepSig;
+                                      Uint8List? apprSig;
+                                      if (showDigitalSignatures) {
+                                        if (prep != null &&
+                                            prep.assinatura.isNotEmpty) {
+                                          prepSig =
+                                              await ImageHelper.getBytesFromUrlOrNull(
+                                                sanitizeImageUrl(
+                                                  prep.assinatura,
+                                                ),
+                                                timeout: const Duration(
+                                                  seconds: 14,
+                                                ),
+                                              );
+                                        }
+                                        if (appr != null &&
+                                            appr.assinatura.isNotEmpty) {
+                                          apprSig =
+                                              await ImageHelper.getBytesFromUrlOrNull(
+                                                sanitizeImageUrl(
+                                                  appr.assinatura,
+                                                ),
+                                                timeout: const Duration(
+                                                  seconds: 14,
+                                                ),
+                                              );
+                                        }
+                                      }
+                                      Navigator.pop(ctx, (
+                                        start: pS,
+                                        end: pE,
+                                        members: n.clamp(1, 999),
+                                        preparedByName: prep?.nome ?? '',
+                                        approverName: appr?.nome ?? '',
+                                        preparedByMemberId: prep?.id ?? '',
+                                        approverMemberId: appr?.id ?? '',
+                                        showDigitalSignatures:
+                                            showDigitalSignatures,
+                                        preparedBySignatureBytes: prepSig,
+                                        approverSignatureBytes: apprSig,
+                                      ));
+                                    },
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor:
+                                          ThemeCleanPremium.primary,
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 14,
+                                      ),
                                     ),
-                                  );
-                                },
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: ThemeCleanPremium.primary,
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                ),
                                 child: const Text('Gerar neste período'),
-                              ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
-              ),
+                );
+              },
             );
           },
         );
-      },
-    );
     membersCtrl.dispose();
     startCtrl.dispose();
     endCtrl.dispose();
     return result;
   }
 
-  // ── Gerar escalas no período escolhido (rodízio + conflitos) ───────────────
+  // -- Gerar escalas no período escolhido (rod?zio + conflitos) ---------------
   Future<void> _generate(DocumentSnapshot<Map<String, dynamic>> doc) async {
     // Geração manual permanece disponível mesmo quando o modo automático global está desligado.
     if (!_canWrite) return;
@@ -2434,7 +2676,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-              'Apenas líderes do departamento podem gerar esta escala.'),
+            'Apenas líderes do departamento podem gerar esta escala.',
+          ),
         );
       }
       return;
@@ -2453,14 +2696,18 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     final time = (tplData['time'] ?? '19:00').toString();
     final deptId = (tplData['departmentId'] ?? '').toString();
     final deptName = (tplData['departmentName'] ?? '').toString();
-    final allCpfs = ((tplData['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
-    final allNames = ((tplData['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
+    final allCpfs = ((tplData['memberCpfs'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
+    final allNames = ((tplData['memberNames'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
 
     if (allCpfs.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-            'Modelo sem membros — edite o modelo antes de gerar.',
+            'Modelo sem membros ? edite o modelo antes de gerar.',
           ),
         );
       }
@@ -2507,11 +2754,16 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     }
 
     // Rodízio: busca frequência recente por CPF (filtro por departamento em memória para evitar índice composto)
-    final recentSnap = await instances.orderBy('date', descending: true).limit(300).get();
+    final recentSnap = await instances
+        .orderBy('date', descending: true)
+        .limit(300)
+        .get();
     final freq = <String, int>{};
     for (final esc in recentSnap.docs) {
       if ((esc.data()['departmentId'] ?? '').toString() != deptId) continue;
-      final cpfs = ((esc.data()['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
+      final cpfs = ((esc.data()['memberCpfs'] as List?) ?? [])
+          .map((e) => e.toString())
+          .toList();
       for (final c in cpfs) {
         freq[c] = (freq[c] ?? 0) + 1;
       }
@@ -2521,8 +2773,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     final unavailableByCpfNorm = <String, List<String>>{};
     for (final md in membersForYmds) {
       final d = md.data();
-      final c =
-          (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+      final c = (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(
+        RegExp(r'[^0-9]'),
+        '',
+      );
       if (c.length != 11) continue;
       unavailableByCpfNorm[c] = MemberScheduleAvailability.parseYmdList(
         d[MemberScheduleAvailability.fieldYmds],
@@ -2536,29 +2790,34 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     final busyOtherByDayKey = <String, Set<String>>{};
     for (final day in uniqueDays) {
       final k = ScheduleIntelValidators.ymdKey(day);
-      busyOtherByDayKey[k] = await ScheduleIntelValidators.otherDeptBusyNormCpfs(
-        instancesCol: instances,
-        calendarDay: day,
-        slotTime: time,
-        currentDepartmentId: deptId,
-      );
+      busyOtherByDayKey[k] =
+          await ScheduleIntelValidators.otherDeptBusyNormCpfs(
+            instancesCol: instances,
+            calendarDay: day,
+            slotTime: time,
+            currentDepartmentId: deptId,
+          );
     }
 
-    final batch = firebaseDefaultFirestore.batch();
+    final batch = YahwehBatch();
     final tsNow = Timestamp.now();
     final genUid = FirebaseAuth.instance.currentUser?.uid ?? '';
     final genName = FirebaseAuth.instance.currentUser?.displayName ?? '';
     var skippedNoEligible = 0;
     for (final dt in dates) {
-      final dayKey = ScheduleIntelValidators.ymdKey(DateTime(dt.year, dt.month, dt.day));
+      final dayKey = ScheduleIntelValidators.ymdKey(
+        DateTime(dt.year, dt.month, dt.day),
+      );
       final busyOther = busyOtherByDayKey[dayKey] ?? {};
       int genScore(int idx) {
         final c = allCpfs[idx];
         final norm = c.replaceAll(RegExp(r'[^0-9]'), '');
         final dayOnly = DateTime(dt.year, dt.month, dt.day);
         final ymds = unavailableByCpfNorm[norm] ?? const <String>[];
-        final blocked =
-            MemberScheduleAvailability.isUnavailableOn(ymds, dayOnly);
+        final blocked = MemberScheduleAvailability.isUnavailableOn(
+          ymds,
+          dayOnly,
+        );
         final f = freq[c] ?? 0;
         var s = (blocked ? 1000000 : 0) + f;
         if (busyOther.contains(norm)) {
@@ -2571,13 +2830,18 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       final sorted = List<int>.generate(allCpfs.length, (i) => i)
         ..sort((a, b) => genScore(a).compareTo(genScore(b)));
       final cap = perDay.clamp(1, allCpfs.length);
-      final eligible = sorted.where((i) => genScore(i) < 1000000).take(cap).toList();
+      final eligible = sorted
+          .where((i) => genScore(i) < 1000000)
+          .take(cap)
+          .toList();
       if (eligible.isEmpty) {
         skippedNoEligible++;
         continue;
       }
       final selCpfs = eligible.map((i) => allCpfs[i]).toList();
-      final selNames = eligible.map((i) => i < allNames.length ? allNames[i] : '').toList();
+      final selNames = eligible
+          .map((i) => i < allNames.length ? allNames[i] : '')
+          .toList();
       final memberIndex = EscalaMemberPayload.buildMemberDocIndexByCpf(
         membersForYmds,
       );
@@ -2586,7 +2850,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         names: selNames,
         memberDocByCpfDigits: memberIndex,
       );
-      final memberFields = EscalaMemberPayload.writeFieldsFromMembers(escalados);
+      final memberFields = EscalaMemberPayload.writeFieldsFromMembers(
+        escalados,
+      );
 
       for (final c in selCpfs) {
         freq[c] = (freq[c] ?? 0) + 1;
@@ -2621,14 +2887,19 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       setState(() => _periodFilter = 'todos');
       _refreshInstances();
       final genCount = dates.length - skippedNoEligible;
-      var msg = '$genCount escala(s) gerada(s) com rodízio e checagem de conflito/ausência.';
+      var msg =
+          '$genCount escala(s) gerada(s) com rodízio e checagem de conflito/ausência.';
       if (skippedNoEligible > 0) {
-        msg += ' $skippedNoEligible data(s) ignorada(s): nenhum voluntário elegível (ausência ou outro ministério no mesmo horário).';
+        msg +=
+            ' $skippedNoEligible data(s) ignorada(s): nenhum voluntário elegível (ausência ou outro ministério no mesmo horário).';
       }
       if (dates.length >= kMaxOcc) {
-        msg += ' Limite de $kMaxOcc ocorrências por geração — reduza o período ou gere em etapas se precisar de mais.';
+        msg +=
+            ' Limite de $kMaxOcc ocorrências por geração ? reduza o período ou gere em etapas se precisar de mais.';
       }
-      ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(msg));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(ThemeCleanPremium.successSnackBar(msg));
     }
   }
 
@@ -2638,53 +2909,60 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     final narrowTabs = MediaQuery.sizeOf(context).width < 420;
     return Scaffold(
       backgroundColor: ThemeCleanPremium.surfaceVariant,
-      appBar: isMobile ? null : AppBar(
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        backgroundColor: ThemeCleanPremium.primary,
-        foregroundColor: Colors.white,
-        title: const Text(
-          'Escalas',
-          style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -0.2),
-        ),
-        bottom: TabBar(
-          controller: _tab,
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
-          labelPadding: const EdgeInsets.symmetric(horizontal: 14),
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: ThemeCleanPremium.navSidebarAccent,
-          indicatorWeight: 3,
-          labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-          tabs: const [
-            Tab(text: 'Modelos'),
-            Tab(text: 'Escalas geradas'),
-            Tab(text: 'Relatórios'),
-          ],
-        ),
-        actions: [
-          if (_canWrite)
-            IconButton(
-              tooltip: 'Nova escala',
-              onPressed: () => _editTemplate(),
-              icon: const Icon(Icons.add_circle_outline_rounded),
-              style: IconButton.styleFrom(
-                foregroundColor: Colors.white,
-                minimumSize: const Size(
-                  ThemeCleanPremium.minTouchTarget,
-                  ThemeCleanPremium.minTouchTarget,
+      appBar: isMobile
+          ? null
+          : AppBar(
+              elevation: 0,
+              scrolledUnderElevation: 0,
+              backgroundColor: ThemeCleanPremium.primary,
+              foregroundColor: Colors.white,
+              title: const Text(
+                'Escalas',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
                 ),
               ),
+              bottom: TabBar(
+                controller: _tab,
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                labelPadding: const EdgeInsets.symmetric(horizontal: 14),
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white70,
+                indicatorColor: ThemeCleanPremium.navSidebarAccent,
+                indicatorWeight: 3,
+                labelStyle: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                ),
+                tabs: const [
+                  Tab(text: 'Modelos'),
+                  Tab(text: 'Escalas geradas'),
+            Tab(text: 'Relatórios'),
+                ],
+              ),
+              actions: [
+                if (_canWrite)
+                  IconButton(
+                    tooltip: 'Nova escala',
+                    onPressed: () => _editTemplate(),
+                    icon: const Icon(Icons.add_circle_outline_rounded),
+                    style: IconButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(
+                        ThemeCleanPremium.minTouchTarget,
+                        ThemeCleanPremium.minTouchTarget,
+                      ),
+                    ),
+                  ),
+              ],
             ),
-        ],
-      ),
       floatingActionButton: _canWrite
           ? FloatingActionButton.extended(
               elevation: 8,
               shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
               ),
               onPressed: () => _editTemplate(),
               icon: const Icon(Icons.add_rounded),
@@ -2698,104 +2976,108 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           : null,
       body: YahwehWisdomPanelBackdrop(
         child: SafeArea(
-        top: !widget.embeddedInShell,
-        child: Column(
-          children: [
-            if (widget.embeddedInShell)
-              Padding(
-                padding: EdgeInsets.fromLTRB(
-                  ThemeCleanPremium.pagePadding(context).left,
-                  8,
-                  ThemeCleanPremium.pagePadding(context).right,
-                  0,
-                ),
-                child: YahwehWisdomSectionCard(
-                  borderTint: _wisdomAccent,
-                  padding: const EdgeInsets.all(14),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      churchWisdomModuleIconLeading(
-                        icon: Icons.event_note_rounded,
-                        accent: _wisdomAccent,
-                        size: 44,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Escala Geral',
-                              style: GoogleFonts.poppins(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                                color: _wisdomAccent,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Crie modelos por departamento e gere as escalas da igreja.',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade700,
-                                height: 1.35,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
+          top: !widget.embeddedInShell,
+          child: Column(
+            children: [
+              if (widget.embeddedInShell)
+                Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    ThemeCleanPremium.pagePadding(context).left,
+                    8,
+                    ThemeCleanPremium.pagePadding(context).right,
+                    0,
+                  ),
+                  child: YahwehWisdomSectionCard(
+                    borderTint: _wisdomAccent,
+                    padding: const EdgeInsets.all(14),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        churchWisdomModuleIconLeading(
+                          icon: Icons.event_note_rounded,
+                          accent: _wisdomAccent,
+                          size: 44,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Escala Geral',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: _wisdomAccent,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Crie modelos por departamento e gere as escalas da igreja.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade700,
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            if (isMobile)
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      _wisdomAccent,
-                      Color.lerp(_wisdomAccent, const Color(0xFF8B5CF6), 0.45)!,
-                    ],
+              if (isMobile)
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        _wisdomAccent,
+                        Color.lerp(
+                          _wisdomAccent,
+                          const Color(0xFF8B5CF6),
+                          0.45,
+                        )!,
+                      ],
+                    ),
                   ),
-                ),
-                child: ChurchPanelPillTabBar(
-                  controller: _tab,
-                  dense: true,
+                  child: ChurchPanelPillTabBar(
+                    controller: _tab,
+                    dense: true,
                   // Cor do módulo (ciano) — a pílula selecionada é BRANCA, então
-                  // o texto selecionado usa esta cor. Antes vinha `Colors.white`
+                    // o texto selecionado usa esta cor. Antes vinha `Colors.white`
                   // => texto branco na pílula branca = invisível.
-                  accentColor: _wisdomAccent,
-                  tabs: [
-                    const Tab(text: 'Modelos'),
-                    Tab(text: narrowTabs ? 'Geradas' : 'Escalas geradas'),
+                    accentColor: _wisdomAccent,
+                    tabs: [
+                      const Tab(text: 'Modelos'),
+                      Tab(text: narrowTabs ? 'Geradas' : 'Escalas geradas'),
                     const Tab(text: 'Relatórios'),
+                    ],
+                  ),
+                ),
+              Expanded(
+                child: TabBarView(
+                  controller: _tab,
+                  children: [
+                    _buildTemplatesTab(),
+                    _buildInstancesTab(),
+                    _buildReportsTab(),
                   ],
                 ),
               ),
-            Expanded(
-        child: TabBarView(
-        controller: _tab,
-        children: [
-                  _buildTemplatesTab(),
-                  _buildInstancesTab(),
-                  _buildReportsTab(),
-        ],
-      ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }
 
-  // ── Tab: Modelos ───────────────────────────────────────────────────────────
+  // -- Tab: Modelos -----------------------------------------------------------
   Widget _buildTemplatesTab() {
-    // Erro bloqueante só para «igreja não identificada» — sync falhou → empty + criar.
+    // Erro bloqueante só para ?igreja não identificada? ? sync falhou ? empty + criar.
     final hardError = (_templatesLoadHint ?? '').contains('não identificada');
     if (hardError && _templatesDocs.isEmpty && !_templatesFetching) {
       return Padding(
@@ -2814,8 +3096,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       // todos os modelos
     } else if (_scopedDeptLeader) {
       docs = docs
-          .where((d) => _managedDeptIds
-              .contains((d.data()['departmentId'] ?? '').toString()))
+          .where(
+            (d) => _managedDeptIds.contains(
+              (d.data()['departmentId'] ?? '').toString(),
+            ),
+          )
           .toList();
     } else {
       docs = [];
@@ -2825,79 +3110,82 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [
-                    _wisdomAccent.withValues(alpha: 0.18),
-                    _wisdomAccent.withValues(alpha: 0.06),
-                  ],
-                ),
-              ),
-              child: Icon(
-                Icons.event_note_rounded,
-                size: 48,
-                color: _wisdomAccent,
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              hasInstances
-                  ? 'Nenhum modelo cadastrado.\nAs escalas já geradas estão na aba «Escalas geradas».'
-                  : _templatesFetching
-                      ? 'Carregando modelos…'
-                      : 'Nenhum modelo de escala.',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.inter(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: Colors.grey.shade700,
-                height: 1.35,
-              ),
-            ),
-            if (hasInstances) ...[
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: () => _tab.animateTo(1),
-                icon: const Icon(Icons.calendar_month_rounded),
-                label: const Text('Ver escalas geradas'),
-              ),
-            ],
-            if (_canWrite) ...[
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: () => _editTemplate(),
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Criar modelo'),
-                style: FilledButton.styleFrom(
-                  backgroundColor: _wisdomAccent,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 22,
-                    vertical: 14,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: [
+                      _wisdomAccent.withValues(alpha: 0.18),
+                      _wisdomAccent.withValues(alpha: 0.06),
+                    ],
                   ),
                 ),
+                child: Icon(
+                  Icons.event_note_rounded,
+                  size: 48,
+                  color: _wisdomAccent,
+                ),
               ),
-            ],
-            if (!_templatesFetching) ...[
-              const SizedBox(height: 12),
-              TextButton.icon(
-                onPressed: _refreshTemplates,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Atualizar'),
+              const SizedBox(height: 18),
+              Text(
+                hasInstances
+                  ? 'Nenhum modelo cadastrado.\nAs escalas já geradas estão na aba «Escalas geradas».'
+                    : _templatesFetching
+                    ? 'Carregando modelos?'
+                    : 'Nenhum modelo de escala.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey.shade700,
+                  height: 1.35,
+                ),
               ),
+              if (hasInstances) ...[
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: () => _tab.animateTo(1),
+                  icon: const Icon(Icons.calendar_month_rounded),
+                  label: const Text('Ver escalas geradas'),
+                ),
+              ],
+              if (_canWrite) ...[
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () => _editTemplate(),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('Criar modelo'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _wisdomAccent,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 22,
+                      vertical: 14,
+                    ),
+                  ),
+                ),
+              ],
+              if (!_templatesFetching) ...[
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: _refreshTemplates,
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Atualizar'),
+                ),
+              ],
+              if (_templatesFetching) ...[
+                const SizedBox(height: 16),
+                const SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                ),
+              ],
             ],
-            if (_templatesFetching) ...[
-              const SizedBox(height: 16),
-              const SizedBox(
-                width: 28,
-                height: 28,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
-            ],
-          ]),
+          ),
         ),
       );
     }
@@ -2910,8 +3198,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           final crossCount = w >= 1100
               ? 3
               : w >= 700
-                  ? 2
-                  : 1;
+              ? 2
+              : 1;
           return CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
@@ -2942,64 +3230,57 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               ),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 88),
-                sliver: SliverGrid(
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: crossCount,
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    mainAxisExtent: crossCount == 1 ? 168 : 188,
-                  ),
-                  delegate: SliverChildBuilderDelegate(
-                    (context, i) {
-                      final tplDeptId =
-                          (docs[i].data()['departmentId'] ?? '').toString();
-                      final canTpl =
-                          _canWriteFull || _managedDeptIds.contains(tplDeptId);
-                      return _TemplateCard(
-                        doc: docs[i],
-                        deptColor: _colorForDept(allDepts
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate((context, i) {
+                    final tplDeptId = (docs[i].data()['departmentId'] ?? '')
+                        .toString();
+                    final canTpl =
+                        _canWriteFull || _managedDeptIds.contains(tplDeptId);
+                    return _TemplateCard(
+                      doc: docs[i],
+                      deptColor: _colorForDept(
+                        allDepts
                             .indexWhere(
                               (d) =>
                                   d.id ==
                                   (docs[i].data()['departmentId'] ?? ''),
                             )
-                            .clamp(0, 99)),
-                        canWrite: canTpl,
-                        canGenerate: canTpl,
-                        onEdit: () => _editTemplate(doc: docs[i]),
-                        onGenerate: () => _generate(docs[i]),
-                        onDelete: () async {
-                          final ok = await showDialog<bool>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: const Text('Excluir modelo?'),
-                              content: const Text(
+                            .clamp(0, 99),
+                      ),
+                      canWrite: canTpl,
+                      canGenerate: canTpl,
+                      onEdit: () => _editTemplate(doc: docs[i]),
+                      onGenerate: () => _generate(docs[i]),
+                      onDelete: () async {
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Excluir modelo?'),
+                            content: const Text(
                                 'Escalas já geradas não serão afetadas.',
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(ctx, false),
-                                  child: const Text('Cancelar'),
-                                ),
-                                FilledButton(
-                                  onPressed: () => Navigator.pop(ctx, true),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: ThemeCleanPremium.error,
-                                  ),
-                                  child: const Text('Excluir'),
-                                ),
-                              ],
                             ),
-                          );
-                          if (ok == true) {
-                            await docs[i].reference.delete();
-                            if (mounted) _refreshTemplates();
-                          }
-                        },
-                      );
-                    },
-                    childCount: docs.length,
-                  ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text('Cancelar'),
+                              ),
+                              FilledButton(
+                                onPressed: () => Navigator.pop(ctx, true),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: ThemeCleanPremium.error,
+                                ),
+                                child: const Text('Excluir'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (ok == true) {
+                          await docs[i].reference.delete();
+                          if (mounted) _refreshTemplates();
+                        }
+                      },
+                    );
+                  }, childCount: docs.length),
                 ),
               ),
             ],
@@ -3033,7 +3314,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       case 'periodo':
         if (_periodStart != null && _periodEnd != null) {
           period =
-              '${_periodStart!.day}/${_periodStart!.month}–${_periodEnd!.day}/${_periodEnd!.month}/${_periodEnd!.year}';
+              '${_periodStart!.day}/${_periodStart!.month}?${_periodEnd!.day}/${_periodEnd!.month}/${_periodEnd!.year}';
         } else {
           period = 'Período custom.';
         }
@@ -3043,13 +3324,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     }
     var dept = 'Todos os deptos';
     if (_filterDeptId.isNotEmpty) {
-      final m =
-          allDepts.where((d) => d.id == _filterDeptId).toList();
+      final m = allDepts.where((d) => d.id == _filterDeptId).toList();
       if (m.isNotEmpty) {
         dept = m.first.name;
       }
     }
-    return '$period · $dept';
+    return '$period ? $dept';
   }
 
   /// Colunas da grelha de filtros (relatórios / escalas geradas) — menos altura que Wrap.
@@ -3081,7 +3361,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     );
   }
 
-  Widget _buildEscalaFilterSectionHeader({required IconData icon, required String title}) {
+  Widget _buildEscalaFilterSectionHeader({
+    required IconData icon,
+    required String title,
+  }) {
     return Row(
       children: [
         Container(
@@ -3089,7 +3372,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           decoration: BoxDecoration(
             color: ThemeCleanPremium.primary.withValues(alpha: 0.09),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: ThemeCleanPremium.primary.withValues(alpha: 0.12)),
+            border: Border.all(
+              color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+            ),
           ),
           child: Icon(icon, size: 18, color: ThemeCleanPremium.primary),
         ),
@@ -3220,8 +3505,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
             color: _colorForDept(i),
             compact: true,
             onTap: () => setState(() {
-              _filterDeptId =
-                  _filterDeptId == allDepts[i].id ? '' : allDepts[i].id;
+              _filterDeptId = _filterDeptId == allDepts[i].id
+                  ? ''
+                  : allDepts[i].id;
               _instancesFuture = _fetchInstancesForEffectiveTenant();
             }),
           ),
@@ -3261,8 +3547,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.tune_rounded,
-                          color: ThemeCleanPremium.primary, size: 22),
+                      Icon(
+                        Icons.tune_rounded,
+                        color: ThemeCleanPremium.primary,
+                        size: 22,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
@@ -3325,13 +3614,17 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               const SizedBox(height: 12),
               if (allDepts.isNotEmpty) ...[
                 _buildEscalaFilterSectionHeader(
-                    icon: Icons.groups_rounded, title: 'Departamento'),
+                  icon: Icons.groups_rounded,
+                  title: 'Departamento',
+                ),
                 const SizedBox(height: 10),
                 _buildEscalaFilterGrid(children: deptChips),
                 const SizedBox(height: 18),
               ],
               _buildEscalaFilterSectionHeader(
-                  icon: Icons.event_repeat_rounded, title: 'Período'),
+                icon: Icons.event_repeat_rounded,
+                title: 'Período',
+              ),
               const SizedBox(height: 10),
               _buildEscalaFilterGrid(children: periodChips),
               if (_canWrite) ...[
@@ -3355,8 +3648,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         ),
                       ),
                       IconButton(
-                        tooltip:
-                            'PDF semanal geral (todos os deptos)',
+                        tooltip: 'PDF semanal geral (todos os deptos)',
                         onPressed: () => _exportWeeklyChurchPdf(allDepts),
                         icon: const Icon(Icons.calendar_view_week_rounded),
                         style: IconButton.styleFrom(
@@ -3508,7 +3800,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         children: [
           Row(
             children: [
-              Icon(Icons.filter_alt_outlined, color: ThemeCleanPremium.primary, size: 22),
+              Icon(
+                Icons.filter_alt_outlined,
+                color: ThemeCleanPremium.primary,
+                size: 22,
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -3524,11 +3820,17 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
             ],
           ),
           const SizedBox(height: 16),
-          _buildEscalaFilterSectionHeader(icon: Icons.event_repeat_rounded, title: 'Período'),
+          _buildEscalaFilterSectionHeader(
+            icon: Icons.event_repeat_rounded,
+            title: 'Período',
+          ),
           const SizedBox(height: 10),
           _buildEscalaFilterGrid(children: periodChips),
           const SizedBox(height: 18),
-          _buildEscalaFilterSectionHeader(icon: Icons.groups_rounded, title: 'Departamento'),
+          _buildEscalaFilterSectionHeader(
+            icon: Icons.groups_rounded,
+            title: 'Departamento',
+          ),
           const SizedBox(height: 10),
           _buildEscalaFilterGrid(children: deptChips),
         ],
@@ -3550,8 +3852,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Container(
                 width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
@@ -3561,8 +3865,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusMd,
+                  ),
                   border: Border.all(
                     color: ThemeCleanPremium.primary.withValues(alpha: 0.16),
                   ),
@@ -3622,8 +3927,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       if (!mounted) return;
                       await _showExclusaoPeriodoDialog(snap.docs);
                     },
-                    icon: Icon(Icons.delete_sweep_rounded,
-                        color: ThemeCleanPremium.error),
+                    icon: Icon(
+                      Icons.delete_sweep_rounded,
+                      color: ThemeCleanPremium.error,
+                    ),
                     label: const Text('Excluir por período'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: ThemeCleanPremium.error,
@@ -3633,7 +3940,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusSm),
+                          ThemeCleanPremium.radiusSm,
+                        ),
                       ),
                     ),
                   ),
@@ -3665,7 +3973,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       foregroundColor: ThemeCleanPremium.primary,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusSm),
+                          ThemeCleanPremium.radiusSm,
+                        ),
                       ),
                     ),
                   ),
@@ -3691,13 +4000,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
             child: SegmentedButton<int>(
               segments: const [
                 ButtonSegment(
-                    value: 0,
-                    label: Text('Lista'),
-                    icon: Icon(Icons.view_list_rounded, size: 18)),
+                  value: 0,
+                  label: Text('Lista'),
+                  icon: Icon(Icons.view_list_rounded, size: 18),
+                ),
                 ButtonSegment(
-                    value: 1,
+                  value: 1,
                     label: Text('Calendário'),
-                    icon: Icon(Icons.calendar_month_rounded, size: 18)),
+                  icon: Icon(Icons.calendar_month_rounded, size: 18),
+                ),
               ],
               selected: {_instancesViewSegment},
               onSelectionChanged: (s) => setState(() {
@@ -3715,7 +4026,7 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     );
   }
 
-  // ── Tab: Escalas Geradas ───────────────────────────────────────────────────
+  // -- Tab: Escalas Geradas ---------------------------------------------------
   Widget _buildInstancesTab() {
     final allDepts = _deptsItems;
     if (_instancesLoadHint != null &&
@@ -3733,277 +4044,271 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       );
     }
     final allDocs = _instancesDocs;
-            var deptFiltered = _filterDeptId.isEmpty
-                ? allDocs
-                : allDocs
-                    .where((d) =>
-                        (d.data()['departmentId'] ?? '').toString() ==
-                        _filterDeptId)
-                    .toList();
-            if (_scopedDeptLeader) {
-              deptFiltered = deptFiltered
-                  .where((d) => _managedDeptIds
-                      .contains((d.data()['departmentId'] ?? '').toString()))
-                  .toList();
-            }
-            final docs = _filterInstancesByPeriod(deptFiltered);
-            final showSelBar = _escalaSelectionMode &&
-                _canWrite &&
-                docs.isNotEmpty &&
-                _instancesViewSegment == 0;
-            final bottomPad = showSelBar ? 88.0 : 80.0;
+    var deptFiltered = _filterDeptId.isEmpty
+        ? allDocs
+        : allDocs
+              .where(
+                (d) =>
+                    (d.data()['departmentId'] ?? '').toString() ==
+                    _filterDeptId,
+              )
+              .toList();
+    if (_scopedDeptLeader) {
+      deptFiltered = deptFiltered
+          .where(
+            (d) => _managedDeptIds.contains(
+              (d.data()['departmentId'] ?? '').toString(),
+            ),
+          )
+          .toList();
+    }
+    final docs = _filterInstancesByPeriod(deptFiltered);
+    final showSelBar =
+        _escalaSelectionMode &&
+        _canWrite &&
+        docs.isNotEmpty &&
+        _instancesViewSegment == 0;
+    final bottomPad = showSelBar ? 88.0 : 80.0;
 
-            if (docs.isEmpty) {
-              final totalLoaded = allDocs.length;
-              return RefreshIndicator(
-                onRefresh: () async => _refreshInstances(),
-                child: CustomScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  slivers: [
-                    SliverToBoxAdapter(child: _buildInstancesTabHeader(allDepts)),
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.calendar_today_rounded,
-                                size: 56, color: Colors.grey.shade400),
-                            const SizedBox(height: 12),
-                            Text(
-                              totalLoaded > 0
-                                  ? 'Nenhuma escala no filtro atual ($totalLoaded carregada(s)).'
-                                  : _instancesFetching
-                                      ? 'Carregando escalas…'
-                                      : 'Nenhuma escala encontrada.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.grey.shade600,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
+    if (docs.isEmpty) {
+      final totalLoaded = allDocs.length;
+      return RefreshIndicator(
+        onRefresh: () async => _refreshInstances(),
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(child: _buildInstancesTabHeader(allDepts)),
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.calendar_today_rounded,
+                      size: 56,
+                      color: Colors.grey.shade400,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      totalLoaded > 0
+                          ? 'Nenhuma escala no filtro atual ($totalLoaded carregada(s)).'
+                          : _instancesFetching
+                          ? 'Carregando escalas?'
+                          : 'Nenhuma escala encontrada.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
                               'Toque em «Todas» no filtro de período para ver todas as escalas carregadas, ou escolha «Mês atual» / «Anual» conforme as datas geradas.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                height: 1.35,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                            if (_instancesFetching) ...[
-                              const SizedBox(height: 16),
-                              const SizedBox(
-                                width: 28,
-                                height: 28,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2.5),
-                              ),
-                            ],
-                          ],
-                        ),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        height: 1.35,
+                        color: Colors.grey.shade600,
                       ),
                     ),
-                  ],
-                ),
-              );
-            }
-
-            if (_instancesViewSegment == 1) {
-              return RefreshIndicator(
-                onRefresh: () async => _refreshInstances(),
-                child: CustomScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  slivers: [
-                    SliverToBoxAdapter(child: _buildInstancesTabHeader(allDepts)),
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.only(bottom: bottomPad),
-                        child: _SchedulesCalendarPanel(
-                          docs: docs,
-                          allDepts: allDepts,
-                          focusedDay: _schedCalFocused,
-                          selectedDay: _schedCalSelected ?? _schedCalFocused,
-                          colorForDept: _colorForDept,
-                          currentCpf:
-                              widget.cpf.replaceAll(RegExp(r'[^0-9]'), ''),
-                          canWriteFull: _canWriteFull,
-                          managedDeptIds: _managedDeptIds,
-                          onDaySelected: (d, f) => setState(() {
-                            _schedCalSelected = d;
-                            _schedCalFocused = f;
-                          }),
-                          onCalendarPageChanged: (f) =>
-                              setState(() => _schedCalFocused = f),
-                          onOpenDetail: (d, color) =>
-                              _showInstanceDetail(d, color),
-                          onEdit: _editInstance,
-                          onDelete: _deleteInstance,
-                        ),
+                    if (_instancesFetching) ...[
+                      const SizedBox(height: 16),
+                      const SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(strokeWidth: 2.5),
                       ),
-                    ),
+                    ],
                   ],
                 ),
-              );
-            }
+              ),
+            ),
+          ],
+        ),
+      );
+    }
 
-            return Stack(
-              fit: StackFit.expand,
-              clipBehavior: Clip.none,
-              children: [
-                RefreshIndicator(
-                  onRefresh: () async => _refreshInstances(),
-                  child: CustomScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    slivers: [
-                      SliverToBoxAdapter(
-                          child: _buildInstancesTabHeader(allDepts)),
-                      SliverPadding(
-                        padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPad),
-                        sliver: SliverList(
-                          delegate: SliverChildBuilderDelegate(
-                            (context, i) {
-                              final deptIdx = allDepts.indexWhere((d) =>
-                                  d.id ==
-                                  (docs[i].data()['departmentId'] ?? ''));
-                              final deptIdInst =
-                                  (docs[i].data()['departmentId'] ?? '')
-                                      .toString();
-                              final canMutate = _canWriteFull ||
-                                  _managedDeptIds.contains(deptIdInst);
-                              final selMode = _escalaSelectionMode &&
-                                  _instancesViewSegment == 0;
-                              final id = docs[i].id;
-                              return Padding(
-                                padding: EdgeInsets.only(
-                                    bottom: i < docs.length - 1 ? 10 : 0),
-                                child: _InstanceCard(
-                                  doc: docs[i],
-                                  deptColor:
-                                      _colorForDept(deptIdx.clamp(0, 99)),
-                                  currentCpf: widget.cpf
-                                      .replaceAll(RegExp(r'[^0-9]'), ''),
-                                  canWrite: canMutate,
-                                  selectionMode: selMode,
-                                  selected: _selectedEscalaIds.contains(id),
-                                  onSelectionChanged: selMode && canMutate
-                                      ? (v) => setState(() {
-                                            if (v) {
-                                              _selectedEscalaIds.add(id);
-                                            } else {
-                                              _selectedEscalaIds.remove(id);
-                                            }
-                                          })
-                                      : null,
-                                  onTap: () => _showInstanceDetail(
-                                    docs[i],
-                                    _colorForDept(deptIdx.clamp(0, 99)),
-                                  ),
-                                  onEdit: canMutate
-                                      ? () => _editInstance(docs[i])
-                                      : null,
-                                  onDelete: canMutate
-                                      ? () => _deleteInstance(docs[i])
-                                      : null,
-                                ),
-                              );
-                            },
-                            childCount: docs.length,
+    if (_instancesViewSegment == 1) {
+      return RefreshIndicator(
+        onRefresh: () async => _refreshInstances(),
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(child: _buildInstancesTabHeader(allDepts)),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.only(bottom: bottomPad),
+                child: _SchedulesCalendarPanel(
+                  docs: docs,
+                  allDepts: allDepts,
+                  focusedDay: _schedCalFocused,
+                  selectedDay: _schedCalSelected ?? _schedCalFocused,
+                  colorForDept: _colorForDept,
+                  currentCpf: widget.cpf.replaceAll(RegExp(r'[^0-9]'), ''),
+                  canWriteFull: _canWriteFull,
+                  managedDeptIds: _managedDeptIds,
+                  onDaySelected: (d, f) => setState(() {
+                    _schedCalSelected = d;
+                    _schedCalFocused = f;
+                  }),
+                  onCalendarPageChanged: (f) =>
+                      setState(() => _schedCalFocused = f),
+                  onOpenDetail: (d, color) => _showInstanceDetail(d, color),
+                  onEdit: _editInstance,
+                  onDelete: _deleteInstance,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      clipBehavior: Clip.none,
+      children: [
+        RefreshIndicator(
+          onRefresh: () async => _refreshInstances(),
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(child: _buildInstancesTabHeader(allDepts)),
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(16, 8, 16, bottomPad),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate((context, i) {
+                    final deptIdx = allDepts.indexWhere(
+                      (d) => d.id == (docs[i].data()['departmentId'] ?? ''),
+                    );
+                    final deptIdInst = (docs[i].data()['departmentId'] ?? '')
+                        .toString();
+                    final canMutate =
+                        _canWriteFull || _managedDeptIds.contains(deptIdInst);
+                    final selMode =
+                        _escalaSelectionMode && _instancesViewSegment == 0;
+                    final id = docs[i].id;
+                    return Padding(
+                      padding: EdgeInsets.only(
+                        bottom: i < docs.length - 1 ? 10 : 0,
+                      ),
+                      child: _InstanceCard(
+                        doc: docs[i],
+                        deptColor: _colorForDept(deptIdx.clamp(0, 99)),
+                        currentCpf: widget.cpf.replaceAll(
+                          RegExp(r'[^0-9]'),
+                          '',
+                        ),
+                        canWrite: canMutate,
+                        selectionMode: selMode,
+                        selected: _selectedEscalaIds.contains(id),
+                        onSelectionChanged: selMode && canMutate
+                            ? (v) => setState(() {
+                                if (v) {
+                                  _selectedEscalaIds.add(id);
+                                } else {
+                                  _selectedEscalaIds.remove(id);
+                                }
+                              })
+                            : null,
+                        onTap: () => _showInstanceDetail(
+                          docs[i],
+                          _colorForDept(deptIdx.clamp(0, 99)),
+                        ),
+                        onEdit: canMutate ? () => _editInstance(docs[i]) : null,
+                        onDelete: canMutate
+                            ? () => _deleteInstance(docs[i])
+                            : null,
+                      ),
+                    );
+                  }, childCount: docs.length),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (showSelBar)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Material(
+              elevation: 14,
+              color: Colors.white,
+              child: SafeArea(
+                top: false,
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(color: Colors.grey.shade200),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.07),
+                        blurRadius: 16,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    children: [
+                      TextButton(
+                        onPressed: () =>
+                            setState(() => _selectedEscalaIds.clear()),
+                        child: const Text('Limpar'),
+                      ),
+                      TextButton(
+                        onPressed: () => setState(() {
+                          _selectedEscalaIds
+                            ..clear()
+                            ..addAll(
+                              docs.where(_canDeleteInstance).map((d) => d.id),
+                            );
+                        }),
+                                child: const Text('Todas elegíveis'),
+                      ),
+                      const Spacer(),
+                      FilledButton.icon(
+                        onPressed: _selectedEscalaIds.isEmpty
+                            ? null
+                            : () async {
+                                final sel = docs
+                                    .where(
+                                      (d) => _selectedEscalaIds.contains(d.id),
+                                    )
+                                    .toList();
+                                await _deleteManyInstances(sel);
+                              },
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        label: Text('Excluir (${_selectedEscalaIds.length})'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: ThemeCleanPremium.error,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 12,
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
-                if (showSelBar)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: Material(
-                      elevation: 14,
-                      color: Colors.white,
-                      child: SafeArea(
-                        top: false,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            border: Border(
-                              top: BorderSide(color: Colors.grey.shade200),
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.07),
-                                blurRadius: 16,
-                                offset: const Offset(0, -4),
-                              ),
-                            ],
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 10,
-                          ),
-                          child: Row(
-                            children: [
-                              TextButton(
-                                onPressed: () => setState(
-                                  () => _selectedEscalaIds.clear(),
-                                ),
-                                child: const Text('Limpar'),
-                              ),
-                              TextButton(
-                                onPressed: () => setState(() {
-                                  _selectedEscalaIds
-                                    ..clear()
-                                    ..addAll(
-                                      docs
-                                          .where(_canDeleteInstance)
-                                          .map((d) => d.id),
-                                    );
-                                }),
-                                child: const Text('Todas elegíveis'),
-                              ),
-                              const Spacer(),
-                              FilledButton.icon(
-                                onPressed: _selectedEscalaIds.isEmpty
-                                    ? null
-                                    : () async {
-                                        final sel = docs
-                                            .where((d) =>
-                                                _selectedEscalaIds
-                                                    .contains(d.id))
-                                            .toList();
-                                        await _deleteManyInstances(sel);
-                                      },
-                                icon: const Icon(
-                                  Icons.delete_outline_rounded,
-                                ),
-                                label: Text(
-                                  'Excluir (${_selectedEscalaIds.length})',
-                                ),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: ThemeCleanPremium.error,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 18,
-                                    vertical: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            );
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
-  // ── Tab: Relatórios super premium (igreja, título CAIXA ALTA, gráficos, drill-down) ──
+  // -- Tab: Relatórios super premium (igreja, título CAIXA ALTA, gráficos, drill-down) --
   Widget _buildReportsTab() {
     return FutureBuilder<List<dynamic>>(
       future: Future.wait([
@@ -4011,30 +4316,46 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         _tenantFuture,
         _deptsFuture,
         _effectiveTidFuture.then(
-          (tid) => ChurchUiCollections.escalaTrocas(tid)
-              .limit(800)
-              .get(),
+          (tid) => ChurchUiCollections.escalaTrocas(tid).limit(800).get(),
         ),
       ]),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting || !snap.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        final allDocs = (snap.data![0] as QuerySnapshot<Map<String, dynamic>>).docs;
+        final allDocs =
+            (snap.data![0] as QuerySnapshot<Map<String, dynamic>>).docs;
         var docs = _filterInstancesByPeriod(allDocs);
-        final tenantSnap = snap.data![1] as DocumentSnapshot<Map<String, dynamic>>;
+        final tenantSnap =
+            snap.data![1] as DocumentSnapshot<Map<String, dynamic>>;
         final tenantData = tenantSnap.data();
         final depts = snap.data![2] as List<_DeptItem>;
-        final trocasSnapDocs = (snap.data![3] as QuerySnapshot<Map<String, dynamic>>).docs;
-        final trocasConcluidas = _filterTrocasConcluidasForReport(trocasSnapDocs);
+        final trocasSnapDocs =
+            (snap.data![3] as QuerySnapshot<Map<String, dynamic>>).docs;
+        final trocasConcluidas = _filterTrocasConcluidasForReport(
+          trocasSnapDocs,
+        );
         final trocasPeriodo = _filterTrocasByCreatedForReport(trocasSnapDocs);
         if (_reportDeptId.isNotEmpty) {
-          docs = docs.where((d) => (d.data()['departmentId'] ?? '').toString() == _reportDeptId).toList();
+          docs = docs
+              .where(
+                (d) =>
+                    (d.data()['departmentId'] ?? '').toString() ==
+                    _reportDeptId,
+              )
+              .toList();
         }
         final deptMatch = depts.where((e) => e.id == _reportDeptId);
-        final deptName = _reportDeptId.isEmpty ? 'TODOS' : (deptMatch.isEmpty ? _reportDeptId : deptMatch.first.name.toUpperCase());
+        final deptName = _reportDeptId.isEmpty
+            ? 'TODOS'
+            : (deptMatch.isEmpty
+                  ? _reportDeptId
+                  : deptMatch.first.name.toUpperCase());
 
-        int totalPresencas = 0, totalFaltaNj = 0, totalIndisponivel = 0, escalasRealizadas = 0;
+        int totalPresencas = 0,
+            totalFaltaNj = 0,
+            totalIndisponivel = 0,
+            escalasRealizadas = 0;
         final memberStats = <String, _MemberScaleStats>{};
         final whoMissedNj = <String, int>{}; // falta não justificada
         final whoIndisponivel = <String, int>{};
@@ -4043,14 +4364,22 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         final pendentesDocs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
         for (final d in docs) {
           final m = d.data();
-          final cpfs = ((m['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
-          final names = ((m['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
-          final confirmations = (m['confirmations'] as Map<String, dynamic>?) ?? {};
+          final cpfs = ((m['memberCpfs'] as List?) ?? [])
+              .map((e) => e.toString())
+              .toList();
+          final names = ((m['memberNames'] as List?) ?? [])
+              .map((e) => e.toString())
+              .toList();
+          final confirmations =
+              (m['confirmations'] as Map<String, dynamic>?) ?? {};
           bool allConfirmed = cpfs.isNotEmpty;
           for (var i = 0; i < cpfs.length; i++) {
             final cpf = cpfs[i];
             final name = i < names.length ? names[i] : cpf;
-            memberStats.putIfAbsent(cpf, () => _MemberScaleStats(name: name, cpf: cpf));
+            memberStats.putIfAbsent(
+              cpf,
+              () => _MemberScaleStats(name: name, cpf: cpf),
+            );
             final st = memberStats[cpf]!;
             st.escalas++;
             final status = _scheduleCpfKeyedMapValue(cpf, confirmations);
@@ -4080,7 +4409,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         }
         final escalasGeradas = docs.length;
         final escalasPendentes = escalasGeradas - escalasRealizadas;
-        final list = memberStats.values.toList()..sort((a, b) => b.escalas.compareTo(a.escalas));
+        final list = memberStats.values.toList()
+          ..sort((a, b) => b.escalas.compareTo(a.escalas));
 
         final chartMetrics = [
           escalasGeradas,
@@ -4092,8 +4422,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
           trocasPeriodo.length,
         ];
         final chartRawMax = chartMetrics.reduce((a, b) => a > b ? a : b);
-        final chartMaxY = chartRawMax > 0 ? math.max(4.0, (chartRawMax * 1.22).ceilToDouble()) : 4.0;
-        final chartGridInterval = chartMaxY <= 6 ? 1.0 : (chartMaxY / 6).ceilToDouble();
+        final chartMaxY = chartRawMax > 0
+            ? math.max(4.0, (chartRawMax * 1.22).ceilToDouble())
+            : 4.0;
+        final chartGridInterval = chartMaxY <= 6
+            ? 1.0
+            : (chartMaxY / 6).ceilToDouble();
 
         void reportBarDrill(int idx) {
           void editDoc(QueryDocumentSnapshot<Map<String, dynamic>> d) {
@@ -4135,7 +4469,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                 context,
                 'Presenças (${whoAttended.length} pessoas)',
                 ThemeCleanPremium.success,
-                lines: whoAttended.entries.map((e) => '${e.key} — ${e.value} confirmação(ões)').toList()..sort(),
+                lines:
+                    whoAttended.entries
+                        .map((e) => '${e.key} ? ${e.value} confirmação(?es)')
+                        .toList()
+                      ..sort(),
               );
               return;
             case 4:
@@ -4143,7 +4481,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                 context,
                 'Falta não justificada (${whoMissedNj.length} pessoas)',
                 ThemeCleanPremium.error,
-                lines: whoMissedNj.entries.map((e) => '${e.key} — ${e.value} ocorrência(s)').toList()..sort(),
+                lines:
+                    whoMissedNj.entries
+                        .map((e) => '${e.key} ? ${e.value} ocorrência(s)')
+                        .toList()
+                      ..sort(),
               );
               return;
             case 5:
@@ -4151,7 +4493,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                 context,
                 'Indisponível (${whoIndisponivel.length} pessoas)',
                 const Color(0xFFDC2626),
-                lines: whoIndisponivel.entries.map((e) => '${e.key} — ${e.value} ocorrência(s)').toList()..sort(),
+                lines:
+                    whoIndisponivel.entries
+                        .map((e) => '${e.key} ? ${e.value} ocorrência(s)')
+                        .toList()
+                      ..sort(),
               );
               return;
             case 6:
@@ -4159,16 +4505,13 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                 context,
                 'Trocas registradas (${trocasPeriodo.length})',
                 const Color(0xFF7C3AED),
-                lines: trocasPeriodo
-                    .map((d) {
-                      final x = d.data();
-                      final st = (x['status'] ?? '').toString();
-                      final tit = (x['escalaTitle'] ?? '').toString();
-                      final when = (x['escalaDateLabel'] ?? '').toString();
-                      return '$st — $tit ($when)';
-                    })
-                    .toList()
-                  ..sort(),
+                lines: trocasPeriodo.map((d) {
+                  final x = d.data();
+                  final st = (x['status'] ?? '').toString();
+                  final tit = (x['escalaTitle'] ?? '').toString();
+                  final when = (x['escalaDateLabel'] ?? '').toString();
+                  return '$st ? $tit ($when)';
+                }).toList()..sort(),
               );
               return;
           }
@@ -4176,8 +4519,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
 
         final pdfTs = DateTime.now().millisecondsSinceEpoch;
 
-        final nomeIgreja = (tenantData?['name'] ?? tenantData?['nome'] ?? 'Igreja').toString();
-        final endereco = (tenantData?['address'] ?? tenantData?['endereco'] ?? '').toString();
+        final nomeIgreja =
+            (tenantData?['name'] ?? tenantData?['nome'] ?? 'Igreja').toString();
+        final endereco =
+            (tenantData?['address'] ?? tenantData?['endereco'] ?? '')
+                .toString();
         final logoBox = 56.0;
         final dpr = MediaQuery.devicePixelRatioOf(context);
         final logoMem = memCacheExtentForLogicalSize(logoBox, dpr, maxPx: 512);
@@ -4185,20 +4531,29 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         return RefreshIndicator(
           onRefresh: () async => setState(() {
             _instancesFuture = _fetchInstancesForEffectiveTenant();
-            _tenantFuture = _effectiveTidFuture.then((tid) => _churchDoc(tid).get());
+            _tenantFuture = _effectiveTidFuture.then(
+              (tid) => _churchDoc(tid).get(),
+            );
           }),
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: EdgeInsets.fromLTRB(ThemeCleanPremium.spaceMd, ThemeCleanPremium.spaceMd, ThemeCleanPremium.spaceMd, 100),
+            padding: EdgeInsets.fromLTRB(
+              ThemeCleanPremium.spaceMd,
+              ThemeCleanPremium.spaceMd,
+              ThemeCleanPremium.spaceMd,
+              100,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ── Header igreja (premium) ──
+                // -- Header igreja (premium) --
                 Container(
                   padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                    borderRadius: BorderRadius.circular(
+                      ThemeCleanPremium.radiusLg,
+                    ),
                     boxShadow: ThemeCleanPremium.softUiCardShadow,
                     border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
@@ -4212,8 +4567,14 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                             width: logoBox,
                             height: logoBox,
                             child: StableChurchLogo(
-                              imageUrl: tenantData != null ? churchTenantLogoUrl(tenantData) : null,
-                              storagePath: tenantData != null ? ChurchImageFields.logoStoragePath(tenantData) : null,
+                              imageUrl: tenantData != null
+                                  ? churchTenantLogoUrl(tenantData)
+                                  : null,
+                              storagePath: tenantData != null
+                                  ? ChurchImageFields.logoStoragePath(
+                                      tenantData,
+                                    )
+                                  : null,
                               tenantId: tenantSnap.id,
                               tenantData: tenantData,
                               width: logoBox,
@@ -4230,8 +4591,24 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(nomeIgreja, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface)),
-                            if (endereco.isNotEmpty) ...[const SizedBox(height: 4), Text(endereco, style: TextStyle(fontSize: 12, color: Colors.grey.shade600))],
+                            Text(
+                              nomeIgreja,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: ThemeCleanPremium.onSurface,
+                              ),
+                            ),
+                            if (endereco.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                endereco,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -4239,25 +4616,49 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                   ),
                 ),
                 const SizedBox(height: 20),
-                // ── Título relatório em CAIXA ALTA ──
+                // -- Título relatório em CAIXA ALTA --
                 Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 18),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 14,
+                    horizontal: 18,
+                  ),
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [ThemeCleanPremium.primary, ThemeCleanPremium.primaryLight], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                    boxShadow: [BoxShadow(color: ThemeCleanPremium.primary.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))],
+                    gradient: LinearGradient(
+                      colors: [
+                        ThemeCleanPremium.primary,
+                        ThemeCleanPremium.primaryLight,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(
+                      ThemeCleanPremium.radiusMd,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: ThemeCleanPremium.primary.withValues(alpha: 0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
                   child: Text(
-                    'ESCALA — DEPARTAMENTO $deptName — $_periodLabelUppercase',
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.5),
+                    'ESCALA ? DEPARTAMENTO $deptName ? $_periodLabelUppercase',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 0.5,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ),
                 const SizedBox(height: 24),
-                // ── Filtros (grelha ultra premium) ──
+                // -- Filtros (grelha ultra premium) --
                 _buildReportsFiltersCard(depts),
-                if (_periodFilter == 'periodo' && (_periodStart != null || _periodEnd != null))
+                if (_periodFilter == 'periodo' &&
+                    (_periodStart != null || _periodEnd != null))
                   Padding(
                     padding: const EdgeInsets.only(top: 10),
                     child: Align(
@@ -4266,12 +4667,16 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         _periodStart != null && _periodEnd != null
                             ? 'Intervalo: ${_periodStart!.day}/${_periodStart!.month}/${_periodStart!.year} a ${_periodEnd!.day}/${_periodEnd!.month}/${_periodEnd!.year}'
                             : 'Selecione início e fim',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
                 const SizedBox(height: 24),
-                // ── Gráfico de barras: métricas ──
+                // -- Gráfico de barras: métricas --
                 _ReportChartCard(
                   title: 'Visão geral',
                   child: SizedBox(
@@ -4286,30 +4691,50 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                           touchTooltipData: BarTouchTooltipData(
                             getTooltipColor: (_) => Colors.white,
                             tooltipBorderRadius: BorderRadius.circular(12),
-                            tooltipPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            tooltipPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
                             tooltipMargin: 8,
                             getTooltipItem: (group, groupIndex, rod, rodIndex) {
                               final i = group.x.toInt();
                               final label = _barLabel(i);
-                              final c = rod.gradient?.colors.first ?? rod.color ?? ThemeCleanPremium.primary;
+                              final c =
+                                  rod.gradient?.colors.first ??
+                                  rod.color ??
+                                  ThemeCleanPremium.primary;
                               return BarTooltipItem(
                                 '$label\n',
-                                TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600, fontSize: 11, height: 1.35),
+                                TextStyle(
+                                  color: Colors.grey.shade700,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 11,
+                                  height: 1.35,
+                                ),
                                 children: [
                                   TextSpan(
                                     text: '${rod.toY.round()}',
-                                    style: TextStyle(color: c, fontWeight: FontWeight.w800, fontSize: 15),
+                                    style: TextStyle(
+                                      color: c,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                    ),
                                   ),
                                 ],
                               );
                             },
                           ),
-                          touchCallback: (FlTouchEvent event, barTouchResponse) {
-                            if (barTouchResponse?.spot == null) return;
-                            if (event is FlTapUpEvent) {
-                              reportBarDrill(barTouchResponse!.spot!.touchedBarGroupIndex);
-                            }
-                          },
+                          touchCallback:
+                              (FlTouchEvent event, barTouchResponse) {
+                                if (barTouchResponse?.spot == null) return;
+                                if (event is FlTapUpEvent) {
+                                  reportBarDrill(
+                                    barTouchResponse!
+                                        .spot!
+                                        .touchedBarGroupIndex,
+                                  );
+                                }
+                              },
                         ),
                         titlesData: FlTitlesData(
                           show: true,
@@ -4323,7 +4748,12 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                                   _barLabel(v.toInt()),
                                   textAlign: TextAlign.center,
                                   maxLines: 2,
-                                  style: TextStyle(fontSize: 7.5, fontWeight: FontWeight.w600, color: Colors.grey.shade700, height: 1.15),
+                                  style: TextStyle(
+                                    fontSize: 7.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade700,
+                                    height: 1.15,
+                                  ),
                                 ),
                               ),
                             ),
@@ -4334,35 +4764,76 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                               reservedSize: 34,
                               interval: chartGridInterval,
                               getTitlesWidget: (v, meta) {
-                                if (v < 0 || v > meta.max + 0.001) return const SizedBox.shrink();
+                                if (v < 0 || v > meta.max + 0.001)
+                                  return const SizedBox.shrink();
                                 return Padding(
                                   padding: const EdgeInsets.only(right: 6),
                                   child: Text(
-                                    v == v.roundToDouble() ? '${v.toInt()}' : v.toStringAsFixed(1),
-                                    style: TextStyle(fontSize: 10, color: Colors.grey.shade600),
+                                    v == v.roundToDouble()
+                                        ? '${v.toInt()}'
+                                        : v.toStringAsFixed(1),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.grey.shade600,
+                                    ),
                                   ),
                                 );
                               },
                             ),
                           ),
-                          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          topTitles: const AxisTitles(
+                            sideTitles: SideTitles(showTitles: false),
+                          ),
+                          rightTitles: const AxisTitles(
+                            sideTitles: SideTitles(showTitles: false),
+                          ),
                         ),
                         gridData: FlGridData(
                           show: true,
                           drawVerticalLine: false,
                           horizontalInterval: chartGridInterval,
-                          getDrawingHorizontalLine: (v) => FlLine(color: Colors.grey.shade200, strokeWidth: 1),
+                          getDrawingHorizontalLine: (v) => FlLine(
+                            color: Colors.grey.shade200,
+                            strokeWidth: 1,
+                          ),
                         ),
                         borderData: FlBorderData(show: false),
                         barGroups: [
-                          _barGroup(0, escalasGeradas.toDouble(), ThemeCleanPremium.primary),
-                          _barGroup(1, escalasRealizadas.toDouble(), ThemeCleanPremium.success),
-                          _barGroup(2, escalasPendentes.toDouble(), Colors.amber.shade700),
-                          _barGroup(3, totalPresencas.toDouble(), ThemeCleanPremium.success),
-                          _barGroup(4, totalFaltaNj.toDouble(), ThemeCleanPremium.error),
-                          _barGroup(5, totalIndisponivel.toDouble(), const Color(0xFFDC2626)),
-                          _barGroup(6, trocasPeriodo.length.toDouble(), const Color(0xFF7C3AED)),
+                          _barGroup(
+                            0,
+                            escalasGeradas.toDouble(),
+                            ThemeCleanPremium.primary,
+                          ),
+                          _barGroup(
+                            1,
+                            escalasRealizadas.toDouble(),
+                            ThemeCleanPremium.success,
+                          ),
+                          _barGroup(
+                            2,
+                            escalasPendentes.toDouble(),
+                            Colors.amber.shade700,
+                          ),
+                          _barGroup(
+                            3,
+                            totalPresencas.toDouble(),
+                            ThemeCleanPremium.success,
+                          ),
+                          _barGroup(
+                            4,
+                            totalFaltaNj.toDouble(),
+                            ThemeCleanPremium.error,
+                          ),
+                          _barGroup(
+                            5,
+                            totalIndisponivel.toDouble(),
+                            const Color(0xFFDC2626),
+                          ),
+                          _barGroup(
+                            6,
+                            trocasPeriodo.length.toDouble(),
+                            const Color(0xFF7C3AED),
+                          ),
                         ],
                       ),
                       swapAnimationDuration: const Duration(milliseconds: 250),
@@ -4374,11 +4845,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                   child: Text(
                     'Toque nas barras ou nos cartões para o preview. Ícone PDF no canto: relatório premium. Em listas de escalas, use editar para alterar.',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
-                // ── Cards clicáveis: lista detalhada ──
+                // -- Cards clicáveis: lista detalhada --
                 Row(
                   children: [
                     Expanded(
@@ -4388,7 +4863,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         icon: Icons.calendar_month_rounded,
                         color: ThemeCleanPremium.primary,
                         onTap: () => reportBarDrill(0),
-                        onExportPdf: () => _exportEscalasListPdf(docs, 'Escalas geradas', 'escalas_geradas_$pdfTs.pdf'),
+                        onExportPdf: () => _exportEscalasListPdf(
+                          docs,
+                          'Escalas geradas',
+                          'escalas_geradas_$pdfTs.pdf',
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -4414,7 +4893,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         icon: Icons.schedule_rounded,
                         color: Colors.amber.shade700,
                         onTap: () => reportBarDrill(2),
-                        onExportPdf: () => _exportEscalasListPdf(pendentesDocs, 'Escalas pendentes', 'escalas_pendentes_$pdfTs.pdf'),
+                        onExportPdf: () => _exportEscalasListPdf(
+                          pendentesDocs,
+                          'Escalas pendentes',
+                          'escalas_pendentes_$pdfTs.pdf',
+                        ),
                       ),
                     ),
                   ],
@@ -4429,7 +4912,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         icon: Icons.person_rounded,
                         color: ThemeCleanPremium.success,
                         onTap: () => reportBarDrill(3),
-                        onExportPdf: () => _exportNameCountsPdf(whoAttended, 'Presenças (confirmações)', 'presencas_$pdfTs.pdf'),
+                        onExportPdf: () => _exportNameCountsPdf(
+                          whoAttended,
+                          'Presenças (confirmações)',
+                          'presencas_$pdfTs.pdf',
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -4440,7 +4927,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         icon: Icons.person_off_rounded,
                         color: ThemeCleanPremium.error,
                         onTap: () => reportBarDrill(4),
-                        onExportPdf: () => _exportNameCountsPdf(whoMissedNj, 'Falta não justificada', 'falta_nao_justificada_$pdfTs.pdf'),
+                        onExportPdf: () => _exportNameCountsPdf(
+                          whoMissedNj,
+                          'Falta não justificada',
+                          'falta_nao_justificada_$pdfTs.pdf',
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -4451,7 +4942,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         icon: Icons.event_busy_rounded,
                         color: const Color(0xFFDC2626),
                         onTap: () => reportBarDrill(5),
-                        onExportPdf: () => _exportNameCountsPdf(whoIndisponivel, 'Indisponível', 'indisponivel_$pdfTs.pdf'),
+                        onExportPdf: () => _exportNameCountsPdf(
+                          whoIndisponivel,
+                          'Indisponível',
+                          'indisponivel_$pdfTs.pdf',
+                        ),
                       ),
                     ),
                   ],
@@ -4466,19 +4961,22 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         icon: Icons.swap_horiz_rounded,
                         color: const Color(0xFF7C3AED),
                         onTap: () => reportBarDrill(6),
-                        onExportPdf: () => _exportTrocasPeriodoPdf(trocasPeriodo, depts),
+                        onExportPdf: () =>
+                            _exportTrocasPeriodoPdf(trocasPeriodo, depts),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 24),
-                // ── Trocas de escala concluídas ──
+                // -- Trocas de escala concluídas --
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                    borderRadius: BorderRadius.circular(
+                      ThemeCleanPremium.radiusLg,
+                    ),
                     boxShadow: ThemeCleanPremium.softUiCardShadow,
                     border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
@@ -4490,10 +4988,16 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                           Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF7C3AED).withValues(alpha: 0.12),
+                              color: const Color(
+                                0xFF7C3AED,
+                              ).withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(14),
                             ),
-                            child: const Icon(Icons.swap_horiz_rounded, color: Color(0xFF5B21B6), size: 24),
+                            child: const Icon(
+                              Icons.swap_horiz_rounded,
+                              color: Color(0xFF5B21B6),
+                              size: 24,
+                            ),
                           ),
                           const SizedBox(width: 12),
                           const Expanded(
@@ -4509,8 +5013,14 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                           FilledButton.tonalIcon(
                             onPressed: trocasConcluidas.isEmpty
                                 ? null
-                                : () => _exportTrocasConcluidasReportPdf(trocasConcluidas, depts),
-                            icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
+                                : () => _exportTrocasConcluidasReportPdf(
+                                    trocasConcluidas,
+                                    depts,
+                                  ),
+                            icon: const Icon(
+                              Icons.picture_as_pdf_rounded,
+                              size: 20,
+                            ),
                             label: const Text('PDF'),
                           ),
                         ],
@@ -4518,7 +5028,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       const SizedBox(height: 10),
                       Text(
                         'Substituições confirmadas no app (${trocasConcluidas.length} no período). Toque no card para detalhes.',
-                        style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       const SizedBox(height: 14),
                       if (trocasConcluidas.isEmpty)
@@ -4533,24 +5047,34 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       else
                         ...trocasConcluidas.take(40).map((td) {
                           final x = td.data();
-                          final sol = (x['solicitanteNome'] ?? '').toString().trim();
+                          final sol = (x['solicitanteNome'] ?? '')
+                              .toString()
+                              .trim();
                           final alv = (x['alvoNome'] ?? '').toString().trim();
                           final when = (x['escalaDateLabel'] ?? '').toString();
                           final tit = (x['escalaTitle'] ?? 'Escala').toString();
                           final tim = (x['escalaTime'] ?? '').toString();
-                          final dep = _deptDisplayNameForReport((x['departmentId'] ?? '').toString(), depts);
+                          final dep = _deptDisplayNameForReport(
+                            (x['departmentId'] ?? '').toString(),
+                            depts,
+                          );
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 10),
                             child: Material(
                               color: const Color(0xFFFAF5FF),
-                              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                              borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusMd,
+                              ),
                               child: InkWell(
                                 onTap: () {
-                                  var res = '—';
+                                  var res = '?';
                                   try {
                                     final ts = x['resolvedAt'];
                                     if (ts is Timestamp) {
-                                      res = DateFormat('dd/MM/yyyy HH:mm', 'pt_BR').format(ts.toDate());
+                                      res = DateFormat(
+                                        'dd/MM/yyyy HH:mm',
+                                        'pt_BR',
+                                      ).format(ts.toDate());
                                     }
                                   } catch (_) {}
                                   _showDrillDown(
@@ -4566,36 +5090,58 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                                     ],
                                   );
                                 },
-                                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                                borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusMd,
+                                ),
                                 child: Padding(
                                   padding: const EdgeInsets.all(14),
                                   child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Icon(Icons.change_circle_rounded, color: Colors.deepPurple.shade600, size: 22),
+                                      Icon(
+                                        Icons.change_circle_rounded,
+                                        color: Colors.deepPurple.shade600,
+                                        size: 22,
+                                      ),
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
                                             Text(
                                               tit,
-                                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 14,
+                                              ),
                                             ),
                                             const SizedBox(height: 4),
                                             Text(
-                                              '$when${tim.isNotEmpty ? ' · $tim' : ''} · $dep',
-                                              style: TextStyle(fontSize: 12, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                                              '$when${tim.isNotEmpty ? ' ? $tim' : ''} ? $dep',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey.shade700,
+                                                fontWeight: FontWeight.w600,
+                                              ),
                                             ),
                                             const SizedBox(height: 8),
                                             Text(
-                                              '${sol.isNotEmpty ? sol : 'Titular'} → ${alv.isNotEmpty ? alv : 'Substituto'}',
-                                              style: TextStyle(fontSize: 13, color: Colors.grey.shade900, height: 1.35),
+                                              '${sol.isNotEmpty ? sol : 'Titular'} ? ${alv.isNotEmpty ? alv : 'Substituto'}',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: Colors.grey.shade900,
+                                                height: 1.35,
+                                              ),
                                             ),
                                           ],
                                         ),
                                       ),
-                                      Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                                      Icon(
+                                        Icons.chevron_right_rounded,
+                                        color: Colors.grey.shade400,
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -4608,85 +5154,155 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                           padding: const EdgeInsets.only(top: 6),
                           child: Text(
                             '+ ${trocasConcluidas.length - 40} troca(s) — o PDF traz a lista completa do período.',
-                            style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
                           ),
                         ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 24),
-                // ── Por membro ──
+                // -- Por membro --
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Row(
                     children: [
-                      Icon(Icons.people_rounded, size: 20, color: ThemeCleanPremium.primary),
+                      Icon(
+                        Icons.people_rounded,
+                        size: 20,
+                        color: ThemeCleanPremium.primary,
+                      ),
                       const SizedBox(width: 8),
-                      Text('Por membro', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface)),
+                      Text(
+                        'Por membro',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: ThemeCleanPremium.onSurface,
+                        ),
+                      ),
                     ],
                   ),
                 ),
                 if (list.isEmpty)
                   Container(
                     padding: const EdgeInsets.all(32),
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd), boxShadow: ThemeCleanPremium.softUiCardShadow),
-                    child: Column(children: [
-                      Icon(Icons.assignment_rounded, size: 48, color: Colors.grey.shade400),
-                      const SizedBox(height: 12),
-                      Text('Nenhum dado no período.', style: TextStyle(color: Colors.grey.shade600)),
-                    ]),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusMd,
+                      ),
+                      boxShadow: ThemeCleanPremium.softUiCardShadow,
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.assignment_rounded,
+                          size: 48,
+                          color: Colors.grey.shade400,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Nenhum dado no período.',
+                          style: TextStyle(color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
                   )
                 else
-                  ...list.map((st) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Material(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                      shadowColor: Colors.black12,
-                      elevation: 2,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-                        onTap: () => _showDrillDown(
-                          context,
-                          st.name.isNotEmpty ? st.name : st.cpf,
-                          ThemeCleanPremium.primary,
-                          lines: [
-                            'Escalas: ${st.escalas}',
-                            'Presenças: ${st.presencas}',
-                            'Faltas: ${st.faltas}',
-                          ],
+                  ...list.map(
+                    (st) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Material(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(
+                          ThemeCleanPremium.radiusMd,
                         ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            children: [
-                              CircleAvatar(radius: 22, backgroundColor: ThemeCleanPremium.primary.withValues(alpha: 0.1), child: Text((st.name.isNotEmpty ? st.name[0] : '?').toUpperCase(), style: TextStyle(fontWeight: FontWeight.w800, color: ThemeCleanPremium.primary, fontSize: 16))),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(st.name.isNotEmpty ? st.name : st.cpf, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                                    const SizedBox(height: 6),
-                                    Row(
-                                      children: [
-                                        _ReportChip(label: 'Escalas', value: st.escalas, color: ThemeCleanPremium.primary),
-                                        const SizedBox(width: 8),
-                                        _ReportChip(label: 'Presenças', value: st.presencas, color: ThemeCleanPremium.success),
-                                        const SizedBox(width: 8),
-                                        _ReportChip(label: 'Faltas', value: st.faltas, color: ThemeCleanPremium.error),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Icon(Icons.chevron_right_rounded, color: Colors.grey.shade400),
+                        shadowColor: Colors.black12,
+                        elevation: 2,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusMd,
+                          ),
+                          onTap: () => _showDrillDown(
+                            context,
+                            st.name.isNotEmpty ? st.name : st.cpf,
+                            ThemeCleanPremium.primary,
+                            lines: [
+                              'Escalas: ${st.escalas}',
+                            'Presenças: ${st.presencas}',
+                              'Faltas: ${st.faltas}',
                             ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 22,
+                                  backgroundColor: ThemeCleanPremium.primary
+                                      .withValues(alpha: 0.1),
+                                  child: Text(
+                                    (st.name.isNotEmpty ? st.name[0] : '?')
+                                        .toUpperCase(),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: ThemeCleanPremium.primary,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        st.name.isNotEmpty ? st.name : st.cpf,
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Row(
+                                        children: [
+                                          _ReportChip(
+                                            label: 'Escalas',
+                                            value: st.escalas,
+                                            color: ThemeCleanPremium.primary,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          _ReportChip(
+                        label: 'Presenças',
+                                            value: st.presencas,
+                                            color: ThemeCleanPremium.success,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          _ReportChip(
+                                            label: 'Faltas',
+                                            value: st.faltas,
+                                            color: ThemeCleanPremium.error,
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.chevron_right_rounded,
+                                  color: Colors.grey.shade400,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  )),
+                  ),
               ],
             ),
           ),
@@ -4696,14 +5312,29 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
   }
 
   String _barLabel(int i) {
-    const l = ['Geradas', 'Realizadas', 'Pendentes', 'Presenç.', 'F.NJ', 'Indisp.', 'Trocas'];
+    const l = [
+      'Geradas',
+      'Realizadas',
+      'Pendentes',
+      'Presen?.',
+      'F.NJ',
+      'Indisp.',
+      'Trocas',
+    ];
     return i >= 0 && i < l.length ? l[i] : '';
   }
 
   BarChartGroupData _barGroup(int x, double y, Color color) {
     return BarChartGroupData(
       x: x,
-      barRods: [BarChartRodData(toY: y.clamp(0.0, double.infinity), color: color, width: 7, borderRadius: const BorderRadius.vertical(top: Radius.circular(5)))],
+      barRods: [
+        BarChartRodData(
+          toY: y.clamp(0.0, double.infinity),
+          color: color,
+          width: 7,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(5)),
+        ),
+      ],
       showingTooltipIndicators: [],
     );
   }
@@ -4714,14 +5345,19 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     Color accent, {
     List<String>? lines,
     List<QueryDocumentSnapshot<Map<String, dynamic>>>? escalaDocs,
-    void Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)? onEditEscala,
+    void Function(QueryDocumentSnapshot<Map<String, dynamic>> doc)?
+    onEditEscala,
   }) {
     assert(lines != null || escalaDocs != null, 'Informe lines ou escalaDocs');
-    assert(lines == null || escalaDocs == null, 'Use apenas lines ou escalaDocs');
+    assert(
+      lines == null || escalaDocs == null,
+      'Use apenas lines ou escalaDocs',
+    );
     final maxH = MediaQuery.sizeOf(context).height * 0.78;
     final useEscalas = escalaDocs != null;
     final listLines = lines ?? const <String>[];
-    final docs = escalaDocs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+    final docs =
+        escalaDocs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
 
     showModalBottomSheet<void>(
       context: context,
@@ -4737,9 +5373,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               constraints: BoxConstraints(maxHeight: maxH + 56),
               decoration: BoxDecoration(
                 color: ThemeCleanPremium.surface,
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(28),
+                ),
                 boxShadow: [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 28, offset: const Offset(0, -8)),
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.12),
+                    blurRadius: 28,
+                    offset: const Offset(0, -8),
+                  ),
                 ],
               ),
               child: Column(
@@ -4759,16 +5401,28 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                   ),
                   Container(
                     margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 16,
+                    ),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [accent, Color.lerp(accent, Colors.white, 0.22) ?? accent],
+                        colors: [
+                          accent,
+                          Color.lerp(accent, Colors.white, 0.22) ?? accent,
+                        ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
-                      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusLg,
+                      ),
                       boxShadow: [
-                        BoxShadow(color: accent.withValues(alpha: 0.35), blurRadius: 16, offset: const Offset(0, 6)),
+                        BoxShadow(
+                          color: accent.withValues(alpha: 0.35),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
                       ],
                     ),
                     child: Row(
@@ -4780,7 +5434,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: Icon(
-                            useEscalas ? Icons.event_note_rounded : Icons.insights_rounded,
+                            useEscalas
+                                ? Icons.event_note_rounded
+                                : Icons.insights_rounded,
                             color: Colors.white,
                             size: 26,
                           ),
@@ -4806,12 +5462,20 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       padding: const EdgeInsets.fromLTRB(24, 28, 24, 36),
                       child: Column(
                         children: [
-                          Icon(Icons.inbox_rounded, size: 52, color: Colors.grey.shade400),
+                          Icon(
+                            Icons.inbox_rounded,
+                            size: 52,
+                            color: Colors.grey.shade400,
+                          ),
                           const SizedBox(height: 12),
                           Text(
                             'Nenhum registro no período.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey.shade600, fontSize: 15, fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ],
                       ),
@@ -4821,12 +5485,20 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                       padding: const EdgeInsets.fromLTRB(24, 28, 24, 36),
                       child: Column(
                         children: [
-                          Icon(Icons.inbox_rounded, size: 52, color: Colors.grey.shade400),
+                          Icon(
+                            Icons.inbox_rounded,
+                            size: 52,
+                            color: Colors.grey.shade400,
+                          ),
                           const SizedBox(height: 12),
                           Text(
                             'Nenhum registro no período.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey.shade600, fontSize: 15, fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ],
                       ),
@@ -4845,10 +5517,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                             return _EscalaDrillCard(
                               doc: docs[i],
                               accent: accent,
-                              onEditPressed: ed == null ? null : () => ed(docs[i]),
+                              onEditPressed: ed == null
+                                  ? null
+                                  : () => ed(docs[i]),
                             );
                           }
-                          return _PremiumDrillLineTile(line: listLines[i], accent: accent);
+                          return _PremiumDrillLineTile(
+                            line: listLines[i],
+                            accent: accent,
+                          );
                         },
                       ),
                     ),
@@ -4867,43 +5544,109 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       final tenantSnap = await _tenantFuture;
       final docs = _filterInstancesByPeriod(snap.docs);
       if (docs.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nenhuma escala no período para exportar.')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Nenhuma escala no período para exportar.'),
+            ),
+          );
         return;
       }
       final tenantData = tenantSnap.data();
-      final nomeIgreja = (tenantData?['name'] ?? tenantData?['nome'] ?? 'Igreja').toString();
-      final endereco = (tenantData?['address'] ?? tenantData?['endereco'] ?? '').toString();
+      final nomeIgreja =
+          (tenantData?['name'] ?? tenantData?['nome'] ?? 'Igreja').toString();
+      final endereco = (tenantData?['address'] ?? tenantData?['endereco'] ?? '')
+          .toString();
       final periodLabel = _periodLabelUppercase;
 
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       final rows = docs.map((d) {
         final m = d.data();
         DateTime? dt;
-        try { dt = (m['date'] as Timestamp?)?.toDate(); } catch (_) {}
-        final dateStr = dt != null ? '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}' : '';
+        try {
+          dt = (m['date'] as Timestamp?)?.toDate();
+        } catch (_) {}
+        final dateStr = dt != null
+            ? '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}'
+            : '';
         final names = ((m['memberNames'] as List?) ?? []).take(5).join(', ');
-        return [dateStr, (m['title'] ?? '').toString(), (m['time'] ?? '').toString(), (m['departmentName'] ?? '').toString(), names];
+        return [
+          dateStr,
+          (m['title'] ?? '').toString(),
+          (m['time'] ?? '').toString(),
+          (m['departmentName'] ?? '').toString(),
+          names,
+        ];
       }).toList();
 
       pdf.addPage(
         pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
           build: (ctx) => [
-            pw.Center(child: pw.Text(nomeIgreja.toUpperCase(), style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold))),
-            if (endereco.isNotEmpty) pw.Padding(padding: const pw.EdgeInsets.only(bottom: 8), child: pw.Center(child: pw.Text(endereco, style: const pw.TextStyle(fontSize: 9)))),
+            pw.Center(
+              child: pw.Text(
+                nomeIgreja.toUpperCase(),
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
+            if (endereco.isNotEmpty)
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 8),
+                child: pw.Center(
+                  child: pw.Text(
+                    endereco,
+                    style: const pw.TextStyle(fontSize: 9),
+                  ),
+                ),
+              ),
             pw.SizedBox(height: 12),
-            pw.Center(child: pw.Text('RELATÓRIO DE ESCALAS — $periodLabel', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold))),
+            pw.Center(
+              child: pw.Text(
+                'RELATÓRIO DE ESCALAS ? $periodLabel',
+                style: pw.TextStyle(
+                  fontSize: 12,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
             pw.SizedBox(height: 20),
             pw.Table(
               border: pw.TableBorder.all(width: 0.5),
               children: [
                 pw.TableRow(
                   decoration: const pw.BoxDecoration(color: PdfColors.grey300),
-                  children: ['Data', 'Título', 'Horário', 'Departamento', 'Membros'].map((h) => pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(h, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)))).toList(),
+                  children:
+                      ['Data', 'Título', 'Horário', 'Departamento', 'Membros']
+                          .map(
+                            (h) => pw.Padding(
+                              padding: const pw.EdgeInsets.all(6),
+                              child: pw.Text(
+                                h,
+                                style: pw.TextStyle(
+                                  fontWeight: pw.FontWeight.bold,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
+                          )
+                          .toList(),
                 ),
                 for (final row in rows)
                   pw.TableRow(
-                    children: (row as List<dynamic>).map<pw.Widget>((c) => pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text((c ?? '').toString(), style: const pw.TextStyle(fontSize: 9)))).toList(),
+                    children: (row as List<dynamic>)
+                        .map<pw.Widget>(
+                          (c) => pw.Padding(
+                            padding: const pw.EdgeInsets.all(6),
+                            child: pw.Text(
+                              (c ?? '').toString(),
+                              style: const pw.TextStyle(fontSize: 9),
+                            ),
+                          ),
+                        )
+                        .toList(),
                   ),
               ],
             ),
@@ -4911,9 +5654,17 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         ),
       );
       final bytes = Uint8List.fromList(await pdf.save());
-      if (mounted) await showPdfActions(context, bytes: bytes, filename: 'escalas_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      if (mounted)
+        await showPdfActions(
+          context,
+          bytes: bytes,
+          filename: 'escalas_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao exportar PDF: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao exportar PDF: $e')));
     }
   }
 
@@ -4926,89 +5677,121 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       final weekStart = now.subtract(Duration(days: now.weekday - 1));
       final start = DateTime(weekStart.year, weekStart.month, weekStart.day);
       final end = DateTime(start.year, start.month, start.day + 6, 23, 59, 59);
-      final docs = snap.docs.where((d) {
-        DateTime? dt;
-        try {
-          dt = (d.data()['date'] as Timestamp?)?.toDate();
-        } catch (_) {}
-        if (dt == null) return false;
-        return !dt.isBefore(start) && !dt.isAfter(end);
-      }).toList()
-        ..sort((a, b) {
-          final da = (a.data()['departmentName'] ?? '').toString();
-          final db = (b.data()['departmentName'] ?? '').toString();
-          final c = da.compareTo(db);
-          if (c != 0) return c;
-          DateTime? ta, tb;
-          try {
-            ta = (a.data()['date'] as Timestamp?)?.toDate();
-            tb = (b.data()['date'] as Timestamp?)?.toDate();
-          } catch (_) {}
-          if (ta == null || tb == null) return 0;
-          return ta.compareTo(tb);
-        });
+      final docs =
+          snap.docs.where((d) {
+            DateTime? dt;
+            try {
+              dt = (d.data()['date'] as Timestamp?)?.toDate();
+            } catch (_) {}
+            if (dt == null) return false;
+            return !dt.isBefore(start) && !dt.isAfter(end);
+          }).toList()..sort((a, b) {
+            final da = (a.data()['departmentName'] ?? '').toString();
+            final db = (b.data()['departmentName'] ?? '').toString();
+            final c = da.compareTo(db);
+            if (c != 0) return c;
+            DateTime? ta, tb;
+            try {
+              ta = (a.data()['date'] as Timestamp?)?.toDate();
+              tb = (b.data()['date'] as Timestamp?)?.toDate();
+            } catch (_) {}
+            if (ta == null || tb == null) return 0;
+            return ta.compareTo(tb);
+          });
       if (docs.isEmpty) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Nenhuma escala nesta semana para exportar.')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Nenhuma escala nesta semana para exportar.'),
+            ),
+          );
         }
         return;
       }
       final tenantData = tenantSnap.data();
       final nomeIgreja =
           (tenantData?['name'] ?? tenantData?['nome'] ?? 'Igreja').toString();
-      final endereco =
-          (tenantData?['address'] ?? tenantData?['endereco'] ?? '').toString();
+      final endereco = (tenantData?['address'] ?? tenantData?['endereco'] ?? '')
+          .toString();
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       String deptKey(Map<String, dynamic> m) =>
           (m['departmentName'] ?? m['departmentId'] ?? '').toString();
-      final byDept = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+      final byDept =
+          <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
       for (final d in docs) {
         final k = deptKey(d.data());
-        byDept.putIfAbsent(k.isEmpty ? '—' : k, () => []).add(d);
+        byDept.putIfAbsent(k.isEmpty ? '?' : k, () => []).add(d);
       }
       pdf.addPage(
         pw.MultiPage(
           pageFormat: PdfPageFormat.a4,
           build: (ctx) => [
             pw.Center(
-                child: pw.Text(nomeIgreja.toUpperCase(),
-                    style: pw.TextStyle(
-                        fontSize: 16, fontWeight: pw.FontWeight.bold))),
+              child: pw.Text(
+                nomeIgreja.toUpperCase(),
+                style: pw.TextStyle(
+                  fontSize: 16,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
             if (endereco.isNotEmpty)
               pw.Padding(
-                  padding: const pw.EdgeInsets.only(bottom: 8),
-                  child: pw.Center(
-                      child: pw.Text(endereco,
-                          style: const pw.TextStyle(fontSize: 9)))),
+                padding: const pw.EdgeInsets.only(bottom: 8),
+                child: pw.Center(
+                  child: pw.Text(
+                    endereco,
+                    style: const pw.TextStyle(fontSize: 9),
+                  ),
+                ),
+              ),
             pw.SizedBox(height: 10),
             pw.Center(
-                child: pw.Text(
-                    'ESCALA GERAL SEMANAL (${start.day}/${start.month} – ${end.day}/${end.month}/${end.year})',
-                    style: pw.TextStyle(
-                        fontSize: 12, fontWeight: pw.FontWeight.bold))),
+              child: pw.Text(
+                'ESCALA GERAL SEMANAL (${start.day}/${start.month} ? ${end.day}/${end.month}/${end.year})',
+                style: pw.TextStyle(
+                  fontSize: 12,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
             pw.SizedBox(height: 16),
             for (final entry in byDept.entries) ...[
               pw.Container(
-                padding: const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                padding: const pw.EdgeInsets.symmetric(
+                  vertical: 6,
+                  horizontal: 8,
+                ),
                 color: PdfColors.grey300,
-                child: pw.Text(entry.key,
-                    style: pw.TextStyle(
-                        fontWeight: pw.FontWeight.bold, fontSize: 11)),
+                child: pw.Text(
+                  entry.key,
+                  style: pw.TextStyle(
+                    fontWeight: pw.FontWeight.bold,
+                    fontSize: 11,
+                  ),
+                ),
               ),
               pw.SizedBox(height: 6),
               pw.Table(
                 border: pw.TableBorder.all(width: 0.4),
                 children: [
                   pw.TableRow(
-                    decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+                    decoration: const pw.BoxDecoration(
+                      color: PdfColors.grey200,
+                    ),
                     children: ['Data', 'Título', 'Horário', 'Membros']
-                        .map((h) => pw.Padding(
+                        .map(
+                          (h) => pw.Padding(
                             padding: const pw.EdgeInsets.all(5),
-                            child: pw.Text(h,
-                                style: pw.TextStyle(
-                                    fontWeight: pw.FontWeight.bold,
-                                    fontSize: 9))))
+                            child: pw.Text(
+                              h,
+                              style: pw.TextStyle(
+                                fontWeight: pw.FontWeight.bold,
+                                fontSize: 9,
+                              ),
+                            ),
+                          ),
+                        )
                         .toList(),
                   ),
                   for (final d in entry.value)
@@ -5022,18 +5805,24 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                         final dateStr = dt != null
                             ? '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}'
                             : '';
-                        final names =
-                            ((m['memberNames'] as List?) ?? []).join(', ');
+                        final names = ((m['memberNames'] as List?) ?? []).join(
+                          ', ',
+                        );
                         return [
-                          dateStr,
-                          (m['title'] ?? '').toString(),
-                          (m['time'] ?? '').toString(),
-                          names,
-                        ]
-                            .map((c) => pw.Padding(
+                              dateStr,
+                              (m['title'] ?? '').toString(),
+                              (m['time'] ?? '').toString(),
+                              names,
+                            ]
+                            .map(
+                              (c) => pw.Padding(
                                 padding: const pw.EdgeInsets.all(5),
-                                child: pw.Text(c,
-                                    style: const pw.TextStyle(fontSize: 8))))
+                                child: pw.Text(
+                                  c,
+                                  style: const pw.TextStyle(fontSize: 8),
+                                ),
+                              ),
+                            )
                             .toList();
                       }(),
                     ),
@@ -5046,15 +5835,18 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       );
       final bytes = Uint8List.fromList(await pdf.save());
       if (mounted) {
-        await showPdfActions(context,
-            bytes: bytes,
-            filename:
-                'escala_geral_semanal_${DateTime.now().millisecondsSinceEpoch}.pdf');
+        await showPdfActions(
+          context,
+          bytes: bytes,
+          filename:
+              'escala_geral_semanal_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Erro ao exportar PDF semanal: $e')));
+          SnackBar(content: Text('Erro ao exportar PDF semanal: $e')),
+        );
       }
     }
   }
@@ -5077,11 +5869,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     );
     if (saved == true && mounted) {
       _refreshInstances();
-      ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Escala atualizada com sucesso.'));
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar('Escala atualizada com sucesso.'),
+      );
     }
   }
 
-  Future<void> _deleteInstance(DocumentSnapshot<Map<String, dynamic>> doc) async {
+  Future<void> _deleteInstance(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
     if (!_canDeleteInstanceForData(doc.data() ?? {})) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -5096,10 +5892,21 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Excluir escala?'),
-        content: const Text('Esta escala gerada será removida. Os modelos não são afetados.'),
+        content: const Text(
+          'Esta escala gerada será removida. Os modelos não são afetados.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error), child: const Text('Excluir')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+            child: const Text('Excluir'),
+          ),
         ],
       ),
     );
@@ -5114,10 +5921,15 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       );
       if (mounted) {
         _refreshInstances();
-        ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Escala excluída.'));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(ThemeCleanPremium.successSnackBar('Escala excluída.'));
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao excluir: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao excluir: $e')));
     }
   }
 
@@ -5169,14 +5981,14 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
       await FirestoreWebGuard.runWithWebRecovery(() async {
-        WriteBatch batch = ChurchRepository.batch();
+        YahwehBatch batch = YahwehBatch();
         var ops = 0;
         for (final d in toDelete) {
-          batch.delete(d.reference);
+          batch.deleteDoc(d.reference);
           ops++;
           if (ops >= 450) {
             await batch.commit();
-            batch = ChurchRepository.batch();
+            batch = YahwehBatch();
             ops = 0;
           }
         }
@@ -5196,9 +6008,9 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao excluir em lote: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao excluir em lote: $e')));
       }
     }
   }
@@ -5255,8 +6067,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                 const SizedBox(height: 16),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.filter_alt_rounded,
-                      color: ThemeCleanPremium.primary),
+                  leading: Icon(
+                    Icons.filter_alt_rounded,
+                    color: ThemeCleanPremium.primary,
+                  ),
                   title: const Text('Todas do filtro atual na lista'),
                   subtitle: Text(
                     '$elegiveisVisivel escala(s) elegível(is) no período/departamento selecionados',
@@ -5269,8 +6083,10 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.calendar_month_rounded,
-                      color: ThemeCleanPremium.primary),
+                  leading: Icon(
+                    Icons.calendar_month_rounded,
+                    color: ThemeCleanPremium.primary,
+                  ),
                   title: const Text('Por mês (calendário)…'),
                   subtitle: const Text(
                     'Escolha um dia do mês desejado; todas as escalas daquele mês no departamento filtrado',
@@ -5295,9 +6111,11 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.date_range_rounded,
-                      color: ThemeCleanPremium.primary),
-                  title: const Text('Por ano…'),
+                  leading: Icon(
+                    Icons.date_range_rounded,
+                    color: ThemeCleanPremium.primary,
+                  ),
+                  title: const Text('Por ano?'),
                   subtitle: const Text(
                     'Todas as escalas daquele ano (departamento filtrado)',
                   ),
@@ -5312,7 +6130,8 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
                             return AlertDialog(
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusLg),
+                                  ThemeCleanPremium.radiusLg,
+                                ),
                               ),
                               title: const Text('Excluir escalas do ano'),
                               content: DropdownButtonFormField<int>(
@@ -5358,13 +6177,18 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     );
   }
 
-  static String? _reasonForCpf(Map<String, dynamic> unavailabilityReasons, String cpf) {
+  static String? _reasonForCpf(
+    Map<String, dynamic> unavailabilityReasons,
+    String cpf,
+  ) {
     final norm = _normCpfKeyForFilter(cpf);
     String? fromVal(dynamic val) {
-      if (val is Map && val['reason'] != null) return val['reason'].toString().trim();
+      if (val is Map && val['reason'] != null)
+        return val['reason'].toString().trim();
       if (val is String && val.trim().isNotEmpty) return val.trim();
       return null;
     }
+
     final direct = unavailabilityReasons[cpf];
     final r0 = fromVal(direct);
     if (r0 != null && r0.isNotEmpty) return r0;
@@ -5377,15 +6201,26 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
     return null;
   }
 
-  Future<void> _substituirMembro(BuildContext context, DocumentSnapshot<Map<String, dynamic>> doc, int index) async {
+  Future<void> _substituirMembro(
+    BuildContext context,
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    int index,
+  ) async {
     final data = doc.data() ?? {};
     final deptId = (data['departmentId'] ?? '').toString();
     if (deptId.isEmpty) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Departamento não identificado.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Departamento não identificado.')),
+        );
       return;
     }
-    final cpfs = ((data['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
-    final names = ((data['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
+    final cpfs = ((data['memberCpfs'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
+    final names = ((data['memberNames'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
     if (index < 0 || index >= cpfs.length) return;
     final tid = await _effectiveTidFuture;
     final membersSnap = await _loadScheduleMemberDocs(tid);
@@ -5394,20 +6229,27 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       escDt = (data['date'] as Timestamp?)?.toDate();
     } catch (_) {}
     final escTime = (data['time'] ?? '').toString();
-    final crossHints = await MemberScheduleAvailability.crossDeptConflictHintsByNormCpf(
-      instancesCol: _instancesCol(tid),
-      excludeEscalaDocId: doc.id,
-      calendarDay: escDt ?? DateTime.now(),
-      slotTime: escTime,
-      currentDepartmentId: deptId,
-    );
+    final crossHints =
+        await MemberScheduleAvailability.crossDeptConflictHintsByNormCpf(
+          instancesCol: _instancesCol(tid),
+          excludeEscalaDocId: doc.id,
+          calendarDay: escDt ?? DateTime.now(),
+          slotTime: escTime,
+          currentDepartmentId: deptId,
+        );
     final deptMembers = <Map<String, String>>[];
     for (final m in membersSnap) {
       final d = m.data();
-      final depts = (d['DEPARTAMENTOS'] as List?)?.map((e) => e.toString()).toList() ?? [];
+      final depts =
+          (d['DEPARTAMENTOS'] as List?)?.map((e) => e.toString()).toList() ??
+          [];
       if (!depts.contains(deptId)) continue;
-      final cpf = (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
-      final name = (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? '').toString();
+      final cpf = (d['CPF'] ?? d['cpf'] ?? '').toString().replaceAll(
+        RegExp(r'[^0-9]'),
+        '',
+      );
+      final name = (d['NOME_COMPLETO'] ?? d['nome'] ?? d['name'] ?? '')
+          .toString();
       if (cpf.isEmpty && name.isEmpty) continue;
       final norm = cpf.replaceAll(RegExp(r'[^0-9]'), '');
       final ymds = MemberScheduleAvailability.parseYmdList(
@@ -5420,14 +6262,20 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       }
       final ch = crossHints[norm];
       if (ch != null) subLines.add(ch);
-      deptMembers.add({'cpf': cpf, 'name': name, 'subtitle': subLines.join('\n')});
+      deptMembers.add({
+        'cpf': cpf,
+        'name': name,
+        'subtitle': subLines.join('\n'),
+      });
     }
     final currentCpf = cpfs[index];
     if (!mounted) return;
     final selected = await showDialog<Map<String, String>>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
         title: const Text('Substituir membro'),
         content: SizedBox(
           width: double.maxFinite,
@@ -5439,14 +6287,22 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
               final cpf = m['cpf'] ?? '';
               final name = m['name'] ?? '';
               final subtitle = m['subtitle'] ?? cpf;
-              if (cpf == currentCpf) return ListTile(title: Text('$name (atual)', style: TextStyle(color: Colors.grey.shade600)));
+              if (cpf == currentCpf)
+                return ListTile(
+                  title: Text(
+                    '$name (atual)',
+                    style: TextStyle(color: Colors.grey.shade600),
+                  ),
+                );
               return ListTile(
                 title: Text(name),
                 subtitle: Text(
                   subtitle,
                   style: TextStyle(
                     fontSize: 12,
-                    color: subtitle.contains('Indisponível') || subtitle.contains('Já escalado')
+                    color:
+                        subtitle.contains('Indisponível') ||
+                            subtitle.contains('Já escalado')
                         ? Colors.orange.shade800
                         : Colors.grey.shade600,
                   ),
@@ -5476,28 +6332,58 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       await doc.reference.update(updates);
       if (mounted) {
         _refreshInstances();
-        ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Substituído por $newName. O novo membro verá a escala em "Minha Escala".'));
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar(
+            'Substituído por $newName. O novo membro verá a escala em "Minha Escala".',
+          ),
+        );
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro: $e')));
     }
   }
 
-  Future<void> _excluirMembroDaEscala(BuildContext context, DocumentSnapshot<Map<String, dynamic>> doc, int index) async {
+  Future<void> _excluirMembroDaEscala(
+    BuildContext context,
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    int index,
+  ) async {
     final data = doc.data() ?? {};
-    final cpfs = ((data['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
-    final names = ((data['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
-    final confirmations = Map<String, dynamic>.from((data['confirmations'] as Map<String, dynamic>?) ?? {});
-    final unavailabilityReasons = Map<String, dynamic>.from((data['unavailabilityReasons'] as Map<String, dynamic>?) ?? {});
+    final cpfs = ((data['memberCpfs'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
+    final names = ((data['memberNames'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
+    final confirmations = Map<String, dynamic>.from(
+      (data['confirmations'] as Map<String, dynamic>?) ?? {},
+    );
+    final unavailabilityReasons = Map<String, dynamic>.from(
+      (data['unavailabilityReasons'] as Map<String, dynamic>?) ?? {},
+    );
     if (index < 0 || index >= cpfs.length) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Remover membro da escala?'),
-        content: Text('${index < names.length ? names[index] : cpfs[index]} será removido desta escala.'),
+        content: Text(
+          '${index < names.length ? names[index] : cpfs[index]} será removido desta escala.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.error), child: const Text('Remover')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: ThemeCleanPremium.error,
+            ),
+            child: const Text('Remover'),
+          ),
         ],
       ),
     );
@@ -5518,695 +6404,832 @@ class _SchedulesPageState extends State<SchedulesPage> with SingleTickerProvider
       await doc.reference.update(updates);
       if (mounted) {
         _refreshInstances();
-        ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Membro removido da escala.'));
+        ScaffoldMessenger.of(context).showSnackBar(
+          ThemeCleanPremium.successSnackBar('Membro removido da escala.'),
+        );
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro: $e')));
     }
   }
 
-  // ── Detalhes da escala gerada ──────────────────────────────────────────────
-  void _showInstanceDetail(DocumentSnapshot<Map<String, dynamic>> doc, Color deptColor) {
-    final dataHolder = ValueNotifier<Map<String, dynamic>>(Map<String, dynamic>.from(doc.data() ?? {}));
-    final filterNotifier = ValueNotifier<_InstanceDetailMemberFilter>(_InstanceDetailMemberFilter.todos);
+  // -- Detalhes da escala gerada ----------------------------------------------
+  void _showInstanceDetail(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    Color deptColor,
+  ) {
+    final dataHolder = ValueNotifier<Map<String, dynamic>>(
+      Map<String, dynamic>.from(doc.data() ?? {}),
+    );
+    final filterNotifier = ValueNotifier<_InstanceDetailMemberFilter>(
+      _InstanceDetailMemberFilter.todos,
+    );
     final memberSearchNotifier = ValueNotifier<String>('');
     final docRef = doc.reference;
 
     Navigator.of(context)
         .push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (pageCtx) {
-          return ValueListenableBuilder<Map<String, dynamic>>(
-            valueListenable: dataHolder,
-            builder: (context, data, _) {
-              final title = (data['title'] ?? '').toString();
-              final dept = (data['departmentName'] ?? '').toString();
-              final time = (data['time'] ?? '').toString();
-              final members = EscalaMemberPayload.parseMembers(data);
-              final cpfs = members.map((m) => m.cpf).toList();
-              final names = members.map((m) => m.name).toList();
-              final confirmations = (data['confirmations'] as Map<String, dynamic>?) ?? {};
-              final unavailabilityReasons = (data['unavailabilityReasons'] as Map<String, dynamic>?) ?? {};
-              DateTime? dt;
-              try {
-                dt = (data['date'] as Timestamp).toDate();
-              } catch (_) {}
-              final dateTxt = dt == null
-                  ? ''
-                  : '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
-              final obs = (data['observations'] ?? '').toString().trim();
-              final pageEdge = ThemeCleanPremium.pagePadding(pageCtx);
+          MaterialPageRoute<void>(
+            fullscreenDialog: true,
+            builder: (pageCtx) {
+              return ValueListenableBuilder<Map<String, dynamic>>(
+                valueListenable: dataHolder,
+                builder: (context, data, _) {
+                  final title = (data['title'] ?? '').toString();
+                  final dept = (data['departmentName'] ?? '').toString();
+                  final time = (data['time'] ?? '').toString();
+                  final members = EscalaMemberPayload.parseMembers(data);
+                  final cpfs = members.map((m) => m.cpf).toList();
+                  final names = members.map((m) => m.name).toList();
+                  final confirmations =
+                      (data['confirmations'] as Map<String, dynamic>?) ?? {};
+                  final unavailabilityReasons =
+                      (data['unavailabilityReasons']
+                          as Map<String, dynamic>?) ??
+                      {};
+                  DateTime? dt;
+                  try {
+                    dt = (data['date'] as Timestamp).toDate();
+                  } catch (_) {}
+                  final dateTxt = dt == null
+                      ? ''
+                      : '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
+                  final obs = (data['observations'] ?? '').toString().trim();
+                  final pageEdge = ThemeCleanPremium.pagePadding(pageCtx);
 
-              void closeDetail() => Navigator.pop(pageCtx);
+                  void closeDetail() => Navigator.pop(pageCtx);
 
-              return Scaffold(
-                backgroundColor: ThemeCleanPremium.surfaceVariant,
-                appBar: AppBar(
-                  elevation: 0,
-                  flexibleSpace: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          deptColor,
-                          Color.lerp(deptColor, Colors.white, 0.25)!,
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                  ),
-                  foregroundColor: Colors.white,
-                  leading: IconButton(
-                    tooltip: 'Voltar',
-                    icon: const Icon(Icons.arrow_back_rounded),
-                    onPressed: closeDetail,
-                  ),
-                  title: Text(
-                    title.isEmpty ? 'Detalhe da escala' : title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 17,
-                      letterSpacing: -0.2,
-                    ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: closeDetail,
-                      child: const Text(
-                        'Cancelar',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
+                  return Scaffold(
+                    backgroundColor: ThemeCleanPremium.surfaceVariant,
+                    appBar: AppBar(
+                      elevation: 0,
+                      flexibleSpace: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              deptColor,
+                              Color.lerp(deptColor, Colors.white, 0.25)!,
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
                         ),
                       ),
+                      foregroundColor: Colors.white,
+                      leading: IconButton(
+                        tooltip: 'Voltar',
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        onPressed: closeDetail,
+                      ),
+                      title: Text(
+                        title.isEmpty ? 'Detalhe da escala' : title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 17,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: closeDetail,
+                          child: const Text(
+                            'Cancelar',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                body: SafeArea(
-                  top: false,
-                  child: ValueListenableBuilder<_InstanceDetailMemberFilter>(
-                    valueListenable: filterNotifier,
-                    builder: (context, instanceMemberFilter, _) {
-                      return ValueListenableBuilder<String>(
-                        valueListenable: memberSearchNotifier,
-                        builder: (context, memberSearch, _) {
-                          final searchQ = memberSearch.trim().toLowerCase();
-                          return ListView(
-                            padding: pageEdge.copyWith(top: 16, bottom: 24),
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(
-                                    ThemeCleanPremium.spaceMd),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(
-                                      ThemeCleanPremium.radiusMd),
-                                  boxShadow: ThemeCleanPremium.softUiCardShadow,
-                                  border: Border.all(
-                                    color: deptColor.withValues(alpha: 0.18),
-                                  ),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Container(
-                                          width: 4,
-                                          height: 28,
-                                          decoration: BoxDecoration(
-                                            color: deptColor,
-                                            borderRadius:
-                                                BorderRadius.circular(2),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Text(
-                                            title,
-                                            style: const TextStyle(
-                                              fontSize: 20,
-                                              fontWeight: FontWeight.w800,
-                                              letterSpacing: -0.2,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
+                    body: SafeArea(
+                      top: false,
+                      child: ValueListenableBuilder<_InstanceDetailMemberFilter>(
+                        valueListenable: filterNotifier,
+                        builder: (context, instanceMemberFilter, _) {
+                          return ValueListenableBuilder<String>(
+                            valueListenable: memberSearchNotifier,
+                            builder: (context, memberSearch, _) {
+                              final searchQ = memberSearch.trim().toLowerCase();
+                              return ListView(
+                                padding: pageEdge.copyWith(top: 16, bottom: 24),
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(
+                                      ThemeCleanPremium.spaceMd,
                                     ),
-                                    const SizedBox(height: 10),
-                                    Wrap(
-                                      spacing: 14,
-                                      runSpacing: 8,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(
+                                        ThemeCleanPremium.radiusMd,
+                                      ),
+                                      boxShadow:
+                                          ThemeCleanPremium.softUiCardShadow,
+                                      border: Border.all(
+                                        color: deptColor.withValues(
+                                          alpha: 0.18,
+                                        ),
+                                      ),
+                                    ),
+                                    child: Column(
                                       crossAxisAlignment:
-                                          WrapCrossAlignment.center,
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        if (dateTxt.isNotEmpty) ...[
-                                          Icon(Icons.calendar_today_rounded,
-                                              size: 14,
-                                              color: Colors.grey.shade600),
-                                          Text(dateTxt,
-                                              style: TextStyle(
-                                                  fontSize: 13,
-                                                  color: Colors.grey.shade700)),
-                                        ],
-                                        if (time.isNotEmpty) ...[
-                                          Icon(Icons.access_time_rounded,
-                                              size: 14,
-                                              color: Colors.grey.shade600),
-                                          Text(time,
-                                              style: TextStyle(
-                                                  fontSize: 13,
-                                                  color: Colors.grey.shade700)),
-                                        ],
-                                        if (dept.isNotEmpty) ...[
-                                          Icon(Icons.groups_rounded,
-                                              size: 14, color: deptColor),
-                                          Text(dept,
-                                              style: TextStyle(
-                                                  fontSize: 13,
-                                                  color: deptColor,
-                                                  fontWeight: FontWeight.w700)),
-                                        ],
-                                      ],
-                                    ),
-                                    if (obs.isNotEmpty) ...[
-                                      const SizedBox(height: 12),
-                                      Container(
-                                        width: double.infinity,
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: Colors.blueGrey.shade50,
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                          border: Border.all(
-                                              color: Colors.blueGrey.shade100),
-                                        ),
-                                        child: Row(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                        Row(
                                           children: [
-                                            Icon(Icons.notes_rounded,
-                                                size: 18,
-                                                color:
-                                                    Colors.blueGrey.shade700),
-                                            const SizedBox(width: 8),
+                                            Container(
+                                              width: 4,
+                                              height: 28,
+                                              decoration: BoxDecoration(
+                                                color: deptColor,
+                                                borderRadius:
+                                                    BorderRadius.circular(2),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
                                             Expanded(
                                               child: Text(
-                                                obs,
-                                                style: TextStyle(
-                                                  fontSize: 13,
-                                                  color:
-                                                      Colors.blueGrey.shade900,
-                                                  height: 1.35,
+                                                title,
+                                                style: const TextStyle(
+                                                  fontSize: 20,
+                                                  fontWeight: FontWeight.w800,
+                                                  letterSpacing: -0.2,
                                                 ),
                                               ),
                                             ),
                                           ],
                                         ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Wrap(
-                                spacing: 10,
-                                runSpacing: 10,
-                                alignment: WrapAlignment.start,
-                                children: [
-                                  FilledButton.icon(
-                                    onPressed: () async {
-                                      await _exportEscalaInstancePdf(doc);
-                                    },
-                                    icon: const Icon(
-                                        Icons.picture_as_pdf_rounded,
-                                        size: 20),
-                                    label: const Text('Imprimir PDF'),
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor:
-                                          ThemeCleanPremium.primary,
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 18, vertical: 12),
-                                      minimumSize: const Size(
-                                          0, ThemeCleanPremium.minTouchTarget),
-                                    ),
-                                  ),
-                                  if (_canWrite) ...[
-                                    FilledButton.tonalIcon(
-                                      onPressed: () async {
-                                        closeDetail();
-                                        await _notifySchedulePublished(doc.id);
-                                      },
-                                      icon: const Icon(
-                                          Icons.notifications_active_rounded,
-                                          size: 20),
-                                      label: const Text('Notificar membros'),
-                                      style: FilledButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 16, vertical: 12),
-                                        minimumSize: const Size(
-                                            0, ThemeCleanPremium.minTouchTarget),
-                                      ),
-                                    ),
-                                    OutlinedButton.icon(
-                                      onPressed: () {
-                                        closeDetail();
-                                        _editInstance(doc);
-                                      },
-                                      icon: const Icon(
-                                          Icons.edit_calendar_rounded,
-                                          size: 20),
-                                      label: const Text('Editar escala'),
-                                      style: OutlinedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 16, vertical: 12),
-                                        minimumSize: const Size(
-                                            0, ThemeCleanPremium.minTouchTarget),
-                                      ),
-                                    ),
-                                  ],
-                                  if (_canDeleteInstanceForData(
-                                      doc.data() ?? {})) ...[
-                                    OutlinedButton.icon(
-                                      onPressed: () {
-                                        closeDetail();
-                                        _deleteInstance(doc);
-                                      },
-                                      icon: Icon(Icons.delete_outline_rounded,
-                                          size: 20,
-                                          color: ThemeCleanPremium.error),
-                                      label: Text('Excluir',
-                                          style: TextStyle(
-                                              color: ThemeCleanPremium.error)),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor:
-                                            ThemeCleanPremium.error,
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 16, vertical: 12),
-                                        minimumSize: const Size(
-                                            0, ThemeCleanPremium.minTouchTarget),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-                              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                                stream: () {
-                                  final segs = doc.reference.path.split('/');
-                                  final tid = segs.length >= 2 &&
-                                          segs[0] == 'igrejas'
-                                      ? segs[1]
-                                      : '';
-                                  if (tid.isEmpty) {
-                                    return Stream<
-                                        QuerySnapshot<
-                                            Map<String, dynamic>>>.empty();
-                                  }
-                                  return ChurchUiCollections.escalaTrocas(tid)
-                                      .where('escalaId', isEqualTo: doc.id)
-                                      .watchSafe();
-                                }(),
-                                builder: (context, tSnap) {
-                                  final docs = (tSnap.hasData && !tSnap.hasError)
-                                      ? tSnap.data!.docs
-                                      : <QueryDocumentSnapshot<
-                                          Map<String, dynamic>>>[];
-                                  final concluidas = docs
-                                      .where((x) =>
-                                          (x.data()['status'] ?? '')
-                                              .toString() ==
-                                          'concluida')
-                                      .toList();
-                                  final cpfsSwapNorm = <String>{};
-                                  for (final d in concluidas) {
-                                    final m = d.data();
-                                    for (final key in [
-                                      'solicitanteCpf',
-                                      'alvoCpf'
-                                    ]) {
-                                      final n = _normCpfKeyForFilter(
-                                          (m[key] ?? '').toString());
-                                      if (n.length == 11) cpfsSwapNorm.add(n);
-                                    }
-                                  }
-                                  final pendingLeader = docs
-                                      .where((x) =>
-                                          (x.data()['status'] ?? '')
-                                              .toString() ==
-                                          'pendente')
-                                      .toList();
-                                  final pendingAlvo = docs
-                                      .where((x) =>
-                                          (x.data()['status'] ?? '')
-                                              .toString() ==
-                                          'pendente_alvo')
-                                      .toList();
-                                  final showPending = _canWrite &&
-                                      (pendingLeader.isNotEmpty ||
-                                          pendingAlvo.isNotEmpty);
-                                  return Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (showPending)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                              bottom: 16),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              if (pendingAlvo.isNotEmpty) ...[
-                                                Text(
-                                                  'Trocas aguardando o substituto',
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    fontWeight: FontWeight.w700,
-                                                    color: Colors
-                                                        .blueGrey.shade800,
-                                                  ),
+                                        const SizedBox(height: 10),
+                                        Wrap(
+                                          spacing: 14,
+                                          runSpacing: 8,
+                                          crossAxisAlignment:
+                                              WrapCrossAlignment.center,
+                                          children: [
+                                            if (dateTxt.isNotEmpty) ...[
+                                              Icon(
+                                                Icons.calendar_today_rounded,
+                                                size: 14,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                              Text(
+                                                dateTxt,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: Colors.grey.shade700,
                                                 ),
-                                                const SizedBox(height: 8),
-                                                ...pendingAlvo.map((t) {
-                                                  final td = t.data();
-                                                  final alvo = (td['alvoCpf'] ??
-                                                          '')
-                                                      .toString();
-                                                  return Card(
-                                                    margin:
-                                                        const EdgeInsets.only(
-                                                            bottom: 8),
-                                                    color: Colors
-                                                        .blueGrey.shade50,
-                                                    child: ListTile(
-                                                      leading: Icon(
-                                                          Icons
-                                                              .hourglass_top_rounded,
-                                                          color: Colors
-                                                              .blueGrey
-                                                              .shade600),
-                                                      title: const Text(
-                                                          'Convite enviado ao substituto'),
-                                                      subtitle: Text(
-                                                        'Substituto (CPF): $alvo — quando aceitar no app, a escala atualiza e você recebe aviso.',
-                                                        style: const TextStyle(
-                                                            fontSize: 12),
-                                                      ),
-                                                      isThreeLine: true,
-                                                    ),
-                                                  );
-                                                }),
-                                                if (pendingLeader.isNotEmpty)
-                                                  const SizedBox(height: 12),
-                                              ],
-                                              if (pendingLeader.isNotEmpty) ...[
-                                                Text(
-                                                  'Trocas pendentes (aprovação manual)',
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    fontWeight: FontWeight.w700,
-                                                    color: Colors
-                                                        .deepPurple.shade800,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 8),
-                                                ...pendingLeader.map((t) {
-                                                  final td = t.data();
-                                                  final sol =
-                                                      (td['solicitanteCpf'] ??
-                                                              '')
-                                                          .toString();
-                                                  final alvo = (td['alvoCpf'] ??
-                                                          '')
-                                                      .toString();
-                                                  return Card(
-                                                    margin:
-                                                        const EdgeInsets.only(
-                                                            bottom: 8),
-                                                    child: ListTile(
-                                                      leading: Icon(
-                                                          Icons
-                                                              .swap_horiz_rounded,
-                                                          color: Colors
-                                                              .deepPurple
-                                                              .shade600),
-                                                      title: const Text(
-                                                          'Pedido de troca de escala'),
-                                                      subtitle: Text(
-                                                        'Solicitante: $sol\nSubstituto: $alvo',
-                                                        style: const TextStyle(
-                                                            fontSize: 12),
-                                                      ),
-                                                      isThreeLine: true,
-                                                      trailing: Row(
-                                                        mainAxisSize:
-                                                            MainAxisSize.min,
-                                                        children: [
-                                                          IconButton(
-                                                            tooltip: 'Aprovar',
-                                                            icon: const Icon(
-                                                                Icons
-                                                                    .check_circle_rounded,
-                                                                color: Color(
-                                                                    0xFF16A34A)),
-                                                            onPressed: () =>
-                                                                _resolverTrocaEscala(
-                                                                    aprovar:
-                                                                        true,
-                                                                    troca: t),
-                                                          ),
-                                                          IconButton(
-                                                            tooltip: 'Recusar',
-                                                            icon: const Icon(
-                                                                Icons
-                                                                    .cancel_rounded,
-                                                                color: Color(
-                                                                    0xFFDC2626)),
-                                                            onPressed: () =>
-                                                                _resolverTrocaEscala(
-                                                                    aprovar:
-                                                                        false,
-                                                                    troca: t),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    ),
-                                                  );
-                                                }),
-                                              ],
+                                              ),
                                             ],
-                                          ),
+                                            if (time.isNotEmpty) ...[
+                                              Icon(
+                                                Icons.access_time_rounded,
+                                                size: 14,
+                                                color: Colors.grey.shade600,
+                                              ),
+                                              Text(
+                                                time,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: Colors.grey.shade700,
+                                                ),
+                                              ),
+                                            ],
+                                            if (dept.isNotEmpty) ...[
+                                              Icon(
+                                                Icons.groups_rounded,
+                                                size: 14,
+                                                color: deptColor,
+                                              ),
+                                              Text(
+                                                dept,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: deptColor,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ],
+                                          ],
                                         ),
-                                      _InteractiveStatusSummary(
-                                        confirmations: confirmations,
-                                        memberCpfs: cpfs,
-                                        trocasRealizadasCount:
-                                            concluidas.length,
-                                        selected: instanceMemberFilter,
-                                        onSelect: (f) =>
-                                            filterNotifier.value = f,
-                                      ),
-                                      const SizedBox(height: 16),
-                                      TextField(
-                                        onChanged: (v) =>
-                                            memberSearchNotifier.value = v,
-                                        decoration: InputDecoration(
-                                          hintText:
-                                              'Buscar membro por nome ou CPF…',
-                                          prefixIcon: Icon(
-                                            Icons.search_rounded,
-                                            color: ThemeCleanPremium.primary
-                                                .withValues(alpha: 0.75),
-                                          ),
-                                          suffixIcon: searchQ.isNotEmpty
-                                              ? IconButton(
-                                                  icon: const Icon(
-                                                      Icons.close_rounded,
-                                                      size: 20),
-                                                  onPressed: () =>
-                                                      memberSearchNotifier
-                                                          .value = '',
-                                                )
-                                              : null,
-                                          filled: true,
-                                          fillColor: Colors.white,
-                                          border: OutlineInputBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(
-                                                    ThemeCleanPremium
-                                                        .radiusSm),
-                                            borderSide: BorderSide.none,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Row(
-                                        children: [
-                                          Text(
-                                            'Membros escalados',
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w800,
-                                              color:
-                                                  ThemeCleanPremium.onSurface,
+                                        if (obs.isNotEmpty) ...[
+                                          const SizedBox(height: 12),
+                                          Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.all(12),
+                                            decoration: BoxDecoration(
+                                              color: Colors.blueGrey.shade50,
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: Colors.blueGrey.shade100,
+                                              ),
                                             ),
-                                          ),
-                                          const Spacer(),
-                                          Text(
-                                            '${members.length} total',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w600,
-                                              color: Colors.grey.shade600,
+                                            child: Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Icon(
+                                                  Icons.notes_rounded,
+                                                  size: 18,
+                                                  color:
+                                                      Colors.blueGrey.shade700,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: Text(
+                                                    obs,
+                                                    style: TextStyle(
+                                                      fontSize: 13,
+                                                      color: Colors
+                                                          .blueGrey
+                                                          .shade900,
+                                                      height: 1.35,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         ],
-                                      ),
-                                      const SizedBox(height: 10),
-                                      for (var i = 0; i < members.length; i++)
-                                        if (_memberMatchesInstanceDetailFilter(
-                                              instanceMemberFilter,
-                                              members[i].cpf,
-                                              confirmations,
-                                              cpfsNormInCompletedSwaps:
-                                                  cpfsSwapNorm,
-                                            ) &&
-                                            (searchQ.isEmpty ||
-                                                members[i]
-                                                    .name
-                                                    .toLowerCase()
-                                                    .contains(searchQ) ||
-                                                members[i]
-                                                    .cpf
-                                                    .replaceAll(
-                                                        RegExp(r'[^0-9]'), '')
-                                                    .contains(searchQ.replaceAll(
-                                                        RegExp(r'[^0-9]'),
-                                                        ''))))
-                                          Builder(
-                                            builder: (context) {
-                                              final memberIndex = i;
-                                              final member = members[memberIndex];
-                                              final cpfKey = member.cpf;
-                                              return Padding(
-                                                padding: const EdgeInsets.only(
-                                                    bottom: 8),
-                                                child: _MemberConfirmationTile(
-                                                  cpf: cpfKey,
-                                                  name: member.name,
-                                                  status: EscalaMemberPayload
-                                                      .confirmationStatus(
-                                                    data,
-                                                    member,
-                                                  ),
-                                                  unavailabilityReason:
-                                                      _reasonForCpf(
-                                                    unavailabilityReasons,
-                                                    cpfKey,
-                                                  ),
-                                                  canWrite: _canWrite,
-                                                  onChangeStatus:
-                                                      (newStatus) async {
-                                                    final prev =
-                                                        Map<String, dynamic>.from(
-                                                            dataHolder.value);
-                                                    dataHolder.value =
-                                                        EscalaMemberPayload
-                                                            .applyConfirmationOptimistic(
-                                                      data: prev,
-                                                      member: member,
-                                                      status: newStatus,
-                                                    );
-                                                    if (context.mounted) {
-                                                      ScaffoldMessenger.of(
-                                                              context)
-                                                          .showSnackBar(
-                                                        ThemeCleanPremium
-                                                            .successSnackBar(
-                                                          'Status atualizado.',
-                                                        ),
-                                                      );
-                                                    }
-                                                    try {
-                                                      await docRef.update(
-                                                        EscalaMemberPayload
-                                                            .buildConfirmationUpdates(
-                                                          member: member,
-                                                          status: newStatus,
-                                                        ),
-                                                      );
-                                                    } catch (e) {
-                                                      dataHolder.value = prev;
-                                                      if (context.mounted) {
-                                                        ScaffoldMessenger.of(
-                                                                context)
-                                                            .showSnackBar(
-                                                          SnackBar(
-                                                            content: Text(
-                                                                'Erro ao gravar: $e'),
-                                                            backgroundColor:
-                                                                ThemeCleanPremium
-                                                                    .error,
-                                                          ),
-                                                        );
-                                                      }
-                                                    }
-                                                  },
-                                                  onSubstituir: _canWrite
-                                                      ? () {
-                                                          closeDetail();
-                                                          _substituirMembro(
-                                                              context,
-                                                              doc,
-                                                              memberIndex);
-                                                        }
-                                                      : null,
-                                                  onExcluirMembro: _canWrite
-                                                      ? () {
-                                                          closeDetail();
-                                                          _excluirMembroDaEscala(
-                                                              context,
-                                                              doc,
-                                                              memberIndex);
-                                                        }
-                                                      : null,
-                                                ),
-                                              );
-                                            },
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Wrap(
+                                    spacing: 10,
+                                    runSpacing: 10,
+                                    alignment: WrapAlignment.start,
+                                    children: [
+                                      FilledButton.icon(
+                                        onPressed: () async {
+                                          await _exportEscalaInstancePdf(doc);
+                                        },
+                                        icon: const Icon(
+                                          Icons.picture_as_pdf_rounded,
+                                          size: 20,
+                                        ),
+                                        label: const Text('Imprimir PDF'),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor:
+                                              ThemeCleanPremium.primary,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 18,
+                                            vertical: 12,
                                           ),
+                                          minimumSize: const Size(
+                                            0,
+                                            ThemeCleanPremium.minTouchTarget,
+                                          ),
+                                        ),
+                                      ),
+                                      if (_canWrite) ...[
+                                        FilledButton.tonalIcon(
+                                          onPressed: () async {
+                                            closeDetail();
+                                            await _notifySchedulePublished(
+                                              doc.id,
+                                            );
+                                          },
+                                          icon: const Icon(
+                                            Icons.notifications_active_rounded,
+                                            size: 20,
+                                          ),
+                                          label: const Text(
+                                            'Notificar membros',
+                                          ),
+                                          style: FilledButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 12,
+                                            ),
+                                            minimumSize: const Size(
+                                              0,
+                                              ThemeCleanPremium.minTouchTarget,
+                                            ),
+                                          ),
+                                        ),
+                                        OutlinedButton.icon(
+                                          onPressed: () {
+                                            closeDetail();
+                                            _editInstance(doc);
+                                          },
+                                          icon: const Icon(
+                                            Icons.edit_calendar_rounded,
+                                            size: 20,
+                                          ),
+                                          label: const Text('Editar escala'),
+                                          style: OutlinedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 12,
+                                            ),
+                                            minimumSize: const Size(
+                                              0,
+                                              ThemeCleanPremium.minTouchTarget,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                      if (_canDeleteInstanceForData(
+                                        doc.data() ?? {},
+                                      )) ...[
+                                        OutlinedButton.icon(
+                                          onPressed: () {
+                                            closeDetail();
+                                            _deleteInstance(doc);
+                                          },
+                                          icon: Icon(
+                                            Icons.delete_outline_rounded,
+                                            size: 20,
+                                            color: ThemeCleanPremium.error,
+                                          ),
+                                          label: Text(
+                                            'Excluir',
+                                            style: TextStyle(
+                                              color: ThemeCleanPremium.error,
+                                            ),
+                                          ),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor:
+                                                ThemeCleanPremium.error,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 12,
+                                            ),
+                                            minimumSize: const Size(
+                                              0,
+                                              ThemeCleanPremium.minTouchTarget,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ],
-                                  );
-                                },
-                              ),
-                            ],
+                                  ),
+                                  const SizedBox(height: 16),
+                                  StreamBuilder<
+                                    QuerySnapshot<Map<String, dynamic>>
+                                  >(
+                                    stream: () {
+                                      final segs = doc.reference.path.split(
+                                        '/',
+                                      );
+                                      final tid =
+                                          segs.length >= 2 &&
+                                              segs[0] == 'igrejas'
+                                          ? segs[1]
+                                          : '';
+                                      if (tid.isEmpty) {
+                                        return Stream<
+                                          QuerySnapshot<Map<String, dynamic>>
+                                        >.empty();
+                                      }
+                                      return ChurchUiCollections.escalaTrocas(
+                                            tid,
+                                          )
+                                          .where('escalaId', isEqualTo: doc.id)
+                                          .watchSafe();
+                                    }(),
+                                    builder: (context, tSnap) {
+                                      final docs =
+                                          (tSnap.hasData && !tSnap.hasError)
+                                          ? tSnap.data!.docs
+                                          : <
+                                              QueryDocumentSnapshot<
+                                                Map<String, dynamic>
+                                              >
+                                            >[];
+                                      final concluidas = docs
+                                          .where(
+                                            (x) =>
+                                                (x.data()['status'] ?? '')
+                                                    .toString() ==
+                                                'concluida',
+                                          )
+                                          .toList();
+                                      final cpfsSwapNorm = <String>{};
+                                      for (final d in concluidas) {
+                                        final m = d.data();
+                                        for (final key in [
+                                          'solicitanteCpf',
+                                          'alvoCpf',
+                                        ]) {
+                                          final n = _normCpfKeyForFilter(
+                                            (m[key] ?? '').toString(),
+                                          );
+                                          if (n.length == 11)
+                                            cpfsSwapNorm.add(n);
+                                        }
+                                      }
+                                      final pendingLeader = docs
+                                          .where(
+                                            (x) =>
+                                                (x.data()['status'] ?? '')
+                                                    .toString() ==
+                                                'pendente',
+                                          )
+                                          .toList();
+                                      final pendingAlvo = docs
+                                          .where(
+                                            (x) =>
+                                                (x.data()['status'] ?? '')
+                                                    .toString() ==
+                                                'pendente_alvo',
+                                          )
+                                          .toList();
+                                      final showPending =
+                                          _canWrite &&
+                                          (pendingLeader.isNotEmpty ||
+                                              pendingAlvo.isNotEmpty);
+                                      return Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          if (showPending)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                bottom: 16,
+                                              ),
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  if (pendingAlvo
+                                                      .isNotEmpty) ...[
+                                                    Text(
+                                                      'Trocas aguardando o substituto',
+                                                      style: TextStyle(
+                                                        fontSize: 14,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                        color: Colors
+                                                            .blueGrey
+                                                            .shade800,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 8),
+                                                    ...pendingAlvo.map((t) {
+                                                      final td = t.data();
+                                                      final alvo =
+                                                          (td['alvoCpf'] ?? '')
+                                                              .toString();
+                                                      return Card(
+                                                        margin:
+                                                            const EdgeInsets.only(
+                                                              bottom: 8,
+                                                            ),
+                                                        color: Colors
+                                                            .blueGrey
+                                                            .shade50,
+                                                        child: ListTile(
+                                                          leading: Icon(
+                                                            Icons
+                                                                .hourglass_top_rounded,
+                                                            color: Colors
+                                                                .blueGrey
+                                                                .shade600,
+                                                          ),
+                                                          title: const Text(
+                                                            'Convite enviado ao substituto',
+                                                          ),
+                                                          subtitle: Text(
+                                                        'Substituto (CPF): $alvo — quando aceitar no app, a escala atualiza e você recebe aviso.',
+                                                            style:
+                                                                const TextStyle(
+                                                                  fontSize: 12,
+                                                                ),
+                                                          ),
+                                                          isThreeLine: true,
+                                                        ),
+                                                      );
+                                                    }),
+                                                    if (pendingLeader
+                                                        .isNotEmpty)
+                                                      const SizedBox(
+                                                        height: 12,
+                                                      ),
+                                                  ],
+                                                  if (pendingLeader
+                                                      .isNotEmpty) ...[
+                                                    Text(
+                                                  'Trocas pendentes (aprovação manual)',
+                                                      style: TextStyle(
+                                                        fontSize: 14,
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                        color: Colors
+                                                            .deepPurple
+                                                            .shade800,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 8),
+                                                    ...pendingLeader.map((t) {
+                                                      final td = t.data();
+                                                      final sol =
+                                                          (td['solicitanteCpf'] ??
+                                                                  '')
+                                                              .toString();
+                                                      final alvo =
+                                                          (td['alvoCpf'] ?? '')
+                                                              .toString();
+                                                      return Card(
+                                                        margin:
+                                                            const EdgeInsets.only(
+                                                              bottom: 8,
+                                                            ),
+                                                        child: ListTile(
+                                                          leading: Icon(
+                                                            Icons
+                                                                .swap_horiz_rounded,
+                                                            color: Colors
+                                                                .deepPurple
+                                                                .shade600,
+                                                          ),
+                                                          title: const Text(
+                                                            'Pedido de troca de escala',
+                                                          ),
+                                                          subtitle: Text(
+                                                            'Solicitante: $sol\nSubstituto: $alvo',
+                                                            style:
+                                                                const TextStyle(
+                                                                  fontSize: 12,
+                                                                ),
+                                                          ),
+                                                          isThreeLine: true,
+                                                          trailing: Row(
+                                                            mainAxisSize:
+                                                                MainAxisSize
+                                                                    .min,
+                                                            children: [
+                                                              IconButton(
+                                                                tooltip:
+                                                                    'Aprovar',
+                                                                icon: const Icon(
+                                                                  Icons
+                                                                      .check_circle_rounded,
+                                                                  color: Color(
+                                                                    0xFF16A34A,
+                                                                  ),
+                                                                ),
+                                                                onPressed: () =>
+                                                                    _resolverTrocaEscala(
+                                                                      aprovar:
+                                                                          true,
+                                                                      troca: t,
+                                                                    ),
+                                                              ),
+                                                              IconButton(
+                                                                tooltip:
+                                                                    'Recusar',
+                                                                icon: const Icon(
+                                                                  Icons
+                                                                      .cancel_rounded,
+                                                                  color: Color(
+                                                                    0xFFDC2626,
+                                                                  ),
+                                                                ),
+                                                                onPressed: () =>
+                                                                    _resolverTrocaEscala(
+                                                                      aprovar:
+                                                                          false,
+                                                                      troca: t,
+                                                                    ),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        ),
+                                                      );
+                                                    }),
+                                                  ],
+                                                ],
+                                              ),
+                                            ),
+                                          _InteractiveStatusSummary(
+                                            confirmations: confirmations,
+                                            memberCpfs: cpfs,
+                                            trocasRealizadasCount:
+                                                concluidas.length,
+                                            selected: instanceMemberFilter,
+                                            onSelect: (f) =>
+                                                filterNotifier.value = f,
+                                          ),
+                                          const SizedBox(height: 16),
+                                          TextField(
+                                            onChanged: (v) =>
+                                                memberSearchNotifier.value = v,
+                                            decoration: InputDecoration(
+                                              hintText:
+                                                  'Buscar membro por nome ou CPF?',
+                                              prefixIcon: Icon(
+                                                Icons.search_rounded,
+                                                color: ThemeCleanPremium.primary
+                                                    .withValues(alpha: 0.75),
+                                              ),
+                                              suffixIcon: searchQ.isNotEmpty
+                                                  ? IconButton(
+                                                      icon: const Icon(
+                                                        Icons.close_rounded,
+                                                        size: 20,
+                                                      ),
+                                                      onPressed: () =>
+                                                          memberSearchNotifier
+                                                                  .value =
+                                                              '',
+                                                    )
+                                                  : null,
+                                              filled: true,
+                                              fillColor: Colors.white,
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                      ThemeCleanPremium
+                                                          .radiusSm,
+                                                    ),
+                                                borderSide: BorderSide.none,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Row(
+                                            children: [
+                                              Text(
+                                                'Membros escalados',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: ThemeCleanPremium
+                                                      .onSurface,
+                                                ),
+                                              ),
+                                              const Spacer(),
+                                              Text(
+                                                '${members.length} total',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.grey.shade600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 10),
+                                          for (
+                                            var i = 0;
+                                            i < members.length;
+                                            i++
+                                          )
+                                            if (_memberMatchesInstanceDetailFilter(
+                                                  instanceMemberFilter,
+                                                  members[i].cpf,
+                                                  confirmations,
+                                                  cpfsNormInCompletedSwaps:
+                                                      cpfsSwapNorm,
+                                                ) &&
+                                                (searchQ.isEmpty ||
+                                                    members[i].name
+                                                        .toLowerCase()
+                                                        .contains(searchQ) ||
+                                                    members[i].cpf
+                                                        .replaceAll(
+                                                          RegExp(r'[^0-9]'),
+                                                          '',
+                                                        )
+                                                        .contains(
+                                                          searchQ.replaceAll(
+                                                            RegExp(r'[^0-9]'),
+                                                            '',
+                                                          ),
+                                                        )))
+                                              Builder(
+                                                builder: (context) {
+                                                  final memberIndex = i;
+                                                  final member =
+                                                      members[memberIndex];
+                                                  final cpfKey = member.cpf;
+                                                  return Padding(
+                                                    padding:
+                                                        const EdgeInsets.only(
+                                                          bottom: 8,
+                                                        ),
+                                                    child: _MemberConfirmationTile(
+                                                      cpf: cpfKey,
+                                                      name: member.name,
+                                                      status:
+                                                          EscalaMemberPayload.confirmationStatus(
+                                                            data,
+                                                            member,
+                                                          ),
+                                                      unavailabilityReason:
+                                                          _reasonForCpf(
+                                                            unavailabilityReasons,
+                                                            cpfKey,
+                                                          ),
+                                                      canWrite: _canWrite,
+                                                      onChangeStatus: (newStatus) async {
+                                                        final prev =
+                                                            Map<
+                                                              String,
+                                                              dynamic
+                                                            >.from(
+                                                              dataHolder.value,
+                                                            );
+                                                        dataHolder.value =
+                                                            EscalaMemberPayload.applyConfirmationOptimistic(
+                                                              data: prev,
+                                                              member: member,
+                                                              status: newStatus,
+                                                            );
+                                                        if (context.mounted) {
+                                                          ScaffoldMessenger.of(
+                                                            context,
+                                                          ).showSnackBar(
+                                                            ThemeCleanPremium.successSnackBar(
+                                                              'Status atualizado.',
+                                                            ),
+                                                          );
+                                                        }
+                                                        try {
+                                                          await docRef.update(
+                                                            EscalaMemberPayload.buildConfirmationUpdates(
+                                                              member: member,
+                                                              status: newStatus,
+                                                            ),
+                                                          );
+                                                        } catch (e) {
+                                                          dataHolder.value =
+                                                              prev;
+                                                          if (context.mounted) {
+                                                            ScaffoldMessenger.of(
+                                                              context,
+                                                            ).showSnackBar(
+                                                              SnackBar(
+                                                                content: Text(
+                                                                  'Erro ao gravar: $e',
+                                                                ),
+                                                                backgroundColor:
+                                                                    ThemeCleanPremium
+                                                                        .error,
+                                                              ),
+                                                            );
+                                                          }
+                                                        }
+                                                      },
+                                                      onSubstituir: _canWrite
+                                                          ? () {
+                                                              closeDetail();
+                                                              _substituirMembro(
+                                                                context,
+                                                                doc,
+                                                                memberIndex,
+                                                              );
+                                                            }
+                                                          : null,
+                                                      onExcluirMembro: _canWrite
+                                                          ? () {
+                                                              closeDetail();
+                                                              _excluirMembroDaEscala(
+                                                                context,
+                                                                doc,
+                                                                memberIndex,
+                                                              );
+                                                            }
+                                                          : null,
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                        ],
+                                      );
+                                    },
+                                  ),
+                                ],
+                              );
+                            },
                           );
                         },
-                      );
-                    },
-                  ),
-                ),
+                      ),
+                    ),
+                  );
+                },
               );
             },
-          );
-        },
-      ),
-    )
+          ),
+        )
         .whenComplete(() {
-      filterNotifier.dispose();
-      dataHolder.dispose();
-      memberSearchNotifier.dispose();
-    });
+          filterNotifier.dispose();
+          dataHolder.dispose();
+          memberSearchNotifier.dispose();
+        });
   }
-
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Calendário (table_calendar) — aba Escalas Geradas
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _SchedulesCalendarPanel extends StatelessWidget {
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
@@ -6220,11 +7243,11 @@ class _SchedulesCalendarPanel extends StatelessWidget {
   final void Function(DateTime selected, DateTime focused) onDaySelected;
   final void Function(DateTime focused) onCalendarPageChanged;
   final void Function(DocumentSnapshot<Map<String, dynamic>> doc, Color color)
-      onOpenDetail;
+  onOpenDetail;
   final Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc)
-      onEdit;
+  onEdit;
   final Future<void> Function(DocumentSnapshot<Map<String, dynamic>> doc)
-      onDelete;
+  onDelete;
 
   const _SchedulesCalendarPanel({
     required this.docs,
@@ -6242,7 +7265,9 @@ class _SchedulesCalendarPanel extends StatelessWidget {
     required this.onDelete,
   });
 
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> _eventsForDay(DateTime day) {
+  List<QueryDocumentSnapshot<Map<String, dynamic>>> _eventsForDay(
+    DateTime day,
+  ) {
     return docs.where((d) {
       DateTime? dt;
       try {
@@ -6270,7 +7295,11 @@ class _SchedulesCalendarPanel extends StatelessWidget {
     return out;
   }
 
-  void _onCalendarDayPicked(BuildContext context, DateTime selected, DateTime focused) {
+  void _onCalendarDayPicked(
+    BuildContext context,
+    DateTime selected,
+    DateTime focused,
+  ) {
     onDaySelected(selected, focused);
     final ev = _eventsForDay(selected);
     if (ev.isEmpty) return;
@@ -6363,10 +7392,11 @@ class _SchedulesCalendarPanel extends StatelessWidget {
                   itemBuilder: (_, i) {
                     final esc = events[i];
                     final deptIdx = allDepts.indexWhere(
-                      (x) => x.id == (esc.data()['departmentId'] ?? '').toString(),
+                      (x) =>
+                          x.id == (esc.data()['departmentId'] ?? '').toString(),
                     );
-                    final deptIdInst =
-                        (esc.data()['departmentId'] ?? '').toString();
+                    final deptIdInst = (esc.data()['departmentId'] ?? '')
+                        .toString();
                     final canMutate =
                         canWriteFull || managedDeptIds.contains(deptIdInst);
                     final col = colorForDept(deptIdx.clamp(0, 99));
@@ -6416,95 +7446,98 @@ class _SchedulesCalendarPanel extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            border: Border.all(color: const Color(0xFFF1F5F9)),
-            boxShadow: ThemeCleanPremium.softUiCardShadow,
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            child: Builder(
-              builder: (context) {
-                final dayColors = <String, Color>{};
-                final dayCounts = <String, int>{};
-                for (final d in docs) {
-                  DateTime? dt;
-                  try {
-                    dt = (d.data()['date'] as Timestamp?)?.toDate();
-                  } catch (_) {}
-                  if (dt == null) continue;
-                  final key = YahwehMonthCalendar.keyFor(dt);
-                  dayCounts[key] = (dayCounts[key] ?? 0) + 1;
-                  if (!dayColors.containsKey(key)) {
-                    final deptIdx = allDepts.indexWhere((x) =>
-                        x.id == (d.data()['departmentId'] ?? '').toString());
-                    dayColors[key] = colorForDept(deptIdx.clamp(0, 99));
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              border: Border.all(color: const Color(0xFFF1F5F9)),
+              boxShadow: ThemeCleanPremium.softUiCardShadow,
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+              child: Builder(
+                builder: (context) {
+                  final dayColors = <String, Color>{};
+                  final dayCounts = <String, int>{};
+                  for (final d in docs) {
+                    DateTime? dt;
+                    try {
+                      dt = (d.data()['date'] as Timestamp?)?.toDate();
+                    } catch (_) {}
+                    if (dt == null) continue;
+                    final key = YahwehMonthCalendar.keyFor(dt);
+                    dayCounts[key] = (dayCounts[key] ?? 0) + 1;
+                    if (!dayColors.containsKey(key)) {
+                      final deptIdx = allDepts.indexWhere(
+                        (x) =>
+                            x.id == (d.data()['departmentId'] ?? '').toString(),
+                      );
+                      dayColors[key] = colorForDept(deptIdx.clamp(0, 99));
+                    }
                   }
-                }
-                return YahwehMonthCalendar(
-                  visibleMonth: DateTime(focusedDay.year, focusedDay.month),
-                  selectedDay: selectedDay,
-                  dayColors: dayColors,
-                  dayCounts: dayCounts,
-                  onMonthDelta: (delta) => onCalendarPageChanged(
-                      DateTime(focusedDay.year, focusedDay.month + delta)),
-                  onDayTap: (day) => _onCalendarDayPicked(context, day, day),
-                );
-              },
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          'Agenda ministerial — dia selecionado',
-          style: TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w800,
-            color: Colors.grey.shade800,
-          ),
-        ),
-        const SizedBox(height: 10),
-        if (dayEvents.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text(
-              'Nenhuma escala neste dia no período filtrado.',
-              style: TextStyle(color: Colors.grey.shade600),
-            ),
-          )
-        else
-          ...dayEvents.map((esc) {
-            final deptIdx = allDepts.indexWhere(
-                (x) => x.id == (esc.data()['departmentId'] ?? '').toString());
-            final deptIdInst =
-                (esc.data()['departmentId'] ?? '').toString();
-            final canMutate =
-                canWriteFull || managedDeptIds.contains(deptIdInst);
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _InstanceCard(
-                doc: esc,
-                deptColor: colorForDept(deptIdx.clamp(0, 99)),
-                currentCpf: currentCpf,
-                canWrite: canMutate,
-                onTap: () =>
-                    onOpenDetail(esc, colorForDept(deptIdx.clamp(0, 99))),
-                onEdit: canMutate ? () => onEdit(esc) : null,
-                onDelete: canMutate ? () => onDelete(esc) : null,
+                  return YahwehMonthCalendar(
+                    visibleMonth: DateTime(focusedDay.year, focusedDay.month),
+                    selectedDay: selectedDay,
+                    dayColors: dayColors,
+                    dayCounts: dayCounts,
+                    onMonthDelta: (delta) => onCalendarPageChanged(
+                      DateTime(focusedDay.year, focusedDay.month + delta),
+                    ),
+                    onDayTap: (day) => _onCalendarDayPicked(context, day, day),
+                  );
+                },
               ),
-            );
-          }),
-      ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Agenda ministerial ? dia selecionado',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: Colors.grey.shade800,
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (dayEvents.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Text(
+              'Nenhuma escala neste dia no período filtrado.',
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+            )
+          else
+            ...dayEvents.map((esc) {
+              final deptIdx = allDepts.indexWhere(
+                (x) => x.id == (esc.data()['departmentId'] ?? '').toString(),
+              );
+              final deptIdInst = (esc.data()['departmentId'] ?? '').toString();
+              final canMutate =
+                  canWriteFull || managedDeptIds.contains(deptIdInst);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _InstanceCard(
+                  doc: esc,
+                  deptColor: colorForDept(deptIdx.clamp(0, 99)),
+                  currentCpf: currentCpf,
+                  canWrite: canMutate,
+                  onTap: () =>
+                      onOpenDetail(esc, colorForDept(deptIdx.clamp(0, 99))),
+                  onEdit: canMutate ? () => onEdit(esc) : null,
+                  onDelete: canMutate ? () => onDelete(esc) : null,
+                ),
+              );
+            }),
+        ],
       ),
     );
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Template Card Premium
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _TemplateCard extends StatelessWidget {
   final DocumentSnapshot<Map<String, dynamic>> doc;
@@ -6548,7 +7581,8 @@ class _TemplateCard extends StatelessWidget {
     final time = (m['time'] ?? '').toString();
     final cpfs = ((m['memberCpfs'] as List?) ?? []);
     final names = ((m['memberNames'] as List?) ?? []);
-    final recLabel = {
+    final recLabel =
+        {
           'daily': 'Diário',
           'weekly': 'Semanal',
           'monthly': 'Mensal',
@@ -6568,10 +7602,7 @@ class _TemplateCard extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                Colors.white,
-                deptColor.withValues(alpha: 0.06),
-              ],
+              colors: [Colors.white, deptColor.withValues(alpha: 0.06)],
             ),
             border: Border.all(color: deptColor.withValues(alpha: 0.16)),
             boxShadow: [
@@ -6597,7 +7628,11 @@ class _TemplateCard extends StatelessWidget {
                         gradient: LinearGradient(
                           colors: [
                             deptColor,
-                            Color.lerp(deptColor, const Color(0xFF0F172A), 0.25)!,
+                            Color.lerp(
+                              deptColor,
+                              const Color(0xFF0F172A),
+                              0.25,
+                            )!,
                           ],
                         ),
                         borderRadius: BorderRadius.circular(14),
@@ -6680,9 +7715,9 @@ class _TemplateCard extends StatelessWidget {
                       child: Text(
                         names.isNotEmpty
                             ? names.take(3).join(', ') +
-                                (names.length > 3
-                                    ? ' +${names.length - 3}'
-                                    : '')
+                                  (names.length > 3
+                                      ? ' +${names.length - 3}'
+                                      : '')
                             : '${cpfs.length} membro(s)',
                         style: TextStyle(
                           fontSize: 12,
@@ -6719,9 +7754,9 @@ class _TemplateCard extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Instance Card Premium
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _InstanceCard extends StatelessWidget {
   final DocumentSnapshot<Map<String, dynamic>> doc;
@@ -6753,12 +7788,20 @@ class _InstanceCard extends StatelessWidget {
     final title = (m['title'] ?? '').toString();
     final dept = (m['departmentName'] ?? '').toString();
     final time = (m['time'] ?? '').toString();
-    final cpfs = ((m['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
-    final names = ((m['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
+    final cpfs = ((m['memberCpfs'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
+    final names = ((m['memberNames'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
     final confirmations = (m['confirmations'] as Map<String, dynamic>?) ?? {};
     DateTime? dt;
-    try { dt = (m['date'] as Timestamp).toDate(); } catch (_) {}
-    final dateTxt = dt == null ? '' : '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}';
+    try {
+      dt = (m['date'] as Timestamp).toDate();
+    } catch (_) {}
+    final dateTxt = dt == null
+        ? ''
+        : '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}';
     final isPast = dt != null && dt.isBefore(DateTime.now());
 
     int confirmed = 0, unavailable = 0, faltaNj = 0;
@@ -6796,15 +7839,15 @@ class _InstanceCard extends StatelessWidget {
                     end: Alignment.centerRight,
                   )
                 : (!isPast
-                    ? LinearGradient(
-                        colors: [
-                          Colors.white,
-                          deptColor.withValues(alpha: 0.04),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      )
-                    : null),
+                      ? LinearGradient(
+                          colors: [
+                            Colors.white,
+                            deptColor.withValues(alpha: 0.04),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : null),
             color: selectionMode && selected
                 ? null
                 : (isPast ? Colors.grey.shade50 : null),
@@ -6835,9 +7878,15 @@ class _InstanceCard extends StatelessWidget {
                     end: Alignment.bottomCenter,
                     colors: [deptColor, deptColor.withValues(alpha: 0.75)],
                   ),
-                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(ThemeCleanPremium.radiusLg)),
+                  borderRadius: const BorderRadius.horizontal(
+                    left: Radius.circular(ThemeCleanPremium.radiusLg),
+                  ),
                   boxShadow: [
-                    BoxShadow(color: deptColor.withValues(alpha: 0.35), blurRadius: 8, offset: const Offset(2, 0)),
+                    BoxShadow(
+                      color: deptColor.withValues(alpha: 0.35),
+                      blurRadius: 8,
+                      offset: const Offset(2, 0),
+                    ),
                   ],
                 ),
               ),
@@ -6855,38 +7904,103 @@ class _InstanceCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(children: [
-                        Expanded(child: Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: isPast ? Colors.grey.shade500 : ThemeCleanPremium.onSurface))),
-                        if (canWrite && !selectionMode && (onEdit != null || onDelete != null))
-                          PopupMenuButton<String>(
-                            onSelected: (v) {
-                              if (v == 'edit') onEdit?.call();
-                              if (v == 'delete') onDelete?.call();
-                            },
-                            itemBuilder: (_) => [
-                              if (onEdit != null) const PopupMenuItem(value: 'edit', child: Text('Editar escala')),
-                              if (onDelete != null) PopupMenuItem(value: 'delete', child: Text('Excluir', style: TextStyle(color: ThemeCleanPremium.error))),
-                            ],
-                            child: Icon(Icons.more_vert_rounded, size: 20, color: Colors.grey.shade600),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: isPast
+                                    ? Colors.grey.shade500
+                                    : ThemeCleanPremium.onSurface,
+                              ),
+                            ),
                           ),
-                        if (dateTxt.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(color: deptColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                            child: Text(dateTxt, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: deptColor)),
-                          ),
-                      ]),
+                          if (canWrite &&
+                              !selectionMode &&
+                              (onEdit != null || onDelete != null))
+                            PopupMenuButton<String>(
+                              onSelected: (v) {
+                                if (v == 'edit') onEdit?.call();
+                                if (v == 'delete') onDelete?.call();
+                              },
+                              itemBuilder: (_) => [
+                                if (onEdit != null)
+                                  const PopupMenuItem(
+                                    value: 'edit',
+                                    child: Text('Editar escala'),
+                                  ),
+                                if (onDelete != null)
+                                  PopupMenuItem(
+                                    value: 'delete',
+                                    child: Text(
+                                      'Excluir',
+                                      style: TextStyle(
+                                        color: ThemeCleanPremium.error,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                              child: Icon(
+                                Icons.more_vert_rounded,
+                                size: 20,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          if (dateTxt.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: deptColor.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                dateTxt,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: deptColor,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
                       const SizedBox(height: 6),
-                      Row(children: [
-                        if (time.isNotEmpty) ...[Text(time, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)), const SizedBox(width: 10)],
-                        if (dept.isNotEmpty) Text(dept, style: TextStyle(fontSize: 12, color: deptColor, fontWeight: FontWeight.w600)),
-                        const Spacer(),
-                        _MiniStatusDots(
+                      Row(
+                        children: [
+                          if (time.isNotEmpty) ...[
+                            Text(
+                              time,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                          ],
+                          if (dept.isNotEmpty)
+                            Text(
+                              dept,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: deptColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          const Spacer(),
+                          _MiniStatusDots(
                             confirmed: confirmed,
                             pending: pending,
                             unavailable: unavailable,
-                            faltaNj: faltaNj),
-                      ]),
+                            faltaNj: faltaNj,
+                          ),
+                        ],
+                      ),
                       if (names.isNotEmpty) ...[
                         const SizedBox(height: 10),
                         SizedBox(
@@ -6894,18 +8008,24 @@ class _InstanceCard extends StatelessWidget {
                           child: ListView.separated(
                             scrollDirection: Axis.horizontal,
                             itemCount: names.length > 8 ? 8 : names.length,
-                            separatorBuilder: (_, _) => const SizedBox(width: 6),
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(width: 6),
                             itemBuilder: (_, ai) {
                               final nm = names[ai];
                               return Container(
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.white, width: 2),
+                                  border: Border.all(
+                                    color: Colors.white,
+                                    width: 2,
+                                  ),
                                   boxShadow: ThemeCleanPremium.softUiCardShadow,
                                 ),
                                 child: CircleAvatar(
                                   radius: 18,
-                                  backgroundColor: deptColor.withValues(alpha: 0.18),
+                                  backgroundColor: deptColor.withValues(
+                                    alpha: 0.18,
+                                  ),
                                   child: Text(
                                     nm.isNotEmpty ? nm[0].toUpperCase() : '?',
                                     style: TextStyle(
@@ -6924,7 +8044,10 @@ class _InstanceCard extends StatelessWidget {
                             padding: const EdgeInsets.only(top: 4),
                             child: Text(
                               '+${names.length - 8} membro(s)',
-                              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade500,
+                              ),
                             ),
                           ),
                       ],
@@ -6932,7 +8055,14 @@ class _InstanceCard extends StatelessWidget {
                   ),
                 ),
               ),
-              const Padding(padding: EdgeInsets.only(right: 12), child: Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 20)),
+              const Padding(
+                padding: EdgeInsets.only(right: 12),
+                child: Icon(
+                  Icons.chevron_right_rounded,
+                  color: Colors.grey,
+                  size: 20,
+                ),
+              ),
             ],
           ),
         ),
@@ -6941,9 +8071,9 @@ class _InstanceCard extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Form Page — Criar/Editar modelo de escala
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
+// Form Page ? Criar/Editar modelo de escala
+// -------------------------------------------------------------------------------
 
 class _TemplateFormPage extends StatefulWidget {
   final String tenantId;
@@ -6954,7 +8084,16 @@ class _TemplateFormPage extends StatefulWidget {
   final CollectionReference<Map<String, dynamic>> membersCol;
   final CollectionReference<Map<String, dynamic>> membersColIgrejas;
   final CollectionReference<Map<String, dynamic>> instancesCol;
-  const _TemplateFormPage({required this.tenantId, this.doc, required this.data, required this.depts, required this.templatesCol, required this.membersCol, required this.membersColIgrejas, required this.instancesCol});
+  const _TemplateFormPage({
+    required this.tenantId,
+    this.doc,
+    required this.data,
+    required this.depts,
+    required this.templatesCol,
+    required this.membersCol,
+    required this.membersColIgrejas,
+    required this.instancesCol,
+  });
 
   @override
   State<_TemplateFormPage> createState() => _TemplateFormPageState();
@@ -6976,13 +8115,17 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
   void initState() {
     super.initState();
     final d = widget.data;
-    _titleCtrl = TextEditingController(text: (d['title'] ?? 'Escala de Obreiros').toString());
+    _titleCtrl = TextEditingController(
+      text: (d['title'] ?? 'Escala de Obreiros').toString(),
+    );
     _recurrence = (d['recurrence'] ?? 'weekly').toString();
     _dayCtrl = TextEditingController(text: (d['day'] ?? 'Domingo').toString());
     _timeCtrl = TextEditingController(text: (d['time'] ?? '19:00').toString());
     _departmentId = (d['departmentId'] ?? '').toString();
     _departmentName = (d['departmentName'] ?? '').toString();
-    final existingCpfs = ((d['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
+    final existingCpfs = ((d['memberCpfs'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
     _selectedCpfs.addAll(existingCpfs);
     _dayCtrl.addListener(_onTemplateDayTimeChanged);
     _timeCtrl.addListener(_onTemplateDayTimeChanged);
@@ -7007,9 +8150,11 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
     if (_departmentId.isEmpty) return;
     setState(() => _loadingMembers = true);
     try {
-      QuerySnapshot<Map<String, dynamic>> snap = await ChurchTenantResilientReads
-          .membrosRecent(widget.tenantId, limit: _kScheduleMembersFetchLimit)
-          .timeout(const Duration(seconds: 15));
+      QuerySnapshot<Map<String, dynamic>> snap =
+          await ChurchTenantResilientReads.membrosRecent(
+            widget.tenantId,
+            limit: _kScheduleMembersFetchLimit,
+          ).timeout(const Duration(seconds: 15));
       List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs = snap.docs;
 
       if (allDocs.isEmpty) {
@@ -7026,9 +8171,12 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
             .get()
             .timeout(const Duration(seconds: 10));
         for (final esc in escSnap.docs) {
-          if ((esc.data()['departmentId'] ?? '').toString() != _departmentId) continue;
+          if ((esc.data()['departmentId'] ?? '').toString() != _departmentId)
+            continue;
           final d = esc.data();
-          final cpfs = ((d['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
+          final cpfs = ((d['memberCpfs'] as List?) ?? [])
+              .map((e) => e.toString())
+              .toList();
           for (final c in cpfs) {
             freq[c] = (freq[c] ?? 0) + 1;
           }
@@ -7044,15 +8192,18 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
 
       if (mounted) {
         setState(() {
-        _deptMembers = deptMembers;
-        _loadingMembers = false;
-      });
+          _deptMembers = deptMembers;
+          _loadingMembers = false;
+        });
       }
     } catch (e) {
       if (mounted) {
         setState(() => _loadingMembers = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao carregar membros: $e'), backgroundColor: ThemeCleanPremium.error),
+          SnackBar(
+            content: Text('Erro ao carregar membros: $e'),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
         );
       }
     }
@@ -7138,14 +8289,14 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
         final mems = ((esc.data()['memberCpfs'] as List?) ?? [])
             .map((e) => e.toString())
             .toList();
-        final otherDeptName =
-            (esc.data()['departmentName'] ?? otherDept).toString();
+        final otherDeptName = (esc.data()['departmentName'] ?? otherDept)
+            .toString();
         final escTimeShort = escTime.isNotEmpty ? escTime : '?';
         for (final c in chunk) {
           if (mems.any((m) => _normCpfConflict(m) == _normCpfConflict(c))) {
-            conflicts.putIfAbsent(c, () => <String>{}).add(
-                  '$otherDeptName ($escTimeShort)',
-                );
+            conflicts
+                .putIfAbsent(c, () => <String>{})
+                .add('$otherDeptName ($escTimeShort)');
           }
         }
       }
@@ -7162,8 +8313,12 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
         }
         if (match != null &&
             MemberScheduleAvailability.isUnavailableOn(
-                match.unavailableYmds, nextOcc)) {
-          conflicts.putIfAbsent(cpf, () => <String>{}).add(
+              match.unavailableYmds,
+              nextOcc,
+            )) {
+          conflicts
+              .putIfAbsent(cpf, () => <String>{})
+              .add(
                 'calendário: indisponível na próx. data (${nextOcc.day}/${nextOcc.month})',
               );
         }
@@ -7173,30 +8328,37 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
     if (conflicts.isNotEmpty) {
       final buf = StringBuffer();
       for (final e in conflicts.entries) {
-        buf.writeln(
-            '• ${_displayNameForCpf(e.key)} → ${e.value.join("; ")}');
+        buf.writeln('? ${_displayNameForCpf(e.key)} ? ${e.value.join("; ")}');
       }
       await showDialog<void>(
         context: context,
         builder: (ctx) => AlertDialog(
           shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
-          title: Row(children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700),
-            const SizedBox(width: 10),
-            const Expanded(child: Text('Conflito de escala')),
-          ]),
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+          ),
+          title: Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700),
+              const SizedBox(width: 10),
+              const Expanded(child: Text('Conflito de escala')),
+            ],
+          ),
           content: SingleChildScrollView(
-              child: Text(buf.toString(), style: const TextStyle(fontSize: 14))),
+            child: Text(buf.toString(), style: const TextStyle(fontSize: 14)),
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Entendi')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Entendi'),
+            ),
           ],
         ),
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-            'Nenhum conflito no mesmo dia da semana com horário sobreposto em outro departamento.'),
+          'Nenhum conflito no mesmo dia da semana com horário sobreposto em outro departamento.',
+        ),
       );
     }
   }
@@ -7262,8 +8424,9 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
                 children: [
                   Expanded(
                     child: SingleChildScrollView(
-                      padding: ThemeCleanPremium.pagePadding(context)
-                          .copyWith(bottom: 24),
+                      padding: ThemeCleanPremium.pagePadding(
+                        context,
+                      ).copyWith(bottom: 24),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -7301,9 +8464,8 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
                                     ChoiceChip(
                                       label: Text(e.$2),
                                       selected: _recurrence == e.$1,
-                                      onSelected: (_) => setState(
-                                        () => _recurrence = e.$1,
-                                      ),
+                                      onSelected: (_) =>
+                                          setState(() => _recurrence = e.$1),
                                       selectedColor: accent.withValues(
                                         alpha: 0.18,
                                       ),
@@ -7331,8 +8493,9 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
                                     controller: _timeCtrl,
                                     decoration: const InputDecoration(
                                       labelText: 'Horário',
-                                      prefixIcon:
-                                          Icon(Icons.access_time_rounded),
+                                      prefixIcon: Icon(
+                                        Icons.access_time_rounded,
+                                      ),
                                     ),
                                   );
                                   if (narrow) {
@@ -7361,8 +8524,9 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
                             icon: Icons.groups_rounded,
                             children: [
                               DropdownButtonFormField<String>(
-                                initialValue:
-                                    _departmentId.isEmpty ? null : _departmentId,
+                                initialValue: _departmentId.isEmpty
+                                    ? null
+                                    : _departmentId,
                                 decoration: const InputDecoration(
                                   labelText: 'Vincular ao departamento',
                                   prefixIcon: Icon(Icons.groups_rounded),
@@ -7553,9 +8717,9 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Edição completa — escala gerada (instância)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _GeneratedInstanceEditPage extends StatefulWidget {
   final DocumentSnapshot<Map<String, dynamic>> doc;
@@ -7573,10 +8737,12 @@ class _GeneratedInstanceEditPage extends StatefulWidget {
   });
 
   @override
-  State<_GeneratedInstanceEditPage> createState() => _GeneratedInstanceEditPageState();
+  State<_GeneratedInstanceEditPage> createState() =>
+      _GeneratedInstanceEditPageState();
 }
 
-class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> {
+class _GeneratedInstanceEditPageState
+    extends State<_GeneratedInstanceEditPage> {
   late final TextEditingController _titleCtrl;
   late final TextEditingController _timeCtrl;
   late final TextEditingController _observationsCtrl;
@@ -7587,6 +8753,7 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
   final Set<String> _selectedCpfs = {};
   late List<String> _initialCpfsOrder;
   late List<String> _initialNames;
+
   /// Ordem exibida na escala (arrastar e soltar).
   final List<String> _memberOrder = [];
   bool _loadingMembers = false;
@@ -7610,8 +8777,9 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
     final d = widget.doc.data() ?? {};
     _titleCtrl = TextEditingController(text: (d['title'] ?? '').toString());
     _timeCtrl = TextEditingController(text: (d['time'] ?? '19:00').toString());
-    _observationsCtrl =
-        TextEditingController(text: (d['observations'] ?? '').toString());
+    _observationsCtrl = TextEditingController(
+      text: (d['observations'] ?? '').toString(),
+    );
     DateTime? dt;
     try {
       dt = (d['date'] as Timestamp?)?.toDate();
@@ -7619,8 +8787,12 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
     _selectedDate = dt ?? DateTime.now();
     _departmentId = (d['departmentId'] ?? '').toString();
     _departmentName = (d['departmentName'] ?? '').toString();
-    _initialCpfsOrder = ((d['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
-    _initialNames = ((d['memberNames'] as List?) ?? []).map((e) => e.toString()).toList();
+    _initialCpfsOrder = ((d['memberCpfs'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
+    _initialNames = ((d['memberNames'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
     _selectedCpfs.addAll(_initialCpfsOrder);
     _syncMemberOrderFromSelection();
     if (_departmentId.isNotEmpty) _loadDeptMembers();
@@ -7636,13 +8808,14 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
 
   Future<void> _reloadCrossDeptHints() async {
     if (_departmentId.isEmpty) return;
-    final hints = await MemberScheduleAvailability.crossDeptConflictHintsByNormCpf(
-      instancesCol: widget.instancesCol,
-      excludeEscalaDocId: widget.doc.id,
-      calendarDay: _selectedDate,
-      slotTime: _timeCtrl.text.trim(),
-      currentDepartmentId: _departmentId,
-    );
+    final hints =
+        await MemberScheduleAvailability.crossDeptConflictHintsByNormCpf(
+          instancesCol: widget.instancesCol,
+          excludeEscalaDocId: widget.doc.id,
+          calendarDay: _selectedDate,
+          slotTime: _timeCtrl.text.trim(),
+          currentDepartmentId: _departmentId,
+        );
     if (mounted) setState(() => _crossDeptHintByNormCpf = hints);
   }
 
@@ -7675,7 +8848,9 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
   String _fallbackNameForCpf(String cpf) {
     final n = _normCpf(cpf);
     for (var i = 0; i < _initialCpfsOrder.length; i++) {
-      if (_normCpf(_initialCpfsOrder[i]) == n && i < _initialNames.length && _initialNames[i].trim().isNotEmpty) {
+      if (_normCpf(_initialCpfsOrder[i]) == n &&
+          i < _initialNames.length &&
+          _initialNames[i].trim().isNotEmpty) {
         return _initialNames[i];
       }
     }
@@ -7693,14 +8868,16 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
       if (seen.contains(_normCpf(c))) continue;
       seen.add(_normCpf(c));
       final name = _fallbackNameForCpf(c);
-      out.add(_MemberSelect(
-        cpf: c,
-        name: name.isNotEmpty ? name : c,
-        photoUrl: '',
-        frequency: -1,
-        memberDocId: '',
-        unavailableYmds: const [],
-      ));
+      out.add(
+        _MemberSelect(
+          cpf: c,
+          name: name.isNotEmpty ? name : c,
+          photoUrl: '',
+          frequency: -1,
+          memberDocId: '',
+          unavailableYmds: const [],
+        ),
+      );
     }
     return out;
   }
@@ -7708,7 +8885,9 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
   List<String> _instanceMemberWarningLines(_MemberSelect m) {
     final lines = <String>[];
     if (MemberScheduleAvailability.isUnavailableOn(
-        m.unavailableYmds, _selectedDate)) {
+      m.unavailableYmds,
+      _selectedDate,
+    )) {
       lines.add('Indisponível nesta data');
     }
     final hint = _crossDeptHintByNormCpf[_normCpf(m.cpf)];
@@ -7746,7 +8925,10 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
     return names;
   }
 
-  static Map<String, dynamic> _remapCpfKeyedMap(Map<String, dynamic> old, List<String> newCpfs) {
+  static Map<String, dynamic> _remapCpfKeyedMap(
+    Map<String, dynamic> old,
+    List<String> newCpfs,
+  ) {
     final out = <String, dynamic>{};
     for (final newCpf in newCpfs) {
       for (final e in old.entries) {
@@ -7772,9 +8954,9 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
               limit: _kScheduleMembersFetchLimit,
             ).timeout(const Duration(seconds: 15))
           : await widget.membersCol
-              .limit(_kScheduleMembersFetchLimit)
-              .get()
-              .timeout(const Duration(seconds: 15));
+                .limit(_kScheduleMembersFetchLimit)
+                .get()
+                .timeout(const Duration(seconds: 15));
       var allDocs = snap.docs;
 
       if (allDocs.isEmpty && tid.isNotEmpty) {
@@ -7785,11 +8967,18 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
 
       final freq = <String, int>{};
       try {
-        final escSnap = await widget.instancesCol.orderBy('date', descending: true).limit(200).get().timeout(const Duration(seconds: 10));
+        final escSnap = await widget.instancesCol
+            .orderBy('date', descending: true)
+            .limit(200)
+            .get()
+            .timeout(const Duration(seconds: 10));
         for (final esc in escSnap.docs) {
-          if ((esc.data()['departmentId'] ?? '').toString() != _departmentId) continue;
+          if ((esc.data()['departmentId'] ?? '').toString() != _departmentId)
+            continue;
           final ed = esc.data();
-          final cpfs = ((ed['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
+          final cpfs = ((ed['memberCpfs'] as List?) ?? [])
+              .map((e) => e.toString())
+              .toList();
           for (final c in cpfs) {
             freq[c] = (freq[c] ?? 0) + 1;
           }
@@ -7814,7 +9003,10 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
       if (mounted) {
         setState(() => _loadingMembers = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao carregar membros: $e'), backgroundColor: ThemeCleanPremium.error),
+          SnackBar(
+            content: Text('Erro ao carregar membros: $e'),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
         );
       }
     }
@@ -7848,15 +9040,21 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
 
   Future<void> _save() async {
     if (_titleCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Informe o título da escala.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Informe o título da escala.')),
+      );
       return;
     }
     if (_departmentId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Selecione o departamento.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecione o departamento.')),
+      );
       return;
     }
     if (_selectedCpfs.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Selecione ao menos um membro.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selecione ao menos um membro.')),
+      );
       return;
     }
 
@@ -7869,7 +9067,7 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
       if (m == null) continue;
       if (_instanceSelectionBlocked(m)) {
         final name = m.name.isNotEmpty ? m.name : cpf;
-        blockers.add('• $name: ${_instanceMemberWarningLines(m).join('; ')}');
+        blockers.add('? $name: ${_instanceMemberWarningLines(m).join('; ')}');
       }
     }
     if (blockers.isNotEmpty) {
@@ -7894,7 +9092,10 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Entendi')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Entendi'),
+            ),
           ],
         ),
       );
@@ -7906,10 +9107,16 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
       final orderedCpfs = List<String>.from(_memberOrder);
       final memberNames = _namesForOrderedCpfs(orderedCpfs);
       final data = widget.doc.data() ?? {};
-      final oldConf = Map<String, dynamic>.from((data['confirmations'] as Map?) ?? {});
-      final oldUnav = Map<String, dynamic>.from((data['unavailabilityReasons'] as Map?) ?? {});
+      final oldConf = Map<String, dynamic>.from(
+        (data['confirmations'] as Map?) ?? {},
+      );
+      final oldUnav = Map<String, dynamic>.from(
+        (data['unavailabilityReasons'] as Map?) ?? {},
+      );
 
-      final t = _parseTime(_timeCtrl.text.trim()) ?? const TimeOfDay(hour: 19, minute: 0);
+      final t =
+          _parseTime(_timeCtrl.text.trim()) ??
+          const TimeOfDay(hour: 19, minute: 0);
       final combined = DateTime(
         _selectedDate.year,
         _selectedDate.month,
@@ -7935,7 +9142,12 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao salvar: $e'), backgroundColor: ThemeCleanPremium.error));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao salvar: $e'),
+            backgroundColor: ThemeCleanPremium.error,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -7953,8 +9165,16 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
           if (!_saving)
             FilledButton(
               onPressed: _save,
-              style: FilledButton.styleFrom(backgroundColor: Colors.white.withValues(alpha: 0.2)),
-              child: const Text('Salvar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.white.withValues(alpha: 0.2),
+              ),
+              child: const Text(
+                'Salvar',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
           const SizedBox(width: 12),
         ],
@@ -7973,14 +9193,18 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                       children: [
                         TextField(
                           controller: _titleCtrl,
-                          decoration: const InputDecoration(labelText: 'Título da escala', prefixIcon: Icon(Icons.title_rounded)),
+                          decoration: const InputDecoration(
+                                  labelText: 'Título da escala',
+                            prefixIcon: Icon(Icons.title_rounded),
+                          ),
                         ),
                         const SizedBox(height: 14),
                         TextField(
                           controller: _observationsCtrl,
                           maxLines: 3,
                           decoration: const InputDecoration(
-                            labelText: 'Observações (ex.: Escala de Verão, culto especial)',
+                            labelText:
+                                'Observações (ex.: Escala de Verão, culto especial)',
                             prefixIcon: Icon(Icons.notes_rounded),
                           ),
                         ),
@@ -7988,25 +9212,37 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                         if (isMobile) ...[
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            leading: Icon(Icons.calendar_today_rounded, color: ThemeCleanPremium.primary),
+                            leading: Icon(
+                              Icons.calendar_today_rounded,
+                              color: ThemeCleanPremium.primary,
+                            ),
                             title: const Text('Data'),
                             subtitle: Text(
                               '${_selectedDate.day.toString().padLeft(2, '0')}/${_selectedDate.month.toString().padLeft(2, '0')}/${_selectedDate.year}',
                             ),
                             trailing: const Icon(Icons.chevron_right_rounded),
                             onTap: _pickDate,
-                            minVerticalPadding: ThemeCleanPremium.minTouchTarget / 2 - 8,
+                            minVerticalPadding:
+                                ThemeCleanPremium.minTouchTarget / 2 - 8,
                           ),
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            leading: Icon(Icons.access_time_rounded, color: ThemeCleanPremium.primary),
+                            leading: Icon(
+                              Icons.access_time_rounded,
+                              color: ThemeCleanPremium.primary,
+                            ),
                             title: const Text('Horário'),
-                            subtitle: Text(_timeCtrl.text.isEmpty ? 'Definir' : _timeCtrl.text),
+                            subtitle: Text(
+                              _timeCtrl.text.isEmpty
+                                  ? 'Definir'
+                                  : _timeCtrl.text,
+                            ),
                             trailing: const Icon(Icons.chevron_right_rounded),
                             onTap: () async {
                               await _pickTime();
                             },
-                            minVerticalPadding: ThemeCleanPremium.minTouchTarget / 2 - 8,
+                            minVerticalPadding:
+                                ThemeCleanPremium.minTouchTarget / 2 - 8,
                           ),
                         ] else ...[
                           Row(
@@ -8015,7 +9251,10 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                               Expanded(
                                 child: ListTile(
                                   contentPadding: EdgeInsets.zero,
-                                  leading: Icon(Icons.calendar_today_rounded, color: ThemeCleanPremium.primary),
+                                  leading: Icon(
+                                    Icons.calendar_today_rounded,
+                                    color: ThemeCleanPremium.primary,
+                                  ),
                                   title: const Text('Data'),
                                   subtitle: Text(
                                     '${_selectedDate.day.toString().padLeft(2, '0')}/${_selectedDate.month.toString().padLeft(2, '0')}/${_selectedDate.year}',
@@ -8026,7 +9265,10 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                               Expanded(
                                 child: TextField(
                                   controller: _timeCtrl,
-                                  decoration: const InputDecoration(labelText: 'Horário (HH:mm)', prefixIcon: Icon(Icons.access_time_rounded)),
+                                  decoration: const InputDecoration(
+                                    labelText: 'Horário (HH:mm)',
+                                    prefixIcon: Icon(Icons.access_time_rounded),
+                                  ),
                                 ),
                               ),
                             ],
@@ -8047,11 +9289,26 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                       icon: Icons.groups_rounded,
                       children: [
                         DropdownButtonFormField<String>(
-                          initialValue: _departmentId.isEmpty ? null : _departmentId,
-                          decoration: const InputDecoration(labelText: 'Departamento', prefixIcon: Icon(Icons.groups_rounded)),
-                          items: widget.depts.map((d) => DropdownMenuItem(value: d.id, child: Text(d.name))).toList(),
+                          initialValue: _departmentId.isEmpty
+                              ? null
+                              : _departmentId,
+                          decoration: const InputDecoration(
+                            labelText: 'Departamento',
+                            prefixIcon: Icon(Icons.groups_rounded),
+                          ),
+                          items: widget.depts
+                              .map(
+                                (d) => DropdownMenuItem(
+                                  value: d.id,
+                                  child: Text(d.name),
+                                ),
+                              )
+                              .toList(),
                           onChanged: (v) {
-                            final sel = widget.depts.firstWhere((d) => d.id == v, orElse: () => const _DeptItem(id: '', name: ''));
+                            final sel = widget.depts.firstWhere(
+                              (d) => d.id == v,
+                              orElse: () => const _DeptItem(id: '', name: ''),
+                            );
                             setState(() {
                               _departmentId = v ?? '';
                               _departmentName = sel.name;
@@ -8077,37 +9334,66 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                                   }
                                 }
                               }),
-                              child: const Text('Todos', style: TextStyle(fontSize: 12)),
+                              child: const Text(
+                                'Todos',
+                                style: TextStyle(fontSize: 12),
+                              ),
                             ),
                             TextButton(
-                              onPressed: () => setState(() => _selectedCpfs.clear()),
-                              child: const Text('Nenhum', style: TextStyle(fontSize: 12)),
+                              onPressed: () =>
+                                  setState(() => _selectedCpfs.clear()),
+                              child: const Text(
+                                'Nenhum',
+                                style: TextStyle(fontSize: 12),
+                              ),
                             ),
                           ],
                         ),
                         children: [
                           if (_loadingMembers)
-                            const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
-                          else if (_deptMembers.isEmpty && _displayMembers.isEmpty)
+                            const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(20),
+                                child: CircularProgressIndicator(),
+                              ),
+                            )
+                          else if (_deptMembers.isEmpty &&
+                              _displayMembers.isEmpty)
                             Padding(
                               padding: const EdgeInsets.all(16),
-                              child: Text('Nenhum membro vinculado a este departamento.', style: TextStyle(color: Colors.grey.shade600)),
+                              child: Text(
+                                'Nenhum membro vinculado a este departamento.',
+                                style: TextStyle(color: Colors.grey.shade600),
+                              ),
                             )
                           else ...[
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
                               decoration: BoxDecoration(
-                                color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
+                                color: ThemeCleanPremium.primary.withValues(
+                                  alpha: 0.06,
+                                ),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Row(
                                 children: [
-                                  Icon(Icons.check_circle_rounded, size: 16, color: ThemeCleanPremium.primary),
+                                  Icon(
+                                    Icons.check_circle_rounded,
+                                    size: 16,
+                                    color: ThemeCleanPremium.primary,
+                                  ),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       '${_selectedCpfs.length} selecionado(s)',
-                                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: ThemeCleanPremium.primary),
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: ThemeCleanPremium.primary,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -8119,7 +9405,9 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                                 member: m,
                                 selected: _selectedCpfs.contains(m.cpf),
                                 warningLines: _instanceMemberWarningLines(m),
-                                dimmedWhenUnselected: _instanceSelectionBlocked(m),
+                                dimmedWhenUnselected: _instanceSelectionBlocked(
+                                  m,
+                                ),
                                 onChanged: (v) {
                                   setState(() {
                                     if (v == true) {
@@ -8148,7 +9436,9 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                                 onReorder: (oldIndex, newIndex) {
                                   setState(() {
                                     if (newIndex > oldIndex) newIndex--;
-                                    final item = _memberOrder.removeAt(oldIndex);
+                                    final item = _memberOrder.removeAt(
+                                      oldIndex,
+                                    );
                                     _memberOrder.insert(newIndex, item);
                                   });
                                 },
@@ -8156,19 +9446,23 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
                                   for (var i = 0; i < _memberOrder.length; i++)
                                     ListTile(
                                       key: ValueKey(_memberOrder[i]),
-                                      leading:
-                                          const Icon(Icons.drag_handle_rounded),
+                                      leading: const Icon(
+                                        Icons.drag_handle_rounded,
+                                      ),
                                       title: Text(
                                         _displayNameForOrderedCpf(
-                                            _memberOrder[i]),
+                                          _memberOrder[i],
+                                        ),
                                         style: const TextStyle(
-                                            fontWeight: FontWeight.w600),
+                                          fontWeight: FontWeight.w600,
+                                        ),
                                       ),
                                       subtitle: Text(
                                         _memberOrder[i],
                                         style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade600),
+                                          fontSize: 11,
+                                          color: Colors.grey.shade600,
+                                        ),
                                       ),
                                     ),
                                 ],
@@ -8187,9 +9481,9 @@ class _GeneratedInstanceEditPageState extends State<_GeneratedInstanceEditPage> 
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Widgets Auxiliares
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 class _SectionCard extends StatelessWidget {
   final String title;
@@ -8222,27 +9516,29 @@ class _SectionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 18, color: ThemeCleanPremium.primary),
               ),
-              child: Icon(icon, size: 18, color: ThemeCleanPremium.primary),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                title,
-                style: GoogleFonts.inter(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
-            ),
-            ?trailing,
-          ]),
+              ?trailing,
+            ],
+          ),
           const SizedBox(height: 14),
           ...children,
         ],
@@ -8277,6 +9573,7 @@ class _MemberCheckTile extends StatelessWidget {
   final bool selected;
   final ValueChanged<bool?> onChanged;
   final List<String> warningLines;
+
   /// Membro não deve ser incluído (ausência / conflito): linha esmaecida e não marca checkbox ao tocar.
   final bool dimmedWhenUnselected;
   const _MemberCheckTile({
@@ -8307,7 +9604,9 @@ class _MemberCheckTile extends StatelessWidget {
     Widget row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Material(
-        color: selected ? ThemeCleanPremium.primary.withValues(alpha: 0.06) : Colors.transparent,
+        color: selected
+            ? ThemeCleanPremium.primary.withValues(alpha: 0.06)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           onTap: toggle,
@@ -8335,7 +9634,9 @@ class _MemberCheckTile extends StatelessWidget {
                       }
                       onChanged(v);
                     },
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -8354,8 +9655,21 @@ class _MemberCheckTile extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(member.name.isNotEmpty ? member.name : member.cpf, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                      if (member.frequency > 0) Text('${member.frequency}x escalado(a)', style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+                      Text(
+                        member.name.isNotEmpty ? member.name : member.cpf,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                      if (member.frequency > 0)
+                        Text(
+                          '${member.frequency}x escalado(a)',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
                       for (final line in warningLines)
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
@@ -8392,9 +9706,22 @@ class _MemberCheckTile extends StatelessWidget {
                 ),
                 if (member.frequency == 0 && warningLines.isEmpty)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
-                    child: Text('Disponível', style: TextStyle(fontSize: 10, color: Colors.green.shade700, fontWeight: FontWeight.w600)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Disponível',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.green.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
               ],
             ),
@@ -8475,7 +9802,14 @@ class _MemberConfirmationTile extends StatelessWidget {
               CircleAvatar(
                 radius: 16,
                 backgroundColor: statusColor.withValues(alpha: 0.15),
-                child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: TextStyle(fontWeight: FontWeight.w700, color: statusColor, fontSize: 13)),
+                child: Text(
+                  name.isNotEmpty ? name[0].toUpperCase() : '?',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: statusColor,
+                    fontSize: 13,
+                  ),
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -8485,14 +9819,21 @@ class _MemberConfirmationTile extends StatelessWidget {
                   children: [
                     Text(
                       name.isNotEmpty ? name : cpf,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
                     ),
                     if (name.isNotEmpty && _maskCpfListaEscala(cpf).isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
                         child: Text(
                           _maskCpfListaEscala(cpf),
-                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ),
                   ],
@@ -8500,37 +9841,74 @@ class _MemberConfirmationTile extends StatelessWidget {
               ),
               Icon(statusIcon, color: statusColor, size: 18),
               const SizedBox(width: 4),
-              Text(statusLabel, style: TextStyle(fontSize: 12, color: statusColor, fontWeight: FontWeight.w600)),
+              Text(
+                statusLabel,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: statusColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               if (canWrite) ...[
                 const SizedBox(width: 8),
                 PopupMenuButton<String>(
                   onSelected: (v) {
                     if (v == 'substituir' && onSubstituir != null) {
                       onSubstituir!();
-                    } else if (v == 'excluir_membro' && onExcluirMembro != null) onExcluirMembro!();
-                    else if (v == 'confirmar_falta') { /* mantém indisponível */ }
-                    else onChangeStatus(v);
+                    } else if (v == 'excluir_membro' && onExcluirMembro != null)
+                      onExcluirMembro!();
+                    else if (v == 'confirmar_falta') {
+                      /* mantém indisponível */
+                    } else
+                      onChangeStatus(v);
                   },
-                  child: Icon(Icons.more_vert_rounded, size: 18, color: Colors.grey.shade500),
+                  child: Icon(
+                    Icons.more_vert_rounded,
+                    size: 18,
+                    color: Colors.grey.shade500,
+                  ),
                   itemBuilder: (_) => [
-                    const PopupMenuItem(value: 'confirmado', child: Text('Marcar confirmado')),
-                    const PopupMenuItem(value: 'indisponivel', child: Text('Marcar indisponível')),
                     const PopupMenuItem(
-                        value: 'falta_nao_justificada',
-                        child: Text('Falta não justificada (assiduidade)')),
+                      value: 'confirmado',
+                      child: Text('Marcar confirmado'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'indisponivel',
+                      child: Text('Marcar indisponível'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'falta_nao_justificada',
+                      child: Text('Falta não justificada (assiduidade)'),
+                    ),
                     const PopupMenuItem(value: '', child: Text('Pendente')),
-                    if (status == 'indisponivel' && (onSubstituir != null || onExcluirMembro != null)) ...[
+                    if (status == 'indisponivel' &&
+                        (onSubstituir != null || onExcluirMembro != null)) ...[
                       const PopupMenuDivider(),
-                      if (onSubstituir != null) const PopupMenuItem(value: 'substituir', child: Text('Substituir por outro membro')),
-                      const PopupMenuItem(value: 'confirmar_falta', child: Text('Confirmar falta (manter)')),
-                      if (onExcluirMembro != null) const PopupMenuItem(value: 'excluir_membro', child: Text('Excluir da escala', style: TextStyle(color: ThemeCleanPremium.error))),
+                      if (onSubstituir != null)
+                        const PopupMenuItem(
+                          value: 'substituir',
+                          child: Text('Substituir por outro membro'),
+                        ),
+                      const PopupMenuItem(
+                        value: 'confirmar_falta',
+                        child: Text('Confirmar falta (manter)'),
+                      ),
+                      if (onExcluirMembro != null)
+                        const PopupMenuItem(
+                          value: 'excluir_membro',
+                          child: Text(
+                            'Excluir da escala',
+                            style: TextStyle(color: ThemeCleanPremium.error),
+                          ),
+                        ),
                     ],
                   ],
                 ),
               ],
             ],
           ),
-          if (status == 'indisponivel' && (unavailabilityReason ?? '').trim().isNotEmpty) ...[
+          if (status == 'indisponivel' &&
+              (unavailabilityReason ?? '').trim().isNotEmpty) ...[
             const SizedBox(height: 8),
             Container(
               width: double.infinity,
@@ -8538,14 +9916,28 @@ class _MemberConfirmationTile extends StatelessWidget {
               decoration: BoxDecoration(
                 color: ThemeCleanPremium.error.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: ThemeCleanPremium.error.withValues(alpha: 0.2)),
+                border: Border.all(
+                  color: ThemeCleanPremium.error.withValues(alpha: 0.2),
+                ),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.info_outline_rounded, size: 14, color: ThemeCleanPremium.error),
+                  Icon(
+                    Icons.info_outline_rounded,
+                    size: 14,
+                    color: ThemeCleanPremium.error,
+                  ),
                   const SizedBox(width: 6),
-                  Expanded(child: Text('Motivo: ${unavailabilityReason!.trim()}', style: TextStyle(fontSize: 12, color: ThemeCleanPremium.error.withValues(alpha: 0.9)))),
+                  Expanded(
+                    child: Text(
+                      'Motivo: ${unavailabilityReason!.trim()}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: ThemeCleanPremium.error.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -8558,8 +9950,10 @@ class _MemberConfirmationTile extends StatelessWidget {
 
 class _InteractiveStatusSummary extends StatelessWidget {
   final Map<String, dynamic> confirmations;
+
   /// Mesma ordem do documento da escala — contagens alinhadas à lista «Membros escalados».
   final List<String> memberCpfs;
+
   /// Pedidos de troca com status `concluida` nesta escala.
   final int trocasRealizadasCount;
   final _InstanceDetailMemberFilter selected;
@@ -8671,8 +10065,23 @@ class _StatusBadge extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('$count', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: color)),
-          Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 10, color: color, fontWeight: FontWeight.w600)),
+          Text(
+            '$count',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: color,
+            ),
+          ),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 10,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
@@ -8702,7 +10111,11 @@ class _EscalaDrillCard extends StatelessWidget {
   final Color accent;
   final VoidCallback? onEditPressed;
 
-  const _EscalaDrillCard({required this.doc, required this.accent, this.onEditPressed});
+  const _EscalaDrillCard({
+    required this.doc,
+    required this.accent,
+    this.onEditPressed,
+  });
 
   static String _statusLabel(String s) {
     switch (s) {
@@ -8739,8 +10152,12 @@ class _EscalaDrillCard extends StatelessWidget {
     final title = (m['title'] ?? 'Escala').toString().trim();
     final dept = (m['departmentName'] ?? '').toString().trim();
     final timeStr = (m['time'] ?? '').toString().trim();
-    final cpfs = ((m['memberCpfs'] as List?) ?? []).map((e) => e.toString()).toList();
-    final names = ((m['memberNames'] as List?) ?? []).map((e) => e.toString().trim()).toList();
+    final cpfs = ((m['memberCpfs'] as List?) ?? [])
+        .map((e) => e.toString())
+        .toList();
+    final names = ((m['memberNames'] as List?) ?? [])
+        .map((e) => e.toString().trim())
+        .toList();
     final confirmations = (m['confirmations'] as Map<String, dynamic>?) ?? {};
 
     var nConf = 0;
@@ -8759,7 +10176,7 @@ class _EscalaDrillCard extends StatelessWidget {
     final total = cpfs.length;
     final ratio = total > 0 ? nConf / total : 0.0;
 
-    final dayStr = dt != null ? DateFormat('dd').format(dt) : '—';
+    final dayStr = dt != null ? DateFormat('dd').format(dt) : '?';
     final monStr = dt != null ? DateFormat('MMM', 'pt_BR').format(dt) : '';
     final yearStr = dt != null ? DateFormat('yyyy').format(dt) : '';
     final weekdayStr = dt != null ? DateFormat('EEEE', 'pt_BR').format(dt) : '';
@@ -8780,7 +10197,10 @@ class _EscalaDrillCard extends StatelessWidget {
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [accent.withValues(alpha: 0.11), accent.withValues(alpha: 0.03)],
+                  colors: [
+                    accent.withValues(alpha: 0.11),
+                    accent.withValues(alpha: 0.03),
+                  ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
@@ -8793,31 +10213,53 @@ class _EscalaDrillCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [accent, Color.lerp(accent, Colors.white, 0.15) ?? accent],
+                        colors: [
+                          accent,
+                          Color.lerp(accent, Colors.white, 0.15) ?? accent,
+                        ],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
                       borderRadius: BorderRadius.circular(14),
-                      boxShadow: [BoxShadow(color: accent.withValues(alpha: 0.35), blurRadius: 8, offset: const Offset(0, 3))],
+                      boxShadow: [
+                        BoxShadow(
+                          color: accent.withValues(alpha: 0.35),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
                     ),
                     child: Column(
                       children: [
                         Text(
                           dayStr,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, height: 1),
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                            height: 1,
+                          ),
                         ),
                         if (monStr.isNotEmpty)
                           Text(
                             monStr,
                             textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white.withValues(alpha: 0.92)),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white.withValues(alpha: 0.92),
+                            ),
                           ),
                         if (yearStr.isNotEmpty)
                           Text(
                             yearStr,
                             textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white.withValues(alpha: 0.85)),
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white.withValues(alpha: 0.85),
+                            ),
                           ),
                       ],
                     ),
@@ -8830,12 +10272,21 @@ class _EscalaDrillCard extends StatelessWidget {
                         if (weekdayStr.isNotEmpty)
                           Text(
                             weekdayStr,
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: accent.withValues(alpha: 0.85)),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: accent.withValues(alpha: 0.85),
+                            ),
                           ),
                         if (weekdayStr.isNotEmpty) const SizedBox(height: 4),
                         Text(
                           title,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface, height: 1.2),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: ThemeCleanPremium.onSurface,
+                            height: 1.2,
+                          ),
                         ),
                         if (dept.isNotEmpty) ...[
                           const SizedBox(height: 6),
@@ -8843,15 +10294,31 @@ class _EscalaDrillCard extends StatelessWidget {
                             spacing: 6,
                             runSpacing: 4,
                             children: [
-                              Icon(Icons.groups_2_rounded, size: 15, color: Colors.grey.shade600),
+                              Icon(
+                                Icons.groups_2_rounded,
+                                size: 15,
+                                color: Colors.grey.shade600,
+                              ),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.white,
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
+                                  ),
                                 ),
-                                child: Text(dept, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.grey.shade800)),
+                                child: Text(
+                                  dept,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.grey.shade800,
+                                  ),
+                                ),
                               ),
                             ],
                           ),
@@ -8860,9 +10327,20 @@ class _EscalaDrillCard extends StatelessWidget {
                           const SizedBox(height: 6),
                           Row(
                             children: [
-                              Icon(Icons.schedule_rounded, size: 15, color: Colors.grey.shade600),
+                              Icon(
+                                Icons.schedule_rounded,
+                                size: 15,
+                                color: Colors.grey.shade600,
+                              ),
                               const SizedBox(width: 4),
-                              Text(timeStr, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade700)),
+                              Text(
+                                timeStr,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
                             ],
                           ),
                         ],
@@ -8878,7 +10356,11 @@ class _EscalaDrillCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                         child: Padding(
                           padding: const EdgeInsets.all(6),
-                          child: Icon(Icons.edit_calendar_rounded, color: accent, size: 22),
+                          child: Icon(
+                            Icons.edit_calendar_rounded,
+                            color: accent,
+                            size: 22,
+                          ),
                         ),
                       ),
                     ),
@@ -8893,16 +10375,28 @@ class _EscalaDrillCard extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.pie_chart_outline_rounded, size: 16, color: accent),
+                      Icon(
+                        Icons.pie_chart_outline_rounded,
+                        size: 16,
+                        color: accent,
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         'Confirmações',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.grey.shade800),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.grey.shade800,
+                        ),
                       ),
                       const Spacer(),
                       Text(
                         '$nConf / $total',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: accent),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: accent,
+                        ),
                       ),
                     ],
                   ),
@@ -8921,9 +10415,17 @@ class _EscalaDrillCard extends StatelessWidget {
                     spacing: 8,
                     runSpacing: 4,
                     children: [
-                      _miniStatChip('Confirmados', nConf, ThemeCleanPremium.success),
+                      _miniStatChip(
+                        'Confirmados',
+                        nConf,
+                        ThemeCleanPremium.success,
+                      ),
                       _miniStatChip('Pendentes', nPend, Colors.amber.shade800),
-                      _miniStatChip('Indisp./falta', nNeg, ThemeCleanPremium.error),
+                      _miniStatChip(
+                        'Indisp./falta',
+                        nNeg,
+                        ThemeCleanPremium.error,
+                      ),
                     ],
                   ),
                 ],
@@ -8937,24 +10439,39 @@ class _EscalaDrillCard extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.people_outline_rounded, size: 16, color: Colors.grey.shade700),
+                        Icon(
+                          Icons.people_outline_rounded,
+                          size: 16,
+                          color: Colors.grey.shade700,
+                        ),
                         const SizedBox(width: 6),
                         Text(
                           'Membros ($total)',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.grey.shade800),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.grey.shade800,
+                          ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
                     ...List.generate(total, (i) {
                       final cpf = i < cpfs.length ? cpfs[i] : '';
-                      final name = i < names.length && names[i].isNotEmpty ? names[i] : (cpf.isNotEmpty ? cpf : '—');
+                      final name = i < names.length && names[i].isNotEmpty
+                          ? names[i]
+                          : (cpf.isNotEmpty ? cpf : '?');
                       final st = _scheduleCpfKeyedMapValue(cpf, confirmations);
                       final col = _statusColor(st);
                       return Padding(
-                        padding: EdgeInsets.only(bottom: i == total - 1 ? 0 : 8),
+                        padding: EdgeInsets.only(
+                          bottom: i == total - 1 ? 0 : 8,
+                        ),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFFF8FAFC),
                             borderRadius: BorderRadius.circular(12),
@@ -8967,7 +10484,11 @@ class _EscalaDrillCard extends StatelessWidget {
                                 backgroundColor: col.withValues(alpha: 0.15),
                                 child: Text(
                                   name.isNotEmpty ? name[0].toUpperCase() : '?',
-                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: col),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: col,
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -8976,19 +10497,32 @@ class _EscalaDrillCard extends StatelessWidget {
                                   name,
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, height: 1.2),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.2,
+                                  ),
                                 ),
                               ),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
                                 decoration: BoxDecoration(
                                   color: col.withValues(alpha: 0.12),
                                   borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(color: col.withValues(alpha: 0.35)),
+                                  border: Border.all(
+                                    color: col.withValues(alpha: 0.35),
+                                  ),
                                 ),
                                 child: Text(
                                   _statusLabel(st),
-                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: col),
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: col,
+                                  ),
                                 ),
                               ),
                             ],
@@ -9016,9 +10550,23 @@ class _EscalaDrillCard extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('$v', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: c)),
+          Text(
+            '$v',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              color: c,
+            ),
+          ),
           const SizedBox(width: 4),
-          Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: c)),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: c,
+            ),
+          ),
         ],
       ),
     );
@@ -9034,7 +10582,7 @@ class _PremiumDrillLineTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final emParts = line.split(' — ');
+    final emParts = line.split(' ? ');
     if (emParts.length == 2) {
       final left = emParts[0].trim();
       final right = emParts[1].trim();
@@ -9053,24 +10601,49 @@ class _PremiumDrillLineTile extends StatelessWidget {
             CircleAvatar(
               radius: 20,
               backgroundColor: accent.withValues(alpha: 0.14),
-              child: Text(initial, style: TextStyle(fontWeight: FontWeight.w900, color: accent, fontSize: 15)),
+              child: Text(
+                initial,
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  color: accent,
+                  fontSize: 15,
+                ),
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(left, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, height: 1.2)),
+                  Text(
+                    left,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      height: 1.2,
+                    ),
+                  ),
                   const SizedBox(height: 6),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: accent.withValues(alpha: 0.06),
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: accent.withValues(alpha: 0.18)),
                     ),
-                    child: Text(right, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Colors.grey.shade800, height: 1.25)),
+                    child: Text(
+                      right,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade800,
+                        height: 1.25,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -9088,7 +10661,10 @@ class _PremiumDrillLineTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [accent.withValues(alpha: 0.08), accent.withValues(alpha: 0.02)],
+            colors: [
+              accent.withValues(alpha: 0.08),
+              accent.withValues(alpha: 0.02),
+            ],
           ),
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
           border: Border.all(color: accent.withValues(alpha: 0.2)),
@@ -9099,7 +10675,14 @@ class _PremiumDrillLineTile extends StatelessWidget {
             Icon(Icons.analytics_outlined, size: 20, color: accent),
             const SizedBox(width: 10),
             Expanded(
-              child: Text(k, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: Colors.grey.shade800)),
+              child: Text(
+                k,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.grey.shade800,
+                ),
+              ),
             ),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -9108,7 +10691,14 @@ class _PremiumDrillLineTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
-              child: Text(v, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: accent)),
+              child: Text(
+                v,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                  color: accent,
+                ),
+              ),
             ),
           ],
         ),
@@ -9124,7 +10714,15 @@ class _PremiumDrillLineTile extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: ThemeCleanPremium.softUiCardShadow,
       ),
-      child: Text(line, style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600, height: 1.35, color: Colors.grey.shade800)),
+      child: Text(
+        line,
+        style: TextStyle(
+          fontSize: 13.5,
+          fontWeight: FontWeight.w600,
+          height: 1.35,
+          color: Colors.grey.shade800,
+        ),
+      ),
     );
   }
 }
@@ -9147,7 +10745,14 @@ class _ReportChartCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface)),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: ThemeCleanPremium.onSurface,
+            ),
+          ),
           const SizedBox(height: 16),
           child,
         ],
@@ -9188,17 +10793,32 @@ class _ReportMetricCard extends StatelessWidget {
         children: [
           Icon(icon, size: 22, color: color),
           const SizedBox(height: 4),
-          Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: color)),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
           Text(
             label,
             textAlign: TextAlign.center,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: color),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
           ),
           if (onTap != null) ...[
             const SizedBox(height: 4),
-            Icon(Icons.open_in_new_rounded, size: 12, color: color.withValues(alpha: 0.65)),
+            Icon(
+              Icons.open_in_new_rounded,
+              size: 12,
+              color: color.withValues(alpha: 0.65),
+            ),
           ],
         ],
       ),
@@ -9230,7 +10850,11 @@ class _ReportMetricCard extends StatelessWidget {
               onTap: onExportPdf,
               child: Padding(
                 padding: const EdgeInsets.all(5),
-                child: Icon(Icons.picture_as_pdf_rounded, size: 15, color: color),
+                child: Icon(
+                  Icons.picture_as_pdf_rounded,
+                  size: 15,
+                  color: color,
+                ),
               ),
             ),
           ),
@@ -9244,18 +10868,43 @@ class _ReportChip extends StatelessWidget {
   final String label;
   final int value;
   final Color color;
-  const _ReportChip({required this.label, required this.value, required this.color});
+  const _ReportChip({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: color.withValues(alpha: 0.25))),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text('$value', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: color)),
-        const SizedBox(width: 4),
-        Text(label, style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600)),
-      ]),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$value',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -9274,12 +10923,90 @@ class _MiniStatusDots extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      if (confirmed > 0) ...[Container(width: 8, height: 8, decoration: BoxDecoration(color: ThemeCleanPremium.success, shape: BoxShape.circle)), const SizedBox(width: 2), Text('$confirmed', style: TextStyle(fontSize: 10, color: ThemeCleanPremium.success, fontWeight: FontWeight.w700))],
-      if (pending > 0) ...[const SizedBox(width: 6), Container(width: 8, height: 8, decoration: BoxDecoration(color: Colors.amber.shade600, shape: BoxShape.circle)), const SizedBox(width: 2), Text('$pending', style: TextStyle(fontSize: 10, color: Colors.amber.shade600, fontWeight: FontWeight.w700))],
-      if (unavailable > 0) ...[const SizedBox(width: 6), Container(width: 8, height: 8, decoration: BoxDecoration(color: ThemeCleanPremium.error, shape: BoxShape.circle)), const SizedBox(width: 2), Text('$unavailable', style: TextStyle(fontSize: 10, color: ThemeCleanPremium.error, fontWeight: FontWeight.w700))],
-      if (faltaNj > 0) ...[const SizedBox(width: 6), Container(width: 8, height: 8, decoration: const BoxDecoration(color: Color(0xFFB91C1C), shape: BoxShape.circle)), const SizedBox(width: 2), Text('$faltaNj', style: const TextStyle(fontSize: 10, color: Color(0xFFB91C1C), fontWeight: FontWeight.w700))],
-    ]);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (confirmed > 0) ...[
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: ThemeCleanPremium.success,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 2),
+          Text(
+            '$confirmed',
+            style: TextStyle(
+              fontSize: 10,
+              color: ThemeCleanPremium.success,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+        if (pending > 0) ...[
+          const SizedBox(width: 6),
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: Colors.amber.shade600,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 2),
+          Text(
+            '$pending',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.amber.shade600,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+        if (unavailable > 0) ...[
+          const SizedBox(width: 6),
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: ThemeCleanPremium.error,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 2),
+          Text(
+            '$unavailable',
+            style: TextStyle(
+              fontSize: 10,
+              color: ThemeCleanPremium.error,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+        if (faltaNj > 0) ...[
+          const SizedBox(width: 6),
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: Color(0xFFB91C1C),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 2),
+          Text(
+            '$faltaNj',
+            style: const TextStyle(
+              fontSize: 10,
+              color: Color(0xFFB91C1C),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ],
+    );
   }
 }
 
@@ -9294,12 +11021,25 @@ class _InfoChip extends StatelessWidget {
     final c = color ?? Colors.grey.shade700;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: c.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(8)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 12, color: c),
-        const SizedBox(width: 4),
-        Text(text, style: TextStyle(fontSize: 11, color: c, fontWeight: FontWeight.w600)),
-      ]),
+      decoration: BoxDecoration(
+        color: c.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: c),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 11,
+              color: c,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

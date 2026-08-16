@@ -64,7 +64,7 @@ abstract final class AdminFeedFirestoreBridge {
     return value;
   }
 
-  /// Parse `igrejas/{churchId}/col/doc` ou `…/col/doc/subCol/subDoc`.
+  /// Parse `igrejas/{churchId}/col/doc` ou `?/col/doc/subCol/subDoc`.
   static ({
     String churchId,
     String collection,
@@ -96,7 +96,7 @@ abstract final class AdminFeedFirestoreBridge {
     );
   }
 
-  /// Doc raiz `igrejas/{churchId}` — Cadastro da Igreja (Web: direct-first + CF fallback).
+  /// Doc raiz `igrejas/{churchId}` ? Cadastro da Igreja (Web: direct-first + CF fallback).
   static Future<void> upsertChurchRoot({
     required String churchId,
     required Map<String, dynamic> data,
@@ -126,7 +126,7 @@ abstract final class AdminFeedFirestoreBridge {
           rethrow;
         }
         debugPrint(
-          'AdminFeedFirestoreBridge: assert Firestore — CF church root fallback',
+          'AdminFeedFirestoreBridge: assert Firestore ? CF church root fallback',
         );
         await ChurchFunctionsService.adminUpsertChurchRoot(
           churchId: churchId,
@@ -184,7 +184,7 @@ abstract final class AdminFeedFirestoreBridge {
           rethrow;
         }
         debugPrint(
-          'AdminFeedFirestoreBridge: assert Firestore — CF fallback ($collection/$docId)',
+          'AdminFeedFirestoreBridge: assert Firestore ? CF fallback ($collection/$docId)',
         );
         try {
           await ChurchFunctionsService.adminUpsertFeedPost(
@@ -220,7 +220,7 @@ abstract final class AdminFeedFirestoreBridge {
     await directWrite();
   }
 
-  /// Resolve path a partir de [docRef] — avisos, membros, chat/messages, etc.
+  /// Resolve path a partir de [docRef] ? avisos, membros, chat/messages, etc.
   static Future<void> upsertDocRef({
     required DocumentReference<Map<String, dynamic>> docRef,
     required Map<String, dynamic> data,
@@ -278,7 +278,7 @@ abstract final class AdminFeedFirestoreBridge {
           rethrow;
         }
         debugPrint(
-          'AdminFeedFirestoreBridge: assert Firestore — CF delete fallback ($collection)',
+          'AdminFeedFirestoreBridge: assert Firestore ? CF delete fallback ($collection)',
         );
         await ChurchFunctionsService.adminDeleteFeedPosts(
           churchId: churchId,

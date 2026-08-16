@@ -87,7 +87,7 @@ abstract final class TenantModuleHiveCache {
     final box = _box;
     if (box == null) return;
     try {
-      // Infinity/NaN/Timestamp em docs Firestore → crash JsonCodec.encode (iOS).
+      // Infinity/NaN/Timestamp em docs Firestore ? crash JsonCodec.encode (iOS).
       final encoded = safeJsonEncode(docs);
       if (encoded.length > 2000000) return;
       await box.put(_dataKey(tid, module), encoded);

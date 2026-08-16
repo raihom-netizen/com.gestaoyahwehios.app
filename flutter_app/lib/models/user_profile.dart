@@ -7,10 +7,10 @@ class UserProfile {
   final String email;
   final String name;
 
-  /// Nome exibido no painel (1ª parte) — Firestore `displayFirstName`.
+  /// Nome exibido no painel (1? parte) ? Firestore `displayFirstName`.
   final String firstName;
 
-  /// Sobrenome exibido no painel — Firestore `displayLastName`.
+  /// Sobrenome exibido no painel ? Firestore `displayLastName`.
   final String lastName;
   final String role; // admin / master (acesso painel) / user
   final String

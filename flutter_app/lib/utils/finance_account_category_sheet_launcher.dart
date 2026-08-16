@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -55,6 +55,7 @@ abstract final class FinanceAccountCategorySheetLauncher {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
+       constraints: BoxConstraints.tightFor(height: MediaQuery.sizeOf(context).height),
       backgroundColor: Colors.transparent,
       builder: (ctx) => FinanceAccountCategorySheet(
         uid: _fsUid(uid),
@@ -117,7 +118,7 @@ abstract final class FinanceAccountCategorySheetLauncher {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => SizedBox(
-        height: MediaQuery.sizeOf(ctx).height * 0.96,
+        height: MediaQuery.sizeOf(ctx).height * 1.0,
         child: FinanceInsightSheet(
           uid: _fsUid(uid),
           initialScope: scope,

@@ -13,7 +13,7 @@ import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Resultado da carga do Cadastro da Igreja — leitura directa `igrejas/{churchId}`.
+/// Resultado da carga do Cadastro da Igreja ? leitura directa `igrejas/{churchId}`.
 class ChurchCadastroLoadResult {
   const ChurchCadastroLoadResult({
     required this.seedTenantId,
@@ -47,7 +47,7 @@ class ChurchCadastroLoadResult {
 
 /// Carga canónica do Cadastro — **uma** leitura Firestore via [ChurchRepository].
 ///
-/// Web = Android = iOS: sessão → cache Hive → `loadByChurchId` (sem leituras triplicadas).
+/// Web = Android = iOS: sessão ? cache Hive ? `loadByChurchId` (sem leituras triplicadas).
 abstract final class ChurchCadastroLoadService {
   ChurchCadastroLoadService._();
 
@@ -257,7 +257,7 @@ abstract final class ChurchCadastroLoadService {
     return null;
   }
 
-  /// Ordem: sessão/Hive → **uma** leitura `ChurchRepository.loadByChurchId`.
+  /// Ordem: sessão/Hive ? **uma** leitura `ChurchRepository.loadByChurchId`.
   static Future<ChurchCadastroLoadResult> load({
     required String seedTenantId,
     bool forceRefresh = false,
@@ -281,7 +281,7 @@ abstract final class ChurchCadastroLoadService {
         paintedLocal = local;
       }
       // Mobile: só devolver cache se o perfil for «rico» (endereço/contacto).
-      // Nome+slug sozinho → continua à rede (evita formulário incompleto).
+      // Nome+slug sozinho ? continua ? rede (evita formulário incompleto).
       if (!kIsWeb &&
           local != null &&
           _isUsableProfile(local.data) &&
@@ -446,7 +446,7 @@ abstract final class ChurchCadastroLoadService {
     if (FirestoreWebGuard.isInternalAssertionError(error)) {
       return 'Firestore instável na web. Toque em «Atualizar» em alguns segundos.';
     }
-    if (raw.length > 280) return '${raw.substring(0, 277)}…';
+    if (raw.length > 280) return '${raw.substring(0, 277)}?';
     return raw;
   }
 

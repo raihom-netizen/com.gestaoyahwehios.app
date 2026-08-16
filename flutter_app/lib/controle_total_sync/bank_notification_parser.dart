@@ -3,7 +3,7 @@ import 'package:gestao_yahweh/controle_total_sync/finance_bank_presets.dart';
 import 'package:gestao_yahweh/utils/finance_smart_input_text.dart';
 import 'package:gestao_yahweh/utils/ocr_description_sanity.dart';
 
-/// Resultado do parse de SMS / push de banco (regex no cliente — custo zero).
+/// Resultado do parse de SMS / push de banco (regex no cliente ? custo zero).
 class BankNotificationParseResult {
   /// Valor numérico positivo (ex.: 9.0 para R$ 9,00).
   final double? valor;
@@ -52,7 +52,7 @@ class BankNotificationParseResult {
   }
 }
 
-/// Metadados do lote (limites) — [BankNotificationParser.parseManyForBatchEx].
+/// Metadados do lote (limites) ? [BankNotificationParser.parseManyForBatchEx].
 class BankNotificationParseManyOutcome {
   final List<BankNotificationParseResult> rows;
 
@@ -589,7 +589,7 @@ abstract final class BankNotificationParser {
     );
   }
 
-  /// Concatena memo → merchant → category à descrição principal (ordem pedida), sem duplicar texto idêntico.
+  /// Concatena memo ? merchant ? category ? descrição principal (ordem pedida), sem duplicar texto idêntico.
   /// Se a descrição principal estiver vazia, usa só as colunas extra quando tiverem texto.
   static String _enrichCsvRowDescription(
     String baseDesc,
@@ -609,7 +609,7 @@ abstract final class BankNotificationParser {
       final k = t.toLowerCase();
       if (seen.contains(k)) return;
       seen.add(k);
-      out = out.isEmpty ? t : '$out · $t';
+      out = out.isEmpty ? t : '$out ? $t';
     }
 
     appendPart(memoIdx);
@@ -740,7 +740,7 @@ abstract final class BankNotificationParser {
   /// Palavras que indicam entrada de dinheiro.
   static final List<RegExp> _incomeHints = [
     RegExp(r'PIX\s+RECEBIDO', caseSensitive: false),
-    RegExp(r'PIX\s+RECEB', caseSensitive: false), // «pix recebido», bancos
+    RegExp(r'PIX\s+RECEB', caseSensitive: false), // ?pix recebido?, bancos
     RegExp(r'PIX\s+.*CREDITAD', caseSensitive: false),
     RegExp(r'CREDITO\s+(?:DE\s+)?PIX', caseSensitive: false),
     RegExp(
@@ -964,7 +964,7 @@ abstract final class BankNotificationParser {
       return _parseDataBr(cap);
     }
     final re = RegExp(
-      r'(?:primeir[oa]|1\.?\s*[ªa]\s*parcela|primeiro\s+vencimento)\s*[:\s]*(\d{2}/\d{2}(?:/\d{4})?)',
+      r'(?:primeir[oa]|1\.?\s*[?a]\s*parcela|primeiro\s+vencimento)\s*[:\s]*(\d{2}/\d{2}(?:/\d{4})?)',
       caseSensitive: false,
     );
     final m = re.firstMatch(lower);
@@ -1017,7 +1017,7 @@ abstract final class BankNotificationParser {
     );
     s = s.replaceAll(
       RegExp(
-        r'\s*(?:primeir[oa]|1\.?\s*[ªa]\s*parcela|primeiro\s+vencimento)\s*[:\s]*\d{2}/\d{2}(?:/\d{4})?.*$',
+        r'\s*(?:primeir[oa]|1\.?\s*[?a]\s*parcela|primeiro\s+vencimento)\s*[:\s]*\d{2}/\d{2}(?:/\d{4})?.*$',
         caseSensitive: false,
       ),
       '',
@@ -1079,7 +1079,7 @@ abstract final class BankNotificationParser {
       }
       final dt = _addCalendarMonths(firstDue, i);
       final label = '$labelBase (${i + 1}/$n)';
-      final snip = '$baseSnippet · p${i + 1}/$n';
+      final snip = '$baseSnippet ? p${i + 1}/$n';
       out.add(
         base.copyWith(valor: v, data: dt, descricao: label, rawSnippet: snip),
       );
@@ -1172,7 +1172,7 @@ abstract final class BankNotificationParser {
         }
       }
       // Uma linha: vários itens com | ou vírgula («mercado 10,00 | farmácia 150,00» ou com vírgulas, sem partir 1.234,56)
-      // têm de ser resolvidos *antes* de [parse] no texto completo, senão ganha só o 1.º/último bloco.
+      // têm de ser resolvidos *antes* de [parse] no texto completo, senão ganha só o 1.?/?ltimo bloco.
       var workForLine = trimmed;
       if (lines.length == 1) {
         workForLine = _normalizeListLikePastedLine(lines.first);
@@ -1594,7 +1594,7 @@ abstract final class BankNotificationParser {
   }
 
   static List<String> _splitFreeformCompositeParts(String line) {
-    // Ex.: «feira 89, 55» (vírgula+espaço no teclado) → «89,55» antes de máscar, sem capturar «8, 750» (75+0).
+    // Ex.: ?feira 89, 55? (vírgula+espaço no teclado) ? ?89,55? antes de m?scar, sem capturar ?8, 750? (75+0).
     var pre = line.replaceAllMapped(
       RegExp(r'\b(\d{1,3}(?:\.\d{3})*),\s*(\d{2})(?![0-9])'),
       (m) => '${m[1]},${m[2]}',
@@ -1713,7 +1713,7 @@ abstract final class BankNotificationParser {
       }
     }
 
-    // Total com «de R$ N» (ou de N) + «parcelado em M vezes» (ex.: geladeira de 1200 parcelado em 6 vezes).
+    // Total com ?de R$ N? (ou de N) + ?parcelado em M vezes? (ex.: geladeira de 1200 parcelado em 6 vezes).
     m = RegExp(
       r'^(.+?)\s+de\s+(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+,\d{1,2}|\d{1,7})\s+parcelad[oa]?\s+em\s+(\d{1,3})\s+vezes',
       caseSensitive: false,
@@ -1757,7 +1757,7 @@ abstract final class BankNotificationParser {
       }
     }
 
-    // Total com «de VALOR» + «em M parcelas» (ex.: geladeira de 1200 em 6 parcelas).
+    // Total com ?de VALOR? + ?em M parcelas? (ex.: geladeira de 1200 em 6 parcelas).
     m = RegExp(
       r'^(.+?)\s+de\s+(?:r\$\s*)?(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?|\d+,\d{1,2}|\d{1,7})\s+em\s+(\d{1,3})\s+parcelas?\b',
       caseSensitive: false,
@@ -1888,7 +1888,7 @@ abstract final class BankNotificationParser {
       }
     }
 
-    // Descrição … milhar BR com pontos no fim, sem decimais: `recebi pix 1.200` → 1200,00 reais
+    // Descrição ? milhar BR com pontos no fim, sem decimais: `recebi pix 1.200` ? 1200,00 reais
     m = RegExp(
       r'^(.+?)\s+(\d{1,3}(?:\.\d{3})+)$',
       caseSensitive: false,
@@ -1925,7 +1925,7 @@ abstract final class BankNotificationParser {
       var n = int.tryParse(tailDigits);
       var desc = m.group(1)!.trim();
       var treatAsCentsFromMerge = false;
-      // Evita `farmácia … R$ 8,` + `750` → 750,00: recompõe dígitos quando a descrição termina em `R$ …,`.
+      // Evita `farmácia ? R$ 8,` + `750` ? 750,00: recompõe dígitos quando a descrição termina em `R$ ?,`.
       if (n != null && tailDigits.length >= 3) {
         final frac = RegExp(
           r'R\$\s*(\d+),\s*$',
@@ -1988,7 +1988,7 @@ abstract final class BankNotificationParser {
     return s.isEmpty ? desc.trim() : s;
   }
 
-  /// «R$ 8, 750» = 8 + 750 → 87,50 (8750 cênt.); alinha com a fusão em [_tryFreeformSegment] e
+  /// ?R$ 8, 750? = 8 + 750 ? 87,50 (8750 c?nt.); alinha com a fus?o em [_tryFreeformSegment] e
   /// evita que [_reValor] apanhe só «8» antes de «, 750».
   static int? _centsFromBrokenRReaisCentsMaisSufix(String t) {
     final m = RegExp(
@@ -2174,7 +2174,7 @@ abstract final class BankNotificationParser {
     }
     if (incomeScore > expenseScore) return 'income';
     if (expenseScore > incomeScore) return 'expense';
-    // empate: PIX sem "recebido" pode ser envio — assume despesa se houver COMPRA
+    // empate: PIX sem "recebido" pode ser envio ? assume despesa se houver COMPRA
     if (u.contains('PIX') && !u.contains('RECEB')) return 'expense';
     return 'expense';
   }

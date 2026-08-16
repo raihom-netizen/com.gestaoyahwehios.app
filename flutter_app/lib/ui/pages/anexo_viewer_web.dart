@@ -175,5 +175,5 @@ class _WebPdfEmbedPreview extends StatelessWidget {
   }
 }
 
-/// Legado — mantido se algum import antigo referenciar.
+/// Legado ? mantido se algum import antigo referenciar.
 Widget buildAnexoIframe(String url) => buildAnexoWebViewer(url, fileName: null);

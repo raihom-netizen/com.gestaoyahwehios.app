@@ -29,7 +29,7 @@ class PublicChurchResolved {
   final bool fromIndexOnly;
 }
 
-/// Resolução rápida slug → igreja — índice `public_church_slugs` + doc directo (sem cluster).
+/// Resolução rápida slug ? igreja ? ?ndice `public_church_slugs` + doc directo (sem cluster).
 abstract final class PublicChurchSlugResolver {
   PublicChurchSlugResolver._();
 

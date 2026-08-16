@@ -115,7 +115,7 @@ abstract final class MemberCardDirectoryService {
     return out;
   }
 
-  /// `igrejas/{churchId}` — mesmo resolve que [members_page] / shell.
+  /// `igrejas/{churchId}` ? mesmo resolve que [members_page] / shell.
   static String resolveChurchId(String tenantHint) {
     final resolved = ChurchPanelTenant.resolve(tenantHint.trim());
     final churchId = ChurchRepository.churchId(resolved);
@@ -146,7 +146,7 @@ abstract final class MemberCardDirectoryService {
   static bool _isTargetIdConflict(Object e) =>
       FirestoreWebGuard.isTargetIdConflict(e);
 
-  /// Lista completa — `igrejas/{churchId}/membros` via [ChurchMembersLoadService].
+  /// Lista completa ? `igrejas/{churchId}/membros` via [ChurchMembersLoadService].
   static Future<List<MemberCardListEntry>> loadMembers({
     required String tenantId,
     int limit = YahwehPerformanceV4.adminExportBatchLimit,

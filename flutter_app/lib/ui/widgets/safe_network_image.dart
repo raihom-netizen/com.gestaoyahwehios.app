@@ -415,7 +415,7 @@ Future<String> _freshFirebaseStorageDisplayUrlUncached(String u) async {
     } catch (_) {}
   } else {
     await ensureFirebaseInitialized();
-    // App autenticado: getData no SDK — URL tokenizada do Firestore costuma bastar.
+    // App autenticado: getData no SDK ? URL tokenizada do Firestore costuma bastar.
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken();
     } catch (_) {}
@@ -1344,10 +1344,10 @@ class ResilientNetworkImage extends StatelessWidget {
 ///
 /// **Firestore:** o upload do mural/eventos já grava URL com token via `getDownloadURL()`.
 /// Se o documento tiver só path (`igrejas/.../noticias/...`), [sanitizeImageUrl] e
-/// [eventNoticiaPhotoUrls] ajudam a montar URL — preferir sempre salvar a URL completa no save.
+/// [eventNoticiaPhotoUrls] ajudam a montar URL ? preferir sempre salvar a URL completa no save.
 ///
 /// **Diagnóstico (ex. 403 / CORS / URL vazia):** use [onLoadError] como equivalente ao
-/// `errorWidget` do [CachedNetworkImage] — ex.: `debugPrint('[Mural] $error | $url')`.
+/// `errorWidget` do [CachedNetworkImage] ? ex.: `debugPrint('[Mural] $error | $url')`.
 /// Depois de aplicar CORS no bucket GCS, recarregue com Ctrl+F5.
 class SafeNetworkImage extends StatefulWidget {
   final String imageUrl;
@@ -1460,7 +1460,7 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
         ? YahwehCacheManagers.feedThumbs
         : YahwehCacheManagers.images;
 
-    // Web: URLs do Firebase Storage — mesmo pipeline do avatar do header ([FirebaseStorageMemoryImage]);
+    // Web: URLs do Firebase Storage ? mesmo pipeline do avatar do header ([FirebaseStorageMemoryImage]);
     // [StorageFriendlyImage] aqui deixava listas de membros/painel presas em loading ou sem foto.
     // Demais https: [StorageFriendlyImage] (http + fallback).
     if (kIsWeb) {
@@ -1542,7 +1542,7 @@ class _SafeNetworkImageState extends State<SafeNetworkImage> {
 }
 
 /// Último recurso na web: [Image.network] sem passar por [SafeNetworkImage] (evita recursão).
-/// Com **timeout** — URLs bloqueadas por CORS/rede podem deixar o [loadingBuilder] ativo para sempre;
+/// Com **timeout** ? URLs bloqueadas por CORS/rede podem deixar o [loadingBuilder] ativo para sempre;
 /// após [kWebNetworkImageGiveUpSeconds] segundos exibe [errorWidget] (site divulgação / capas).
 Widget _webNetworkImageLastResort({
   required String url,
@@ -2356,7 +2356,7 @@ class _FirebaseStorageMemoryImageState
       return;
     }
 
-    // EcoFire / painel: token expirado na URL do Firestore — uma segunda tentativa com getDownloadURL.
+    // EcoFire / painel: token expirado na URL do Firestore ? uma segunda tentativa com getDownloadURL.
     if (isFirebaseStorageHttpUrl(url) && !_didFreshTokenRetry) {
       _didFreshTokenRetry = true;
       final fresh = await refreshFirebaseStorageDownloadUrl(url);
@@ -2581,7 +2581,7 @@ class _StorageFriendlyImageState extends State<StorageFriendlyImage> {
       return false;
     }
 
-    /// Para URLs do Firebase Storage, prioriza SDK (getDownloadURL) — funciona melhor
+    /// Para URLs do Firebase Storage, prioriza SDK (getDownloadURL) ? funciona melhor
     /// no site público com usuário não logado (token expirado na URL original).
     if (isFirebaseStorageHttpUrl(url)) {
       final bytes = await firebaseStorageBytesFromDownloadUrl(url);
@@ -2669,7 +2669,7 @@ class _StorageFriendlyImageState extends State<StorageFriendlyImage> {
       return widget.placeholder ??
           defaultImagePlaceholder(size: sz.clamp(32.0, 96.0));
     }
-    // Não usar [SafeNetworkImage] aqui: na web ele delega a [StorageFriendlyImage] → recursão infinita.
+    // Não usar [SafeNetworkImage] aqui: na web ele delega a [StorageFriendlyImage] ? recursão infinita.
     return _webNetworkImageLastResort(
       url: url,
       fit: widget.fit,

@@ -64,7 +64,7 @@ class FirestoreStreamUtils {
     return source.asBroadcastStream();
   }
 
-  /// Listeners nativos Firestore — centralizados aqui; UI usa `.watchSafe()` / `.watchBootstrap()`.
+  /// Listeners nativos Firestore ? centralizados aqui; UI usa `.watchSafe()` / `.watchBootstrap()`.
   static Stream<QuerySnapshot<Map<String, dynamic>>> _nativeQuerySnapshots(
     Query<Map<String, dynamic>> query, {
     bool includeMetadataChanges = false,
@@ -95,7 +95,7 @@ class FirestoreStreamUtils {
     );
   }
 
-  /// Emite **uma vez** via `.get()` — painel/chat web sem `snapshots()`.
+  /// Emite **uma vez** via `.get()` ? painel/chat web sem `snapshots()`.
   static Stream<QuerySnapshot<Map<String, dynamic>>> oneShotQueryFromFuture(
     Future<QuerySnapshot<Map<String, dynamic>>> Function() fetch, {
     bool broadcast = true,
@@ -103,7 +103,7 @@ class FirestoreStreamUtils {
     try {
       yield await FirestoreWebGuard.runWithWebRecovery(fetch);
     } catch (e) {
-      // Erro transitório ≠ lista vazia (ver [queryWatchBootstrap]).
+      // Erro transitório ? lista vazia (ver [queryWatchBootstrap]).
       if (isTransientNetworkError(e) ||
           isPermissionDenied(e) ||
           FirestoreWebGuard.isInternalAssertionError(e) ||
@@ -129,9 +129,9 @@ class FirestoreStreamUtils {
         }
       });
 
-  /// Query com 1.º snapshot via `.get()` (cache) — evita spinner infinito na web.
+  /// Query com 1.? snapshot via `.get()` (cache) ? evita spinner infinito na web.
   ///
-  /// Web: `.get()` + polling leve — paridade com `snapshots()` mobile sem
+  /// Web: `.get()` + polling leve ? paridade com `snapshots()` mobile sem
   /// `INTERNAL ASSERTION FAILED` no Firestore JS 11.x.
   static Stream<QuerySnapshot<Map<String, dynamic>>> queryWatchBootstrap(
     Query<Map<String, dynamic>> query, {
@@ -140,7 +140,7 @@ class FirestoreStreamUtils {
     try {
       yield await _queryFirstSnapshot(query);
     } catch (e) {
-      // Falha de rede/SDK ≠ coleção vazia — não pintar lista vazia falsa.
+      // Falha de rede/SDK ? coleção vazia ? não pintar lista vazia falsa.
       // Emite erro para a UI (banner/retry) em vez de spinner infinito.
       if (isTransientNetworkError(e) ||
           isPermissionDenied(e) ||
@@ -180,7 +180,7 @@ class FirestoreStreamUtils {
         }
       });
 
-  /// Documento com 1.º snapshot via `.get()` — pintura instantânea no painel master.
+  /// Documento com 1.? snapshot via `.get()` ? pintura instantânea no painel master.
   static Stream<DocumentSnapshot<Map<String, dynamic>>> documentWatchBootstrap(
     DocumentReference<Map<String, dynamic>> ref, {
     bool broadcast = true,
@@ -188,7 +188,7 @@ class FirestoreStreamUtils {
     try {
       yield await _documentFirstSnapshot(ref);
     } catch (e) {
-      // Falha de rede/regras ≠ documento inexistente — não emitir snapshot vazio.
+      // Falha de rede/regras ? documento inexistente ? não emitir snapshot vazio.
       if (isTransientNetworkError(e) ||
           isPermissionDenied(e) ||
           FirestoreWebGuard.isInternalAssertionError(e) ||
@@ -236,7 +236,7 @@ class FirestoreStreamUtils {
         }
       });
     } catch (e) {
-      // Erro transitório ≠ lista vazia (ver [queryWatchBootstrap]).
+      // Erro transitório ? lista vazia (ver [queryWatchBootstrap]).
       if (isTransientNetworkError(e) ||
           isPermissionDenied(e) ||
           FirestoreWebGuard.isInternalAssertionError(e) ||
@@ -261,7 +261,7 @@ class FirestoreStreamUtils {
       queryWatchBootstrap(query, broadcast: broadcast);
 
   /// Web — re-fetch periódico (substitui `snapshots()`).
-  /// 1.º poll imediato (sem esperar 12s) — evita módulos «pesquisando» eternos.
+  /// 1.? poll imediato (sem esperar 12s) ? evita módulos ?pesquisando? eternos.
   static Stream<QuerySnapshot<Map<String, dynamic>>> _webQueryPolling(
     Query<Map<String, dynamic>> query,
   ) async* {
@@ -358,12 +358,12 @@ class FirestoreStreamUtils {
     await FirebaseAuthTokenGuard.refreshIfStale(force: force);
   }
 
-  /// ⭐ CORREÇÃO TOTAL WEB: lê a coleção por **REST puro** no navegador (não passa
-  /// pelo watch stream do SDK → imune à `INTERNAL ASSERTION`/`WatchChangeAggregator`
+  /// ? CORRE??O TOTAL WEB: lê a coleção por **REST puro** no navegador (não passa
+  /// pelo watch stream do SDK ? imune ? `INTERNAL ASSERTION`/`WatchChangeAggregator`
   /// que envenenava o cliente e fazia módulos "perderem os dados"). No mobile usa
   /// o listener normal via [mobileQuery]`.watchSafe()`.
   ///
-  /// Web: emite a 1.ª leitura imediatamente e re-busca a cada [pollInterval]
+  /// Web: emite a 1.? leitura imediatamente e re-busca a cada [pollInterval]
   /// (REST não gera churn de targets, então pode ser mais frequente que os 180s
   /// do polling por `.get()`). Mantém o último dado bom em falha transitória.
   static Stream<QuerySnapshot<Map<String, dynamic>>> restOrWatch({
@@ -408,7 +408,7 @@ class FirestoreStreamUtils {
   }
 }
 
-/// Streams Firestore seguros — substituem `.snapshots()` directo (web Firestore 11.x).
+/// Streams Firestore seguros ? substituem `.snapshots()` directo (web Firestore 11.x).
 extension SafeFirestoreDocumentStream on DocumentReference<Map<String, dynamic>> {
   Stream<DocumentSnapshot<Map<String, dynamic>>> watchSafe({
     bool broadcast = true,

@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:gestao_yahweh/data/finance_tip_bank_static.dart';
 import 'package:gestao_yahweh/models/finance_tip_bank_entry.dart';

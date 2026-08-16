@@ -200,7 +200,7 @@ class _SistemaInformacoesPageState extends State<SistemaInformacoesPage> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'Informações · ajuda, versão e módulos do app',
+                                'Informações ? ajuda, versão e módulos do app',
                                 style: GoogleFonts.poppins(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
@@ -668,7 +668,7 @@ class _MinhasSugestoesState extends State<_MinhasSugestoes> {
             final response = (data['response'] ?? '').toString();
             final respondedAt = data['respondedAt'] as Timestamp?;
             String fmt(Timestamp? ts) {
-              if (ts == null) return '—';
+              if (ts == null) return '?';
               final dt = ts.toDate();
               return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
             }

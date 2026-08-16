@@ -27,7 +27,7 @@ bool _casamentoNomeCorresponde(String candidato, String primeiroNorm) {
   return false;
 }
 
-/// Quantas palavras “fortes” de [refNorm] aparecem em [candidatoNorm] (ajuda quando
+/// Quantas palavras ?fortes? de [refNorm] aparecem em [candidatoNorm] (ajuda quando
 /// [\_casamentoNomeCorresponde] falha por grafia/sobrenome diferente).
 int _casamentoOverlapWordCount(String refNorm, String candidatoNorm) {
   final refWords =
@@ -60,13 +60,13 @@ String _segundoConjugeDoParCasamento(String a, String b, String primeiroNome) {
 }
 
 /// Remove `**` e normaliza espaços — o texto do editor pode incluir markdown e
-/// quebrar o reconhecimento de «certificamos que A e B contraiu…».
+/// quebrar o reconhecimento de ?certificamos que A e B contraiu??.
 String _stripMarkdownParaRegexCertificado(String s) {
   return s.replaceAll('**', '').replaceAll(RegExp(r'\s+'), ' ').trim();
 }
 
 /// Quando o segundo nome não chega ao pipeline, extrai do corpo já resolvido:
-/// "Certificamos que A e B contraiu/contrataram/…", inclusive se A e B estiverem
+/// "Certificamos que A e B contraiu/contrataram/?", inclusive se A e B estiverem
 /// em ordem invertida em relação a [primeiroNome].
 String segundoNomeCasamentoFallbackDoCorpo(String corpo, String primeiroNome) {
   final p = primeiroNome.trim();
@@ -251,7 +251,7 @@ class CertificatePdfInput {
   /// Ex.: `Dados: 2026.03.09 14:29:13 -03'00'` (preenchido na emissão).
   final String digitalSignatureDadosLine;
 
-  /// CNPJ/CPF da igreja — coluna esquerda do selo (igual Cartas).
+  /// CNPJ/CPF da igreja ? coluna esquerda do selo (igual Cartas).
   final String churchTaxIdDigits;
 
   const CertificatePdfInput({
@@ -396,7 +396,7 @@ double _certPdfBodyBlockHeightTradicional(CertificatePdfInput input) =>
 
 /// Linhas da coluna direita do selo digital (pt-BR).
 /// Sempre: (1) «Assinado de forma digital por» + nomes próprios em maiúsculas,
-/// com quebra manual (~[maxChars] caracteres por linha); (2) «SOBRENOME:» + CPF.
+/// com quebra manual (~[maxChars] caracteres por linha); (2) ?SOBRENOME:? + CPF.
 List<String> _certPdfDigitalStampRightColumnLines(
   String nomeCompleto,
   String cpfDigits,
@@ -456,7 +456,7 @@ List<pw.Widget> _certPdfLegalStampTailWidgets({
   final rightLines = _certPdfDigitalStampRightColumnLines(nome, cpfDigits);
   final dados = input.digitalSignatureDadosLine.trim().isNotEmpty
       ? input.digitalSignatureDadosLine.trim()
-      : 'Dados: —';
+      : 'Dados: ?';
   final rightSize = compact ? 5.4 : 6.2;
   final dadosSize = compact ? 5.1 : 5.9;
   final titleSize = compact ? 4.6 : 5.2;
@@ -607,7 +607,7 @@ pw.Widget _certPdfAssinaturaColumnaLimpa({
 String _hexRgb(int argb) =>
     (argb & 0xFFFFFF).toRadixString(16).padLeft(6, '0');
 
-/// Alturas fixas (pt) — evita encavalamento por [pw.Expanded] dentro de [pw.Column] sem constraint
+/// Alturas fixas (pt) ? evita encavalamento por [pw.Expanded] dentro de [pw.Column] sem constraint
 /// clara no pacote `pdf` (comportamento diferente do Flutter layout).
 abstract final class _CertPdfLayoutHeights {
   static const double logoTop = 88;

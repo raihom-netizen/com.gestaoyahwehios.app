@@ -9,7 +9,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Membro vinculado a um cargo — doc Firestore + dados normalizados.
+/// Membro vinculado a um cargo ? doc Firestore + dados normalizados.
 class ChurchCargoMemberRow {
   const ChurchCargoMemberRow({
     required this.id,
@@ -55,30 +55,12 @@ abstract final class ChurchCargoMembersLoadService {
   static String _asciiLower(String raw) {
     var s = raw.toLowerCase().trim();
     const accents = {
-      'á': 'a',
-      'à': 'a',
-      'ã': 'a',
-      'â': 'a',
-      'ä': 'a',
-      'é': 'e',
-      'è': 'e',
-      'ê': 'e',
-      'ë': 'e',
-      'í': 'i',
-      'ì': 'i',
-      'î': 'i',
-      'ï': 'i',
-      'ó': 'o',
-      'ò': 'o',
-      'õ': 'o',
-      'ô': 'o',
-      'ö': 'o',
-      'ú': 'u',
-      'ù': 'u',
-      'û': 'u',
-      'ü': 'u',
-      'ç': 'c',
-      'ñ': 'n',
+      '\u00e1': 'a', '\u00e0': 'a', '\u00e3': 'a', '\u00e2': 'a', '\u00e4': 'a',
+      '\u00e9': 'e', '\u00e8': 'e', '\u00ea': 'e', '\u00eb': 'e',
+      '\u00ed': 'i', '\u00ec': 'i', '\u00ee': 'i', '\u00ef': 'i',
+      '\u00f3': 'o', '\u00f2': 'o', '\u00f5': 'o', '\u00f4': 'o', '\u00f6': 'o',
+      '\u00fa': 'u', '\u00f9': 'u', '\u00fb': 'u', '\u00fc': 'u',
+      '\u00e7': 'c', '\u00f1': 'n',
     };
     for (final e in accents.entries) {
       s = s.replaceAll(e.key, e.value);
@@ -339,7 +321,7 @@ abstract final class ChurchCargoMembersLoadService {
       return 'Tempo esgotado ao carregar membros. Verifique a conexão.';
     }
     final s = e.toString();
-    if (s.length > 180) return '${s.substring(0, 177)}…';
+    if (s.length > 180) return '${s.substring(0, 177)}?';
     return s;
   }
 }

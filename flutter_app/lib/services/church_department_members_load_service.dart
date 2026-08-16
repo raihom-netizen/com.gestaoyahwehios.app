@@ -64,7 +64,7 @@ class ChurchDepartmentMembersByDeptResult {
   final String? softError;
 }
 
-/// Carga estável Departamentos ↔ Membros — paths `igrejas/{churchId}/…`.
+/// Carga estável Departamentos ? Membros ? paths `igrejas/{churchId}/?`.
 ///
 /// **Hub:** só lê `membros_vinculados` + docs de membro por ID (nunca scan de 500).
 abstract final class ChurchDepartmentMembersLoadService {
@@ -180,7 +180,7 @@ abstract final class ChurchDepartmentMembersLoadService {
     );
   }
 
-  /// Prefill do hub a partir da grelha / picker (evita "Carregando…" na abertura).
+  /// Prefill do hub a partir da grelha / picker (evita "Carregando?" na abertura).
   static void seedLinkedFromRows({
     required String seedTenantId,
     required String departmentId,
@@ -488,7 +488,7 @@ abstract final class ChurchDepartmentMembersLoadService {
     } catch (_) {}
   }
 
-  /// Membros vinculados a um departamento (hub) — **cache/RAM primeiro**, rede em background.
+  /// Membros vinculados a um departamento (hub) ? **cache/RAM primeiro**, rede em background.
   static Future<ChurchDepartmentMembersLoadResult> loadLinked({
     required String seedTenantId,
     required String departmentId,
@@ -650,7 +650,7 @@ abstract final class ChurchDepartmentMembersLoadService {
     return byDept;
   }
 
-  /// Mapa deptId → membros (avatars na grelha) — cache-first, limite 120.
+  /// Mapa deptId ? membros (avatars na grelha) ? cache-first, limite 120.
   static Future<ChurchDepartmentMembersByDeptResult> loadGroupedByDepartment({
     required String seedTenantId,
     bool forceRefresh = false,
@@ -690,7 +690,7 @@ abstract final class ChurchDepartmentMembersLoadService {
     );
   }
 
-  /// Lista para picker «Vincular membros» — cache-first (20–120), sem scan 500.
+  /// Lista para picker ?Vincular membros? ? cache-first (20?120), sem scan 500.
   static Future<ChurchDepartmentMembersLoadResult> loadAllForPicker({
     required String seedTenantId,
     bool forceRefresh = false,
@@ -765,7 +765,7 @@ abstract final class ChurchDepartmentMembersLoadService {
       return 'Tempo esgotado ao carregar membros. Verifique a conexão.';
     }
     final s = e.toString();
-    if (s.length > 180) return '${s.substring(0, 177)}…';
+    if (s.length > 180) return '${s.substring(0, 177)}?';
     return s;
   }
 }

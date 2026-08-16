@@ -391,8 +391,8 @@ class MemberDigitalWalletFront extends StatelessWidget {
                                     child: Text(
                                       () {
                                         final v = validade.trim();
-                                        if (v.isEmpty || v == '—') {
-                                          return '—';
+                                        if (v.isEmpty || v == '?') {
+                                          return '?';
                                         }
                                         return v;
                                       }(),
@@ -641,7 +641,7 @@ class WalletSignatureStrip extends StatelessWidget {
   }
 }
 
-/// Mesmo pipeline do PDF: traços realçados + fundo branco → transparente (assinatura «flutuando»).
+/// Mesmo pipeline do PDF: traços real?ados + fundo branco ? transparente (assinatura ?flutuando?).
 class _WalletSigImage extends StatefulWidget {
   final String url;
 
@@ -882,8 +882,8 @@ class MemberDigitalWalletBack extends StatelessWidget {
   /// CPF e nascimento na mesma linha — liberta espaço vertical para assinatura do pastor.
   static Widget _cpfNascimentoLine(
       String cpf, String nasc, Color textColor) {
-    final c = cpf.trim().isEmpty ? '—' : cpf.trim();
-    final n = nasc.trim().isEmpty ? '—' : nasc.trim();
+    final c = cpf.trim().isEmpty ? '?' : cpf.trim();
+    final n = nasc.trim().isEmpty ? '?' : nasc.trim();
     return Padding(
       padding: const EdgeInsets.only(bottom: 3),
       child: RichText(
@@ -931,7 +931,7 @@ class MemberDigitalWalletBack extends StatelessWidget {
   }
 
   static Widget _miniField(String label, String value, Color textColor) {
-    final v = value.trim().isEmpty ? '—' : value.trim();
+    final v = value.trim().isEmpty ? '?' : value.trim();
     return Padding(
       padding: const EdgeInsets.only(bottom: 3),
       child: RichText(

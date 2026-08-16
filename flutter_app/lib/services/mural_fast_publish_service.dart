@@ -57,61 +57,58 @@ abstract final class MuralFastPublishService {
       int slotIndex,
       void Function(double progress) report,
     )
-        uploadSlot,
+    uploadSlot,
     required Map<String, dynamic> Function({
       required List<String> allUrls,
       required double aspectRatio,
       required bool hasVideo,
     })
-        buildMediaFields,
+    buildMediaFields,
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) {
     unawaited(
-      runFirebaseBackgroundTask<void>(
-        () async {
-          try {
-            await MuralPostPendingMediaCache.put(
-              tenantId: tenantId,
-              postId: postId,
-              images: newImages,
-            );
-            await MuralPublishOutboxService.registerJob(
-              tenantId: tenantId,
-              postId: postId,
-              postType: postType,
-              existingUrls: existingUrls,
-              startSlotIndex: startSlotIndex,
-              hasVideo: hasVideo,
-            );
-          } catch (e, st) {
-            ChurchPublishFlowLog.uploadError(e, st);
-          }
-          await uploadImagesAndFinalizePost(
-            docRef: docRef,
+      runFirebaseBackgroundTask<void>(() async {
+        try {
+          await MuralPostPendingMediaCache.put(
+            tenantId: tenantId,
+            postId: postId,
+            images: newImages,
+          );
+          await MuralPublishOutboxService.registerJob(
             tenantId: tenantId,
             postId: postId,
             postType: postType,
-            newImages: newImages,
             existingUrls: existingUrls,
             startSlotIndex: startSlotIndex,
             hasVideo: hasVideo,
-            uploadSlot: uploadSlot,
-            buildMediaFields: buildMediaFields,
-            onPublished: onPublished,
           );
-        },
-        debugLabel: 'mural_finalize_bytes',
-      ).catchError((Object e, StackTrace st) async {
+        } catch (e, st) {
+          ChurchPublishFlowLog.uploadError(e, st);
+        }
+        await uploadImagesAndFinalizePost(
+          docRef: docRef,
+          tenantId: tenantId,
+          postId: postId,
+          postType: postType,
+          newImages: newImages,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlotIndex,
+          hasVideo: hasVideo,
+          uploadSlot: uploadSlot,
+          buildMediaFields: buildMediaFields,
+          onPublished: onPublished,
+        );
+      }, debugLabel: 'mural_finalize_bytes').catchError((
+        Object e,
+        StackTrace st,
+      ) async {
         await CrashlyticsService.record(
           e,
           st,
           reason: 'mural_schedule_background_bytes',
         );
-        await _markFailed(
-          docRef: docRef,
-          message: formatUploadErrorForUser(e),
-        );
+        await _markFailed(docRef: docRef, message: formatUploadErrorForUser(e));
       }),
     );
   }
@@ -130,86 +127,83 @@ abstract final class MuralFastPublishService {
       int slotIndex,
       void Function(double progress) report,
     )
-        uploadSlot,
+    uploadSlot,
     required Map<String, dynamic> Function({
       required List<String> allUrls,
       required double aspectRatio,
       required bool hasVideo,
     })
-        buildMediaFields,
+    buildMediaFields,
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) {
     unawaited(
-      runFirebaseBackgroundTask<void>(
-        () async {
-          try {
-            await MuralPublishOutboxService.registerJob(
-              tenantId: tenantId,
-              postId: postId,
-              postType: postType,
-              existingUrls: existingUrls,
-              startSlotIndex: startSlotIndex,
-              hasVideo: hasVideo,
-              localPaths: localPaths,
-            );
-            String? firstPath;
-            for (final p in localPaths) {
-              final t = p.trim();
-              if (t.isNotEmpty) {
-                firstPath = t;
-                break;
-              }
-            }
-            if (firstPath != null) {
-              final f = File(firstPath);
-              if (await f.exists()) {
-                Uint8List previewBytes;
-                if (IosPublishImagePipeline.useIosLightweightPublish) {
-                  previewBytes =
-                      await IosPublishImagePipeline.compressForPublishFromPath(
-                    firstPath,
-                  );
-                } else {
-                  previewBytes = await f.readAsBytes();
-                }
-                if (previewBytes.isNotEmpty) {
-                  await MuralPostPendingMediaCache.put(
-                    tenantId: tenantId,
-                    postId: postId,
-                    images: [previewBytes],
-                  );
-                }
-              }
-            }
-          } catch (e, st) {
-            ChurchPublishFlowLog.uploadError(e, st);
-          }
-          await uploadImagesAndFinalizePostFromPaths(
-            docRef: docRef,
+      runFirebaseBackgroundTask<void>(() async {
+        try {
+          await MuralPublishOutboxService.registerJob(
             tenantId: tenantId,
             postId: postId,
             postType: postType,
-            localPaths: localPaths,
             existingUrls: existingUrls,
             startSlotIndex: startSlotIndex,
             hasVideo: hasVideo,
-            uploadSlot: uploadSlot,
-            buildMediaFields: buildMediaFields,
-            onPublished: onPublished,
+            localPaths: localPaths,
           );
-        },
-        debugLabel: 'mural_finalize_paths',
-      ).catchError((Object e, StackTrace st) async {
+          String? firstPath;
+          for (final p in localPaths) {
+            final t = p.trim();
+            if (t.isNotEmpty) {
+              firstPath = t;
+              break;
+            }
+          }
+          if (firstPath != null) {
+            final f = File(firstPath);
+            if (await f.exists()) {
+              Uint8List previewBytes;
+              if (IosPublishImagePipeline.useIosLightweightPublish) {
+                previewBytes =
+                    await IosPublishImagePipeline.compressForPublishFromPath(
+                      firstPath,
+                    );
+              } else {
+                previewBytes = await f.readAsBytes();
+              }
+              if (previewBytes.isNotEmpty) {
+                await MuralPostPendingMediaCache.put(
+                  tenantId: tenantId,
+                  postId: postId,
+                  images: [previewBytes],
+                );
+              }
+            }
+          }
+        } catch (e, st) {
+          ChurchPublishFlowLog.uploadError(e, st);
+        }
+        await uploadImagesAndFinalizePostFromPaths(
+          docRef: docRef,
+          tenantId: tenantId,
+          postId: postId,
+          postType: postType,
+          localPaths: localPaths,
+          existingUrls: existingUrls,
+          startSlotIndex: startSlotIndex,
+          hasVideo: hasVideo,
+          uploadSlot: uploadSlot,
+          buildMediaFields: buildMediaFields,
+          onPublished: onPublished,
+        );
+      }, debugLabel: 'mural_finalize_paths').catchError((
+        Object e,
+        StackTrace st,
+      ) async {
         await CrashlyticsService.record(
           e,
           st,
           reason: 'mural_schedule_background_paths',
         );
-        await _markFailed(
-          docRef: docRef,
-          message: formatUploadErrorForUser(e),
-        );
+        await _markFailed(docRef: docRef, message: formatUploadErrorForUser(e));
       }),
     );
   }
@@ -228,25 +222,22 @@ abstract final class MuralFastPublishService {
       int slotIndex,
       void Function(double progress) report,
     )
-        uploadSlot,
+    uploadSlot,
     required Map<String, dynamic> Function({
       required List<String> allUrls,
       required double aspectRatio,
       required bool hasVideo,
     })
-        buildMediaFields,
+    buildMediaFields,
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) async {
     await ensureFirebaseCore(requireAuth: true);
     try {
-      await docRef.set(
-        {
-          'publishState': EntityPublishStatus.uploading,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      await docRef.set({
+        'publishState': EntityPublishStatus.uploading,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     } catch (e, st) {
       YahwehFlowLog.error('AVISOS', e, st);
       rethrow;
@@ -258,7 +249,7 @@ abstract final class MuralFastPublishService {
       final uploaded = await StorageService.uploadPhotosParallel<String>(
         count: newImages.length,
         maxConcurrent: maxConc,
-        progressLabel: 'A enviar imagens…',
+        progressLabel: 'A enviar imagens?',
         uploadOne: (i, report) async {
           final r = await MuralPostMediaPayload.uploadPhotoSlotWithVariants(
             tenantId: tenantId,
@@ -269,7 +260,7 @@ abstract final class MuralFastPublishService {
             onProgress: report,
           ).timeout(const Duration(minutes: 4));
           if (i == 0) firstVariants = r.imageVariants;
-          await _appendImageUrl(docRef, r.primaryUrl);
+          // As URLs são persistidas em um ?nico patch final; evita uma gravação por foto.
           return r.primaryUrl;
         },
       ).timeout(_batchTimeout);
@@ -290,7 +281,7 @@ abstract final class MuralFastPublishService {
     } on TimeoutException {
       await _markFailed(
         docRef: docRef,
-        message: 'Tempo esgotado ao enviar fotos. Toque em «Tentar de novo».',
+        message: 'Tempo esgotado ao enviar fotos. Toque em ?Tentar de novo?.',
       );
     } catch (e, st) {
       ChurchPublishFlowLog.uploadError(e, st);
@@ -299,10 +290,7 @@ abstract final class MuralFastPublishService {
         st,
         reason: 'mural_upload_finalize_bytes',
       );
-      await _markFailed(
-        docRef: docRef,
-        message: formatUploadErrorForUser(e),
-      );
+      await _markFailed(docRef: docRef, message: formatUploadErrorForUser(e));
     }
   }
 
@@ -320,13 +308,13 @@ abstract final class MuralFastPublishService {
       int slotIndex,
       void Function(double progress) report,
     )
-        uploadSlot,
+    uploadSlot,
     required Map<String, dynamic> Function({
       required List<String> allUrls,
       required double aspectRatio,
       required bool hasVideo,
     })
-        buildMediaFields,
+    buildMediaFields,
     bool hasVideo = false,
     Future<void> Function()? onPublished,
   }) async {
@@ -346,13 +334,12 @@ abstract final class MuralFastPublishService {
       return;
     }
     try {
-      await StorageService.warmAuthToken()
-          .timeout(const Duration(seconds: 5));
+      await StorageService.warmAuthToken().timeout(const Duration(seconds: 5));
       Map<String, dynamic>? firstVariants;
       final uploaded = await StorageService.uploadPhotosParallel<String>(
         count: paths.length,
         maxConcurrent: _feedUploadConcurrency(paths.length),
-        progressLabel: 'A enviar imagens…',
+        progressLabel: 'A enviar imagens?',
         uploadOne: (i, report) async {
           final r = await MuralPostMediaPayload.uploadPhotoSlotWithVariants(
             tenantId: tenantId,
@@ -364,7 +351,7 @@ abstract final class MuralFastPublishService {
             onProgress: report,
           ).timeout(const Duration(minutes: 4));
           if (i == 0) firstVariants = r.imageVariants;
-          await _appendImageUrl(docRef, r.primaryUrl);
+          // As URLs são persistidas em um ?nico patch final; evita uma gravação por foto.
           return r.primaryUrl;
         },
       ).timeout(_batchTimeout);
@@ -385,7 +372,7 @@ abstract final class MuralFastPublishService {
     } on TimeoutException {
       await _markFailed(
         docRef: docRef,
-        message: 'Tempo esgotado ao enviar fotos. Toque em «Tentar de novo».',
+        message: 'Tempo esgotado ao enviar fotos. Toque em ?Tentar de novo?.',
       );
     } catch (e, st) {
       ChurchPublishFlowLog.uploadError(e, st);
@@ -394,10 +381,7 @@ abstract final class MuralFastPublishService {
         st,
         reason: 'mural_upload_finalize_paths',
       );
-      await _markFailed(
-        docRef: docRef,
-        message: formatUploadErrorForUser(e),
-      );
+      await _markFailed(docRef: docRef, message: formatUploadErrorForUser(e));
     }
   }
 
@@ -414,7 +398,7 @@ abstract final class MuralFastPublishService {
       required double aspectRatio,
       required bool hasVideo,
     })
-        buildMediaFields,
+    buildMediaFields,
     required bool hasVideo,
     Map<String, dynamic>? imageVariants,
     Future<void> Function()? onPublished,
@@ -462,10 +446,7 @@ abstract final class MuralFastPublishService {
     }
     if (lastFinalize != null) throw lastFinalize;
     ChurchPublishFlowLog.moduleUploadOk(isEvento: postType != 'aviso');
-    await MuralPostPendingMediaCache.remove(
-      tenantId: tenantId,
-      postId: postId,
-    );
+    await MuralPostPendingMediaCache.remove(tenantId: tenantId, postId: postId);
     await MuralPublishOutboxService.clearJob(
       tenantId: tenantId,
       postId: postId,
@@ -496,35 +477,6 @@ abstract final class MuralFastPublishService {
     }
   }
 
-  static Future<void> _appendImageUrl(
-    DocumentReference<Map<String, dynamic>> docRef,
-    String url,
-  ) async {
-    if (url.trim().isEmpty) return;
-    for (var attempt = 1; attempt <= 3; attempt++) {
-      try {
-        if (attempt == 1) await ensureFirebaseReadyForPublishUpload();
-        await ChurchDataService.instance.updateTenantDocument(
-          ref: docRef,
-          data: <String, dynamic>{
-            'imageUrls': FieldValue.arrayUnion([url]),
-          },
-          module: 'mural_append_url',
-        );
-        return;
-      } catch (e, st) {
-        ChurchTenantWriteLog.firestoreUpdateFail(
-          docRef.path,
-          e,
-          stack: st,
-          module: 'mural_append_url',
-        );
-        if (attempt >= 3) return;
-        await Future.delayed(Duration(milliseconds: 100 * attempt));
-      }
-    }
-  }
-
   static Future<void> _markFailed({
     required DocumentReference<Map<String, dynamic>> docRef,
     required String message,
@@ -548,8 +500,9 @@ abstract final class MuralFastPublishService {
             'publishState': stateFailed,
             'publicado': false,
             'status': 'erro',
-            'publishError':
-                userMsg.length > 400 ? userMsg.substring(0, 400) : userMsg,
+            'publishError': userMsg.length > 400
+                ? userMsg.substring(0, 400)
+                : userMsg,
           },
           merge: true,
           module: 'mural_failed',

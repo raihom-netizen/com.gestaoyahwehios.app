@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart' hide showDatePicker;
@@ -29,7 +29,8 @@ import 'package:gestao_yahweh/ui/widgets/app_pie_chart.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_bank_brand_thumb.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_confirm_payment_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_premium_ui.dart';
-import 'package:gestao_yahweh/ui/widgets/agenda_period_filter_bar.dart' show agendaParseBrDateInput;
+import 'package:gestao_yahweh/ui/widgets/agenda_period_filter_bar.dart'
+    show agendaParseBrDateInput;
 import 'package:gestao_yahweh/ui/widgets/fast_text_field.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_transaction_list_tile.dart';
 import 'package:gestao_yahweh/ui/widgets/skeleton_loader.dart';
@@ -46,16 +47,21 @@ class FinanceCreditCardFaturaSheet extends StatefulWidget {
     List<String> docIds, {
     required FinanceConfirmPaymentSheetResult result,
     required String cardAccountId,
-  }) onConfirmFaturaPayment;
+  })
+  onConfirmFaturaPayment;
   final Future<void> Function(
     BuildContext context,
     String docId,
     Map<String, dynamic> current,
     String type,
-  ) onEditTransaction;
-  final Future<void> Function(BuildContext context, String docId) onDeleteTransaction;
-  final Future<void> Function(BuildContext context, List<String> docIds) onDeleteBatch;
-  final Future<void> Function(BuildContext context, String docId) onAttachReceipt;
+  )
+  onEditTransaction;
+  final Future<void> Function(BuildContext context, String docId)
+  onDeleteTransaction;
+  final Future<void> Function(BuildContext context, List<String> docIds)
+  onDeleteBatch;
+  final Future<void> Function(BuildContext context, String docId)
+  onAttachReceipt;
 
   const FinanceCreditCardFaturaSheet({
     super.key,
@@ -83,16 +89,21 @@ class FinanceCreditCardFaturaSheet extends StatefulWidget {
       List<String> docIds, {
       required FinanceConfirmPaymentSheetResult result,
       required String cardAccountId,
-    }) onConfirmFaturaPayment,
+    })
+    onConfirmFaturaPayment,
     required Future<void> Function(
       BuildContext context,
       String docId,
       Map<String, dynamic> current,
       String type,
-    ) onEditTransaction,
-    required Future<void> Function(BuildContext context, String docId) onDeleteTransaction,
-    required Future<void> Function(BuildContext context, List<String> docIds) onDeleteBatch,
-    required Future<void> Function(BuildContext context, String docId) onAttachReceipt,
+    )
+    onEditTransaction,
+    required Future<void> Function(BuildContext context, String docId)
+    onDeleteTransaction,
+    required Future<void> Function(BuildContext context, List<String> docIds)
+    onDeleteBatch,
+    required Future<void> Function(BuildContext context, String docId)
+    onAttachReceipt,
   }) {
     return Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
@@ -114,10 +125,12 @@ class FinanceCreditCardFaturaSheet extends StatefulWidget {
   }
 
   @override
-  State<FinanceCreditCardFaturaSheet> createState() => _FinanceCreditCardFaturaSheetState();
+  State<FinanceCreditCardFaturaSheet> createState() =>
+      _FinanceCreditCardFaturaSheetState();
 }
 
-class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSheet> {
+class _FinanceCreditCardFaturaSheetState
+    extends State<FinanceCreditCardFaturaSheet> {
   bool _selectionMode = false;
   final Set<String> _selectedIds = {};
   bool _confirming = false;
@@ -126,6 +139,7 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
 
   /// Filtros internos do preview — não alteram o painel Financeiro.
   String _periodMode = 'Abertos';
+
   /// all | pending | paid — padrão abertos no modo Abertos; todos nos demais.
   String _statusFilter = 'pending';
   String? _categoryFilter;
@@ -145,7 +159,9 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
     final now = DateTime.now();
     _from = DateTime(now.year, now.month, 1);
     _to = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
-    _startDateCtrl = TextEditingController(text: DateTimeFormats.formatDate(_from));
+    _startDateCtrl = TextEditingController(
+      text: DateTimeFormats.formatDate(_from),
+    );
     _endDateCtrl = TextEditingController(text: DateTimeFormats.formatDate(_to));
     FinanceTransactionsHub.revision.addListener(_onHubRevision);
     unawaited(_reloadDocs());
@@ -174,7 +190,8 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
   bool _isPendingDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) =>
       (doc.data()['status'] ?? 'paid').toString() == 'pending';
 
-  bool _isPaidDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) => !_isPendingDoc(doc);
+  bool _isPaidDoc(QueryDocumentSnapshot<Map<String, dynamic>> doc) =>
+      !_isPendingDoc(doc);
 
   DateTime get _rangeStart => DateTime(_from.year, _from.month, _from.day);
 
@@ -201,7 +218,9 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _paidDocsInPeriod(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> periodDocs,
   ) {
-    return periodDocs.where((doc) => _isPaidDoc(doc) && _docPaidInSelectedPeriod(doc.data())).toList();
+    return periodDocs
+        .where((doc) => _isPaidDoc(doc) && _docPaidInSelectedPeriod(doc.data()))
+        .toList();
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _pendingDocsForView({
@@ -209,10 +228,14 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
     List<QueryDocumentSnapshot<Map<String, dynamic>>>? pendingDocs,
   }) {
     if (_isAbertosMode) {
-      return pendingDocs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      return pendingDocs ??
+          const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
     }
     return periodDocs
-        .where((doc) => _isPendingDoc(doc) && _docPendingInSelectedPeriod(doc.data()))
+        .where(
+          (doc) =>
+              _isPendingDoc(doc) && _docPendingInSelectedPeriod(doc.data()),
+        )
         .toList();
   }
 
@@ -238,7 +261,10 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
     List<QueryDocumentSnapshot<Map<String, dynamic>>>? pendingDocs,
   }) {
     final paidInPeriod = _paidDocsInPeriod(periodDocs);
-    final pending = _pendingDocsForView(periodDocs: periodDocs, pendingDocs: pendingDocs);
+    final pending = _pendingDocsForView(
+      periodDocs: periodDocs,
+      pendingDocs: pendingDocs,
+    );
 
     if (_statusFilter == 'pending') return pending;
     if (_statusFilter == 'paid') return paidInPeriod;
@@ -251,7 +277,9 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
   ) {
     final cat = _categoryFilter?.trim();
     if (cat == null || cat.isEmpty) return docs;
-    return docs.where((d) => (d.data()['category'] ?? '').toString().trim() == cat).toList();
+    return docs
+        .where((d) => (d.data()['category'] ?? '').toString().trim() == cat)
+        .toList();
   }
 
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _chartDocs({
@@ -259,7 +287,10 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
     List<QueryDocumentSnapshot<Map<String, dynamic>>>? pendingDocs,
   }) {
     final paidInPeriod = _paidDocsInPeriod(periodDocs);
-    final pending = _pendingDocsForView(periodDocs: periodDocs, pendingDocs: pendingDocs);
+    final pending = _pendingDocsForView(
+      periodDocs: periodDocs,
+      pendingDocs: pendingDocs,
+    );
 
     if (_statusFilter == 'paid') return paidInPeriod;
     if (_statusFilter == 'pending') return pending;
@@ -267,13 +298,16 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
     return periodDocs;
   }
 
-  List<String> _categoryOptions(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+  List<String> _categoryOptions(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
     final cats = <String>{};
     for (final d in docs) {
       final c = (d.data()['category'] ?? '').toString().trim();
       if (c.isNotEmpty) cats.add(c);
     }
-    final list = cats.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final list = cats.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return list;
   }
 
@@ -393,7 +427,9 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: AppColors.primary.withValues(alpha: 0.18)),
+          borderSide: BorderSide(
+            color: AppColors.primary.withValues(alpha: 0.18),
+          ),
         ),
         suffixIcon: IconButton(
           tooltip: 'Calendário',
@@ -415,14 +451,16 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
                   _faturaDateField(
                     label: 'Data inicial',
                     controller: _startDateCtrl,
-                    onCalendar: () => unawaited(_pickDateForRange(isStart: true)),
+                    onCalendar: () =>
+                        unawaited(_pickDateForRange(isStart: true)),
                     onSubmitted: _applyManualDateRange,
                   ),
                   SizedBox(height: 8),
                   _faturaDateField(
                     label: 'Data final',
                     controller: _endDateCtrl,
-                    onCalendar: () => unawaited(_pickDateForRange(isStart: false)),
+                    onCalendar: () =>
+                        unawaited(_pickDateForRange(isStart: false)),
                     onSubmitted: _applyManualDateRange,
                   ),
                 ],
@@ -434,7 +472,8 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
                     child: _faturaDateField(
                       label: 'Data inicial',
                       controller: _startDateCtrl,
-                      onCalendar: () => unawaited(_pickDateForRange(isStart: true)),
+                      onCalendar: () =>
+                          unawaited(_pickDateForRange(isStart: true)),
                       onSubmitted: _applyManualDateRange,
                     ),
                   ),
@@ -443,7 +482,8 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
                     child: _faturaDateField(
                       label: 'Data final',
                       controller: _endDateCtrl,
-                      onCalendar: () => unawaited(_pickDateForRange(isStart: false)),
+                      onCalendar: () =>
+                          unawaited(_pickDateForRange(isStart: false)),
                       onSubmitted: _applyManualDateRange,
                     ),
                   ),
@@ -463,14 +503,21 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
               children: [
                 Row(
                   children: [
-                    Icon(Icons.date_range_rounded, size: 18, color: AppColors.primary),
+                    Icon(
+                      Icons.date_range_rounded,
+                      size: 18,
+                      color: AppColors.primary,
+                    ),
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         _isAbertosMode && _statusFilter == 'pending'
                             ? 'Período (pagos e gráficos) · abertos = todos no cartão'
                             : 'Período selecionado',
-                        style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12.5,
+                        ),
                       ),
                     ),
                   ],
@@ -511,7 +558,9 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
       );
       if (!mounted) return;
       final docs = raw
-          .where((d) => FinanceAccountBalanceUtils.countsForFaturaCartao(d.data()))
+          .where(
+            (d) => FinanceAccountBalanceUtils.countsForFaturaCartao(d.data()),
+          )
           .toList();
       setState(() {
         _periodDocs = docs;
@@ -544,10 +593,14 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
                   selectedColor: accent.withValues(alpha: 0.18),
                   labelStyle: TextStyle(
                     fontWeight: FontWeight.w800,
-                    color: _periodMode == label ? accent : AppColors.textSecondary,
+                    color: _periodMode == label
+                        ? accent
+                        : AppColors.textSecondary,
                   ),
                   side: BorderSide(
-                    color: accent.withValues(alpha: _periodMode == label ? 0.85 : 0.28),
+                    color: accent.withValues(
+                      alpha: _periodMode == label ? 0.85 : 0.28,
+                    ),
                   ),
                 ),
               ),
@@ -570,7 +623,10 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
       .orderBy('date', descending: false)
       .limit(500);
 
-  double _sumDocs(Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {Set<String>? onlyIds}) {
+  double _sumDocs(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
+    Set<String>? onlyIds,
+  }) {
     var s = 0.0;
     for (final doc in docs) {
       if (onlyIds != null && !onlyIds.contains(doc.id)) continue;
@@ -590,10 +646,9 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
       final amt = (d['amount'] as num?)?.toDouble().abs() ?? 0;
       merger.addAmount(totals, cat, amt);
     }
-    final list = totals.entries
-        .map((e) => (category: e.key, total: e.value))
-        .toList()
-      ..sort((a, b) => b.total.compareTo(a.total));
+    final list =
+        totals.entries.map((e) => (category: e.key, total: e.value)).toList()
+          ..sort((a, b) => b.total.compareTo(a.total));
     return list;
   }
 
@@ -650,7 +705,11 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
                   color: AppColors.financeDespesa.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(Icons.donut_large_rounded, color: AppColors.financeDespesa, size: 22),
+                child: Icon(
+                  Icons.donut_large_rounded,
+                  color: AppColors.financeDespesa,
+                  size: 22,
+                ),
               ),
               SizedBox(width: 10),
               Expanded(
@@ -659,11 +718,19 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
                   children: [
                     Text(
                       title,
-                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: context.appTextPrimary),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                        color: context.appTextPrimary,
+                      ),
                     ),
                     Text(
                       '${entries.length} categoria(s) · ${CurrencyFormats.formatBRL(totalFatura)} no total',
-                      style: TextStyle(fontSize: 12, color: context.appTextSecondary, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.appTextSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
@@ -672,10 +739,7 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
           ),
         ),
         SizedBox(height: 12),
-        AppPieChart(
-          title: 'Distribuição da fatura',
-          segments: pieSegments,
-        ),
+        AppPieChart(title: 'Distribuição da fatura', segments: pieSegments),
         SizedBox(height: 12),
         if (topBar.length >= 2)
           AppBarChart(
@@ -705,19 +769,34 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
             children: [
               Text(
                 'Detalhe por categoria',
-                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: context.appTextPrimary),
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14,
+                  color: context.appTextPrimary,
+                ),
               ),
               SizedBox(height: 10),
               ...entries.map((e) {
-                final vis = financeCategoryVisualFor(e.category, isIncome: false);
-                final ratio = maxCat <= 0 ? 0.0 : (e.total / maxCat).clamp(0.0, 1.0);
-                final share = totalFatura <= 0 ? 0.0 : (e.total / totalFatura * 100);
+                final vis = financeCategoryVisualFor(
+                  e.category,
+                  isIncome: false,
+                );
+                final ratio = maxCat <= 0
+                    ? 0.0
+                    : (e.total / maxCat).clamp(0.0, 1.0);
+                final share = totalFatura <= 0
+                    ? 0.0
+                    : (e.total / totalFatura * 100);
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      financeCategoryLeadingTile(e.category, isIncome: false, size: 36),
+                      financeCategoryLeadingTile(
+                        e.category,
+                        isIncome: false,
+                        size: 36,
+                      ),
                       SizedBox(width: 10),
                       Expanded(
                         child: Column(
@@ -727,7 +806,10 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
                               e.category,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
+                              ),
                             ),
                             SizedBox(height: 6),
                             ClipRRect(
@@ -813,9 +895,21 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
       padding: const EdgeInsets.only(bottom: 10),
       child: SegmentedButton<String>(
         segments: const [
-          ButtonSegment(value: 'all', label: Text('Todos'), icon: Icon(Icons.layers_rounded, size: 18)),
-          ButtonSegment(value: 'pending', label: Text('Abertos'), icon: Icon(Icons.schedule_rounded, size: 18)),
-          ButtonSegment(value: 'paid', label: Text('Pagos'), icon: Icon(Icons.check_circle_rounded, size: 18)),
+          ButtonSegment(
+            value: 'all',
+            label: Text('Todos'),
+            icon: Icon(Icons.layers_rounded, size: 18),
+          ),
+          ButtonSegment(
+            value: 'pending',
+            label: Text('Abertos'),
+            icon: Icon(Icons.schedule_rounded, size: 18),
+          ),
+          ButtonSegment(
+            value: 'paid',
+            label: Text('Pagos'),
+            icon: Icon(Icons.check_circle_rounded, size: 18),
+          ),
         ],
         selected: {_statusFilter},
         onSelectionChanged: (s) => setState(() {
@@ -848,23 +942,36 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
         children: [
           Icon(Icons.category_rounded, size: 18, color: AppColors.primary),
           SizedBox(width: 8),
-          Text('Categoria', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+          Text(
+            'Categoria',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+          ),
           SizedBox(width: 10),
           Expanded(
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String?>(
                 value: _categoryFilter,
                 isExpanded: true,
-                hint: Text('Todas', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                hint: Text(
+                  'Todas',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                ),
                 items: [
                   const DropdownMenuItem<String?>(
                     value: null,
-                    child: Text('Todas as categorias', style: TextStyle(fontWeight: FontWeight.w600)),
+                    child: Text(
+                      'Todas as categorias',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   ),
                   for (final c in categories)
                     DropdownMenuItem<String?>(
                       value: c,
-                      child: Text(c, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        c,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                 ],
                 onChanged: (v) => setState(() {
@@ -924,7 +1031,10 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
     );
   }
 
-  Widget _groupHeader(String label, {IconData icon = Icons.calendar_today_rounded}) {
+  Widget _groupHeader(
+    String label, {
+    IconData icon = Icons.calendar_today_rounded,
+  }) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 14, 4, 6),
       child: Align(
@@ -938,7 +1048,9 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
               ],
             ),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.15),
+            ),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -973,14 +1085,17 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
     final groups = FinanceFaturaTransactionSort.groupedForUi(docs, _sortMode);
     final out = <Widget>[];
     for (final group in groups) {
-      final isDayGroup = _sortMode == FinanceFaturaTxSortMode.dateDesc ||
+      final isDayGroup =
+          _sortMode == FinanceFaturaTxSortMode.dateDesc ||
           _sortMode == FinanceFaturaTxSortMode.dateAsc;
       final isCategoryGroup = _sortMode == FinanceFaturaTxSortMode.category;
       if (isDayGroup || isCategoryGroup) {
         out.add(
           _groupHeader(
             group.headerLabel,
-            icon: isCategoryGroup ? Icons.category_rounded : Icons.calendar_today_rounded,
+            icon: isCategoryGroup
+                ? Icons.category_rounded
+                : Icons.calendar_today_rounded,
           ),
         );
       }
@@ -1053,7 +1168,9 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
 
     final total = _sumDocs(docs, onlyIds: unique.toSet());
 
-    final debitBanks = FinanceAccountBalanceUtils.debitBankAccounts(widget.allAccounts);
+    final debitBanks = FinanceAccountBalanceUtils.debitBankAccounts(
+      widget.allAccounts,
+    );
     if (debitBanks.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1113,7 +1230,10 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
         title: Text('Excluir $n lançamento(s)?'),
         content: Text('Esta ação não pode ser desfeita.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancelar'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(backgroundColor: AppColors.error),
@@ -1137,7 +1257,9 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
     }
   }
 
-  void _selectAllPending(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+  void _selectAllPending(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
     final pending = docs.where(_isPendingDoc).map((d) => d.id).toList();
     setState(() {
       _selectionMode = true;
@@ -1182,7 +1304,11 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
         children: [
           Row(
             children: [
-              Icon(Icons.receipt_long_rounded, size: 20, color: AppColors.primary),
+              Icon(
+                Icons.receipt_long_rounded,
+                size: 20,
+                color: AppColors.primary,
+              ),
               SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -1197,7 +1323,9 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
               TextButton.icon(
                 onPressed: _toggleSelectionMode,
                 icon: Icon(
-                  _selectionMode ? Icons.close_rounded : Icons.checklist_rounded,
+                  _selectionMode
+                      ? Icons.close_rounded
+                      : Icons.checklist_rounded,
                   size: 20,
                 ),
                 label: Text(_selectionMode ? 'Fechar' : 'Selecionar'),
@@ -1234,13 +1362,23 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
                             height: 16,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
-                        : Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.error),
+                        : Icon(
+                            Icons.delete_outline_rounded,
+                            size: 18,
+                            color: AppColors.error,
+                          ),
                     label: Text(
                       'Excluir (${_selectedIds.length})',
-                      style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        color: AppColors.error,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                if (_selectedIds.isNotEmpty && payableDocs.any((d) => _selectedIds.contains(d.id) && _isPendingDoc(d)))
+                if (_selectedIds.isNotEmpty &&
+                    payableDocs.any(
+                      (d) => _selectedIds.contains(d.id) && _isPendingDoc(d),
+                    ))
                   FilledButton.tonalIcon(
                     onPressed: _confirming
                         ? null
@@ -1249,7 +1387,9 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
                             await _paySelectedPending(payableDocs);
                           },
                     icon: Icon(Icons.payments_rounded, size: 18),
-                    label: Text('Pagar (${_selectedIds.where((id) => payableDocs.any((d) => d.id == id && _isPendingDoc(d))).length})'),
+                    label: Text(
+                      'Pagar (${_selectedIds.where((id) => payableDocs.any((d) => d.id == id && _isPendingDoc(d))).length})',
+                    ),
                   ),
               ],
             ),
@@ -1268,7 +1408,11 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
           ] else ...[
             Text(
               'Toque para editar · confirme pagamento no item · use Selecionar para pagar ou excluir em lote.',
-              style: TextStyle(fontSize: 11.5, height: 1.35, color: context.appTextSecondary),
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.35,
+                color: context.appTextSecondary,
+              ),
             ),
           ],
         ],
@@ -1277,13 +1421,16 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
   }
 
   Widget _periodRangeCaption() {
-    if (_isAbertosMode && _statusFilter == 'pending') return const SizedBox.shrink();
+    if (_isAbertosMode && _statusFilter == 'pending')
+      return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
       child: Align(
         alignment: Alignment.centerLeft,
         child: Text(
-          _statusFilter == 'paid' ? 'Pagos em $_periodRangeLabel' : _periodRangeLabel,
+          _statusFilter == 'paid'
+              ? 'Pagos em $_periodRangeLabel'
+              : _periodRangeLabel,
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w700,
@@ -1332,11 +1479,19 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
       ),
       SizedBox(height: 14),
       if (openChart.isNotEmpty) ...[
-        _categoryChartsSection(openChart, openTotal, title: 'Em aberto por categoria'),
+        _categoryChartsSection(
+          openChart,
+          openTotal,
+          title: 'Em aberto por categoria',
+        ),
         SizedBox(height: 14),
       ],
       if (paidChart.isNotEmpty) ...[
-        _categoryChartsSection(paidChart, paidTotal, title: 'Pagos por categoria'),
+        _categoryChartsSection(
+          paidChart,
+          paidTotal,
+          title: 'Pagos por categoria',
+        ),
         SizedBox(height: 14),
       ],
       _statusFilterBar(),
@@ -1419,7 +1574,10 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
                     ),
                     Text(
                       '$selectedCount lançamento(s)',
-                      style: TextStyle(fontSize: 12, color: context.appTextSecondary),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.appTextSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -1439,7 +1597,9 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
                 : () async {
                     HapticFeedback.mediumImpact();
                     final ids = _selectionMode
-                        ? _selectedIds.where((id) => payableDocs.any((d) => d.id == id)).toList()
+                        ? _selectedIds
+                              .where((id) => payableDocs.any((d) => d.id == id))
+                              .toList()
                         : payableDocs.map((d) => d.id).toList();
                     await _confirmPaymentIds(ids, payableDocs);
                   },
@@ -1447,7 +1607,10 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
                 ? SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : Icon(Icons.payments_rounded),
             label: Text(
@@ -1464,7 +1627,11 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
           Text(
             'Filtros só neste preview — ao voltar, a lista principal não muda.',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 11, height: 1.3, color: context.appTextSecondary),
+            style: TextStyle(
+              fontSize: 11,
+              height: 1.3,
+              color: context.appTextSecondary,
+            ),
           ),
         ],
       ),
@@ -1477,18 +1644,26 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
     required FinanceAccountVisual vis,
     required DateTime? nextClose,
   }) {
-    final chartBase = _chartDocs(periodDocs: periodDocs, pendingDocs: pendingDocs);
+    final chartBase = _chartDocs(
+      periodDocs: periodDocs,
+      pendingDocs: pendingDocs,
+    );
     final openChart = chartBase.where(_isPendingDoc).toList();
     final paidChart = chartBase.where(_isPaidDoc).toList();
     final openTotal = _sumDocs(openChart);
     final paidTotal = _sumDocs(paidChart);
 
-    final sourceDocs = _sourceDocs(periodDocs: periodDocs, pendingDocs: pendingDocs);
+    final sourceDocs = _sourceDocs(
+      periodDocs: periodDocs,
+      pendingDocs: pendingDocs,
+    );
     final categoryOptions = _categoryOptions(sourceDocs);
     final visibleDocs = _applyCategoryFilter(sourceDocs);
     final payableDocs = visibleDocs.where(_isPendingDoc).toList();
     final displayTotal = _sumDocs(visibleDocs);
-    final selectedCount = _selectionMode ? _selectedIds.length : payableDocs.length;
+    final selectedCount = _selectionMode
+        ? _selectedIds.length
+        : payableDocs.length;
     final selectedTotal = _selectionMode
         ? _sumDocs(payableDocs, onlyIds: _selectedIds)
         : _sumDocs(payableDocs);
@@ -1499,14 +1674,17 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
         Expanded(
           child: ListView(
             controller: _scrollController,
-            physics: const AlwaysScrollableScrollPhysics(parent: ClampingScrollPhysics()),
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: ClampingScrollPhysics(),
+            ),
             padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
             children: [
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: FinancePremiumSheetHeader(
                   title: 'Fatura — ${widget.cardAccount.displayName}',
-                  subtitle: 'Preview isolado · não altera filtros do Financeiro',
+                  subtitle:
+                      'Preview isolado · não altera filtros do Financeiro',
                   icon: Icons.credit_card_rounded,
                   iconGradient: vis.gradient,
                   onBack: () => Navigator.pop(context),
@@ -1564,11 +1742,11 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
     if (_periodLoading && (_periodDocs == null || _periodDocs!.isEmpty)) {
       return ListView(
         controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(parent: ClampingScrollPhysics()),
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: ClampingScrollPhysics(),
+        ),
         padding: const EdgeInsets.all(16),
-        children: const [
-          SkeletonListLoader(itemCount: 6, itemHeight: 88),
-        ],
+        children: const [SkeletonListLoader(itemCount: 6, itemHeight: 88)],
       );
     }
     if (_periodError != null) {
@@ -1576,7 +1754,10 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
         controller: _scrollController,
         padding: const EdgeInsets.all(24),
         children: [
-          Text('Erro ao carregar período: $_periodError', textAlign: TextAlign.center),
+          Text(
+            'Erro ao carregar período: $_periodError',
+            textAlign: TextAlign.center,
+          ),
         ],
       );
     }
@@ -1593,7 +1774,7 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
   }) {
     if (_needsPendingStream) {
       return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: _pendingOnCardQuery.watchSafe(),
+        stream: _pendingOnCardQuery.get().asStream(),
         builder: (context, snap) {
           if (snap.hasError) {
             return ListView(
@@ -1618,11 +1799,16 @@ class _FinanceCreditCardFaturaSheetState extends State<FinanceCreditCardFaturaSh
               ],
             );
           }
-          final pendingDocs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-            snap.data?.docs ?? const [],
-          )
-              .where((doc) => FinanceAccountBalanceUtils.countsForFaturaCartao(doc.data()))
-              .toList();
+          final pendingDocs =
+              List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+                    snap.data?.docs ?? const [],
+                  )
+                  .where(
+                    (doc) => FinanceAccountBalanceUtils.countsForFaturaCartao(
+                      doc.data(),
+                    ),
+                  )
+                  .toList();
           return _buildFaturaLayout(
             periodDocs: _periodDocs ?? const [],
             pendingDocs: pendingDocs,
@@ -1724,7 +1910,10 @@ class _FaturaHeroCard extends StatelessWidget {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFBBF24).withValues(alpha: 0.9),
                       borderRadius: BorderRadius.circular(8),
@@ -1849,7 +2038,11 @@ class _StatusKpiCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: color.withValues(alpha: 0.22)),
         boxShadow: [
-          BoxShadow(color: color.withValues(alpha: 0.06), blurRadius: 10, offset: const Offset(0, 3)),
+          BoxShadow(
+            color: color.withValues(alpha: 0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
         ],
       ),
       child: Column(
@@ -1862,7 +2055,11 @@ class _StatusKpiCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   label,
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12, color: color),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                    color: color,
+                  ),
                 ),
               ),
             ],
@@ -1870,11 +2067,19 @@ class _StatusKpiCard extends StatelessWidget {
           SizedBox(height: 8),
           Text(
             CurrencyFormats.formatBRL(total),
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: color),
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+              fontSize: 17,
+              color: color,
+            ),
           ),
           Text(
             '$count lançamento(s)',
-            style: TextStyle(fontSize: 11, color: context.appTextSecondary, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              fontSize: 11,
+              color: context.appTextSecondary,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),

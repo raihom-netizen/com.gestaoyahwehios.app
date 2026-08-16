@@ -25,6 +25,8 @@ import 'package:gestao_yahweh/core/forbidden_test_church_ids.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
+import 'package:gestao_yahweh/ui/widgets/master_church_publication_button.dart';
+import 'package:gestao_yahweh/ui/widgets/master_church_notice_button.dart';
 import 'package:gestao_yahweh/app_theme.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
@@ -82,7 +84,7 @@ String _masterMenuTitle(AdminMenuItem item) {
     case AdminMenuItem.igrejasUsuarios:
       return 'Usuários e igrejas';
     case AdminMenuItem.igrejasControle360:
-      return 'Controle 360 — Utilizadores';
+      return 'Controle 360 ? Utilizadores';
     case AdminMenuItem.igrejasMercadoPago:
       return 'Mercado Pago';
     case AdminMenuItem.igrejasRecebimentos:
@@ -170,13 +172,14 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       _isAdminFuture = Future.value(true);
       AppSessionStability.markAdminPanelVerified();
     } else {
-      _isAdminFuture = Future.any<bool>([
-        AppSessionStability.resolveIsMasterAdmin(),
-        Future.delayed(const Duration(seconds: 10), () => false),
-      ]).then((ok) {
-        if (ok) AppSessionStability.markAdminPanelVerified();
-        return ok;
-      });
+      _isAdminFuture =
+          Future.any<bool>([
+            AppSessionStability.resolveIsMasterAdmin(),
+            Future.delayed(const Duration(seconds: 10), () => false),
+          ]).then((ok) {
+            if (ok) AppSessionStability.markAdminPanelVerified();
+            return ok;
+          });
     }
     AppSessionStability.bindSessionKeepalive();
     unawaited(MasterAdminFirestore.ensureReady());
@@ -220,7 +223,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       if (u == null) return false;
       IdTokenResult token;
       try {
-        token = await u.getIdTokenResult(false).timeout(
+        token = await u
+            .getIdTokenResult(false)
+            .timeout(
               const Duration(seconds: 6),
               onTimeout: () => throw TimeoutException('Verificação de admin'),
             );
@@ -228,7 +233,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         rethrow;
       } catch (e, st) {
         debugPrint('AdminPanel _isAdmin refresh token: $e\n$st');
-        token = await u.getIdTokenResult(true).timeout(
+        token = await u
+            .getIdTokenResult(true)
+            .timeout(
               const Duration(seconds: 12),
               onTimeout: () => throw TimeoutException('Verificação de admin'),
             );
@@ -236,10 +243,10 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       final roleStale = (token.claims?['role'] ?? token.claims?['nivel'] ?? '')
           .toString()
           .toUpperCase();
-      if (roleStale != 'ADMIN' &&
-          roleStale != 'ADM' &&
-          roleStale != 'MASTER') {
-        token = await u.getIdTokenResult(true).timeout(
+      if (roleStale != 'ADMIN' && roleStale != 'ADM' && roleStale != 'MASTER') {
+        token = await u
+            .getIdTokenResult(true)
+            .timeout(
               const Duration(seconds: 12),
               onTimeout: () => throw TimeoutException('Verificação de admin'),
             );
@@ -259,11 +266,13 @@ class _AdminPanelPageState extends State<AdminPanelPage>
   Future<void> _loadMasterRbac() async {
     final u = firebaseDefaultAuth.currentUser;
     if (u == null) return;
-    // ⭐ Master do produto por AUTH (e-mail/UID) resolvido PRIMEIRO e imune a
+    // ? Master do produto por AUTH (e-mail/UID) resolvido PRIMEIRO e imune a
     // falha de leitura Firestore (assertion/permissão no web deixavam
-    // `_masterRole` vazio → "Acesso negado" mesmo para raihom@ / isabelle).
-    final isProductMasterByAuth =
-        AppConstants.isProductMasterAccount(uid: u.uid, email: u.email);
+    // `_masterRole` vazio ? "Acesso negado" mesmo para raihom@ / isabelle).
+    final isProductMasterByAuth = AppConstants.isProductMasterAccount(
+      uid: u.uid,
+      email: u.email,
+    );
     if (isProductMasterByAuth && mounted) {
       setState(() => _masterRole = 'master');
     }
@@ -274,9 +283,10 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       Map<String, dynamic> usersData;
       Map<String, dynamic> usuariosData;
       if (kIsWeb) {
-        usersData = await firestoreRestGetDoc('users/${u.uid}') ??
-            <String, dynamic>{};
-        usuariosData = await firestoreRestGetDoc('usuarios/${u.uid}') ??
+        usersData =
+            await firestoreRestGetDoc('users/${u.uid}') ?? <String, dynamic>{};
+        usuariosData =
+            await firestoreRestGetDoc('usuarios/${u.uid}') ??
             <String, dynamic>{};
       } else {
         final usersDoc = await db.collection('users').doc(u.uid).get();
@@ -284,14 +294,15 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         usersData = usersDoc.data() ?? <String, dynamic>{};
         usuariosData = usuariosDoc.data() ?? <String, dynamic>{};
       }
-      final role = (usersData['role'] ??
-              usersData['nivel'] ??
-              usuariosData['papel'] ??
-              usuariosData['role'] ??
-              '')
-          .toString()
-          .trim()
-          .toLowerCase();
+      final role =
+          (usersData['role'] ??
+                  usersData['nivel'] ??
+                  usuariosData['papel'] ??
+                  usuariosData['role'] ??
+                  '')
+              .toString()
+              .trim()
+              .toLowerCase();
       final permissions = AppPermissions.normalizePermissions(
         usersData['masterPermissions'] ??
             usersData['permissions'] ??
@@ -299,18 +310,20 @@ class _AdminPanelPageState extends State<AdminPanelPage>
             usuariosData['permissions'] ??
             usuariosData['permissoes'],
       );
-      // Operador master do produto (UID/e-mail/CPF) SEMPRE tem acesso total —
+      // Operador master do produto (UID/e-mail/CPF) SEMPRE tem acesso total ?
       // imune a role/permissions ausentes no doc do usuário.
-      final isProductMaster = isProductMasterByAuth ||
+      final isProductMaster =
+          isProductMasterByAuth ||
           AppConstants.isProductMasterAccount(
             uid: u.uid,
             email: u.email,
-            cpfDigitsOrRaw: (usersData['cpf'] ??
-                    usersData['CPF'] ??
-                    usuariosData['cpf'] ??
-                    usuariosData['CPF'] ??
-                    '')
-                .toString(),
+            cpfDigitsOrRaw:
+                (usersData['cpf'] ??
+                        usersData['CPF'] ??
+                        usuariosData['cpf'] ??
+                        usuariosData['CPF'] ??
+                        '')
+                    .toString(),
           );
       if (!mounted) return;
       setState(() {
@@ -391,10 +404,6 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     await firebaseDefaultAuth.signOut();
     if (!mounted) return;
     Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      ThemeCleanPremium.feedbackSnackBar(
-          'Sessão encerrada por segurança (inatividade).'),
-    );
   }
 
   Future<void> _writeAuditLog({
@@ -430,8 +439,10 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     String severity = "medium",
   }) async {
     try {
-      final callable = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
-          .httpsCallable("reportSecurityEvent");
+      final callable = FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      ).httpsCallable("reportSecurityEvent");
       await callable.call({
         "event": event,
         "resource": resource,
@@ -476,28 +487,34 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar')),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
           FilledButton(
-              onPressed: () => Navigator.pop(context, ctrl.text.trim()),
-              child: const Text('Confirmar')),
+            onPressed: () => Navigator.pop(context, ctrl.text.trim()),
+            child: const Text('Confirmar'),
+          ),
         ],
       ),
     );
     if (key == null) return;
 
     try {
-      final callable = FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
-          .httpsCallable('bootstrapAdmin');
+      final callable = FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      ).httpsCallable('bootstrapAdmin');
       final res = await callable.call({'setupKey': key.trim()});
       final ok =
           (res.data is Map && (res.data['ok'] == true)) || res.data == true;
       if (!context.mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(ok
+        ThemeCleanPremium.successSnackBar(
+          ok
             ? 'Pronto! Você agora é ADMIN. Recarregando...'
-            : 'Resposta recebida.'),
+              : 'Resposta recebida.',
+        ),
       );
 
       if (!ok) return;
@@ -516,8 +533,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       final msg = e.message ?? e.code;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text('Falha ao virar ADMIN: $msg'),
-            backgroundColor: Colors.red.shade700),
+          content: Text('Falha ao virar ADMIN: $msg'),
+          backgroundColor: Colors.red.shade700,
+        ),
       );
       await _writeAuditLog(
         action: 'bootstrap_admin_error',
@@ -528,8 +546,9 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: Text('Falha ao virar ADMIN: $e'),
-            backgroundColor: Colors.red.shade700),
+          content: Text('Falha ao virar ADMIN: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
       );
       await _writeAuditLog(
         action: 'bootstrap_admin_error',
@@ -557,8 +576,11 @@ class _AdminPanelPageState extends State<AdminPanelPage>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.lock_outline_rounded,
-                      size: 44, color: Colors.orange),
+                  const Icon(
+                    Icons.lock_outline_rounded,
+                    size: 44,
+                    color: Colors.orange,
+                  ),
                   const SizedBox(height: 10),
                   const Text(
                     'Acesso restrito ao Painel Master',
@@ -570,9 +592,10 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                     'Seu usuário atual não possui perfil ADMIN. As igrejas não sumiram; faça login com o usuário administrador para visualizar os dados.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey.shade700,
-                        height: 1.35),
+                      fontSize: 13,
+                      color: Colors.grey.shade700,
+                      height: 1.35,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   FilledButton.icon(
@@ -580,7 +603,10 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                       await firebaseDefaultAuth.signOut();
                       if (!context.mounted) return;
                       Navigator.pushNamedAndRemoveUntil(
-                          context, '/', (_) => false);
+                        context,
+                        '/',
+                        (_) => false,
+                      );
                     },
                     icon: const Icon(Icons.logout_rounded),
                     label: const Text('Entrar com usuário admin'),
@@ -609,9 +635,10 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         break;
       case AdminMenuItem.igrejasLista:
         content = _IgrejasTab(
-            query: _q,
-            onQueryChanged: (v) => setState(() => _q = v),
-            canEdit: isAdmin);
+          query: _q,
+          onQueryChanged: (v) => setState(() => _q = v),
+          canEdit: isAdmin,
+        );
         break;
       case AdminMenuItem.igrejasPlanos:
         content = const AdminPlanosCobrancaPage();
@@ -730,7 +757,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       return;
     }
     if (item == AdminMenuItem.sistemaHome) {
-      // BUG corrigido: se o menu (drawer) está aberto, o 1º pop fecha só o
+      // BUG corrigido: se o menu (drawer) está aberto, o 1? pop fecha só o
       // drawer (usuário ficava preso no master). Fecha o drawer primeiro e,
       // no próximo frame, volta ao painel da igreja (web + iOS + Android).
       final drawerOpen = _scaffoldKey.currentState?.isDrawerOpen ?? false;
@@ -748,25 +775,29 @@ class _AdminPanelPageState extends State<AdminPanelPage>
       });
       return;
     }
-    final isNarrow = MediaQuery.sizeOf(context).width <
-        ThemeCleanPremium.breakpointTablet;
+    final isNarrow =
+        MediaQuery.sizeOf(context).width < ThemeCleanPremium.breakpointTablet;
     if (item == AdminMenuItem.sistemaLegalDocumentos && isNarrow) {
-      unawaited(_writeAuditLog(
-        action: 'master_navigate',
-        resource: 'menu/${item.name}',
-        details: 'Editor Termos/Privacidade (tela cheia mobile)',
-      ));
+      unawaited(
+        _writeAuditLog(
+          action: 'master_navigate',
+          resource: 'menu/${item.name}',
+          details: 'Editor Termos/Privacidade (tela cheia mobile)',
+        ),
+      );
       if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
         Navigator.of(context).pop();
       }
       unawaited(AdminLegalDocumentsPage.openFullScreen(context));
       return;
     }
-    unawaited(_writeAuditLog(
-      action: 'master_navigate',
-      resource: 'menu/${item.name}',
+    unawaited(
+      _writeAuditLog(
+        action: 'master_navigate',
+        resource: 'menu/${item.name}',
       details: 'Navegação no painel master',
-    ));
+      ),
+    );
     setState(() => _selectedItem = item);
     if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
       Navigator.of(context).pop();
@@ -801,14 +832,21 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Gestão YAHWEH',
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 18)),
-                          Text('Painel Admin',
-                              style: TextStyle(
-                                  color: Colors.white70, fontSize: 12)),
+                          Text(
+                            'Gestão YAHWEH',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                            ),
+                          ),
+                          Text(
+                            'Painel Admin',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -822,115 +860,185 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                   children: [
                     Icon(Icons.church_rounded, color: Colors.white70, size: 20),
                     const SizedBox(width: 8),
-                    Text('Igrejas',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14)),
+                    Text(
+                      'Igrejas',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
                   ],
                 ),
               ),
               const Divider(height: 1, color: Colors.white24),
               Expanded(
                 child: ListView(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 8,
+                  ),
                   children: [
                     if (_canAccessMasterItem(AdminMenuItem.commandCenter))
-                      _drawerTile(context, Icons.hub_rounded, 'Command Center',
-                          AdminMenuItem.commandCenter),
+                      _drawerTile(
+                        context,
+                        Icons.hub_rounded,
+                        'Command Center',
+                        AdminMenuItem.commandCenter,
+                      ),
                     ..._drawerTilesForContext(context),
                     const Divider(height: 24, color: Colors.white24),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaDashboard))
-                      _drawerTile(context, Icons.analytics_rounded,
-                          'Dashboard Geral', AdminMenuItem.sistemaDashboard),
+                      _drawerTile(
+                        context,
+                        Icons.analytics_rounded,
+                        'Dashboard Geral',
+                        AdminMenuItem.sistemaDashboard,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaAlertas))
-                      _drawerTile(context, Icons.notifications_rounded,
-                          'Alertas', AdminMenuItem.sistemaAlertas),
+                      _drawerTile(
+                        context,
+                        Icons.notifications_rounded,
+                        'Alertas',
+                        AdminMenuItem.sistemaAlertas,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaAuditoria))
-                      _drawerTile(context, Icons.history_rounded, 'Auditoria',
-                          AdminMenuItem.sistemaAuditoria),
+                      _drawerTile(
+                        context,
+                        Icons.history_rounded,
+                        'Auditoria',
+                        AdminMenuItem.sistemaAuditoria,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaCustomizacao))
-                      _drawerTile(context, Icons.settings_rounded,
-                          'Customização', AdminMenuItem.sistemaCustomizacao),
+                      _drawerTile(
+                        context,
+                        Icons.settings_rounded,
+                        'Customização',
+                        AdminMenuItem.sistemaCustomizacao,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaSuporte))
-                      _drawerTile(context, Icons.support_agent_rounded,
-                          'Suporte', AdminMenuItem.sistemaSuporte),
+                      _drawerTile(
+                        context,
+                        Icons.support_agent_rounded,
+                        'Suporte',
+                        AdminMenuItem.sistemaSuporte,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaMultiAdmin))
-                      _drawerTile(context, Icons.admin_panel_settings_rounded,
-                          'Multi-Admin', AdminMenuItem.sistemaMultiAdmin),
+                      _drawerTile(
+                        context,
+                        Icons.admin_panel_settings_rounded,
+                        'Multi-Admin',
+                        AdminMenuItem.sistemaMultiAdmin,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaPrecos))
-                      _drawerTile(context, Icons.edit_note_rounded,
-                          'Editar Preços', AdminMenuItem.sistemaPrecos),
+                      _drawerTile(
+                        context,
+                        Icons.edit_note_rounded,
+                        'Editar Preços',
+                        AdminMenuItem.sistemaPrecos,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaNiveisAcesso))
                       _drawerTile(
-                          context,
-                          Icons.security_rounded,
+                        context,
+                        Icons.security_rounded,
                           'Níveis de Acesso',
-                          AdminMenuItem.sistemaNiveisAcesso),
+                        AdminMenuItem.sistemaNiveisAcesso,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaSugestoes))
                       _drawerTile(
-                          context,
-                          Icons.feedback_rounded,
+                        context,
+                        Icons.feedback_rounded,
                           'Sugestões / Críticas',
-                          AdminMenuItem.sistemaSugestoes),
+                        AdminMenuItem.sistemaSugestoes,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaDivulgacao))
                       _drawerTile(
-                          context,
-                          Icons.perm_media_rounded,
+                        context,
+                        Icons.perm_media_rounded,
                           'Mídias Divulgação',
-                          AdminMenuItem.sistemaDivulgacao),
+                        AdminMenuItem.sistemaDivulgacao,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaAcessos))
-                      _drawerTile(context, Icons.show_chart_rounded,
-                          'Acessos ao domínio', AdminMenuItem.sistemaAcessos),
+                      _drawerTile(
+                        context,
+                        Icons.show_chart_rounded,
+                        'Acessos ao domínio',
+                        AdminMenuItem.sistemaAcessos,
+                      ),
                     if (_canAccessMasterItem(
-                        AdminMenuItem.sistemaArmazenamento))
-                      _drawerTile(context, Icons.storage_rounded,
-                          'Armazenamento', AdminMenuItem.sistemaArmazenamento),
+                      AdminMenuItem.sistemaArmazenamento,
+                    ))
+                      _drawerTile(
+                        context,
+                        Icons.storage_rounded,
+                        'Armazenamento',
+                        AdminMenuItem.sistemaArmazenamento,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaAvisoGlobal))
                       _drawerTile(
-                          context,
-                          Icons.campaign_rounded,
+                        context,
+                        Icons.campaign_rounded,
                           'Avisos, manutenção e promoções',
-                          AdminMenuItem.sistemaAvisoGlobal),
+                        AdminMenuItem.sistemaAvisoGlobal,
+                      ),
                     if (_canAccessMasterItem(
-                        AdminMenuItem.sistemaLegalDocumentos))
+                      AdminMenuItem.sistemaLegalDocumentos,
+                    ))
                       _drawerTile(
-                          context,
-                          Icons.policy_rounded,
-                          'Termos e Privacidade',
-                          AdminMenuItem.sistemaLegalDocumentos),
+                        context,
+                        Icons.policy_rounded,
+                        'Termos e Privacidade',
+                        AdminMenuItem.sistemaLegalDocumentos,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaVersaoMinima))
                       _drawerTile(
-                          context,
-                          Icons.system_update_rounded,
+                        context,
+                        Icons.system_update_rounded,
                           'Aviso de nova versão',
-                          AdminMenuItem.sistemaVersaoMinima),
+                        AdminMenuItem.sistemaVersaoMinima,
+                      ),
                     if (_canAccessMasterItem(
-                        AdminMenuItem.sistemaMigrarMembros))
-                      _drawerTile(context, Icons.people_alt_rounded,
-                          'Migrar membros', AdminMenuItem.sistemaMigrarMembros),
+                      AdminMenuItem.sistemaMigrarMembros,
+                    ))
+                      _drawerTile(
+                        context,
+                        Icons.people_alt_rounded,
+                        'Migrar membros',
+                        AdminMenuItem.sistemaMigrarMembros,
+                      ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaFeatureFlags))
-                      _drawerTile(context, Icons.toggle_on_rounded,
-                          'Feature flags', AdminMenuItem.sistemaFeatureFlags),
-                    if (_canAccessMasterItem(
-                        AdminMenuItem.sistemaFeatureFlags))
+                      _drawerTile(
+                        context,
+                        Icons.toggle_on_rounded,
+                        'Feature flags',
+                        AdminMenuItem.sistemaFeatureFlags,
+                      ),
+                    if (_canAccessMasterItem(AdminMenuItem.sistemaFeatureFlags))
                       ListTile(
-                        leading: const Icon(Icons.lightbulb_rounded,
-                            color: Colors.amber),
-                        title: const Text('Dicas inteligentes',
-                            style: TextStyle(fontWeight: FontWeight.w700)),
+                        leading: const Icon(
+                          Icons.lightbulb_rounded,
+                          color: Colors.amber,
+                        ),
+                        title: const Text(
+                          'Dicas inteligentes',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
                         subtitle: const Text(
                             'Cadastrar dicas do Financeiro (evangélicas etc.)',
-                            style: TextStyle(fontSize: 11.5)),
+                          style: TextStyle(fontSize: 11.5),
+                        ),
                         onTap: () {
                           Navigator.of(context).maybePop();
                           FinancialTipsAdminPage.open(context);
                         },
                       ),
                     if (_canAccessMasterItem(AdminMenuItem.sistemaHome))
-                      _drawerTile(context, Icons.home_rounded,
-                          'Voltar ao aplicativo', AdminMenuItem.sistemaHome),
+                      _drawerTile(
+                        context,
+                        Icons.home_rounded,
+                        'Voltar ao aplicativo',
+                        AdminMenuItem.sistemaHome,
+                      ),
                   ],
                 ),
               ),
@@ -944,54 +1052,99 @@ class _AdminPanelPageState extends State<AdminPanelPage>
   List<Widget> _drawerTilesForContext(BuildContext context) {
     return [
       if (_canAccessMasterItem(AdminMenuItem.igrejasDashboard))
-        _drawerTile(context, Icons.dashboard_rounded, 'Painel Igrejas',
-            AdminMenuItem.igrejasDashboard),
+        _drawerTile(
+          context,
+          Icons.dashboard_rounded,
+          'Painel Igrejas',
+          AdminMenuItem.igrejasDashboard,
+        ),
       if (_canAccessMasterItem(AdminMenuItem.igrejasLista))
-        _drawerTile(context, Icons.church_rounded, 'Lista Igrejas',
-            AdminMenuItem.igrejasLista),
+        _drawerTile(
+          context,
+          Icons.church_rounded,
+          'Lista Igrejas',
+          AdminMenuItem.igrejasLista,
+        ),
       if (_canAccessMasterItem(AdminMenuItem.igrejasPlanos))
-        _drawerTile(context, Icons.credit_card_rounded, 'Planos & Cobranças',
-            AdminMenuItem.igrejasPlanos),
+        _drawerTile(
+          context,
+          Icons.credit_card_rounded,
+          'Planos & Cobranças',
+          AdminMenuItem.igrejasPlanos,
+        ),
       if (_canAccessMasterItem(AdminMenuItem.igrejasUsuarios))
-        _drawerTile(context, Icons.people_rounded, 'Usuários',
-            AdminMenuItem.igrejasUsuarios),
+        _drawerTile(
+          context,
+          Icons.people_rounded,
+          'Usuários',
+          AdminMenuItem.igrejasUsuarios,
+        ),
       if (_canAccessMasterItem(AdminMenuItem.igrejasControle360))
-        _drawerTile(context, Icons.threesixty_rounded,
-            'Controle 360 — Utilizadores', AdminMenuItem.igrejasControle360),
+        _drawerTile(
+          context,
+          Icons.threesixty_rounded,
+          'Controle 360 ? Utilizadores',
+          AdminMenuItem.igrejasControle360,
+        ),
       if (_canAccessMasterItem(AdminMenuItem.igrejasMercadoPago))
-        _drawerTile(context, Icons.payment_rounded, 'Mercado Pago',
-            AdminMenuItem.igrejasMercadoPago),
+        _drawerTile(
+          context,
+          Icons.payment_rounded,
+          'Mercado Pago',
+          AdminMenuItem.igrejasMercadoPago,
+        ),
       if (_canAccessMasterItem(AdminMenuItem.igrejasRecebimentos))
-        _drawerTile(context, Icons.receipt_long_rounded,
-            'Recebimentos Licenças', AdminMenuItem.igrejasRecebimentos),
+        _drawerTile(
+          context,
+          Icons.receipt_long_rounded,
+          'Recebimentos Licenças',
+          AdminMenuItem.igrejasRecebimentos,
+        ),
       if (_canAccessMasterItem(AdminMenuItem.igrejasGestores))
-        _drawerTile(context, Icons.person_add_rounded, 'Ativar mais gestores',
-            AdminMenuItem.igrejasGestores),
+        _drawerTile(
+          context,
+          Icons.person_add_rounded,
+          'Ativar mais gestores',
+          AdminMenuItem.igrejasGestores,
+        ),
       if (_canAccessMasterItem(AdminMenuItem.igrejasTorreComando))
-        _drawerTile(context, Icons.hub_rounded, 'Torre SaaS',
-            AdminMenuItem.igrejasTorreComando),
+        _drawerTile(
+          context,
+          Icons.hub_rounded,
+          'Torre SaaS',
+          AdminMenuItem.igrejasTorreComando,
+        ),
     ];
   }
 
   ListTile _drawerTile(
-      BuildContext context, IconData icon, String label, AdminMenuItem item) {
+    BuildContext context,
+    IconData icon,
+    String label,
+    AdminMenuItem item,
+  ) {
     final selected = _selectedItem == item;
     final isNarrow =
         MediaQuery.sizeOf(context).width < ThemeCleanPremium.breakpointTablet;
     return ListTile(
-      leading: Icon(icon,
-          color: selected ? ThemeCleanPremium.navSidebarAccent : Colors.white70,
-          size: 22),
-      title: Text(label,
-          style: TextStyle(
-              color:
-                  selected ? ThemeCleanPremium.navSidebarAccent : Colors.white,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              fontSize: 14)),
+      leading: Icon(
+        icon,
+        color: selected ? ThemeCleanPremium.navSidebarAccent : Colors.white70,
+        size: 22,
+      ),
+      title: Text(
+        label,
+        style: TextStyle(
+          color: selected ? ThemeCleanPremium.navSidebarAccent : Colors.white,
+          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+          fontSize: 14,
+        ),
+      ),
       selected: selected,
       selectedTileColor: ThemeCleanPremium.navSidebarHover,
       shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm),
+      ),
       minVerticalPadding: isNarrow ? 16 : 14,
       onTap: () => _selectMenuItem(context, item),
     );
@@ -1009,7 +1162,8 @@ class _AdminPanelPageState extends State<AdminPanelPage>
     return FutureBuilder<bool>(
       future: _isAdminFuture,
       builder: (context, snap) {
-        final isNarrow = MediaQuery.sizeOf(context).width <
+        final isNarrow =
+            MediaQuery.sizeOf(context).width <
             ThemeCleanPremium.breakpointTablet;
         if (snap.hasError) {
           return Scaffold(
@@ -1017,8 +1171,10 @@ class _AdminPanelPageState extends State<AdminPanelPage>
             appBar: AppBar(
               backgroundColor: ThemeCleanPremium.navSidebar,
               foregroundColor: Colors.white,
-              title: const Text('Painel Master',
-                  style: TextStyle(fontWeight: FontWeight.w800)),
+              title: const Text(
+                'Painel Master',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
             ),
             body: Center(
               child: Padding(
@@ -1026,14 +1182,19 @@ class _AdminPanelPageState extends State<AdminPanelPage>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.error_outline_rounded,
-                        size: 56, color: Colors.orange),
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      size: 56,
+                      color: Colors.orange,
+                    ),
                     const SizedBox(height: 16),
                     Text(
                       'Erro ao carregar o painel: ${snap.error}',
                       textAlign: TextAlign.center,
-                      style:
-                          TextStyle(fontSize: 14, color: Colors.grey.shade700),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade700,
+                      ),
                     ),
                     const SizedBox(height: 24),
                     FilledButton.icon(
@@ -1058,12 +1219,14 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         }
         if (!loading && !isAdmin && !_reportedSuspiciousAccess) {
           _reportedSuspiciousAccess = true;
-          unawaited(_reportSecurityEvent(
-            event: "master_access_without_claim",
-            resource: "admin_panel",
+          unawaited(
+            _reportSecurityEvent(
+              event: "master_access_without_claim",
+              resource: "admin_panel",
             details: "Usuário acessou painel master sem claim ADMIN.",
-            severity: "high",
-          ));
+              severity: "high",
+            ),
+          );
         }
 
         return Shortcuts(
@@ -1085,191 +1248,219 @@ class _AdminPanelPageState extends State<AdminPanelPage>
             child: Focus(
               autofocus: true,
               child: Listener(
-          onPointerDown: (_) => _touchActivity(),
-          onPointerMove: (_) => _touchActivity(),
-          child: Scaffold(
-            key: _scaffoldKey,
-            backgroundColor: ThemeCleanPremium.surfaceVariant,
-            drawer: isNarrow ? _buildDrawer(context, isAdmin) : null,
-            drawerEdgeDragWidth: isNarrow ? 56 : null,
-            appBar: isNarrow
-                ? AppBar(
-                    backgroundColor: ThemeCleanPremium.navSidebar,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    scrolledUnderElevation: 0.5,
-                    shadowColor: const Color(0x22000000),
-                    leading: IconButton(
-                      icon: const Icon(Icons.menu_rounded, size: 28),
-                      onPressed: _openDrawerMobile,
-                      style: IconButton.styleFrom(
-                        minimumSize: const Size(48, 48),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      tooltip: 'Abrir menu',
-                    ),
-                    title: Text(
-                      _masterMenuTitle(_selectedItem),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 15,
-                      ),
-                    ),
-                    actions: [
-                      IconButton(
-                        icon: const Icon(Icons.search_rounded, size: 22),
-                        onPressed: () => _openGlobalSearch(context),
-                        tooltip: 'Pesquisar igrejas',
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.logout_rounded, size: 22),
-                        onPressed: () async {
-                          await _writeAuditLog(
-                            action: 'master_logout',
-                            resource: 'admin_panel',
-                            details: 'Logout manual (mobile)',
-                          );
-                          await firebaseDefaultAuth.signOut();
-                          if (!context.mounted) return;
-                          Navigator.pushNamedAndRemoveUntil(
-                              context, '/', (_) => false);
-                        },
-                        tooltip: 'Sair',
-                        style: IconButton.styleFrom(
-                            minimumSize: const Size(48, 48)),
-                      ),
-                    ],
-                  )
-                : null,
-            body: GlobalAnnouncementOverlay(
-              child: SafeArea(
-                top: !isNarrow,
-                bottom: isNarrow,
-                left: false,
-                right: false,
-                child: Column(
-                  children: [
-                    const ConnectivityOfflineStrip(),
-                    Expanded(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          if (!isNarrow)
-                            AdminMenuLateral(
-                              selectedItem: _selectedItem,
-                              isCollapsed: _menuCollapsed,
-                              context: _adminContext,
-                              onContextChanged: (ctx) => setState(() {
-                                _adminContext = ctx;
-                                _selectedItem =
-                                    AdminMenuLateral.firstItemFor(ctx);
-                              }),
-                              itemVisible: _canAccessMasterItem,
-                              onItemSelected: (item) =>
-                                  _selectMenuItem(context, item),
+                onPointerDown: (_) => _touchActivity(),
+                onPointerMove: (_) => _touchActivity(),
+                child: Scaffold(
+                  key: _scaffoldKey,
+                  backgroundColor: ThemeCleanPremium.surfaceVariant,
+                  drawer: isNarrow ? _buildDrawer(context, isAdmin) : null,
+                  drawerEdgeDragWidth: isNarrow ? 56 : null,
+                  appBar: isNarrow
+                      ? AppBar(
+                          backgroundColor: ThemeCleanPremium.navSidebar,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          scrolledUnderElevation: 0.5,
+                          shadowColor: const Color(0x22000000),
+                          leading: IconButton(
+                            icon: const Icon(Icons.menu_rounded, size: 28),
+                            onPressed: _openDrawerMobile,
+                            style: IconButton.styleFrom(
+                              minimumSize: const Size(48, 48),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
+                            tooltip: 'Abrir menu',
+                          ),
+                          title: Text(
+                            _masterMenuTitle(_selectedItem),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 15,
+                            ),
+                          ),
+                          actions: [
+                            IconButton(
+                              icon: const Icon(Icons.search_rounded, size: 22),
+                              onPressed: () => _openGlobalSearch(context),
+                              tooltip: 'Pesquisar igrejas',
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.logout_rounded, size: 22),
+                              onPressed: () async {
+                                await _writeAuditLog(
+                                  action: 'master_logout',
+                                  resource: 'admin_panel',
+                                  details: 'Logout manual (mobile)',
+                                );
+                                await firebaseDefaultAuth.signOut();
+                                if (!context.mounted) return;
+                                Navigator.pushNamedAndRemoveUntil(
+                                  context,
+                                  '/',
+                                  (_) => false,
+                                );
+                              },
+                              tooltip: 'Sair',
+                              style: IconButton.styleFrom(
+                                minimumSize: const Size(48, 48),
+                              ),
+                            ),
+                          ],
+                        )
+                      : null,
+                  body: GlobalAnnouncementOverlay(
+                    child: SafeArea(
+                      top: !isNarrow,
+                      bottom: isNarrow,
+                      left: false,
+                      right: false,
+                      child: Column(
+                        children: [
+                          const ConnectivityOfflineStrip(),
                           Expanded(
-                            child: Column(
+                            child: Row(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                if (isNarrow)
-                                  const _AdminMobileContextStrip(),
                                 if (!isNarrow)
-                                  _AdminHeader(
-                                    onMenuToggle: () => setState(
-                                        () => _menuCollapsed = !_menuCollapsed),
-                                    onGlobalSearch: () =>
-                                        _openGlobalSearch(context),
-                                    onLogout: () async {
-                                      await _writeAuditLog(
-                                        action: 'master_logout',
-                                        resource: 'admin_panel',
-                                        details: 'Logout manual (desktop)',
-                                      );
-                                      await firebaseDefaultAuth.signOut();
-                                      if (!mounted) return;
-                                      Navigator.pushNamedAndRemoveUntil(
-                                          context, '/', (_) => false);
-                                    },
-                                  ),
-                                if (!isNarrow)
-                                  const Padding(
-                                    padding: EdgeInsets.fromLTRB(12, 4, 12, 0),
-                                    child: _MasterSecurityStrip(),
-                                  ),
-                                if (!isAdmin)
-                                  _WarnBox(
-                                    text:
-                                        'Este usuário não tem claim ADMIN. Para editar, use "Virar ADMIN agora".',
-                                    action: FilledButton.tonalIcon(
-                                      onPressed: () => _bootstrapAdmin(context),
-                                      icon: const Icon(Icons.security_outlined),
-                                      label: const Text('Virar ADMIN agora'),
-                                    ),
+                                  AdminMenuLateral(
+                                    selectedItem: _selectedItem,
+                                    isCollapsed: _menuCollapsed,
+                                    context: _adminContext,
+                                    onContextChanged: (ctx) => setState(() {
+                                      _adminContext = ctx;
+                                      _selectedItem =
+                                          AdminMenuLateral.firstItemFor(ctx);
+                                    }),
+                                    itemVisible: _canAccessMasterItem,
+                                    onItemSelected: (item) =>
+                                        _selectMenuItem(context, item),
                                   ),
                                 Expanded(
-                                  child: LayoutBuilder(
-                                    builder: (_, _) {
-                                      return Container(
-                                        margin: EdgeInsets.zero,
-                                        decoration: BoxDecoration(
-                                          gradient: ThemeCleanPremium
-                                              .churchPanelBodyGradient,
-                                          borderRadius:
-                                              BorderRadius.circular(0),
-                                          boxShadow: null,
-                                          border: null,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      if (isNarrow)
+                                        const _AdminMobileContextStrip(),
+                                      if (!isNarrow)
+                                        _AdminHeader(
+                                          onMenuToggle: () => setState(
+                                            () => _menuCollapsed =
+                                                !_menuCollapsed,
+                                          ),
+                                          onGlobalSearch: () =>
+                                              _openGlobalSearch(context),
+                                          onLogout: () async {
+                                            await _writeAuditLog(
+                                              action: 'master_logout',
+                                              resource: 'admin_panel',
+                                              details:
+                                                  'Logout manual (desktop)',
+                                            );
+                                            await firebaseDefaultAuth.signOut();
+                                            if (!context.mounted) return;
+                                            Navigator.pushNamedAndRemoveUntil(
+                                              context,
+                                              '/',
+                                              (_) => false,
+                                            );
+                                          },
                                         ),
-                                        clipBehavior: Clip.antiAlias,
-                                        child: loading
-                                            ? Center(
-                                                child: Column(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    SizedBox(
-                                                      width: 48,
-                                                      height: 48,
-                                                      child: CircularProgressIndicator(
-                                                          strokeWidth: 3,
-                                                          color:
-                                                              ThemeCleanPremium
-                                                                  .primary),
-                                                    ),
-                                                    const SizedBox(height: 16),
-                                                    Text(
-                                                      'Carregando painel...',
-                                                      style: TextStyle(
-                                                          fontSize: 15,
-                                                          color: Colors
-                                                              .grey.shade600),
-                                                    ),
-                                                  ],
-                                                ),
-                                              )
-                                            : SaaSContentViewport(
-                                                child: _buildAdminContent(
-                                                    context, isAdmin),
+                                      if (!isNarrow)
+                                        const Padding(
+                                          padding: EdgeInsets.fromLTRB(
+                                            12,
+                                            4,
+                                            12,
+                                            0,
+                                          ),
+                                          child: _MasterSecurityStrip(),
+                                        ),
+                                      if (!isAdmin)
+                                        _WarnBox(
+                                          text:
+                                        'Este usuário não tem claim ADMIN. Para editar, use "Virar ADMIN agora".',
+                                          action: FilledButton.tonalIcon(
+                                            onPressed: () =>
+                                                _bootstrapAdmin(context),
+                                            icon: const Icon(
+                                              Icons.security_outlined,
+                                            ),
+                                            label: const Text(
+                                              'Virar ADMIN agora',
+                                            ),
+                                          ),
+                                        ),
+                                      Expanded(
+                                        child: LayoutBuilder(
+                                          builder: (_, _) {
+                                            return Container(
+                                              margin: EdgeInsets.zero,
+                                              decoration: BoxDecoration(
+                                                gradient: ThemeCleanPremium
+                                                    .churchPanelBodyGradient,
+                                                borderRadius:
+                                                    BorderRadius.circular(0),
+                                                boxShadow: null,
+                                                border: null,
                                               ),
-                                      );
-                                    },
+                                              clipBehavior: Clip.antiAlias,
+                                              child: loading
+                                                  ? Center(
+                                                      child: Column(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          SizedBox(
+                                                            width: 48,
+                                                            height: 48,
+                                                            child: CircularProgressIndicator(
+                                                              strokeWidth: 3,
+                                                              color:
+                                                                  ThemeCleanPremium
+                                                                      .primary,
+                                                            ),
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 16,
+                                                          ),
+                                                          Text(
+                                                            'Carregando painel...',
+                                                            style: TextStyle(
+                                                              fontSize: 15,
+                                                              color: Colors
+                                                                  .grey
+                                                                  .shade600,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    )
+                                                  : SaaSContentViewport(
+                                                      child: _buildAdminContent(
+                                                        context,
+                                                        isAdmin,
+                                                      ),
+                                                    ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
                             ),
                           ),
+                          const VersionFooter(showBuildNumber: true),
                         ],
                       ),
                     ),
-                    const VersionFooter(showBuildNumber: true),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
-        ),
             ),
           ),
         );
@@ -1339,78 +1530,80 @@ class _AdminHeader extends StatelessWidget {
         final periodo = hora < 12
             ? 'bom dia'
             : hora < 18
-                ? 'boa tarde'
-                : 'boa noite';
+            ? 'boa tarde'
+            : 'boa noite';
 
         return Container(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-      decoration: BoxDecoration(
-        color: ThemeCleanPremium.cardBackground,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 4,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.menu_rounded, size: 20),
-            onPressed: onMenuToggle,
-            tooltip: 'Menu',
-            style: IconButton.styleFrom(
-              foregroundColor: ThemeCleanPremium.onSurface,
-              minimumSize: const Size(40, 40),
-              padding: const EdgeInsets.all(8),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Tooltip(
-              message: tooltipName,
-              child: Text(
-                'Olá, $greetName — $periodo.',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  height: 1.2,
-                  color: ThemeCleanPremium.onSurface.withValues(alpha: 0.88),
-                ),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+          decoration: BoxDecoration(
+            color: ThemeCleanPremium.cardBackground,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
               ),
-            ),
+            ],
           ),
-          IconButton(
-            icon: const Icon(Icons.search_rounded, size: 20),
-            onPressed: onGlobalSearch,
-            tooltip: 'Pesquisar igrejas (Ctrl+K)',
-            style: IconButton.styleFrom(
-              foregroundColor: ThemeCleanPremium.onSurface,
-              minimumSize: const Size(40, 40),
-              padding: const EdgeInsets.all(8),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.menu_rounded, size: 20),
+                onPressed: onMenuToggle,
+                tooltip: 'Menu',
+                style: IconButton.styleFrom(
+                  foregroundColor: ThemeCleanPremium.onSurface,
+                  minimumSize: const Size(40, 40),
+                  padding: const EdgeInsets.all(8),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Tooltip(
+                  message: tooltipName,
+                  child: Text(
+                'Olá, $greetName — $periodo.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      height: 1.2,
+                      color: ThemeCleanPremium.onSurface.withValues(
+                        alpha: 0.88,
+                      ),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.search_rounded, size: 20),
+                onPressed: onGlobalSearch,
+                tooltip: 'Pesquisar igrejas (Ctrl+K)',
+                style: IconButton.styleFrom(
+                  foregroundColor: ThemeCleanPremium.onSurface,
+                  minimumSize: const Size(40, 40),
+                  padding: const EdgeInsets.all(8),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.logout_rounded, size: 20),
+                onPressed: onLogout,
+                tooltip: 'Sair',
+                style: IconButton.styleFrom(
+                  foregroundColor: ThemeCleanPremium.onSurface,
+                  minimumSize: const Size(40, 40),
+                  padding: const EdgeInsets.all(8),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const _AdminStatsCard(),
+            ],
           ),
-          IconButton(
-            icon: const Icon(Icons.logout_rounded, size: 20),
-            onPressed: onLogout,
-            tooltip: 'Sair',
-            style: IconButton.styleFrom(
-              foregroundColor: ThemeCleanPremium.onSurface,
-              minimumSize: const Size(40, 40),
-              padding: const EdgeInsets.all(8),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-          const SizedBox(width: 8),
-          const _AdminStatsCard(),
-        ],
-      ),
-    );
+        );
       },
     );
   }
@@ -1600,16 +1793,19 @@ class _AdminStatsCardState extends State<_AdminStatsCard> {
 
   Future<void> _refresh() async {
     try {
-      final churchesFut = MasterChurchesListService.loadFast()
-          .timeout(const Duration(seconds: 12));
-      final summaryFut = MasterDashboardCacheService.refresh()
-          .timeout(const Duration(seconds: 12));
+      final churchesFut = MasterChurchesListService.loadFast().timeout(
+        const Duration(seconds: 12),
+      );
+      final summaryFut = MasterDashboardCacheService.refresh().timeout(
+        const Duration(seconds: 12),
+      );
       final churches = await churchesFut;
       final summary = await summaryFut;
       var list = churches;
       if (list.isEmpty) {
-        list = await MasterChurchesListService.loadFast(force: true)
-            .timeout(const Duration(seconds: 14));
+        list = await MasterChurchesListService.loadFast(
+          force: true,
+        ).timeout(const Duration(seconds: 14));
       }
       if (!mounted) return;
       setState(() {
@@ -1694,41 +1890,44 @@ class _WarnBox extends StatelessWidget {
   const _WarnBox({required this.text, required this.action});
   @override
   Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.fromLTRB(
-          ThemeCleanPremium.spaceSm,
-          ThemeCleanPremium.spaceSm,
-          ThemeCleanPremium.spaceSm,
-          0,
-        ),
-        child: MasterPremiumCard(
-          padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+    padding: EdgeInsets.fromLTRB(
+      ThemeCleanPremium.spaceSm,
+      ThemeCleanPremium.spaceSm,
+      ThemeCleanPremium.spaceSm,
+      0,
+    ),
+    child: MasterPremiumCard(
+      padding: const EdgeInsets.all(ThemeCleanPremium.spaceMd),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.info_outline_rounded,
-                      color: ThemeCleanPremium.primary, size: 22),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      text,
-                      style: TextStyle(
-                        fontSize: 13,
-                        height: 1.4,
-                        color: ThemeCleanPremium.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                ],
+              Icon(
+                Icons.info_outline_rounded,
+                color: ThemeCleanPremium.primary,
+                size: 22,
               ),
-              const SizedBox(height: 12),
-              action,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: ThemeCleanPremium.onSurfaceVariant,
+                  ),
+                ),
+              ),
             ],
           ),
-        ),
-      );
+          const SizedBox(height: 12),
+          action,
+        ],
+      ),
+    ),
+  );
 }
 
 /// Diálogo para inclusão manual de nova igreja: nome, slug, plano e data para testar.
@@ -1757,7 +1956,8 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
     final nome = _nomeCtrl.text.trim();
     if (nome.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Informe o nome da igreja.')));
+        const SnackBar(content: Text('Informe o nome da igreja.')),
+      );
       return;
     }
     var slug = _slugCtrl.text
@@ -1774,9 +1974,13 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
     if (slug.isEmpty) slug = 'igreja_${DateTime.now().millisecondsSinceEpoch}';
     if (isForbiddenTestChurchId(slug)) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
           content: Text(
-              'Slug/nome de igreja de teste não é permitido. Use o nome real.')));
+            'Slug/nome de igreja de teste não ? permitido. Use o nome real.',
+          ),
+        ),
+      );
       return;
     }
 
@@ -1787,9 +1991,11 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
       final exists = (await ref.get()).exists;
       if (exists) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content:
-                Text('Já existe uma igreja com este slug. Escolha outro.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Já existe uma igreja com este slug. Escolha outro.'),
+          ),
+        );
         setState(() => _saving = false);
         return;
       }
@@ -1812,12 +2018,16 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
       await ref.set(data);
       if (!mounted) return;
       Navigator.pop(context, true);
-      ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar(
-          'Igreja cadastrada. Você pode editar e cadastrar o gestor em Ativar mais gestores.'));
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Igreja cadastrada. Você pode editar e cadastrar o gestor em Ativar mais gestores.',
+        ),
+      );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1838,8 +2048,10 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
               decoration: InputDecoration(
                 labelText: 'Nome da igreja',
                 border: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusSm,
+                  ),
+                ),
                 prefixIcon: const Icon(Icons.church_rounded),
               ),
             ),
@@ -1850,8 +2062,10 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
                 labelText: 'Slug (identificador único na URL)',
                 hintText: 'ex: minha-igreja',
                 border: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusSm,
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -1860,8 +2074,10 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
               decoration: InputDecoration(
                 labelText: 'Plano',
                 border: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusSm,
+                  ),
+                ),
               ),
               items: const [
                 DropdownMenuItem(value: 'free', child: Text('Free')),
@@ -1874,7 +2090,8 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
               onTap: () async {
                 final picked = await showDatePicker(
                   context: context,
-                  initialDate: _dataTeste ??
+                  initialDate:
+                      _dataTeste ??
                       DateTime.now().add(const Duration(days: 30)),
                   firstDate: DateTime.now(),
                   lastDate: DateTime.now().add(const Duration(days: 3650)),
@@ -1886,8 +2103,10 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
                 decoration: InputDecoration(
                   labelText: 'Data para testar (vencimento trial)',
                   border: OutlineInputBorder(
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                    borderRadius: BorderRadius.circular(
+                      ThemeCleanPremium.radiusSm,
+                    ),
+                  ),
                   prefixIcon: const Icon(Icons.calendar_today_rounded),
                 ),
                 child: Text(
@@ -1895,7 +2114,8 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
                       ? DateFormat('dd/MM/yyyy').format(_dataTeste!)
                       : 'Selecionar data',
                   style: TextStyle(
-                      color: _dataTeste != null ? null : Colors.grey.shade600),
+                    color: _dataTeste != null ? null : Colors.grey.shade600,
+                  ),
                 ),
               ),
             ),
@@ -1910,15 +2130,17 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancelar')),
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
         FilledButton(
           onPressed: _saving ? null : _salvar,
           child: _saving
               ? const SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('Cadastrar'),
         ),
       ],
@@ -1931,8 +2153,12 @@ class _EditIgrejaDialog extends StatefulWidget {
   final bool canEdit;
   final String? tenantId;
   final Map<String, dynamic>? igreja;
-  const _EditIgrejaDialog(
-      {required this.title, required this.canEdit, this.tenantId, this.igreja});
+  const _EditIgrejaDialog({
+    required this.title,
+    required this.canEdit,
+    this.tenantId,
+    this.igreja,
+  });
   @override
   State<_EditIgrejaDialog> createState() => _EditIgrejaDialogState();
 }
@@ -1997,13 +2223,14 @@ class _EditIgrejaDialogState extends State<_EditIgrejaDialog> {
       }
       if (!mounted) return;
       Navigator.pop(context, true);
-      ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Igreja atualizada.'));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(ThemeCleanPremium.successSnackBar('Igreja atualizada.'));
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao salvar: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -2016,11 +2243,13 @@ class _EditIgrejaDialogState extends State<_EditIgrejaDialog> {
       return AlertDialog(
         title: Text(widget.title),
         content: const Text(
-            'Cadastro manual de nova igreja em breve. Use o fluxo de cadastro pelo site.'),
+          'Cadastro manual de nova igreja em breve. Use o fluxo de cadastro pelo site.',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Fechar'))
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Fechar'),
+          ),
         ],
       );
     }
@@ -2034,21 +2263,26 @@ class _EditIgrejaDialogState extends State<_EditIgrejaDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(nome,
-                style:
-                    const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+            Text(
+              nome,
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+            ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               initialValue: _plano == 'premium' ? 'premium' : 'free',
               decoration: InputDecoration(
                 labelText: 'Plano',
                 border: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusSm,
+                  ),
+                ),
               ),
               items: const [
                 DropdownMenuItem(
-                    value: 'free', child: Text('Free (sem licença)')),
+                  value: 'free',
+                  child: Text('Free (sem licença)'),
+                ),
                 DropdownMenuItem(value: 'premium', child: Text('Premium')),
               ],
               onChanged: (v) => setState(() => _plano = v ?? 'free'),
@@ -2059,7 +2293,8 @@ class _EditIgrejaDialogState extends State<_EditIgrejaDialog> {
                 onTap: () async {
                   final picked = await showDatePicker(
                     context: context,
-                    initialDate: _vencimento ??
+                    initialDate:
+                        _vencimento ??
                         DateTime.now().add(const Duration(days: 30)),
                     firstDate: DateTime.now(),
                     lastDate: DateTime.now().add(const Duration(days: 3650)),
@@ -2071,8 +2306,10 @@ class _EditIgrejaDialogState extends State<_EditIgrejaDialog> {
                   decoration: InputDecoration(
                     labelText: 'Data de vencimento da licença',
                     border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm)),
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusSm,
+                      ),
+                    ),
                     prefixIcon: const Icon(Icons.calendar_today_rounded),
                   ),
                   child: Text(
@@ -2080,8 +2317,8 @@ class _EditIgrejaDialogState extends State<_EditIgrejaDialog> {
                         ? DateFormat('dd/MM/yyyy').format(_vencimento!)
                         : 'Selecionar data',
                     style: TextStyle(
-                        color:
-                            _vencimento != null ? null : Colors.grey.shade600),
+                      color: _vencimento != null ? null : Colors.grey.shade600,
+                    ),
                   ),
                 ),
               ),
@@ -2098,15 +2335,17 @@ class _EditIgrejaDialogState extends State<_EditIgrejaDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancelar')),
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
         FilledButton(
           onPressed: _saving ? null : _salvar,
           child: _saving
               ? const SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('Salvar'),
         ),
       ],
@@ -2117,13 +2356,161 @@ class _EditIgrejaDialogState extends State<_EditIgrejaDialog> {
 class _DetalhesIgrejaDialog extends StatelessWidget {
   final Map<String, dynamic> igreja;
   const _DetalhesIgrejaDialog({required this.igreja});
+
+  String _value(List<String> keys, {String fallback = 'Não informado'}) {
+    for (final key in keys) {
+      final value = igreja[key]?.toString().trim() ?? '';
+      if (value.isNotEmpty && value != 'null') return value;
+    }
+    return fallback;
+  }
+
+  Widget _info(String label, String value, {IconData? icon}) => Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon ?? Icons.info_outline_rounded, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(color: Colors.black87, height: 1.35),
+              children: [
+                TextSpan(
+                  text: '$label\n',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                TextSpan(text: value),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+
   @override
-  Widget build(BuildContext context) => AlertDialog(
-          title: Text(igreja['nome'] ?? 'Igreja'),
-          content: const Text('Detalhes em breve.'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Fechar'))
-          ]);
+  Widget build(BuildContext context) {
+    final nome = _value(['nome', 'name'], fallback: 'Igreja');
+    final localizacao = _value([
+      'localizacao',
+      'enderecoCompleto',
+      'endereco',
+      'address',
+      'cidade',
+    ]);
+    final cadastro = _value(['dataCadastro', 'createdAt', 'created_at']);
+    final vencimento = _value([
+      'licenseExpiresAt',
+      'dataVencimento',
+      'vencimento',
+      'data_vencimento',
+    ]);
+    final membros = _value([
+      'membrosTotal',
+      'totalMembros',
+      'membersCount',
+      'memberCount',
+    ], fallback: '0');
+    final documentos = _value([
+      'documentosTotal',
+      'documentsCount',
+      'totalDocumentos',
+    ], fallback: '0');
+    final armazenamento = _value([
+      'storageUsageLabel',
+      'storageUsedLabel',
+      'storageUsedBytes',
+      'storageBytes',
+    ], fallback: 'Não informado');
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.church_rounded),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(nome, maxLines: 2, overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      ),
+      content: SizedBox(
+        width: 620,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _info(
+                'ID da igreja',
+                _value(['id', 'tenantId']),
+                icon: Icons.fingerprint_rounded,
+              ),
+              _info(
+                'Gestor',
+                _value(['gestorNome', 'gestor', 'responsavel']),
+                icon: Icons.manage_accounts_rounded,
+              ),
+              _info(
+                'WhatsApp',
+                _value(['whatsapp', 'telefone', 'phone']),
+                icon: Icons.phone_rounded,
+              ),
+              _info(
+                'Pastor',
+                _value(['pastor', 'pastorNome']),
+                icon: Icons.person_rounded,
+              ),
+              _info(
+                'Localização completa',
+                localizacao,
+                icon: Icons.location_on_rounded,
+              ),
+              const Divider(height: 22),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  Chip(
+                    avatar: const Icon(Icons.groups_rounded, size: 18),
+                    label: Text('Membros: $membros'),
+                  ),
+                  Chip(
+                    avatar: const Icon(Icons.description_rounded, size: 18),
+                    label: Text('Documentos: $documentos'),
+                  ),
+                  Chip(
+                    avatar: const Icon(Icons.storage_rounded, size: 18),
+                    label: Text('Storage: $armazenamento'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _info(
+                'Data de cadastro',
+                cadastro,
+                icon: Icons.event_available_rounded,
+              ),
+              _info(
+                'Vencimento da licença',
+                vencimento,
+                icon: Icons.calendar_month_rounded,
+              ),
+              _info(
+                'Site público',
+                _value(['sitePublico', 'siteUrl', 'website']),
+                icon: Icons.language_rounded,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Fechar'),
+        ),
+      ],
+    );
+  }
 }

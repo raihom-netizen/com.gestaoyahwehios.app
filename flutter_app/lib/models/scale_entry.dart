@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import 'shift_location.dart';
@@ -99,7 +99,7 @@ class ScaleEntry {
   /// Espelho criado pelo módulo Agenda.
   final bool isAgendaMirror;
 
-  /// Espelho «Folga · Produtividade» (módulo Ocorrências).
+  /// Espelho ?Folga ? Produtividade? (módulo Ocorrências).
   final bool isProdutividadeFolgaMirror;
 
   /// Nome da frente de serviço (ex: "Ordinário", "Reforço").
@@ -236,8 +236,8 @@ class ScaleEntry {
   }
 
   /// Financeiro ativo no painel / Controle Estado:
-  /// - Plantão ligado à lista recorrente → [ShiftLocation.financialEnabled] **e** valor > 0.
-  /// - Sem match na lista (ex.: lançamento expresso) → vínculo + valor na escala.
+  /// - Plantão ligado ? lista recorrente ? [ShiftLocation.financialEnabled] **e** valor > 0.
+  /// - Sem match na lista (ex.: lançamento expresso) ? vínculo + valor na escala.
   ///
   /// Exige [totalValue] > 0 para não exibir/recalcular R$ (ex.: split GO no resumo do dia)
   /// quando o plantão ordinário foi lançado sem financeiro (valor persistido zero).
@@ -263,7 +263,7 @@ class ScaleEntry {
   ///
   /// Com financeiro no painel: usa [paid] para o dia do plantão **já passou ou é hoje** (valor
   /// recebido / confirmado). **Data futura** (mês corrente ou não) conta sempre como *a tirar*,
-  /// mesmo com [paid] true — evita legado Firestore `paid` ausente → default true esconder
+  /// mesmo com [paid] true ? evita legado Firestore `paid` ausente ? default true esconder
   /// pendências no resumo "Por vínculo".
   bool effectiveJaTiradoParaExibicaoComLocais(
       DateTime referenciaDia, List<ShiftLocation> locations) {

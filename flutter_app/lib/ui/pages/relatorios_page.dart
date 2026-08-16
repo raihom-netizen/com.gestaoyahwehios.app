@@ -1,4 +1,4 @@
-﻿import 'dart:async' show Timer, unawaited;
+import 'dart:async' show Timer, unawaited;
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -104,7 +104,7 @@ abstract final class _RelatoriosMembersDataCache {
   }
 }
 
-/// Branding PDF com timeout — evita «Gerando...» infinito se logo/Storage falhar.
+/// Branding PDF com timeout ? evita ?Gerando...? infinito se logo/Storage falhar.
 Future<ReportPdfBranding> _loadReportPdfBrandingFast(String tenantId) async {
   final tid = ChurchRepository.churchId(tenantId.trim());
   final effectiveTid = tid.isNotEmpty ? tid : tenantId.trim();
@@ -387,7 +387,7 @@ class RelatoriosPage extends StatelessWidget {
                       Expanded(
                         child: Text(
                           'Seu perfil permite apenas o Relatório de Eventos. '
-                          'Para exportar membros, aniversariantes ou outros PDFs, o gestor pode liberar em seu cadastro (Membros → editar ficha).',
+                          'Para exportar membros, aniversariantes ou outros PDFs, o gestor pode liberar em seu cadastro (Membros ? editar ficha).',
                           style: TextStyle(
                             fontSize: 13,
                             height: 1.4,
@@ -666,7 +666,7 @@ class _ReportCard extends StatelessWidget {
   }
 }
 
-// ─── Relatório de Membros (seleção de campos) ────────────────────────────────
+// --- Relatório de Membros (seleção de campos) --------------------------------
 class _RelatorioMembrosPage extends StatefulWidget {
   final String tenantId;
   final String role;
@@ -821,7 +821,7 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
     }
     if (key == 'faixaEtaria') {
       final idade = ageFromMemberData(m);
-      if (idade == null) return '—';
+      if (idade == null) return '?';
       if (idade < 13) return 'Criança';
       if (idade < 18) return 'Adolescente';
       if (idade < 60) return 'Adulto';
@@ -1056,7 +1056,7 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
   }
 }
 
-// ─── Relatório de Aniversariantes (dia, semana, mês, anual, período) ───────────
+// --- Relatório de Aniversariantes (dia, semana, mês, anual, período) -----------
 class _RelatorioAniversariantesPage extends StatefulWidget {
   final String tenantId;
 
@@ -1216,7 +1216,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
       return;
     }
     final msg = Uri.encodeComponent(
-      'Olá, $nome! Feliz aniversário! Que Deus abençoe seu novo ciclo. 🙏',
+      'Olá, $nome! Feliz aniversário! Que Deus abençoe seu novo ciclo. ??',
     );
     final uri = Uri.parse('https://wa.me/$d?text=$msg');
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
@@ -1236,13 +1236,13 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
     try {
       final list = _listaAniversariantesFiltrada();
       final titulo = _filtro == 0
-          ? 'Aniversariantes — Hoje'
+          ? 'Aniversariantes ? Hoje'
           : _filtro == 1
-              ? 'Aniversariantes — Semana'
+              ? 'Aniversariantes ? Semana'
               : _filtro == 2
                   ? 'Aniversariantes — Mês'
                   : _filtro == 4
-                      ? 'Aniversariantes — Ano'
+                      ? 'Aniversariantes ? Ano'
                       : 'Aniversariantes — Período';
       final branding = await _loadReportPdfBrandingFast(_effectiveTenantId);
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
@@ -1254,7 +1254,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
           header: (ctx) => pw.Padding(
             padding: const pw.EdgeInsets.only(bottom: 12),
             child: PdfSuperPremiumTheme.header(
-              mural ? '$titulo — Mural' : titulo,
+              mural ? '$titulo ? Mural' : titulo,
               branding: branding,
               extraLines: ['Total de aniversariantes: ${list.length}'],
             ),
@@ -1330,7 +1330,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                   final m = e.value;
                   final b = birthDateFromMemberData(m);
                   final idade = b == null
-                      ? '—'
+                      ? '?'
                       : '${ageInYearsAt(b, DateTime.now())} anos';
                   return ['${e.key + 1}', _nome(m), _dataNasc(m), idade];
                 }).toList(),
@@ -2248,7 +2248,7 @@ class _BirthdayEmptyState extends StatelessWidget {
   }
 }
 
-// ─── Relatório Financeiro (filtros completos: período, tipo, categoria, conta, aberta/paga) ─
+// --- Relatório Financeiro (filtros completos: período, tipo, categoria, conta, aberta/paga) -
 Map<String, dynamic> _financeSummaryCompute(Map<String, dynamic> input) {
   final rowsRaw = (input['rows'] as List).cast<Map>();
   final filtroTipo = (input['filtroTipo'] ?? 'todos').toString();
@@ -2742,7 +2742,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
       case _FinancePeriodMode.fullYear:
         return 'Ano $_ano';
       case _FinancePeriodMode.custom:
-        return '${DateFormat('dd/MM/yyyy').format(p.inicio)} — ${DateFormat('dd/MM/yyyy').format(p.fim)}';
+        return '${DateFormat('dd/MM/yyyy').format(p.inicio)} ? ${DateFormat('dd/MM/yyyy').format(p.fim)}';
     }
   }
 
@@ -2907,7 +2907,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                   (e) => DropdownMenuItem<String>(
                     value: e.id,
                     child: Text(
-                      e.cargo.isEmpty ? e.nome : '${e.nome} — ${e.cargo}',
+                      e.cargo.isEmpty ? e.nome : '${e.nome} ? ${e.cargo}',
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -2998,7 +2998,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                   }
                   if (!ctx.mounted) return;
                   // A SELEÇÃO manda: se o usuário escolheu SÓ UM signatário, o
-                  // outro fica VAZIO → o PDF traz 1 assinatura centralizada
+                  // outro fica VAZIO ? o PDF traz 1 assinatura centralizada
                   // (padrão certificado). Se não escolheu NENHUM, mantém os dois
                   // rótulos padrão (linhas em branco para assinar à mão).
                   final nenhumEscolhido = left == null && right == null;
@@ -3099,7 +3099,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
           'titulo': titulo,
           'descricao': RelatorioService.sanitizeForReport(
             (cat.isNotEmpty ? 'Categoria: $cat' : '') +
-                (cat.isNotEmpty && desc.isNotEmpty ? ' — ' : '') +
+                (cat.isNotEmpty && desc.isNotEmpty ? ' ? ' : '') +
                 (desc.isNotEmpty
                     ? 'Descricao: $desc'
                     : (cat.isEmpty ? (isInc ? 'Receita' : 'Despesa') : '')),
@@ -3138,7 +3138,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
             !branding.churchDetailLines.any((l) => l.contains(cnpj)))
           'CNPJ: $cnpj',
         if (fechamentoOficial)
-          'DOCUMENTO OFICIAL — ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
+          'DOCUMENTO OFICIAL ? ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
         if (_resumoFiltros().isNotEmpty) 'Filtros: ${_resumoFiltros()}',
       ];
 
@@ -3534,7 +3534,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                     DropdownButtonFormField<int>(
                       initialValue: _ano,
                       decoration: InputDecoration(
-                        labelText: 'Ano (1 jan — 31 dez)',
+                        labelText: 'Ano (1 jan ? 31 dez)',
                         filled: true,
                         fillColor: Colors.white,
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusSm)),
@@ -4491,7 +4491,7 @@ class _FinanceBiCharts extends StatelessWidget {
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 4),
                             child: Text(
-                              '$cat — R\$ ${val.toStringAsFixed(2)}',
+                              '$cat ? R\$ ${val.toStringAsFixed(2)}',
                               style: const TextStyle(fontSize: 12),
                             ),
                           );
@@ -4572,7 +4572,7 @@ class _FilterSection extends StatelessWidget {
   }
 }
 
-// ─── Relatório de Patrimônio (grade antes de imprimir, ordenação, campos selecionáveis) ─────────
+// --- Relatório de Patrimônio (grade antes de imprimir, ordenação, campos selecionáveis) ---------
 class _RelatorioPatrimonioPage extends StatefulWidget {
   final String tenantId;
 
@@ -4614,7 +4614,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
     ('valor', 'Valor (R\$)'),
     ('localizacao', 'Localização'),
     ('responsavel', 'Responsável'),
-    ('numeroSerie', 'Nº Série'),
+    ('numeroSerie', 'N? Série'),
     ('dataAquisicao', 'Data Aquisição'),
     ('proximaManutencao', 'Próx. Manutenção'),
     ('descricao', 'Descrição'),
@@ -4638,14 +4638,14 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
   }
 
   static String _fmtMoney(dynamic v) {
-    if (v == null) return '—';
+    if (v == null) return '?';
     final n = v is num ? v.toDouble() : double.tryParse(v.toString());
-    if (n == null) return '—';
+    if (n == null) return '?';
     return 'R\$ ${n.toStringAsFixed(2).replaceAll('.', ',')}';
   }
 
   static String _fmtDate(dynamic v) {
-    if (v == null) return '—';
+    if (v == null) return '?';
     if (v is Timestamp) return DateFormat('dd/MM/yyyy').format(v.toDate());
     if (v is DateTime) return DateFormat('dd/MM/yyyy').format(v);
     return v.toString();
@@ -4864,7 +4864,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
                       onRetry: () => _load(forceRefresh: true),
                     ),
                     const SizedBox(height: 8),
-                    // ── Filtrar por status (Super Premium) ──
+                    // -- Filtrar por status (Super Premium) --
                     _SectionCard(
                       title: 'Filtrar por status',
                       icon: Icons.filter_list_rounded,
@@ -4883,7 +4883,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
                       ),
                     ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
-                    // ── Ordenar (Super Premium) ──
+                    // -- Ordenar (Super Premium) --
                     _SectionCard(
                       title: 'Ordenar',
                       icon: Icons.sort_rounded,
@@ -4902,7 +4902,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
                       ),
                     ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
-                    // ── Campos a exibir e imprimir ──
+                    // -- Campos a exibir e imprimir --
                     _SectionCard(
                       title: 'Campos a exibir e imprimir',
                       icon: Icons.view_column_rounded,
@@ -4927,7 +4927,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
                       ),
                     ),
                     const SizedBox(height: ThemeCleanPremium.spaceLg),
-                    // ── Grade de dados ──
+                    // -- Grade de dados --
                     Text(
                       'Pré-visualização (${sorted.length} itens)',
                       style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: ThemeCleanPremium.onSurface),
@@ -4992,7 +4992,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
   }
 }
 
-// ─── Relatório de Eventos (eventos ativos, confirmações RSVP, filtros diário/mensal/anual/período) ───
+// --- Relatório de Eventos (eventos ativos, confirmações RSVP, filtros diário/mensal/anual/período) ---
 class _RelatorioEventosPage extends StatefulWidget {
   final String tenantId;
 
@@ -5250,7 +5250,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         child: ListTile(
                           title: Text((e['title'] as String), style: const TextStyle(fontWeight: FontWeight.w700)),
-                          subtitle: Text(DateFormat('dd/MM/yyyy HH:mm').format(e['date'] as DateTime) + (e['rsvpCount'] as int > 0 ? ' • ${e['rsvpCount']} confirmações' : '')),
+                          subtitle: Text(DateFormat('dd/MM/yyyy HH:mm').format(e['date'] as DateTime) + (e['rsvpCount'] as int > 0 ? ' ? ${e['rsvpCount']} confirmações' : '')),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [

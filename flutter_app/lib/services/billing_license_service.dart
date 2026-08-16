@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Controle de licença no painel admin (Gestão Yahweh).
 /// Igrejas: prorrogar prazo, alterar plano, remover/reativar.
@@ -369,9 +370,9 @@ class BillingLicenseService {
         for (final doc in snap.docs) {
           if (beforeDeleteDoc != null) await beforeDeleteDoc(doc.reference);
         }
-        final batch = _db.batch();
+        final batch = YahwehBatch();
         for (final doc in snap.docs) {
-          batch.delete(doc.reference);
+          batch.deleteDoc(doc.reference);
         }
         if (snap.docs.isNotEmpty) await batch.commit();
       } while (snap.docs.length >= batchLimit);
@@ -444,9 +445,9 @@ class BillingLicenseService {
     try {
       final subRef = _db.collection('subscriptions');
       final subSnap = await subRef.where('igrejaId', isEqualTo: tenantId).get();
-      final batch = _db.batch();
+      final batch = YahwehBatch();
       for (final d in subSnap.docs) {
-        batch.delete(d.reference);
+        batch.deleteDoc(d.reference);
       }
       if (subSnap.docs.isNotEmpty) await batch.commit();
     } catch (_) {}

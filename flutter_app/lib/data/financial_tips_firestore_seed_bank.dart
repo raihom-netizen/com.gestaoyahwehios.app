@@ -1,4 +1,4 @@
-﻿import 'package:gestao_yahweh/models/finance_tip_bank_entry.dart';
+import 'package:gestao_yahweh/models/finance_tip_bank_entry.dart';
 
 /// Definição de uma dica para Firestore (`financial_tips/{docId}`).
 class FinancialTipSeedDocument {
@@ -91,7 +91,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'red',
     ordem: 40,
   ),
-  // —— Comportamento ——
+  // ?? Comportamento ??
   FinancialTipSeedDocument(
     docId: 'beh_impulse_24h',
     titulo: 'Pausa de 24 horas',
@@ -178,7 +178,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
       'pct_min': 28,
     },
   ),
-  // —— Moradia ——
+  // ?? Moradia ??
   FinancialTipSeedDocument(
     docId: 'home_fixed_costs',
     titulo: 'Custos fixos da casa',
@@ -199,7 +199,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'teal',
     ordem: 130,
   ),
-  // —— Transporte ——
+  // ?? Transporte ??
   FinancialTipSeedDocument(
     docId: 'trans_fuel_routes',
     titulo: 'Economize no deslocamento',
@@ -257,7 +257,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'primary',
     ordem: 180,
   ),
-  // —— Gastos / assinaturas ——
+  // ?? Gastos / assinaturas ??
   FinancialTipSeedDocument(
     docId: 'exp_micro_spending',
     titulo: 'Assinaturas esquecidas',
@@ -304,7 +304,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'teal',
     ordem: 220,
   ),
-  // —— Lazer ——
+  // ?? Lazer ??
   FinancialTipSeedDocument(
     docId: 'leisure_budget_cap',
     titulo: 'Lazer com teto',
@@ -315,7 +315,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'purple',
     ordem: 230,
   ),
-  // —— Investimento ——
+  // ?? Investimento ??
   FinancialTipSeedDocument(
     docId: 'inv_start_early',
     titulo: 'Comece cedo, mesmo pouco',
@@ -346,7 +346,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'indigo',
     ordem: 260,
   ),
-  // —— Controle ——
+  // ?? Controle ??
   FinancialTipSeedDocument(
     docId: 'ctrl_track_expenses',
     titulo: 'Categorias consistentes',
@@ -377,7 +377,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'primary',
     ordem: 290,
   ),
-  // —— Metas ——
+  // ?? Metas ??
   FinancialTipSeedDocument(
     docId: 'goal_smart',
     titulo: 'Metas SMART',
@@ -398,12 +398,12 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'blue',
     ordem: 310,
   ),
-  // —— Impostos / trabalho ——
+  // ?? Impostos / trabalho ??
   FinancialTipSeedDocument(
     docId: 'tax_13_prepare',
-    titulo: '13º e férias',
+    titulo: '13? e férias',
     descricao:
-        'Reserve parte do 13º para impostos, dívidas caras ou reserva — evita “sumir” em compras de fim de ano.',
+        'Reserve parte do 13? para impostos, dívidas caras ou reserva ? evita ?sumir? em compras de fim de ano.',
     categoriaSlug: 'trabalho',
     iconKey: 'percent',
     colorKey: 'orange',
@@ -513,7 +513,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'primary',
     ordem: 420,
   ),
-  // —— Comportamento (ampliado) ——
+  // ?? Comportamento (ampliado) ??
   FinancialTipSeedDocument(
     docId: 'beh_no_spend_day',
     titulo: 'Dia sem gastos',
@@ -544,7 +544,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'deepOrange',
     ordem: 450,
   ),
-  // —— Moradia (ampliado) ——
+  // ?? Moradia (ampliado) ??
   FinancialTipSeedDocument(
     docId: 'home_energy_bill',
     titulo: 'Conta de luz',
@@ -570,7 +570,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'blueGrey',
     ordem: 470,
   ),
-  // —— Transporte (ampliado) ——
+  // ?? Transporte (ampliado) ??
   FinancialTipSeedDocument(
     docId: 'trans_car_total_cost',
     titulo: 'Custo total do carro',
@@ -618,7 +618,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'purple',
     ordem: 510,
   ),
-  // —— Gastos / compras ——
+  // ?? Gastos / compras ??
   FinancialTipSeedDocument(
     docId: 'exp_compare_prices',
     titulo: 'Compare antes de comprar',
@@ -675,7 +675,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'orange',
     ordem: 560,
   ),
-  // —— Lazer (ampliado) ——
+  // ?? Lazer (ampliado) ??
   FinancialTipSeedDocument(
     docId: 'leisure_free_options',
     titulo: 'Lazer gratuito',
@@ -701,7 +701,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
       'pct_min': 25,
     },
   ),
-  // —— Investimento (ampliado) ——
+  // ?? Investimento (ampliado) ??
   FinancialTipSeedDocument(
     docId: 'inv_automatic_debit',
     titulo: 'Aporte automático',
@@ -754,7 +754,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'deepOrange',
     ordem: 630,
   ),
-  // —— Trabalho / renda ——
+  // ?? Trabalho / renda ??
   FinancialTipSeedDocument(
     docId: 'work_side_income_tax',
     titulo: 'Renda extra: guarde imposto',
@@ -796,7 +796,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'green',
     ordem: 670,
   ),
-  // —— Pets ——
+  // ?? Pets ??
   FinancialTipSeedDocument(
     docId: 'pet_monthly_budget',
     titulo: 'Orçamento pet',
@@ -828,7 +828,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'indigo',
     ordem: 700,
   ),
-  // —— Metas (ampliado) ——
+  // ?? Metas (ampliado) ??
   FinancialTipSeedDocument(
     docId: 'goal_visualize_progress',
     titulo: 'Veja o progresso',
@@ -849,7 +849,7 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
     colorKey: 'teal',
     ordem: 720,
   ),
-  // —— Controle (ampliado) ——
+  // ?? Controle (ampliado) ??
   FinancialTipSeedDocument(
     docId: 'ctrl_reconcile_bank',
     titulo: 'Concilie com o banco',

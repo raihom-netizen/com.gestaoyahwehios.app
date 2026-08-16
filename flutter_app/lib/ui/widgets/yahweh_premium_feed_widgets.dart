@@ -288,11 +288,11 @@ class YahwehPremiumFeedShimmer {
   /// Painel admin: enquanto membros não chegam do Firestore (cache vazio).
   static Widget dashboardOverviewLoading() {
     Widget band(Widget child) => Shimmer.fromColors(
-          baseColor: _skBase,
-          highlightColor: _skHi,
-          period: const Duration(milliseconds: 1150),
-          child: child,
-        );
+      baseColor: _skBase,
+      highlightColor: _skHi,
+      period: const Duration(milliseconds: 1150),
+      child: child,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Column(
@@ -306,8 +306,9 @@ class YahwehPremiumFeedShimmer {
                     height: 88,
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusMd,
+                      ),
                     ),
                   ),
                 ),
@@ -317,8 +318,9 @@ class YahwehPremiumFeedShimmer {
                     height: 88,
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusMd,
+                      ),
                     ),
                   ),
                 ),
@@ -328,8 +330,9 @@ class YahwehPremiumFeedShimmer {
                     height: 88,
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      borderRadius:
-                          BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                      borderRadius: BorderRadius.circular(
+                        ThemeCleanPremium.radiusMd,
+                      ),
                     ),
                   ),
                 ),
@@ -381,8 +384,10 @@ Future<void> shareChurchNoticiaForOgPreview({
     churchSlug: churchSlug,
     churchData: data.isNotEmpty ? data : null,
   );
-  final kindRaw =
-      (data['type'] ?? data['kind'] ?? 'aviso').toString().trim().toLowerCase();
+  final kindRaw = (data['type'] ?? data['kind'] ?? 'aviso')
+      .toString()
+      .trim()
+      .toLowerCase();
   final kind = kindRaw == 'evento' ? 'evento' : 'aviso';
   DateTime? startAt;
   try {
@@ -391,7 +396,9 @@ Future<void> shareChurchNoticiaForOgPreview({
   final lat = data['locationLat'];
   final lng = data['locationLng'];
   final text = buildNoticiaInviteShareMessage(
-    churchName: churchName.trim().isNotEmpty ? churchName.trim() : 'Nossa igreja',
+    churchName: churchName.trim().isNotEmpty
+        ? churchName.trim()
+        : 'Nossa igreja',
     noticiaKind: kind,
     title: title,
     bodyText: body.trim().isNotEmpty
@@ -456,7 +463,7 @@ Future<void> saveNoticiaCoverToGallery(
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       ThemeCleanPremium.feedbackSnackBar(
-        'Na web, use «Compartilhar» ou copie o link do convite.',
+        'Na web, use ?Compartilhar? ou copie o link do convite.',
       ),
     );
     return;
@@ -484,9 +491,9 @@ Future<void> saveNoticiaCoverToGallery(
     );
   } catch (e) {
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      ThemeCleanPremium.feedbackSnackBar('Erro ao guardar: $e'),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(ThemeCleanPremium.feedbackSnackBar('Erro ao guardar: $e'));
   }
 }
 
@@ -544,7 +551,8 @@ Future<void> scheduleFeedMediaWarmup(
 }) async {
   if (!context.mounted || docMaps.isEmpty) return;
   final capped = maxDocs.clamp(1, 6);
-  final leadId = (docMaps.first['id'] ?? docMaps.first['docId'] ?? '').toString();
+  final leadId = (docMaps.first['id'] ?? docMaps.first['docId'] ?? '')
+      .toString();
   final warmKey = '$leadId|${docMaps.length}|$capped';
   final now = DateTime.now();
   if (_feedWarmLastKey == warmKey &&
@@ -597,17 +605,9 @@ Future<void> scheduleFeedMediaWarmup(
   unawaited(
     ChurchGalleryPhotoWarmup.warmBytesForUrls(allDeduped, maxItems: 40),
   );
-  await preloadNetworkImages(
-    context,
-    leadDeduped,
-    maxItems: 20,
-  );
+  await preloadNetworkImages(context, leadDeduped, maxItems: 20);
   if (!context.mounted) return;
-  await preloadNetworkImages(
-    context,
-    allDeduped,
-    maxItems: 40,
-  );
+  await preloadNetworkImages(context, allDeduped, maxItems: 40);
   await precacheHostedVideosFromFeed(videoUrls, maxItems: 8);
   if (kIsWeb) {
     for (final v in videoUrls.take(8)) {
@@ -653,6 +653,8 @@ class YahwehPublicFloatingActions extends StatelessWidget {
   final VoidCallback onLogin;
   final VoidCallback? onPrayer;
   final VoidCallback? onMaps;
+  final VoidCallback? onTop;
+
   /// Cor da igreja no site público (ex.: #2563EB); fallback [ThemeCleanPremium.primary].
   final Color? brandBlue;
 
@@ -661,6 +663,7 @@ class YahwehPublicFloatingActions extends StatelessWidget {
     required this.onLogin,
     this.onPrayer,
     this.onMaps,
+    this.onTop,
     this.brandBlue,
   });
 
@@ -703,6 +706,26 @@ class YahwehPublicFloatingActions extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          if (onTop != null) ...[
+            Tooltip(
+              message: 'Subir ao topo',
+              child: IconButton(
+                onPressed: onTop,
+                tooltip: 'Subir ao topo',
+                icon: const Icon(
+                  Icons.keyboard_arrow_up_rounded,
+                  color: Colors.white,
+                  size: 30,
+                ),
+                style: IconButton.styleFrom(
+                  backgroundColor: const Color(0xFF16A34A),
+                  fixedSize: const Size(50, 50),
+                  shape: const CircleBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           if (onMaps != null) ...[
             Material(
               color: Colors.transparent,
@@ -711,7 +734,7 @@ class YahwehPublicFloatingActions extends StatelessWidget {
                 child: InkWell(
                   customBorder: const CircleBorder(),
                   onTap: onMaps,
-                    child: Ink(
+                  child: Ink(
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
@@ -719,10 +742,7 @@ class YahwehPublicFloatingActions extends StatelessWidget {
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: [
-                          Colors.white,
-                          const Color(0xFFF1F5F9),
-                        ],
+                        colors: [Colors.white, const Color(0xFFF1F5F9)],
                       ),
                       boxShadow: [
                         ...ThemeCleanPremium.softUiCardShadow,
@@ -734,11 +754,7 @@ class YahwehPublicFloatingActions extends StatelessWidget {
                         ),
                       ],
                       border: Border.all(
-                        color: Color.lerp(
-                          const Color(0xFFE2E8F0),
-                          blue,
-                          0.12,
-                        )!,
+                        color: Color.lerp(const Color(0xFFE2E8F0), blue, 0.12)!,
                         width: 1.15,
                       ),
                     ),
@@ -778,15 +794,20 @@ class YahwehPublicFloatingActions extends StatelessWidget {
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF16A34A).withValues(alpha: 0.42),
+                          color: const Color(
+                            0xFF16A34A,
+                          ).withValues(alpha: 0.42),
                           blurRadius: 20,
                           offset: const Offset(0, 8),
                           spreadRadius: -1,
                         ),
                       ],
                     ),
-                    child: const Icon(Icons.chat_rounded,
-                        color: Colors.white, size: 24),
+                    child: const Icon(
+                      Icons.chat_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
                   ),
                 ),
               ),
@@ -795,115 +816,123 @@ class YahwehPublicFloatingActions extends StatelessWidget {
           ],
           if (!kIsWeb)
             Hero(
-            tag: 'gyh_pub_login',
-            child: narrow
-                ? Material(
-                    color: Colors.transparent,
-                    child: Tooltip(
-                      message: 'Acessar sistema',
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: onLogin,
-                        child: Ink(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.22),
-                              width: 1.1,
-                            ),
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                Color.lerp(hi, Colors.white, 0.12)!,
-                                hi,
-                                deep,
-                              ],
-                              stops: const [0.0, 0.45, 1.0],
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: blue.withValues(alpha: 0.4),
-                                blurRadius: 26,
-                                offset: const Offset(0, 11),
-                                spreadRadius: -2,
+              tag: 'gyh_pub_login',
+              child: narrow
+                  ? Material(
+                      color: Colors.transparent,
+                      child: Tooltip(
+                        message: 'Acessar sistema',
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: onLogin,
+                          child: Ink(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.22),
+                                width: 1.1,
                               ),
-                            ],
-                          ),
-                          child: const Icon(Icons.login_rounded,
-                              color: Colors.white, size: 26),
-                        ),
-                      ),
-                    ),
-                  )
-                : Material(
-                    color: Colors.transparent,
-                    child: Tooltip(
-                      message: 'Acessar sistema',
-                      child: InkWell(
-                        onTap: onLogin,
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                        child: Ink(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 13,
-                          ),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusLg),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.2),
-                              width: 1.1,
-                            ),
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                Color.lerp(hi, Colors.white, 0.1)!,
-                                hi,
-                                deep,
-                              ],
-                              stops: const [0.0, 0.42, 1.0],
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: blue.withValues(alpha: 0.38),
-                                blurRadius: 28,
-                                offset: const Offset(0, 11),
-                                spreadRadius: -2,
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Color.lerp(hi, Colors.white, 0.12)!,
+                                  hi,
+                                  deep,
+                                ],
+                                stops: const [0.0, 0.45, 1.0],
                               ),
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.08),
-                                blurRadius: 14,
-                                offset: const Offset(0, 5),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: const [
-                              Icon(Icons.login_rounded,
-                                  color: Colors.white, size: 22),
-                              SizedBox(width: 10),
-                              Text(
-                                'Acessar sistema',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 14,
-                                  letterSpacing: -0.2,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: blue.withValues(alpha: 0.4),
+                                  blurRadius: 26,
+                                  offset: const Offset(0, 11),
+                                  spreadRadius: -2,
                                 ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.login_rounded,
+                              color: Colors.white,
+                              size: 26,
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                  : Material(
+                      color: Colors.transparent,
+                      child: Tooltip(
+                        message: 'Acessar sistema',
+                        child: InkWell(
+                          onTap: onLogin,
+                          borderRadius: BorderRadius.circular(
+                            ThemeCleanPremium.radiusLg,
+                          ),
+                          child: Ink(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 13,
+                            ),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(
+                                ThemeCleanPremium.radiusLg,
                               ),
-                            ],
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.2),
+                                width: 1.1,
+                              ),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Color.lerp(hi, Colors.white, 0.1)!,
+                                  hi,
+                                  deep,
+                                ],
+                                stops: const [0.0, 0.42, 1.0],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: blue.withValues(alpha: 0.38),
+                                  blurRadius: 28,
+                                  offset: const Offset(0, 11),
+                                  spreadRadius: -2,
+                                ),
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.08),
+                                  blurRadius: 14,
+                                  offset: const Offset(0, 5),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(
+                                  Icons.login_rounded,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
+                                SizedBox(width: 10),
+                                Text(
+                                  'Acessar sistema',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 14,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-          ),
+            ),
         ],
       ),
     );

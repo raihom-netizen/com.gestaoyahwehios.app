@@ -152,7 +152,7 @@ abstract final class ChurchDataAudit {
       platform: platform,
       rows: probes,
       verdict: allOk
-          ? 'APROVADO — $platform OK'
+          ? 'APROVADO ? $platform OK'
           : 'REPROVADO — revisar módulos com FALHA',
     );
   }
@@ -186,9 +186,9 @@ abstract final class ChurchDataAudit {
       final ok = byName[m] == true ? 'OK' : 'PENDENTE';
       b.writeln('$m $ok');
     }
-    b.writeln('WEB ${report.platform == "WEB" && report.allOk ? "OK" : "—"}');
-    b.writeln('ANDROID ${report.platform == "ANDROID" && report.allOk ? "OK" : "—"}');
-    b.writeln('IOS ${report.platform == "IOS" && report.allOk ? "OK" : "—"}');
+    b.writeln('WEB ${report.platform == "WEB" && report.allOk ? "OK" : "?"}');
+    b.writeln('ANDROID ${report.platform == "ANDROID" && report.allOk ? "OK" : "?"}');
+    b.writeln('IOS ${report.platform == "IOS" && report.allOk ? "OK" : "?"}');
     return b.toString().trimRight();
   }
 }

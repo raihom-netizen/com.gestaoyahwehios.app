@@ -137,16 +137,15 @@ dynamic _restValue(Map<String, dynamic> v) {
   if (v.containsKey('geoPointValue')) return v['geoPointValue'];
   if (v.containsKey('mapValue')) {
     final fields =
-        (v['mapValue'] as Map<String, dynamic>?)?['fields'] as Map<String, dynamic>?;
+        (v['mapValue'] as Map<String, dynamic>?)?['fields']
+            as Map<String, dynamic>?;
     return _restFields(fields);
   }
   if (v.containsKey('arrayValue')) {
     final values =
         (v['arrayValue'] as Map<String, dynamic>?)?['values'] as List<dynamic>?;
     if (values == null) return <dynamic>[];
-    return values
-        .map((e) => _restValue(e as Map<String, dynamic>))
-        .toList();
+    return values.map((e) => _restValue(e as Map<String, dynamic>)).toList();
   }
   return null;
 }
@@ -178,18 +177,20 @@ class RestFieldFilter {
 
   final String field;
   final String op; // GREATER_THAN_OR_EQUAL, LESS_THAN_OR_EQUAL, EQUAL...
-  final Map<String, dynamic> value; // já no formato REST (ex.: {timestampValue: ...})
+  final Map<String, dynamic>
+  value; // já no formato REST (ex.: {timestampValue: ...})
   Map<String, dynamic> toJson() => {
-        'fieldFilter': {
-          'field': {'fieldPath': field},
-          'op': op,
-          'value': value,
-        },
-      };
+    'fieldFilter': {
+      'field': {'fieldPath': field},
+      'op': op,
+      'value': value,
+    },
+  };
 }
 
-Map<String, dynamic> restTimestamp(DateTime d) =>
-    {'timestampValue': d.toUtc().toIso8601String()};
+Map<String, dynamic> restTimestamp(DateTime d) => {
+  'timestampValue': d.toUtc().toIso8601String(),
+};
 
 /// Converte um valor Dart para o formato REST do Firestore.
 /// `FieldValue.serverTimestamp()` (e afins) viram timestamp do cliente (now) —
@@ -259,6 +260,146 @@ Future<void> firestoreRestSetDoc(
   }
 }
 
+// ---------------------------------------------------------------------------
+// COMMIT em lote com TRANSFORMS (`:commit`)
+// ---------------------------------------------------------------------------
+//
+// `firestoreRestSetDoc`/`UpdateDoc` NÃO sabem fazer transform: em `_toRestValue`
+// qualquer `FieldValue` vira timestamp. Gravar `arrayUnion([...])` por lá
+// destruiria o array (viraria uma data). Para isso existe o `:commit`, que
+// aceita `updateTransforms` e ainda é **atômico** — mesma semântica do
+// `WriteBatch` do SDK, mas sem passar pelo watch stream.
+
+/// Uma operação de escrita para [firestoreRestCommit].
+class RestWrite {
+  RestWrite.update(
+    this.docPath, {
+    this.setFields = const {},
+    this.arrayUnion = const {},
+    this.arrayRemove = const {},
+    this.increment = const {},
+    this.serverTimestamp = const [],
+    this.deleteFields = const [],
+  }) : isDelete = false;
+
+  RestWrite.delete(this.docPath)
+    : isDelete = true,
+      setFields = const {},
+      arrayUnion = const {},
+      arrayRemove = const {},
+      increment = const {},
+      serverTimestamp = const [],
+      deleteFields = const [];
+
+  final String docPath;
+  final bool isDelete;
+
+  /// Campos gravados literalmente (entram no `updateMask`).
+  final Map<String, dynamic> setFields;
+
+  /// `FieldValue.arrayUnion` — campo -> elementos a acrescentar.
+  final Map<String, List<dynamic>> arrayUnion;
+
+  /// `FieldValue.arrayRemove` — campo -> elementos a remover.
+  final Map<String, List<dynamic>> arrayRemove;
+
+  /// `FieldValue.increment` — campo -> delta.
+  final Map<String, num> increment;
+
+  /// `FieldValue.serverTimestamp()` — campos com a hora do servidor.
+  final List<String> serverTimestamp;
+
+  /// `FieldValue.delete()` — campos a APAGAR. No REST isso é entrar no
+  /// `updateMask` sem aparecer em `fields` (mandar null gravaria um nulo).
+  final List<String> deleteFields;
+}
+
+/// Executa várias escritas **numa só transação** por REST, com suporte a
+/// transforms. Devolve normalmente ou lança [StateError] com o corpo do erro.
+Future<void> firestoreRestCommit(List<RestWrite> writes) async {
+  if (writes.isEmpty) return;
+  final user = fa.FirebaseAuth.instance.currentUser;
+  if (user == null) throw StateError('sem sessão');
+  final token = await user.getIdToken();
+  if (token == null || token.isEmpty) throw StateError('sem token');
+
+  // ATENÇÃO: no `:commit` o `name`/`delete` é o **nome do recurso**
+  // (`projects/.../documents/...`) e NÃO a URL https. Mandar a URL devolve
+  // 400 `Document name ... lacks "projects" at index 0` e a gravação toda falha.
+  const docBase = 'projects/$_kProjectId/databases/(default)/documents';
+  final body = <String, dynamic>{
+    'writes': [
+      for (final w in writes)
+        if (w.isDelete)
+          {'delete': '$docBase/${w.docPath}'}
+        else
+          {
+            'update': {
+              'name': '$docBase/${w.docPath}',
+              'fields': {
+                for (final e in w.setFields.entries)
+                  e.key: _toRestValue(e.value),
+              },
+            },
+            // updateMask = campos literais + campos a apagar. Os transforms
+            // têm canal próprio e NÃO podem repetir-se aqui, senão o servidor
+            // apaga o campo antes de aplicar o transform. Um campo que está na
+            // máscara mas não em `fields` é apagado — é assim que se faz o
+            // equivalente ao `FieldValue.delete()`.
+            'updateMask': {
+              'fieldPaths': [...w.setFields.keys, ...w.deleteFields],
+            },
+            if (w.arrayUnion.isNotEmpty ||
+                w.arrayRemove.isNotEmpty ||
+                w.increment.isNotEmpty ||
+                w.serverTimestamp.isNotEmpty)
+              'updateTransforms': [
+                for (final e in w.arrayUnion.entries)
+                  {
+                    'fieldPath': e.key,
+                    'appendMissingElements': {
+                      'values': e.value.map(_toRestValue).toList(),
+                    },
+                  },
+                for (final e in w.arrayRemove.entries)
+                  {
+                    'fieldPath': e.key,
+                    'removeAllFromArray': {
+                      'values': e.value.map(_toRestValue).toList(),
+                    },
+                  },
+                for (final e in w.increment.entries)
+                  {
+                    'fieldPath': e.key,
+                    'increment': e.value is int
+                        ? {'integerValue': e.value.toString()}
+                        : {'doubleValue': e.value},
+                  },
+                for (final f in w.serverTimestamp)
+                  {'fieldPath': f, 'setToServerValue': 'REQUEST_TIME'},
+              ],
+          },
+    ],
+  };
+
+  // URL do pedido = https (_restBase); `name` dentro do corpo = recurso (docBase).
+  final uri = Uri.parse('$_restBase:commit');
+  final resp = await http
+      .post(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      )
+      .timeout(const Duration(seconds: 25));
+  if (resp.statusCode != 200) {
+    debugPrint('firestoreRestCommit ${resp.statusCode}: ${resp.body}');
+    throw StateError('REST commit ${resp.statusCode}: ${resp.body}');
+  }
+}
+
 /// ATUALIZA campos de um documento por REST (`PATCH` com `updateMask`). Só toca
 /// nos campos em [setFields] (grava) e [deleteFields] (remove) — os demais ficam
 /// intactos. Não passa pelo watch stream do SDK.
@@ -308,10 +449,9 @@ Future<Map<String, dynamic>?> firestoreRestGetDoc(String docPath) async {
   final token = await user.getIdToken();
   if (token == null || token.isEmpty) return null;
   final uri = Uri.parse('$_restBase/$path');
-  final resp = await http.get(
-    uri,
-    headers: {'Authorization': 'Bearer $token'},
-  ).timeout(const Duration(seconds: 12));
+  final resp = await http
+      .get(uri, headers: {'Authorization': 'Bearer $token'})
+      .timeout(const Duration(seconds: 12));
   if (resp.statusCode == 404) return null;
   if (resp.statusCode != 200) {
     debugPrint('firestoreRestGetDoc ${resp.statusCode}: ${resp.body}');
@@ -332,10 +472,9 @@ Future<void> firestoreRestDeleteDoc(String docPath) async {
   final token = await user.getIdToken();
   if (token == null || token.isEmpty) throw StateError('sem token');
   final uri = Uri.parse('$_restBase/$path');
-  final resp = await http.delete(
-    uri,
-    headers: {'Authorization': 'Bearer $token'},
-  ).timeout(const Duration(seconds: 20));
+  final resp = await http
+      .delete(uri, headers: {'Authorization': 'Bearer $token'})
+      .timeout(const Duration(seconds: 20));
   if (resp.statusCode != 200 && resp.statusCode != 404) {
     debugPrint('firestoreRestDeleteDoc ${resp.statusCode}: ${resp.body}');
     throw StateError('REST delete ${resp.statusCode}');

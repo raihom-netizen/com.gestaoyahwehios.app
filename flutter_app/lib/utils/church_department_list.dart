@@ -82,18 +82,12 @@ String normalizeChurchDepartmentNameKey(String name) {
 String churchDepartmentFoldAsciiForDocId(String input) {
   if (input.isEmpty) return '';
   const map = <String, String>{
-    'á': 'a', 'à': 'a', 'ã': 'a', 'â': 'a', 'ä': 'a',
-    'é': 'e', 'ê': 'e', 'è': 'e', 'ë': 'e',
-    'í': 'i', 'ì': 'i', 'î': 'i', 'ï': 'i',
-    'ó': 'o', 'ò': 'o', 'õ': 'o', 'ô': 'o', 'ö': 'o',
-    'ú': 'u', 'ù': 'u', 'û': 'u', 'ü': 'u',
-    'ç': 'c', 'ñ': 'n',
-    'Á': 'a', 'À': 'a', 'Ã': 'a', 'Â': 'a', 'Ä': 'a',
-    'É': 'e', 'Ê': 'e', 'È': 'e', 'Ë': 'e',
-    'Í': 'i', 'Ì': 'i', 'Î': 'i', 'Ï': 'i',
-    'Ó': 'o', 'Ò': 'o', 'Õ': 'o', 'Ô': 'o', 'Ö': 'o',
-    'Ú': 'u', 'Ù': 'u', 'Û': 'u', 'Ü': 'u',
-    'Ç': 'c', 'Ñ': 'n',
+    '\u00e1': 'a', '\u00e0': 'a', '\u00e3': 'a', '\u00e2': 'a', '\u00e4': 'a',
+    '\u00e9': 'e', '\u00e8': 'e', '\u00ea': 'e', '\u00eb': 'e',
+    '\u00ed': 'i', '\u00ec': 'i', '\u00ee': 'i', '\u00ef': 'i',
+    '\u00f3': 'o', '\u00f2': 'o', '\u00f5': 'o', '\u00f4': 'o', '\u00f6': 'o',
+    '\u00fa': 'u', '\u00f9': 'u', '\u00fb': 'u', '\u00fc': 'u',
+    '\u00e7': 'c', '\u00f1': 'n',
   };
   final buf = StringBuffer();
   for (final c in input.runes) {
@@ -120,7 +114,7 @@ String churchDepartmentStableDocIdCandidate(String name, String iconKey) {
   return s;
 }
 
-/// Exibe nome com capitalização amigável (ex.: "MOCIDADE" → "Mocidade").
+/// Exibe nome com capitalização amigável (ex.: "MOCIDADE" ? "Mocidade").
 String prettifyChurchDepartmentDisplayName(String raw) {
   final s = raw.trim();
   if (s.isEmpty) return raw;

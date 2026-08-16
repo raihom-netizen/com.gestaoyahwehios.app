@@ -1,4 +1,4 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 import 'dart:ui' show Rect;
 
 import 'package:flutter/foundation.dart';
@@ -8,7 +8,7 @@ import 'package:gestao_yahweh/services/utilitarios_local_service.dart';
 
 /// Edição nativa no **PDF original** (não rasteriza páginas).
 ///
-/// Fluxo tipo Word: localiza o trecho antigo → cobre só ele → redesenha o
+/// Fluxo tipo Word: localiza o trecho antigo ? cobre só ele ? redesenha o
 /// texto novo na mesma linha/baseline, expandindo para a direita se precisar.
 /// O restante do documento (fontes, QR, vetores, layout) permanece intacto.
 class UtilitariosPdfPreserveExport {
@@ -234,7 +234,7 @@ void _replaceTextLikeWord({
   if (newText.trim().isEmpty) return;
 
   final scale = (a['fontScale'] as num?)?.toDouble() ?? 1.0;
-  // Fonte pela tipografia detectada — nunca pela altura “gigante” da caixa OCR.
+  // Fonte pela tipografia detectada ? nunca pela altura ?gigante? da caixa OCR.
   final natural = detectedFontSize ?? (cover.height * 0.72);
   final fontSize = (natural * scale).clamp(7.0, 36.0);
   final family = _familyFromName(
@@ -254,7 +254,7 @@ void _replaceTextLikeWord({
   final maxW = math.max(4.0, pageW - left - 1.0);
   final drawW = math.min(maxW, math.max(cover.width, neededW));
 
-  // Se couber em uma linha, desenha sem wrap (evita “bloco comprimido”).
+  // Se couber em uma linha, desenha sem wrap (evita ?bloco comprimido?).
   final singleLine = !newText.contains('\n') && measured.width <= maxW + 0.5;
   final drawH = singleLine
       ? math.max(fontSize * 1.15, cover.height)
@@ -317,7 +317,7 @@ void _drawCheck(sf.PdfPage page, Rect region, Map<String, dynamic> a) {
     style: sf.PdfFontStyle.bold,
   );
   page.graphics.drawString(
-    '✓',
+    '?',
     font,
     brush: sf.PdfSolidBrush(color),
     bounds: region,
@@ -355,7 +355,7 @@ Rect? _normRectTopLeft(Map<String, dynamic> a, double pageW, double pageH) {
   return Rect.fromLTWH(x, y, w, h);
 }
 
-/// Alguns extratores devolvem Y com origem no fundo — tenta os dois.
+/// Alguns extratores devolvem Y com origem no fundo ? tenta os dois.
 Rect _asTopLeft(Rect bounds, double pageH) {
   // Se o retângulo parece já top-left (top < bottom e top pequeno relativo),
   // mantém. Se bottom < top (raro em Dart Rect), normaliza.

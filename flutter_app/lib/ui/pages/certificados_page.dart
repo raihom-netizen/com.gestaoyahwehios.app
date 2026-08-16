@@ -83,7 +83,7 @@ import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-// ─── Templates de Certificados ──────────────────────────────────────────────
+// --- Templates de Certificados ----------------------------------------------
 class _CertTemplate {
   final String id;
   final String nome;
@@ -343,7 +343,7 @@ const _certificadoCores = [
   Color(0xFFDC2626), // vermelho
 ];
 
-// ─── Página Principal ────────────────────────────────────────────────────────
+// --- Página Principal --------------------------------------------------------
 class CertificadosPage extends StatefulWidget {
   final String tenantId;
   final String role;
@@ -522,7 +522,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
   Color _deptChipColor(int index) =>
       _kDeptChipColors[index % _kDeptChipColors.length];
 
-  /// Chips coloridos: Todos · um · vários departamentos.
+  /// Chips coloridos: Todos ? um ? vários departamentos.
   Widget _buildModernDepartmentFilterChips() {
     final allSelected = _selectedDeptIds.isEmpty;
     return Column(
@@ -883,7 +883,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                             Navigator.pop(ctx, _templateFromId(selectedId)),
                         icon: const Icon(Icons.done_all_rounded),
                         label: Text(
-                          'Usar «${_tituloForTemplate(selected)}» no lote',
+                          'Usar ?${_tituloForTemplate(selected)}? no lote',
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 14.5,
@@ -1493,7 +1493,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       seenIds.add(doc.id);
     }
 
-    // Membros escolhidos nas vagas (config) entram mesmo se outro membro “roubou” o mesmo CPF na lista.
+    // Membros escolhidos nas vagas (config) entram mesmo se outro membro ?roubou? o mesmo CPF na lista.
     for (final s in certSignatorySlotsFromConfig(_certConfig)) {
       final id = (s['memberId'] ?? '').trim();
       if (id.isEmpty || seenIds.contains(id)) continue;
@@ -1889,7 +1889,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                                 const SizedBox(height: 6),
                                 Text(
                                   'Defina CARGO ou FUNÇÕES na ficha (ex.: Pastor) — se FUNÇÕES estiver só como '
-                                  '“membro”, o cargo principal da ficha passa a contar. Opcional: no Firestore, '
+                                  '?membro?, o cargo principal da ficha passa a contar. Opcional: no Firestore, '
                                   'campo certificadoSignatario: true no membro.',
                                   style: TextStyle(
                                     fontSize: 12,
@@ -2067,7 +2067,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                             flex: 2,
                             child: Text(
                               _batchMode
-                                  ? 'Um modelo para todos · marque quem entra no lote'
+                                  ? 'Um modelo para todos ? marque quem entra no lote'
                                   : 'Toque no nome para emitir certificado',
                               textAlign: TextAlign.end,
                               style: TextStyle(
@@ -2547,7 +2547,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       return;
     }
     final nav = Navigator.of(context, rootNavigator: true);
-    final phase = ValueNotifier<String>('A carregar protocolo…');
+    final phase = ValueNotifier<String>('A carregar protocolo?');
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -2587,7 +2587,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       if (tid.isEmpty || tid != expectedTenantId) {
         throw Exception('Este certificado não pertence a esta igreja.');
       }
-      phase.value = 'A gerar PDF…';
+      phase.value = 'A gerar PDF?';
       final sigs = <CertPdfPipelineSignatory>[];
       for (final raw in (d['signatariosSnapshot'] as List<dynamic>? ??
           const <dynamic>[])) {
@@ -2785,7 +2785,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       if (template.id == 'casamento') {
         return modelo
             .replaceAll('{NOIVO}', sampleNome)
-            .replaceAll('{NOIVA}', '—')
+            .replaceAll('{NOIVA}', '?')
             .replaceAll('{NOME}', sampleNome)
             .replaceAll('{DATA_CERTIFICADO}', dataHoje);
       }
@@ -2834,7 +2834,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                               ),
                               Expanded(
                                 child: Text(
-                                  '${_tituloForTemplate(template)} · $selectedCount',
+                                  '${_tituloForTemplate(template)} ? $selectedCount',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: GoogleFonts.poppins(
@@ -2879,7 +2879,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                         children: [
                           Text(
                             'Pré-visualização (exemplo: $sampleNome). '
-                            'Ajuste os textos — valem para todos do lote. '
+                            'Ajuste os textos ? valem para todos do lote. '
                             'Use {NOME}, {CPF} e {DATA_CERTIFICADO} no texto.',
                             style: TextStyle(
                               fontSize: 13,
@@ -3197,7 +3197,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '$selectedCount membro(s) · '
+                            '$selectedCount membro(s) ? '
                             '${distinctTemplateCount == 1 ? 'mesmo modelo' : '$distinctTemplateCount modelos diferentes'}',
                             style: TextStyle(
                               fontSize: 13,
@@ -3209,7 +3209,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                           Text(
                             distinctTemplateCount == 1
                                 ? 'O tipo de certificado foi definido na coluna ao lado do nome.'
-                                : 'Cada pessoa pode ter um modelo diferente (coluna «Modelo» na lista). '
+                                : 'Cada pessoa pode ter um modelo diferente (coluna ?Modelo? na lista). '
                                     'Um PDF único inclui todas as páginas com o respetivo estilo.',
                             style: TextStyle(
                               fontSize: 12.5,
@@ -3340,7 +3340,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                     ),
                     const SizedBox(height: 22),
                     Text(
-                      'Gerando certificado(s) na nuvem…',
+                      'Gerando certificado(s) na nuvem?',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
@@ -3359,7 +3359,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      '$cloudTotal certificado(s) — ${_tituloForTemplate(template)}',
+                      '$cloudTotal certificado(s) ? ${_tituloForTemplate(template)}',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
@@ -3406,7 +3406,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       if (url.isEmpty) {
         throw Exception('Resposta sem link de download');
       }
-      phase.value = 'Pronto! Abrindo download…';
+      phase.value = 'Pronto! Abrindo download?';
       final uri = Uri.tryParse(url);
       if (uri != null && await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -3499,7 +3499,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     }
 
     final nav = Navigator.of(context, rootNavigator: true);
-    final phase = ValueNotifier<String>('Preparando…');
+    final phase = ValueNotifier<String>('Preparando?');
     final total = selectedDocs.length;
     final cur = ValueNotifier<int>(total > 0 ? 1 : 0);
     final layoutBatch = _layoutForTemplate(tpl(selectedDocs.first.id));
@@ -3839,7 +3839,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
       final firstRow = zipRows.first;
       final firstTplZip = tpl(firstRow.docId);
       phase.value =
-          'A registar protocolos e preparar imagens ($total certificados)…';
+          'A registar protocolos e preparar imagens ($total certificados)?';
       final sharedZipResolved = await resolveCertificatePdfShared(
         CertPdfPipelineParams(
           tenantId: widget.tenantId,
@@ -3904,7 +3904,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
         titleNv.value = 'Certificado ${i + 1}/$total';
         prog01.value = 0.45 + (i + 0.08) / total * 0.47;
         phase.value =
-            'Certificado ${i + 1} de $total — a gerar PDF…';
+            'Certificado ${i + 1} de $total ? a gerar PDF?';
 
         final bytes = await runCertificatePdfPipeline(
           CertPdfPipelineParams(
@@ -3958,9 +3958,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
       }
 
       cur.value = total;
-      titleNv.value = 'Compactando arquivo…';
+      titleNv.value = 'Compactando arquivo?';
       prog01.value = 0.92;
-      phase.value = 'Compactando ZIP…';
+      phase.value = 'Compactando ZIP?';
 
       if (zipEntries.isEmpty) {
         throw Exception('Nenhum PDF gerado');
@@ -3975,7 +3975,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
         await YahwehShareService.shareFile(
           path: openedPath,
           mimeType: 'application/zip',
-          message: 'Certificados da igreja — envie pelo WhatsApp',
+          message: 'Certificados da igreja ? envie pelo WhatsApp',
           subject: 'Certificados',
         );
       } else {
@@ -3983,7 +3983,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
           bytes: zipBytes,
           fileName: fname,
           mimeType: 'application/zip',
-          message: 'Certificados da igreja — envie pelo WhatsApp',
+          message: 'Certificados da igreja ? envie pelo WhatsApp',
           subject: 'Certificados',
         );
       }
@@ -4011,7 +4011,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     }
   }
 
-  // ─── Selecionar Template ──────────────────────────────────────────────────
+  // --- Selecionar Template --------------------------------------------------
   void _showTemplateSelector(
       BuildContext context,
       QueryDocumentSnapshot<Map<String, dynamic>> memberDoc,
@@ -4381,7 +4381,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     );
   }
 
-  // ─── Editor do Certificado ────────────────────────────────────────────────
+  // --- Editor do Certificado ------------------------------------------------
   Future<void> _openEditor(
       BuildContext pageContext,
       _CertTemplate template,
@@ -4404,7 +4404,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     final textoFinal = template.id == 'casamento'
         ? textoModelo
             .replaceAll('{NOIVO}', nome)
-            .replaceAll('{NOIVA}', '—')
+            .replaceAll('{NOIVA}', '?')
             .replaceAll('{DATA_CERTIFICADO}', '{DATA_CERTIFICADO}')
         : textoModelo
             .replaceAll('{NOME}', nome)
@@ -4832,9 +4832,9 @@ class _CertificadosInsightsPanel extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Configuração dos modelos (cor, logo, textos editáveis por modelo)
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 class _CertificadosConfigPage extends StatefulWidget {
   final String tenantId;
   final Map<String, dynamic>? tenantData;
@@ -4977,7 +4977,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
     return [...eligible, ...extra];
   }
 
-  /// Campo vazio → Firestore grava logoUrl null → certificados usam sempre a logo do cadastro.
+  /// Campo vazio ? Firestore grava logoUrl null ? certificados usam sempre a logo do cadastro.
   Future<void> _usarLogoDoCadastro() async {
     setState(() => _logoCtrl.clear());
     if (!_cadastroPodeTerLogo) {
@@ -5403,7 +5403,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                       border: Border.all(color: Colors.grey.shade300),
                     ),
                     child: Text(
-                      '${_certLayoutOptions.first.nome} — ${_certLayoutOptions.first.descricao}',
+                      '${_certLayoutOptions.first.nome} ? ${_certLayoutOptions.first.descricao}',
                       style: TextStyle(fontSize: 13, height: 1.35, color: Colors.grey.shade700),
                     ),
                   ),
@@ -5496,7 +5496,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                         items: [
                           const DropdownMenuItem<String?>(
                             value: null,
-                            child: Text('— Nenhum —'),
+                            child: Text('? Nenhum ?'),
                           ),
                           ..._dropdownDocsForSlot(i).map(
                             (doc) {
@@ -5511,7 +5511,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                                 child: Text(
                                   nome.isEmpty
                                       ? doc.id
-                                      : '$nome — $cargo',
+                                      : '$nome ? $cargo',
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               );
@@ -5624,7 +5624,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                       items: _certFontStyleOptions
                           .map((o) => DropdownMenuItem<String>(
                                 value: o.id,
-                                child: Text('${o.nome} — ${o.descricao}'),
+                                child: Text('${o.nome} ? ${o.descricao}'),
                               ))
                           .toList(),
                       onChanged: (v) {
@@ -5769,7 +5769,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                       controller: _subtituloByTemplate[t.id],
                       maxLines: 2,
                       decoration: InputDecoration(
-                        hintText: 'Ex.: Quem crer e for batizado… (deixe vazio para ocultar)',
+                        hintText: 'Ex.: Quem crer e for batizado? (deixe vazio para ocultar)',
                         filled: true,
                         fillColor: const Color(0xFFF8FAFC),
                         border: OutlineInputBorder(
@@ -6009,7 +6009,7 @@ class _CertificatePdfProgressShell extends StatelessWidget {
                             const SizedBox(height: 10),
                             Text(
                               showDigitalSigningLine
-                                  ? 'Selo digital (igual Cartas): sem download de imagem — logo e fundo em paralelo.'
+                                  ? 'Selo digital (igual Cartas): sem download de imagem ? logo e fundo em paralelo.'
                                   : 'Rede otimizada: fontes, logo, fundo e assinaturas em paralelo.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
@@ -6032,9 +6032,9 @@ class _CertificatePdfProgressShell extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Página de Edição do Certificado
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 class _CertEditorPage extends StatefulWidget {
   final String tenantId;
   final _CertTemplate template;
@@ -6490,8 +6490,8 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     }
     onProgress?.call(
       _signatureMode == 'digital'
-          ? 'Preparando logo e selo digital…'
-          : 'Preparando logo e assinaturas…',
+          ? 'Preparando logo e selo digital?'
+          : 'Preparando logo e assinaturas?',
       0.1,
     );
     return _preResolveCertificatePdfAssets(warmSig);
@@ -6592,7 +6592,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Preview card — Super Premium
+              // Preview card ? Super Premium
               Container(
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
@@ -6633,7 +6633,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
               if (_isCasamento) ...[
                 const SizedBox(height: ThemeCleanPremium.spaceMd),
                 _SectionLabel(
-                  label: 'Noivos — nomes no certificado',
+                  label: 'Noivos ? nomes no certificado',
                   subtitle:
                       'Escolha dois membros cadastrados ou digite os nomes completos (ex.: convidados ou outra igreja).',
                 ),
@@ -7089,7 +7089,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                     ),
                   ),
                 Text(
-                  'Marque uma ou mais pessoas. No modo digital o selo usa nome e CPF do cadastro (como em Cartas). No modo manual, a imagem de assinatura em Membros → Editar aparece no PDF quando existir.',
+                  'Marque uma ou mais pessoas. No modo digital o selo usa nome e CPF do cadastro (como em Cartas). No modo manual, a imagem de assinatura em Membros ? Editar aparece no PDF quando existir.',
                   style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                 ),
                 const SizedBox(height: ThemeCleanPremium.spaceSm),
@@ -7125,12 +7125,12 @@ class _CertEditorPageState extends State<_CertEditorPage> {
                     ],
                   ),
                 ),
-                _SectionLabel(label: 'Assinatura — Nome'),
+                _SectionLabel(label: 'Assinatura ? Nome'),
                 _EditBox(
                     controller: widget.pastorCtrl,
                     hint: 'Nome do pastor/líder'),
                 const SizedBox(height: ThemeCleanPremium.spaceSm),
-                _SectionLabel(label: 'Assinatura — Cargo'),
+                _SectionLabel(label: 'Assinatura ? Cargo'),
                 _EditBox(
                     controller: widget.cargoCtrl,
                     hint: 'Ex: Pastor(a) Presidente'),
@@ -7235,7 +7235,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     }
     setState(() => _generating = true);
     final phase = ValueNotifier<String>(
-        'Processando certificado 1 de 1 — preparando…');
+        'Processando certificado 1 de 1 ? preparando?');
     final pct = ValueNotifier<double>(0.02);
     final titleNv = ValueNotifier<String>('Gerando certificado');
     final nav = Navigator.of(context, rootNavigator: true);
@@ -7871,7 +7871,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
         CertificadoConsultaUrl.protocolValidationUrl(protocolId);
 
     // Pipeline local Gala Luxo — respeita modelo visual (Clássico/Pergaminho/Moderno).
-    onProgress?.call('Montando PDF premium…', preResolvedShared != null ? 0.72 : 0.2);
+    onProgress?.call('Montando PDF premium?', preResolvedShared != null ? 0.72 : 0.2);
 
     final bytes = await runCertificatePdfPipeline(
       CertPdfPipelineParams(
@@ -7935,9 +7935,9 @@ class _CertEditorPageState extends State<_CertEditorPage> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Widgets auxiliares
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 
 DateTime? _certificadoEmissaoDiaCivil(Map<String, dynamic> d) {
   final fromTs = emissionCalendarDateBr(d['dataEmissao']);
@@ -8829,7 +8829,7 @@ class _CertificadosEmitidosHistoricoViewState
                             onChanged: (_) => setState(() {}),
                             decoration: InputDecoration(
                               labelText: 'Membro (nome)',
-                              hintText: 'Pesquisar por nome…',
+                              hintText: 'Pesquisar por nome?',
                               prefixIcon: const Icon(Icons.person_search_rounded),
                               filled: true,
                               fillColor: const Color(0xFFF8FAFC),
@@ -8986,7 +8986,7 @@ class _CertificadosEmitidosHistoricoViewState
                                             label: Text(
                                               _periodoInicio != null &&
                                                       _periodoFim != null
-                                                  ? '${DateFormat.yMd('pt_BR').format(_periodoInicio!)} — ${DateFormat.yMd('pt_BR').format(_periodoFim!)}'
+                                                  ? '${DateFormat.yMd('pt_BR').format(_periodoInicio!)} ? ${DateFormat.yMd('pt_BR').format(_periodoFim!)}'
                                                   : 'Período (de/até)',
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
@@ -9079,7 +9079,7 @@ class _CertificadosEmitidosHistoricoViewState
                                     label: Text(
                                       _periodoInicio != null &&
                                               _periodoFim != null
-                                          ? '${DateFormat.yMd('pt_BR').format(_periodoInicio!)} — ${DateFormat.yMd('pt_BR').format(_periodoFim!)}'
+                                          ? '${DateFormat.yMd('pt_BR').format(_periodoInicio!)} ? ${DateFormat.yMd('pt_BR').format(_periodoFim!)}'
                                           : 'Período de emissão (de/até)',
                                     ),
                                     style: OutlinedButton.styleFrom(
@@ -9241,7 +9241,7 @@ class _CertificadosEmitidosHistoricoViewState
                                     ),
                                   ),
                                   title: Text(
-                                    nome.isEmpty ? '—' : nome,
+                                    nome.isEmpty ? '?' : nome,
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(
@@ -9253,7 +9253,7 @@ class _CertificadosEmitidosHistoricoViewState
                                   subtitle: Padding(
                                     padding: const EdgeInsets.only(top: 6),
                                     child: Text(
-                                      '${tipo.isEmpty ? 'Certificado' : tipo}\n$dataTxt · Brasília',
+                                      '${tipo.isEmpty ? 'Certificado' : tipo}\n$dataTxt ? Brasília',
                                       style: TextStyle(
                                         fontSize: 12,
                                         height: 1.35,

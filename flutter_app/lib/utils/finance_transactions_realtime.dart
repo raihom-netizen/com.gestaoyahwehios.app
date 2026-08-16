@@ -14,8 +14,8 @@ import 'firestore_query_batched_collect.dart';
 /// (`INTERNAL ASSERTION FAILED` / `WatchChangeAggregator`, SDK JS 12.x).
 const Duration _kFinanceWebPollInterval = Duration(seconds: 180);
 
-/// Poll leve genérico: 1ª leitura imediata (cache, se houver, depois servidor
-/// via [query.get]), depois a cada [_kFinanceWebPollInterval] — usado no Web
+/// Poll leve genérico: 1? leitura imediata (cache, se houver, depois servidor
+/// via [query.get]), depois a cada [_kFinanceWebPollInterval] ? usado no Web
 /// no lugar de `query.snapshots()`.
 Stream<QuerySnapshot<Map<String, dynamic>>> _pollQuery(
   Query<Map<String, dynamic>> query,

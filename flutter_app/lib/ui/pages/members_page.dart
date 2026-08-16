@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -134,10 +134,10 @@ class MembersPage extends StatefulWidget {
   /// Pré-preenche o campo de busca (ex.: busca global Ctrl+K).
   final String? initialSearchQuery;
 
-  /// Abre a ficha (bottom sheet) deste membro uma vez ao carregar (ex.: QR carteirinha → painel).
+  /// Abre a ficha (bottom sheet) deste membro uma vez ao carregar (ex.: QR carteirinha ? painel).
   final String? initialOpenMemberDocId;
 
-  /// Vindo de [users.permissions] (cargos fundidos) — ex. `membros_ver` / `membros_edicao`.
+  /// Vindo de [users.permissions] (cargos fundidos) ? ex. `membros_ver` / `membros_edicao`.
   final List<String>? permissions;
 
   const MembersPage({
@@ -193,7 +193,7 @@ class _MembersPageState extends State<MembersPage> {
   bool _didBootstrapOpenMemberSheet = false;
   final bool _linkCardExpanded = false;
 
-  /// Legado (acordeões removidos — mantido para não quebrar saves de estado).
+  /// Legado (acorde?es removidos ? mantido para Não quebrar saves de estado).
   final bool _filtrosExpanded = false;
   final bool _buscaRapidosExpanded = false;
   final bool _funcoesPermExpanded = false;
@@ -224,7 +224,7 @@ class _MembersPageState extends State<MembersPage> {
         : _forceCanonicalTenantId(widget.tenantId),
   );
 
-  /// Doc operacional — `igrejas/{churchId}` directo (contexto + mapa BPC).
+  /// Doc operacional ? `igrejas/{churchId}` directo (contexto + mapa BPC).
   Future<String> _resolveEffectiveTenantId() async {
     final seed = _forceCanonicalTenantId(widget.tenantId);
     final mapped = TenantResolverService.mapLegacySeedToCanonical(seed);
@@ -369,7 +369,7 @@ class _MembersPageState extends State<MembersPage> {
     required String memberDocId,
     required Map<String, dynamic> memberData,
   }) async {
-    GlobalUploadProgress.instance.start('A remover foto de perfil…');
+    GlobalUploadProgress.instance.start('A remover foto de perfil?');
     try {
       final result = await MemberProfilePhotoUpdateService.removeProfilePhoto(
         tenantId: tenantId,
@@ -391,7 +391,7 @@ class _MembersPageState extends State<MembersPage> {
     required Map<String, dynamic> memberData,
     required Uint8List bytes,
   }) async {
-    GlobalUploadProgress.instance.start('A enviar foto de perfil…');
+    GlobalUploadProgress.instance.start('A enviar foto de perfil?');
     try {
       final result = await MemberProfilePhotoUpdateService.uploadAndPatchMember(
         tenantId: tenantId,
@@ -474,7 +474,7 @@ class _MembersPageState extends State<MembersPage> {
 
   /// True se o usuário pode transferir membro para outra igreja.
   /// Só [master] do Painel (rota com `role: master`) ou [AppConstants.isProductMasterAccount] —
-  /// **não** o papel [adm] da igreja (administrador local), que deve ficar isolado ao tenant.
+  /// **Não** o papel [adm] da igreja (administrador local), que deve ficar isolado ao tenant.
   bool get _canTransferMember {
     final raw = (widget.role ?? '').toString().trim().toLowerCase();
     if (raw == 'master') return true;
@@ -524,7 +524,7 @@ class _MembersPageState extends State<MembersPage> {
   List<_DeptItem> _departamentos = [];
   final MembersLimitService _limitService = MembersLimitService();
 
-  /// Nunca `late` — FutureBuilder pode montar antes/depois de reassign (crash iOS).
+  /// Nunca `late` ? FutureBuilder pode montar antes/depois de reassign (crash iOS).
   Future<MembersLimitResult> _limitFuture = Future.value(
     const MembersLimitResult(
       currentCount: 0,
@@ -561,12 +561,12 @@ class _MembersPageState extends State<MembersPage> {
   /// Primeiro paint — no máx. 2 páginas; resto via «Carregar mais».
   static const int _membersListInstantCap = 40;
 
-  /// Leitura Firestore inicial — evita baixar 500 docs pesados na abertura.
+  /// Leitura Firestore inicial ? evita baixar 500 docs pesados na abertura.
   static const int _membersFirestoreInitialLimit =
       YahwehPerformanceV4.blindListPageSize;
   int _membersVisibleCount = _membersPageSize;
 
-  /// Cache `_panel_cache/members_directory` — lista + fotos antes do load Firestore.
+  /// Cache `_panel_cache/members_directory` ? lista + fotos antes do load Firestore.
   MembersDirectorySnapshot _directoryCache = const MembersDirectorySnapshot();
   StreamSubscription<MembersDirectorySnapshot>? _directoryCacheSub;
   late final VoidCallback _photoSyncListener;
@@ -591,7 +591,7 @@ class _MembersPageState extends State<MembersPage> {
     return age;
   }
 
-  /// Busca sem acentos (ex.: «cata» → «Catalina», «raih» → «Raihom»).
+  /// Busca sem acentos (ex.: ?cata? ? ?Catalina?, ?raih? ? ?Raihom?).
   static String _foldSearchText(String raw) {
     var s = raw.trim().toLowerCase();
     if (s.isEmpty) return s;
@@ -1627,7 +1627,7 @@ class _MembersPageState extends State<MembersPage> {
 
     var mergedMembers = result.docs.toList();
 
-    if (mergedMembers.isEmpty && result.hasHardError) {
+    if (mergedMembers.isEmpty) {
       var cache = await MembersDirectorySnapshotService.readOnce(effectiveId);
       if (!cache.hasEntries) {
         cache = await MembersDirectorySnapshotService.warmFromCallableIfStale(
@@ -2284,7 +2284,7 @@ class _MembersPageState extends State<MembersPage> {
     return _effectiveTenantId;
   }
 
-  /// Storage `igrejas/{id}/membros/…`: usa o tenant do painel quando existir, para não apontar pasta errada após merge com `users`.
+  /// Storage `igrejas/{id}/membros/?`: usa o tenant do painel quando existir, para Não apontar pasta errada após merge com `users`.
   String _storageTenantIdForMemberPhotos(Map<String, dynamic> data) {
     final eff = _effectiveTenantId.trim();
     if (eff.isNotEmpty) return eff;
@@ -2466,7 +2466,7 @@ class _MembersPageState extends State<MembersPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-            'Conta de login não encontrada para este cadastro.',
+            'Conta de login Não encontrada para este cadastro.',
           ),
         );
       }
@@ -2478,7 +2478,7 @@ class _MembersPageState extends State<MembersPage> {
             .replaceAll(RegExp(r'\D'), '');
     final cpfLabel = raw.length == 11
         ? _formatCpf(raw)
-        : (raw.isNotEmpty ? raw : '—');
+        : (raw.isNotEmpty ? raw : '?');
     await Navigator.push<void>(
       context,
       MaterialPageRoute<void>(
@@ -2587,9 +2587,9 @@ class _MembersPageState extends State<MembersPage> {
 
   // Usados apenas via _loadMembersData() (leitura pontual).
 
-  // ─── Departamentos ────────────────────────────────────────────────────────
+  // --- Departamentos --------------------------------------------------------
   Future<List<_DeptItem>> _loadDepartments() async {
-    // Sem orderBy('name'): documentos só com id (ex.: ens_professores) não têm [name] e sumiam da query.
+    // Sem orderBy('name'): documentos só com id (ex.: ens_professores) Não têm [name] e sumiam da query.
     final snap = await _departments.limit(150).get();
     final list = snap.docs
         .map((d) => _DeptItem(id: d.id, name: churchDepartmentNameFromDoc(d)))
@@ -2712,13 +2712,13 @@ class _MembersPageState extends State<MembersPage> {
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Chat da igreja não está disponível nesta versão.'),
+        content: Text('Chat da igreja Não está disponível nesta versão.'),
         behavior: SnackBarBehavior.floating,
       ),
     );
   }
 
-  // ─── Ver Detalhes do Membro ───────────────────────────────────────────────
+  // --- Ver Detalhes do Membro -----------------------------------------------
   Future<void> _showMemberDetails(
     BuildContext context,
     _MemberDoc member,
@@ -3065,7 +3065,7 @@ class _MembersPageState extends State<MembersPage> {
                                                   path: email,
                                                   queryParameters: {
                                                     'subject':
-                                                        'Contato — $name',
+                                                        'Contato ? $name',
                                                   },
                                                 ),
                                               ),
@@ -3301,7 +3301,7 @@ class _MembersPageState extends State<MembersPage> {
                             label: 'CPF',
                             value: canSensitive
                                 ? _formatCpf(cpf)
-                                : '•••.•••.•••-••',
+                                : '???.???.???-??',
                           ),
                         if (nascimento != null)
                           _DetailRow(
@@ -3423,7 +3423,7 @@ class _MembersPageState extends State<MembersPage> {
                           label: 'UID (Firebase)',
                           value: sistemaFirebaseUid.isNotEmpty
                               ? sistemaFirebaseUid
-                              : '— vincule login ou aprove o cadastro',
+                              : '? vincule login ou aprove o cadastro',
                         ),
                         if (member.id.isNotEmpty &&
                             member.id != sistemaFirebaseUid)
@@ -3451,7 +3451,7 @@ class _MembersPageState extends State<MembersPage> {
     );
   }
 
-  // ─── Editar Membro ────────────────────────────────────────────────────────
+  // --- Editar Membro --------------------------------------------------------
   Future<void> _editMember(BuildContext context, _MemberDoc member) async {
     final staffEdit = AppPermissions.canEditMembersDirectory(
       widget.role,
@@ -3605,1624 +3605,1679 @@ class _MembersPageState extends State<MembersPage> {
           final avatarBg =
               _avatarColor(d, currentPhoto.isNotEmpty) ??
               ThemeCleanPremium.primary.withValues(alpha: 0.1);
+          // Tela CHEIA: antes era um modal de 520px preso a 85% da altura, e a
+          // ficha do membro ficava espremida num scroll minúsculo. Agora ocupa
+          // o ecrã todo; o conteúdo fica centrado num limite legível para os
+          // campos não esticarem num monitor largo.
           return Dialog(
-            insetPadding: isMob
-                ? const EdgeInsets.symmetric(horizontal: 8, vertical: 24)
-                : const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+            insetPadding: EdgeInsets.zero,
+            clipBehavior: Clip.antiAlias,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.zero,
             ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: 520,
-                maxHeight:
-                    MediaQuery.of(ctx).size.height * (isMob ? 0.9 : 0.85),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.max,
-                children: [
-                  // Header
-                  Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(20),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: 900,
+                  maxHeight: double.infinity,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.max,
+                  children: [
+                    // Header
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: ThemeCleanPremium.primary.withValues(
+                          alpha: 0.06,
+                        ),
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(20),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          TextButton.icon(
+                            onPressed: () => Navigator.pop(ctx, null),
+                            icon: const Icon(
+                              Icons.arrow_back_rounded,
+                              size: 20,
+                            ),
+                            label: const Text('Voltar'),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(
+                            Icons.edit_rounded,
+                            color: ThemeCleanPremium.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              selfOnly ? 'Meu cadastro' : 'Editar Membro',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded),
+                            onPressed: () => Navigator.pop(ctx, null),
+                          ),
+                        ],
                       ),
                     ),
-                    child: Row(
-                      children: [
-                        TextButton.icon(
-                          onPressed: () => Navigator.pop(ctx, null),
-                          icon: const Icon(Icons.arrow_back_rounded, size: 20),
-                          label: const Text('Voltar'),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(
-                          Icons.edit_rounded,
-                          color: ThemeCleanPremium.primary,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            selfOnly ? 'Meu cadastro' : 'Editar Membro',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close_rounded),
-                          onPressed: () => Navigator.pop(ctx, null),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                      child: Column(
-                        children: [
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              'Foto do perfil',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: ThemeCleanPremium.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          // Foto (toque para trocar)
-                          GestureDetector(
-                            onTap: () async {
-                              if (pickingProfilePhoto) return;
-                              setDlg(() => pickingProfilePhoto = true);
-                              try {
-                                final picked =
-                                    await MemberProfilePhotoPickService.pickForMemberEdit(
-                                      ctx,
-                                    );
-                                if (picked != null && picked.bytes.isNotEmpty) {
-                                  newPhotoBytes = picked.bytes;
-                                  profilePhotoPreview.value = picked.bytes;
-                                  newPhoto = null;
-                                  removeProfilePhoto = false;
-                                  if (ctx.mounted) {
-                                    ImmediateMediaAttachFeedback.showArquivoAnexado(
-                                      ctx,
-                                      picked.displayName,
-                                    );
-                                    setDlg(() {});
-                                  }
-                                }
-                              } catch (e) {
-                                if (ctx.mounted) {
-                                  ScaffoldMessenger.of(ctx).showSnackBar(
-                                    ThemeCleanPremium.feedbackSnackBar(
-                                      'Não foi possível carregar a foto: $e',
-                                    ),
-                                  );
-                                }
-                              } finally {
-                                if (!ctx.mounted) return;
-                                setDlg(() => pickingProfilePhoto = false);
-                              }
-                            },
-                            child: Stack(
-                              alignment: Alignment.bottomRight,
-                              children: [
-                                ValueListenableBuilder<Uint8List?>(
-                                  valueListenable: profilePhotoPreview,
-                                  builder: (_, preview, _) {
-                                    final localBytes = preview ?? newPhotoBytes;
-                                    if (localBytes != null &&
-                                        localBytes.isNotEmpty) {
-                                      return CircleAvatar(
-                                        radius: 45,
-                                        backgroundColor: avatarBg,
-                                        backgroundImage: MemoryImage(
-                                          localBytes,
-                                        ),
-                                      );
-                                    }
-                                    if (removeProfilePhoto) {
-                                      return CircleAvatar(
-                                        radius: 45,
-                                        backgroundColor: avatarBg,
-                                        child: Icon(
-                                          Icons.person_rounded,
-                                          size: 42,
-                                          color: ThemeCleanPremium.primary
-                                              .withValues(alpha: 0.45),
-                                        ),
-                                      );
-                                    }
-                                    return _MemberAvatar(
-                                      photoUrl: currentPhoto.isNotEmpty
-                                          ? currentPhoto
-                                          : null,
-                                      memberData: d,
-                                      name: memberName,
-                                      radius: 45,
-                                      backgroundColor: avatarBg,
-                                      tenantId: photoTenantId,
-                                      memberId: member.id,
-                                      cpfDigits: _str(d, 'CPF', 'cpf'),
-                                      authUid: _memberAuthUidFromData(d),
-                                      memCacheMaxPx: 720,
-                                    );
-                                  },
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: ThemeCleanPremium.primary,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  child: const Icon(
-                                    Icons.camera_alt_rounded,
-                                    color: Colors.white,
-                                    size: 16,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if ((currentPhoto.isNotEmpty ||
-                                  newPhotoBytes != null ||
-                                  profilePhotoPreview.value != null) &&
-                              !removeProfilePhoto)
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                        child: Column(
+                          children: [
                             Align(
                               alignment: Alignment.centerLeft,
-                              child: TextButton.icon(
-                                onPressed: () => setDlg(() {
-                                  newPhotoBytes = null;
-                                  newPhoto = null;
-                                  profilePhotoPreview.value = null;
-                                  removeProfilePhoto = true;
-                                }),
-                                icon: const Icon(
-                                  Icons.delete_outline_rounded,
-                                  size: 18,
-                                ),
-                                label: const Text('Remover foto'),
-                              ),
-                            ),
-                          if (pickingProfilePhoto)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 10),
-                              child: LinearProgressIndicator(minHeight: 3),
-                            )
-                          else
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8),
                               child: Text(
-                                'Toque na foto para trocar. Ao salvar, a atualização é automática na lista, no chat e no cartão.',
-                                textAlign: TextAlign.center,
+                                'Foto do perfil',
                                 style: TextStyle(
-                                  fontSize: 12,
-                                  height: 1.35,
-                                  color: Colors.grey.shade600,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: ThemeCleanPremium.onSurfaceVariant,
                                 ),
                               ),
                             ),
-                          const SizedBox(height: 16),
-                          _EditField(
-                            controller: nameCtrl,
-                            label: 'Nome Completo',
-                            icon: Icons.person_rounded,
-                          ),
-                          _EditField(
-                            controller: filiacaoMaeCtrl,
-                            label: 'Filiação (mãe)',
-                            icon: Icons.family_restroom_rounded,
-                          ),
-                          _EditField(
-                            controller: filiacaoPaiCtrl,
-                            label: 'Filiação (pai)',
-                            icon: Icons.family_restroom_rounded,
-                          ),
-                          if (selfOnly)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: InputDecorator(
-                                decoration: InputDecoration(
-                                  labelText: 'CPF',
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      ThemeCleanPremium.radiusSm,
-                                    ),
-                                  ),
-                                  prefixIcon: const Icon(Icons.badge_rounded),
-                                ),
-                                child: Text(
-                                  _formatCpf(cpfCtrl.text),
-                                  style: TextStyle(
-                                    color: Colors.grey.shade800,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                            )
-                          else
-                            _EditField(
-                              controller: cpfCtrl,
-                              label: 'CPF',
-                              icon: Icons.badge_rounded,
-                              type: TextInputType.number,
-                            ),
-                          if (staffEdit)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: InputDecorator(
-                                decoration: InputDecoration(
-                                  labelText: 'Cód. membro (igreja)',
-                                  helperText:
-                                      'Sequencial único desta igreja — usado no cartão membro digital.',
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      ThemeCleanPremium.radiusSm,
-                                    ),
-                                  ),
-                                  prefixIcon: const Icon(Icons.pin_outlined),
-                                ),
-                                child: Text(
-                                  codigoMembroInicial.isNotEmpty
-                                      ? codigoMembroInicial
-                                      : 'Será gerado ao salvar',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: codigoMembroInicial.isNotEmpty
-                                        ? ThemeCleanPremium.onSurface
-                                        : Colors.grey.shade600,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          // Nascimento
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm,
-                              ),
+                            const SizedBox(height: 8),
+                            // Foto (toque para trocar)
+                            GestureDetector(
                               onTap: () async {
-                                final picked = await showDatePicker(
-                                  context: ctx,
-                                  initialDate: nascimento ?? DateTime(2000),
-                                  firstDate: DateTime(1920),
-                                  lastDate: DateTime.now(),
-                                );
-                                if (picked != null) {
-                                  setDlg(() => nascimento = picked);
+                                if (pickingProfilePhoto) return;
+                                setDlg(() => pickingProfilePhoto = true);
+                                try {
+                                  final picked =
+                                      await MemberProfilePhotoPickService.pickForMemberEdit(
+                                        ctx,
+                                      );
+                                  if (picked != null &&
+                                      picked.bytes.isNotEmpty) {
+                                    newPhotoBytes = picked.bytes;
+                                    profilePhotoPreview.value = picked.bytes;
+                                    newPhoto = null;
+                                    removeProfilePhoto = false;
+                                    if (ctx.mounted) {
+                                      ImmediateMediaAttachFeedback.showArquivoAnexado(
+                                        ctx,
+                                        picked.displayName,
+                                      );
+                                      setDlg(() {});
+                                    }
+                                  }
+                                } catch (e) {
+                                  if (ctx.mounted) {
+                                    ScaffoldMessenger.of(ctx).showSnackBar(
+                                      ThemeCleanPremium.feedbackSnackBar(
+                                        'Não foi possível carregar a foto: $e',
+                                      ),
+                                    );
+                                  }
+                                } finally {
+                                  if (!ctx.mounted) return;
+                                  setDlg(() => pickingProfilePhoto = false);
                                 }
                               },
-                              child: InputDecorator(
-                                decoration: InputDecoration(
-                                  labelText: 'Data de Nascimento',
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(
-                                      ThemeCleanPremium.radiusSm,
-                                    ),
-                                  ),
-                                  prefixIcon: const Icon(Icons.cake_rounded),
-                                ),
-                                child: Text(
-                                  nascimento != null
-                                      ? _fmtDate(nascimento!)
-                                      : 'Selecionar...',
-                                  style: TextStyle(
-                                    color: nascimento != null
-                                        ? null
-                                        : Colors.grey.shade500,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          // Sexo
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: DropdownButtonFormField<String>(
-                              initialValue: sexo.isNotEmpty ? sexo : null,
-                              decoration: InputDecoration(
-                                labelText: 'Sexo',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusSm,
-                                  ),
-                                ),
-                                prefixIcon: const Icon(Icons.wc_rounded),
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: 'Masculino',
-                                  child: Text('Masculino'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'Feminino',
-                                  child: Text('Feminino'),
-                                ),
-                              ],
-                              onChanged: (v) => setDlg(() => sexo = v ?? ''),
-                            ),
-                          ),
-                          _EditField(
-                            controller: phoneCtrl,
-                            label: 'Telefone',
-                            icon: Icons.phone_rounded,
-                            type: TextInputType.phone,
-                            inputFormatters: const [BrPhoneInputFormatter()],
-                            hint: '62 9.9170-5247',
-                          ),
-                          _EditField(
-                            controller: emailCtrl,
-                            label: 'E-mail',
-                            icon: Icons.email_rounded,
-                            type: TextInputType.emailAddress,
-                          ),
-                          // Ativo/Inativo — só equipe (arquiva sem apagar histórico)
-                          if (staffEdit)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: Material(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                child: SwitchListTile(
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                    side: const BorderSide(
-                                      color: Color(0xFFE2E8F0),
-                                    ),
-                                  ),
-                                  value: !status.toLowerCase().contains(
-                                    'inativ',
-                                  ),
-                                  title: const Text('Membro ativo'),
-                                  subtitle: const Text(
-                                    'Desligue para inativar sem excluir dados.',
-                                    style: TextStyle(fontSize: 12),
-                                  ),
-                                  activeThumbColor: ThemeCleanPremium.primary,
-                                  onChanged: (v) => setDlg(() {
-                                    status = v ? 'ativo' : 'inativo';
-                                  }),
-                                ),
-                              ),
-                            ),
-                          // Igreja — só master global / Painel Master (não administrador da igreja)
-                          if (staffEdit &&
-                              canTransferChurch &&
-                              tenantsForTransferFuture != null)
-                            FutureBuilder<List<MapEntry<String, String>>>(
-                              future: tenantsForTransferFuture,
-                              builder: (ctx, snap) {
-                                if (!snap.hasData) {
-                                  return const SizedBox(height: 0);
-                                }
-                                final tenants = snap.data!;
-                                final hasCurrent = tenants.any(
-                                  (e) => e.key == selectedTenantIdForEdit,
-                                );
-                                final list = hasCurrent
-                                    ? tenants
-                                    : [
-                                        MapEntry(
-                                          selectedTenantIdForEdit,
-                                          'Igreja atual',
-                                        ),
-                                        ...tenants,
-                                      ];
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: DropdownButtonFormField<String>(
-                                    isExpanded: true,
-                                    initialValue:
-                                        list.any(
-                                          (e) =>
-                                              e.key == selectedTenantIdForEdit,
-                                        )
-                                        ? selectedTenantIdForEdit
-                                        : null,
-                                    decoration: InputDecoration(
-                                      labelText: 'Igreja (transferir membro)',
-                                      hintText: 'Selecione a igreja do membro',
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusSm,
-                                        ),
-                                      ),
-                                      prefixIcon: const Icon(
-                                        Icons.church_rounded,
-                                      ),
-                                    ),
-                                    selectedItemBuilder: (context) => list
-                                        .map(
-                                          (e) => Align(
-                                            alignment: AlignmentDirectional
-                                                .centerStart,
-                                            child: Text(
-                                              e.value,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ),
-                                        )
-                                        .toList(),
-                                    items: list
-                                        .map(
-                                          (e) => DropdownMenuItem<String>(
-                                            value: e.key,
-                                            child: Text(
-                                              e.value,
-                                              maxLines: 3,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                        )
-                                        .toList(),
-                                    onChanged: (v) {
-                                      if (v != null) {
-                                        selectedTenantIdForEdit = v;
-                                        setDlg(() {});
-                                      }
-                                    },
-                                  ),
-                                );
-                              },
-                            ),
-                          // Funções (cargos) — só equipe
-                          if (staffEdit)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              child: Stack(
+                                alignment: Alignment.bottomRight,
                                 children: [
-                                  Text(
-                                    'Funções (cargos)',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: ThemeCleanPremium.onSurface,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'O membro pode ter várias funções. A primeira define o nível de acesso no sistema. Cargos cadastrados em Pessoas > Cargos.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: ThemeCleanPremium.onSurfaceVariant,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  FutureBuilder<
-                                    List<({String key, String label})>
-                                  >(
-                                    future: _loadCargosForMember(),
-                                    builder: (ctx, snap) {
-                                      final cargos =
-                                          snap.data ??
-                                          _funcoesList
-                                              .map(
-                                                (k) => (
-                                                  key: k,
-                                                  label: _funcaoLabel(k),
-                                                ),
-                                              )
-                                              .toList();
-                                      return ValueListenableBuilder<
-                                        List<String>
-                                      >(
-                                        valueListenable: funcoesNotifier,
-                                        builder: (_, selList, _) => Wrap(
-                                          spacing: 8,
-                                          runSpacing: 6,
-                                          children: cargos.map((c) {
-                                            final selected = selList.contains(
-                                              c.key,
-                                            );
-                                            final col = Color(
-                                              ChurchRolePermissions.badgeColorForKey(
-                                                c.key,
-                                              ),
-                                            );
-                                            return FilterChip(
-                                              label: Text(c.label),
-                                              selected: selected,
-                                              checkmarkColor: Colors.white,
-                                              labelStyle: TextStyle(
-                                                color: selected
-                                                    ? Colors.white
-                                                    : ThemeCleanPremium
-                                                          .onSurface,
-                                                fontWeight: selected
-                                                    ? FontWeight.w700
-                                                    : FontWeight.w500,
-                                                fontSize: 13,
-                                              ),
-                                              selectedColor: col,
-                                              backgroundColor: col.withValues(
-                                                alpha: 0.12,
-                                              ),
-                                              side: BorderSide(
-                                                color: col.withValues(
-                                                  alpha: 0.35,
-                                                ),
-                                              ),
-                                              onSelected: (sel) {
-                                                setDlg(() {
-                                                  final list =
-                                                      List<String>.from(
-                                                        funcoesNotifier.value,
-                                                      );
-                                                  if (sel) {
-                                                    if (!list.contains(c.key)) {
-                                                      list.add(c.key);
-                                                    }
-                                                  } else {
-                                                    list.remove(c.key);
-                                                    if (list.isEmpty) {
-                                                      list.add('membro');
-                                                    }
-                                                  }
-                                                  funcoesNotifier.value = list;
-                                                });
-                                              },
-                                            );
-                                          }).toList(),
-                                        ),
+                                  ValueListenableBuilder<Uint8List?>(
+                                    valueListenable: profilePhotoPreview,
+                                    builder: (_, preview, _) {
+                                      final localBytes =
+                                          preview ?? newPhotoBytes;
+                                      if (localBytes != null &&
+                                          localBytes.isNotEmpty) {
+                                        return CircleAvatar(
+                                          radius: 45,
+                                          backgroundColor: avatarBg,
+                                          backgroundImage: MemoryImage(
+                                            localBytes,
+                                          ),
+                                        );
+                                      }
+                                      if (removeProfilePhoto) {
+                                        return CircleAvatar(
+                                          radius: 45,
+                                          backgroundColor: avatarBg,
+                                          child: Icon(
+                                            Icons.person_rounded,
+                                            size: 42,
+                                            color: ThemeCleanPremium.primary
+                                                .withValues(alpha: 0.45),
+                                          ),
+                                        );
+                                      }
+                                      return _MemberAvatar(
+                                        photoUrl: currentPhoto.isNotEmpty
+                                            ? currentPhoto
+                                            : null,
+                                        memberData: d,
+                                        name: memberName,
+                                        radius: 45,
+                                        backgroundColor: avatarBg,
+                                        tenantId: photoTenantId,
+                                        memberId: member.id,
+                                        cpfDigits: _str(d, 'CPF', 'cpf'),
+                                        authUid: _memberAuthUidFromData(d),
+                                        memCacheMaxPx: 720,
                                       );
                                     },
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: ThemeCleanPremium.primary,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 2,
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.camera_alt_rounded,
+                                      color: Colors.white,
+                                      size: 16,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                          if (staffEdit)
+                            if ((currentPhoto.isNotEmpty ||
+                                    newPhotoBytes != null ||
+                                    profilePhotoPreview.value != null) &&
+                                !removeProfilePhoto)
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: TextButton.icon(
+                                  onPressed: () => setDlg(() {
+                                    newPhotoBytes = null;
+                                    newPhoto = null;
+                                    profilePhotoPreview.value = null;
+                                    removeProfilePhoto = true;
+                                  }),
+                                  icon: const Icon(
+                                    Icons.delete_outline_rounded,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Remover foto'),
+                                ),
+                              ),
+                            if (pickingProfilePhoto)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 10),
+                                child: LinearProgressIndicator(minHeight: 3),
+                              )
+                            else
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Text(
+                                  'Toque na foto para trocar. Ao salvar, a atualização é automática na lista, no chat e no cartão.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    height: 1.35,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 16),
+                            _EditField(
+                              controller: nameCtrl,
+                              label: 'Nome Completo',
+                              icon: Icons.person_rounded,
+                            ),
+                            _EditField(
+                              controller: filiacaoMaeCtrl,
+                              label: 'Filiação (mãe)',
+                              icon: Icons.family_restroom_rounded,
+                            ),
+                            _EditField(
+                              controller: filiacaoPaiCtrl,
+                              label: 'Filiação (pai)',
+                              icon: Icons.family_restroom_rounded,
+                            ),
+                            if (selfOnly)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: InputDecorator(
+                                  decoration: InputDecoration(
+                                    labelText: 'CPF',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(
+                                        ThemeCleanPremium.radiusSm,
+                                      ),
+                                    ),
+                                    prefixIcon: const Icon(Icons.badge_rounded),
+                                  ),
+                                  child: Text(
+                                    _formatCpf(cpfCtrl.text),
+                                    style: TextStyle(
+                                      color: Colors.grey.shade800,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            else
+                              _EditField(
+                                controller: cpfCtrl,
+                                label: 'CPF',
+                                icon: Icons.badge_rounded,
+                                type: TextInputType.number,
+                              ),
+                            if (staffEdit)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: InputDecorator(
+                                  decoration: InputDecoration(
+                                    labelText: 'Cód. membro (igreja)',
+                                    helperText:
+                                        'Sequencial único desta igreja — usado no cartão membro digital.',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(
+                                        ThemeCleanPremium.radiusSm,
+                                      ),
+                                    ),
+                                    prefixIcon: const Icon(Icons.pin_outlined),
+                                  ),
+                                  child: Text(
+                                    codigoMembroInicial.isNotEmpty
+                                        ? codigoMembroInicial
+                                        : 'Será gerado ao salvar',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: codigoMembroInicial.isNotEmpty
+                                          ? ThemeCleanPremium.onSurface
+                                          : Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            // Nascimento
                             Padding(
                               padding: const EdgeInsets.only(bottom: 12),
-                              child: Material(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                                child: ListTile(
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                    side: BorderSide(
-                                      color: const Color(0xFFE2E8F0),
-                                    ),
-                                  ),
-                                  leading: Icon(
-                                    Icons.church_rounded,
-                                    color: ThemeCleanPremium.primary,
-                                  ),
-                                  title: const Text('Data de consagração'),
-                                  subtitle: Text(
-                                    removeConsagracao
-                                        ? 'Será removida ao salvar'
-                                        : (dataConsagracao == null
-                                              ? 'Opcional — pastores, diáconos, presbíteros…'
-                                              : DateFormat(
-                                                  'dd/MM/yyyy',
-                                                ).format(dataConsagracao!)),
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: Colors.grey.shade700,
-                                    ),
-                                  ),
-                                  trailing: Wrap(
-                                    spacing: 4,
-                                    children: [
-                                      TextButton(
-                                        onPressed: () async {
-                                          final p = await showDatePicker(
-                                            context: ctx,
-                                            firstDate: DateTime(1940),
-                                            lastDate: DateTime.now().add(
-                                              const Duration(days: 365 * 3),
-                                            ),
-                                            initialDate:
-                                                dataConsagracao ??
-                                                DateTime.now(),
-                                          );
-                                          if (p != null) {
-                                            setDlg(() {
-                                              dataConsagracao = p;
-                                              removeConsagracao = false;
-                                            });
-                                          }
-                                        },
-                                        child: Text(
-                                          dataConsagracao == null
-                                              ? 'Definir'
-                                              : 'Alterar',
-                                        ),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusSm,
+                                ),
+                                onTap: () async {
+                                  final picked = await showDatePicker(
+                                    context: ctx,
+                                    initialDate: nascimento ?? DateTime(2000),
+                                    firstDate: DateTime(1920),
+                                    lastDate: DateTime.now(),
+                                  );
+                                  if (picked != null) {
+                                    setDlg(() => nascimento = picked);
+                                  }
+                                },
+                                child: InputDecorator(
+                                  decoration: InputDecoration(
+                                    labelText: 'Data de Nascimento',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(
+                                        ThemeCleanPremium.radiusSm,
                                       ),
-                                      if (dataConsagracao != null ||
-                                          removeConsagracao)
-                                        TextButton(
-                                          onPressed: () => setDlg(() {
-                                            dataConsagracao = null;
-                                            removeConsagracao = true;
-                                          }),
-                                          child: const Text('Limpar'),
-                                        ),
-                                    ],
+                                    ),
+                                    prefixIcon: const Icon(Icons.cake_rounded),
+                                  ),
+                                  child: Text(
+                                    nascimento != null
+                                        ? _fmtDate(nascimento!)
+                                        : 'Selecionar...',
+                                    style: TextStyle(
+                                      color: nascimento != null
+                                          ? null
+                                          : Colors.grey.shade500,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          // Senha (opcional) — só equipe (membro troca senha em Configurações > Meu cadastro)
-                          if (staffEdit)
+                            // Sexo
                             Padding(
                               padding: const EdgeInsets.only(bottom: 12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  TextField(
-                                    controller: passwordCtrl,
-                                    obscureText: true,
-                                    decoration: InputDecoration(
-                                      labelText: 'Senha (opcional)',
-                                      hintText:
-                                          'Deixe em branco para não alterar',
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusSm,
-                                        ),
-                                      ),
-                                      prefixIcon: const Icon(
-                                        Icons.lock_outline_rounded,
+                              child: DropdownButtonFormField<String>(
+                                initialValue: sexo.isNotEmpty ? sexo : null,
+                                decoration: InputDecoration(
+                                  labelText: 'Sexo',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(
+                                      ThemeCleanPremium.radiusSm,
+                                    ),
+                                  ),
+                                  prefixIcon: const Icon(Icons.wc_rounded),
+                                ),
+                                items: const [
+                                  DropdownMenuItem(
+                                    value: 'Masculino',
+                                    child: Text('Masculino'),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: 'Feminino',
+                                    child: Text('Feminino'),
+                                  ),
+                                ],
+                                onChanged: (v) => setDlg(() => sexo = v ?? ''),
+                              ),
+                            ),
+                            _EditField(
+                              controller: phoneCtrl,
+                              label: 'Telefone',
+                              icon: Icons.phone_rounded,
+                              type: TextInputType.phone,
+                              inputFormatters: const [BrPhoneInputFormatter()],
+                              hint: '62 9.9170-5247',
+                            ),
+                            _EditField(
+                              controller: emailCtrl,
+                              label: 'E-mail',
+                              icon: Icons.email_rounded,
+                              type: TextInputType.emailAddress,
+                            ),
+                            // Ativo/Inativo — só equipe (arquiva sem apagar histórico)
+                            if (staffEdit)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Material(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: SwitchListTile(
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                      side: const BorderSide(
+                                        color: Color(0xFFE2E8F0),
                                       ),
                                     ),
-                                    autofillHints: const [
-                                      AutofillHints.newPassword,
-                                    ],
+                                    value: !status.toLowerCase().contains(
+                                      'inativ',
+                                    ),
+                                    title: const Text('Membro ativo'),
+                                    subtitle: const Text(
+                                      'Desligue para inativar sem excluir dados.',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                    activeThumbColor: ThemeCleanPremium.primary,
+                                    onChanged: (v) => setDlg(() {
+                                      status = v ? 'ativo' : 'inativo';
+                                    }),
                                   ),
-                                  if (d['authUid'] != null &&
-                                      (d['authUid']?.toString().trim() ?? '')
-                                          .isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 8),
-                                      child: TextButton.icon(
-                                        onPressed: () async {
-                                          final confirm = await showDialog<bool>(
-                                            context: ctx,
-                                            builder: (c) => AlertDialog(
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(
-                                                      ThemeCleanPremium
-                                                          .radiusLg,
-                                                    ),
-                                              ),
-                                              title: const Text('Limpar senha'),
-                                              content: const Text(
-                                                'Será definida uma nova senha temporária. O membro poderá usar "Esqueci minha senha" no login para criar uma nova. Deseja continuar?',
-                                              ),
-                                              actions: [
-                                                TextButton(
-                                                  onPressed: () =>
-                                                      Navigator.pop(c, false),
-                                                  child: const Text('Cancelar'),
+                                ),
+                              ),
+                            // Igreja ? só master global / Painel Master (Não administrador da igreja)
+                            if (staffEdit &&
+                                canTransferChurch &&
+                                tenantsForTransferFuture != null)
+                              FutureBuilder<List<MapEntry<String, String>>>(
+                                future: tenantsForTransferFuture,
+                                builder: (ctx, snap) {
+                                  if (!snap.hasData) {
+                                    return const SizedBox(height: 0);
+                                  }
+                                  final tenants = snap.data!;
+                                  final hasCurrent = tenants.any(
+                                    (e) => e.key == selectedTenantIdForEdit,
+                                  );
+                                  final list = hasCurrent
+                                      ? tenants
+                                      : [
+                                          MapEntry(
+                                            selectedTenantIdForEdit,
+                                            'Igreja atual',
+                                          ),
+                                          ...tenants,
+                                        ];
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: DropdownButtonFormField<String>(
+                                      isExpanded: true,
+                                      initialValue:
+                                          list.any(
+                                            (e) =>
+                                                e.key ==
+                                                selectedTenantIdForEdit,
+                                          )
+                                          ? selectedTenantIdForEdit
+                                          : null,
+                                      decoration: InputDecoration(
+                                        labelText: 'Igreja (transferir membro)',
+                                        hintText:
+                                            'Selecione a igreja do membro',
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            ThemeCleanPremium.radiusSm,
+                                          ),
+                                        ),
+                                        prefixIcon: const Icon(
+                                          Icons.church_rounded,
+                                        ),
+                                      ),
+                                      selectedItemBuilder: (context) => list
+                                          .map(
+                                            (e) => Align(
+                                              alignment: AlignmentDirectional
+                                                  .centerStart,
+                                              child: Text(
+                                                e.value,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w600,
                                                 ),
-                                                FilledButton(
-                                                  onPressed: () =>
-                                                      Navigator.pop(c, true),
-                                                  child: const Text(
-                                                    'Gerar senha temporária',
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                      items: list
+                                          .map(
+                                            (e) => DropdownMenuItem<String>(
+                                              value: e.key,
+                                              child: Text(
+                                                e.value,
+                                                maxLines: 3,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                      onChanged: (v) {
+                                        if (v != null) {
+                                          selectedTenantIdForEdit = v;
+                                          setDlg(() {});
+                                        }
+                                      },
+                                    ),
+                                  );
+                                },
+                              ),
+                            // Funções (cargos) — só equipe
+                            if (staffEdit)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Funções (cargos)',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: ThemeCleanPremium.onSurface,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'O membro pode ter várias funções. A primeira define o nível de acesso no sistema. Cargos cadastrados em Pessoas > Cargos.',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color:
+                                            ThemeCleanPremium.onSurfaceVariant,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    FutureBuilder<
+                                      List<({String key, String label})>
+                                    >(
+                                      future: _loadCargosForMember(),
+                                      builder: (ctx, snap) {
+                                        final cargos =
+                                            snap.data ??
+                                            _funcoesList
+                                                .map(
+                                                  (k) => (
+                                                    key: k,
+                                                    label: _funcaoLabel(k),
+                                                  ),
+                                                )
+                                                .toList();
+                                        return ValueListenableBuilder<
+                                          List<String>
+                                        >(
+                                          valueListenable: funcoesNotifier,
+                                          builder: (_, selList, _) => Wrap(
+                                            spacing: 8,
+                                            runSpacing: 6,
+                                            children: cargos.map((c) {
+                                              final selected = selList.contains(
+                                                c.key,
+                                              );
+                                              final col = Color(
+                                                ChurchRolePermissions.badgeColorForKey(
+                                                  c.key,
+                                                ),
+                                              );
+                                              return FilterChip(
+                                                label: Text(c.label),
+                                                selected: selected,
+                                                checkmarkColor: Colors.white,
+                                                labelStyle: TextStyle(
+                                                  color: selected
+                                                      ? Colors.white
+                                                      : ThemeCleanPremium
+                                                            .onSurface,
+                                                  fontWeight: selected
+                                                      ? FontWeight.w700
+                                                      : FontWeight.w500,
+                                                  fontSize: 13,
+                                                ),
+                                                selectedColor: col,
+                                                backgroundColor: col.withValues(
+                                                  alpha: 0.12,
+                                                ),
+                                                side: BorderSide(
+                                                  color: col.withValues(
+                                                    alpha: 0.35,
+                                                  ),
+                                                ),
+                                                onSelected: (sel) {
+                                                  setDlg(() {
+                                                    final list =
+                                                        List<String>.from(
+                                                          funcoesNotifier.value,
+                                                        );
+                                                    if (sel) {
+                                                      if (!list.contains(
+                                                        c.key,
+                                                      )) {
+                                                        list.add(c.key);
+                                                      }
+                                                    } else {
+                                                      list.remove(c.key);
+                                                      if (list.isEmpty) {
+                                                        list.add('membro');
+                                                      }
+                                                    }
+                                                    funcoesNotifier.value =
+                                                        list;
+                                                  });
+                                                },
+                                              );
+                                            }).toList(),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            if (staffEdit)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Material(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: ListTile(
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                      side: BorderSide(
+                                        color: const Color(0xFFE2E8F0),
+                                      ),
+                                    ),
+                                    leading: Icon(
+                                      Icons.church_rounded,
+                                      color: ThemeCleanPremium.primary,
+                                    ),
+                                    title: const Text('Data de consagração'),
+                                    subtitle: Text(
+                                      removeConsagracao
+                                          ? 'Será removida ao salvar'
+                                          : (dataConsagracao == null
+                                                ? 'Opcional — pastores, diáconos, presbíteros…'
+                                                : DateFormat(
+                                                    'dd/MM/yyyy',
+                                                  ).format(dataConsagracao!)),
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Colors.grey.shade700,
+                                      ),
+                                    ),
+                                    trailing: Wrap(
+                                      spacing: 4,
+                                      children: [
+                                        TextButton(
+                                          onPressed: () async {
+                                            final p = await showDatePicker(
+                                              context: ctx,
+                                              firstDate: DateTime(1940),
+                                              lastDate: DateTime.now().add(
+                                                const Duration(days: 365 * 3),
+                                              ),
+                                              initialDate:
+                                                  dataConsagracao ??
+                                                  DateTime.now(),
+                                            );
+                                            if (p != null) {
+                                              setDlg(() {
+                                                dataConsagracao = p;
+                                                removeConsagracao = false;
+                                              });
+                                            }
+                                          },
+                                          child: Text(
+                                            dataConsagracao == null
+                                                ? 'Definir'
+                                                : 'Alterar',
+                                          ),
+                                        ),
+                                        if (dataConsagracao != null ||
+                                            removeConsagracao)
+                                          TextButton(
+                                            onPressed: () => setDlg(() {
+                                              dataConsagracao = null;
+                                              removeConsagracao = true;
+                                            }),
+                                            child: const Text('Limpar'),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            // Senha (opcional) — só equipe (membro troca senha em Configurações > Meu cadastro)
+                            if (staffEdit)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    TextField(
+                                      controller: passwordCtrl,
+                                      obscureText: true,
+                                      decoration: InputDecoration(
+                                        labelText: 'Senha (opcional)',
+                                        hintText:
+                                            'Deixe em branco para Não alterar',
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            ThemeCleanPremium.radiusSm,
+                                          ),
+                                        ),
+                                        prefixIcon: const Icon(
+                                          Icons.lock_outline_rounded,
+                                        ),
+                                      ),
+                                      autofillHints: const [
+                                        AutofillHints.newPassword,
+                                      ],
+                                    ),
+                                    if (d['authUid'] != null &&
+                                        (d['authUid']?.toString().trim() ?? '')
+                                            .isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 8),
+                                        child: TextButton.icon(
+                                          onPressed: () async {
+                                            final confirm = await showDialog<bool>(
+                                              context: ctx,
+                                              builder: (c) => AlertDialog(
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                        ThemeCleanPremium
+                                                            .radiusLg,
+                                                      ),
+                                                ),
+                                                title: const Text(
+                                                  'Limpar senha',
+                                                ),
+                                                content: const Text(
+                                                  'Será definida uma nova senha temporária. O membro poderá usar "Esqueci minha senha" no login para criar uma nova. Deseja continuar?',
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(c, false),
+                                                    child: const Text(
+                                                      'Cancelar',
+                                                    ),
+                                                  ),
+                                                  FilledButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(c, true),
+                                                    child: const Text(
+                                                      'Gerar senha temporária',
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                            if (confirm != true) return;
+                                            final tempPassword = List.generate(
+                                              10,
+                                              (_) =>
+                                                  'abcdefghijklmnopqrstuvwxyz0123456789'[Random()
+                                                      .nextInt(36)],
+                                            ).join();
+                                            try {
+                                              await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
+                                                force: true,
+                                              );
+                                              final functions =
+                                                  FirebaseFunctions.instanceFor(
+                                                    region: 'us-central1',
+                                                  );
+                                              await functions
+                                                  .httpsCallable(
+                                                    'setMemberPassword',
+                                                  )
+                                                  .call({
+                                                    'tenantId':
+                                                        _effectiveTenantId,
+                                                    'memberId': member.id,
+                                                    'newPassword': tempPassword,
+                                                  });
+                                              if (!ctx.mounted) return;
+                                              setDlg(
+                                                () => passwordCtrl.clear(),
+                                              );
+                                              ScaffoldMessenger.of(
+                                                context,
+                                              ).showSnackBar(
+                                                ThemeCleanPremium.successSnackBar(
+                                                  'Senha redefinida. Senha temporária: $tempPassword — avise o membro ou peça que use "Esqueci minha senha".',
+                                                ),
+                                              );
+                                            } catch (e) {
+                                              if (ctx.mounted) {
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  ThemeCleanPremium.feedbackSnackBar(
+                                                    'Erro: $e',
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                          },
+                                          icon: const Icon(
+                                            Icons.lock_reset_rounded,
+                                            size: 18,
+                                          ),
+                                          label: const Text(
+                                            'Limpar senha (gerar temporária)',
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            if (staffEdit)
+                              ValueListenableBuilder<List<String>>(
+                                valueListenable: funcoesNotifier,
+                                builder: (_, funcList, _) {
+                                  if (!memberNeedsAssinaturaFieldFromFuncoes(
+                                    funcList,
+                                  )) {
+                                    return const SizedBox.shrink();
+                                  }
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      const SizedBox(height: 8),
+                                      Container(
+                                        padding: const EdgeInsets.all(16),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(
+                                            16,
+                                          ),
+                                          boxShadow: ThemeCleanPremium
+                                              .softUiCardShadow,
+                                          border: Border.all(
+                                            color: const Color(0xFFF1F5F9),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Container(
+                                                  padding: const EdgeInsets.all(
+                                                    8,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: ThemeCleanPremium
+                                                        .primary
+                                                        .withValues(
+                                                          alpha: 0.08,
+                                                        ),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          12,
+                                                        ),
+                                                  ),
+                                                  child: Icon(
+                                                    Icons.draw_rounded,
+                                                    size: 20,
+                                                    color: ThemeCleanPremium
+                                                        .primary,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 10),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        'Assinatura (carteirinha e documentos)',
+                                                        style: TextStyle(
+                                                          fontSize: 14,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          color:
+                                                              ThemeCleanPremium
+                                                                  .onSurface,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(height: 2),
+                                                      Text(
+                                                        'Obrigatório para quem tem cargo além de membro: envie uma imagem ou gere assinatura digital.',
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: Colors
+                                                              .grey
+                                                              .shade600,
+                                                          height: 1.3,
+                                                        ),
+                                                      ),
+                                                    ],
                                                   ),
                                                 ),
                                               ],
                                             ),
-                                          );
-                                          if (confirm != true) return;
-                                          final tempPassword = List.generate(
-                                            10,
-                                            (_) =>
-                                                'abcdefghijklmnopqrstuvwxyz0123456789'[Random()
-                                                    .nextInt(36)],
-                                          ).join();
-                                          try {
-                                            await FirestoreStreamUtils.refreshAuthTokenIfNeeded(
-                                              force: true,
-                                            );
-                                            final functions =
-                                                FirebaseFunctions.instanceFor(
-                                                  region: 'us-central1',
-                                                );
-                                            await functions
-                                                .httpsCallable(
-                                                  'setMemberPassword',
-                                                )
-                                                .call({
-                                                  'tenantId':
-                                                      _effectiveTenantId,
-                                                  'memberId': member.id,
-                                                  'newPassword': tempPassword,
-                                                });
-                                            if (!ctx.mounted) return;
-                                            setDlg(() => passwordCtrl.clear());
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              ThemeCleanPremium.successSnackBar(
-                                                'Senha redefinida. Senha temporária: $tempPassword — avise o membro ou peça que use "Esqueci minha senha".',
-                                              ),
-                                            );
-                                          } catch (e) {
-                                            if (ctx.mounted) {
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                ThemeCleanPremium.feedbackSnackBar(
-                                                  'Erro: $e',
+                                            const SizedBox(height: 14),
+                                            if (currentAssinaturaUrl
+                                                    .isNotEmpty &&
+                                                !removeAssinatura &&
+                                                newAssinaturaBytes == null)
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                  bottom: 10,
                                                 ),
-                                              );
-                                            }
-                                          }
-                                        },
-                                        icon: const Icon(
-                                          Icons.lock_reset_rounded,
-                                          size: 18,
-                                        ),
-                                        label: const Text(
-                                          'Limpar senha (gerar temporária)',
-                                        ),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          if (staffEdit)
-                            ValueListenableBuilder<List<String>>(
-                              valueListenable: funcoesNotifier,
-                              builder: (_, funcList, _) {
-                                if (!memberNeedsAssinaturaFieldFromFuncoes(
-                                  funcList,
-                                )) {
-                                  return const SizedBox.shrink();
-                                }
-                                return Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    const SizedBox(height: 8),
-                                    Container(
-                                      padding: const EdgeInsets.all(16),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(16),
-                                        boxShadow:
-                                            ThemeCleanPremium.softUiCardShadow,
-                                        border: Border.all(
-                                          color: const Color(0xFFF1F5F9),
-                                        ),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Row(
-                                            children: [
-                                              Container(
-                                                padding: const EdgeInsets.all(
-                                                  8,
-                                                ),
-                                                decoration: BoxDecoration(
-                                                  color: ThemeCleanPremium
-                                                      .primary
-                                                      .withValues(alpha: 0.08),
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                ),
-                                                child: Icon(
-                                                  Icons.draw_rounded,
-                                                  size: 20,
-                                                  color:
-                                                      ThemeCleanPremium.primary,
-                                                ),
-                                              ),
-                                              const SizedBox(width: 10),
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment:
-                                                      CrossAxisAlignment.start,
+                                                child: Row(
                                                   children: [
-                                                    Text(
-                                                      'Assinatura (carteirinha e documentos)',
-                                                      style: TextStyle(
-                                                        fontSize: 14,
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                        color: ThemeCleanPremium
-                                                            .onSurface,
+                                                    ClipRRect(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            12,
+                                                          ),
+                                                      child: SizedBox(
+                                                        height: 56,
+                                                        width: 140,
+                                                        child: ResilientNetworkImage(
+                                                          imageUrl:
+                                                              sanitizeImageUrl(
+                                                                currentAssinaturaUrl,
+                                                              ),
+                                                          fit: BoxFit.contain,
+                                                          height: 56,
+                                                          width: 140,
+                                                          errorWidget: const Icon(
+                                                            Icons
+                                                                .broken_image_rounded,
+                                                            size: 40,
+                                                          ),
+                                                        ),
                                                       ),
                                                     ),
-                                                    const SizedBox(height: 2),
-                                                    Text(
-                                                      'Obrigatório para quem tem cargo além de membro: envie uma imagem ou gere assinatura digital.',
-                                                      style: TextStyle(
-                                                        fontSize: 12,
-                                                        color: Colors
-                                                            .grey
-                                                            .shade600,
-                                                        height: 1.3,
+                                                    const SizedBox(width: 12),
+                                                    Expanded(
+                                                      child: Text(
+                                                        'Assinatura cadastrada',
+                                                        style: TextStyle(
+                                                          fontSize: 13,
+                                                          color: Colors
+                                                              .grey
+                                                              .shade600,
+                                                        ),
                                                       ),
                                                     ),
                                                   ],
                                                 ),
                                               ),
-                                            ],
-                                          ),
-                                          const SizedBox(height: 14),
-                                          if (currentAssinaturaUrl.isNotEmpty &&
-                                              !removeAssinatura &&
-                                              newAssinaturaBytes == null)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                bottom: 10,
-                                              ),
-                                              child: Row(
-                                                children: [
-                                                  ClipRRect(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          12,
-                                                        ),
-                                                    child: SizedBox(
-                                                      height: 56,
-                                                      width: 140,
-                                                      child: ResilientNetworkImage(
-                                                        imageUrl: sanitizeImageUrl(
-                                                          currentAssinaturaUrl,
-                                                        ),
-                                                        fit: BoxFit.contain,
+                                            if (newAssinaturaBytes != null)
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                  bottom: 10,
+                                                ),
+                                                child: Row(
+                                                  children: [
+                                                    ClipRRect(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            12,
+                                                          ),
+                                                      child: Image.memory(
+                                                        newAssinaturaBytes!,
                                                         height: 56,
                                                         width: 140,
-                                                        errorWidget: const Icon(
-                                                          Icons
-                                                              .broken_image_rounded,
-                                                          size: 40,
+                                                        fit: BoxFit.contain,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 12),
+                                                    Expanded(
+                                                      child: Text(
+                                                        'Nova assinatura (salve para aplicar)',
+                                                        style: TextStyle(
+                                                          fontSize: 13,
+                                                          color:
+                                                              ThemeCleanPremium
+                                                                  .primary,
+                                                          fontWeight:
+                                                              FontWeight.w600,
                                                         ),
                                                       ),
                                                     ),
+                                                  ],
+                                                ),
+                                              ),
+                                            Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: [
+                                                OutlinedButton.icon(
+                                                  onPressed: () async {
+                                                    final picker =
+                                                        ImagePicker();
+                                                    final file = await picker
+                                                        .pickImage(
+                                                          source: ImageSource
+                                                              .gallery,
+                                                          maxWidth: 600,
+                                                          imageQuality: 90,
+                                                        );
+                                                    if (file == null ||
+                                                        !ctx.mounted) {
+                                                      return;
+                                                    }
+                                                    final bytes = await file
+                                                        .readAsBytes();
+                                                    setDlg(() {
+                                                      newAssinaturaBytes =
+                                                          bytes;
+                                                      removeAssinatura = false;
+                                                    });
+                                                  },
+                                                  icon: const Icon(
+                                                    Icons.upload_file_rounded,
+                                                    size: 18,
                                                   ),
-                                                  const SizedBox(width: 12),
-                                                  Expanded(
-                                                    child: Text(
-                                                      'Assinatura cadastrada',
+                                                  label: const Text(
+                                                    'Imagem da assinatura',
+                                                  ),
+                                                ),
+                                                OutlinedButton.icon(
+                                                  onPressed: () async {
+                                                    WidgetsBinding.instance.addPostFrameCallback((
+                                                      _,
+                                                    ) async {
+                                                      final boundary =
+                                                          keyAssinaturaPreview
+                                                                  .currentContext
+                                                                  ?.findRenderObject()
+                                                              as RenderRepaintBoundary?;
+                                                      if (boundary == null) {
+                                                        if (ctx.mounted) {
+                                                          ScaffoldMessenger.of(
+                                                            context,
+                                                          ).showSnackBar(
+                                                            ThemeCleanPremium.successSnackBar(
+                                                              'Aguarde o preview e tente novamente.',
+                                                            ),
+                                                          );
+                                                        }
+                                                        return;
+                                                      }
+                                                      final image =
+                                                          await boundary
+                                                              .toImage(
+                                                                pixelRatio: 2.0,
+                                                              );
+                                                      final byteData =
+                                                          await image.toByteData(
+                                                            format:
+                                                                ImageByteFormat
+                                                                    .png,
+                                                          );
+                                                      if (byteData != null &&
+                                                          ctx.mounted) {
+                                                        setDlg(() {
+                                                          newAssinaturaBytes =
+                                                              byteData.buffer
+                                                                  .asUint8List();
+                                                          removeAssinatura =
+                                                              false;
+                                                        });
+                                                      }
+                                                    });
+                                                  },
+                                                  icon: const Icon(
+                                                    Icons.auto_fix_high_rounded,
+                                                    size: 18,
+                                                  ),
+                                                  label: const Text(
+                                                    'Assinatura digital',
+                                                  ),
+                                                ),
+                                                if ((currentAssinaturaUrl
+                                                            .isNotEmpty ||
+                                                        newAssinaturaBytes !=
+                                                            null) &&
+                                                    !removeAssinatura)
+                                                  TextButton.icon(
+                                                    onPressed: () => setDlg(() {
+                                                      newAssinaturaBytes = null;
+                                                      removeAssinatura = true;
+                                                    }),
+                                                    icon: const Icon(
+                                                      Icons
+                                                          .delete_outline_rounded,
+                                                      size: 18,
+                                                    ),
+                                                    label: const Text(
+                                                      'Remover',
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                            RepaintBoundary(
+                                              key: keyAssinaturaPreview,
+                                              child: Container(
+                                                margin: const EdgeInsets.only(
+                                                  top: 14,
+                                                ),
+                                                padding: const EdgeInsets.all(
+                                                  14,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(
+                                                    0xFFF8FAFC,
+                                                  ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(16),
+                                                  border: Border.all(
+                                                    color: Colors.grey.shade200,
+                                                  ),
+                                                ),
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      'Preview (assinatura digital)',
                                                       style: TextStyle(
-                                                        fontSize: 13,
+                                                        fontSize: 11,
+                                                        fontWeight:
+                                                            FontWeight.w600,
                                                         color: Colors
                                                             .grey
                                                             .shade600,
                                                       ),
                                                     ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          if (newAssinaturaBytes != null)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                bottom: 10,
-                                              ),
-                                              child: Row(
-                                                children: [
-                                                  ClipRRect(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          12,
-                                                        ),
-                                                    child: Image.memory(
-                                                      newAssinaturaBytes!,
-                                                      height: 56,
-                                                      width: 140,
-                                                      fit: BoxFit.contain,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(width: 12),
-                                                  Expanded(
-                                                    child: Text(
-                                                      'Nova assinatura (salve para aplicar)',
-                                                      style: TextStyle(
-                                                        fontSize: 13,
-                                                        color: ThemeCleanPremium
-                                                            .primary,
+                                                    const SizedBox(height: 8),
+                                                    Text(
+                                                      memberName,
+                                                      style: const TextStyle(
+                                                        fontSize: 14,
                                                         fontWeight:
-                                                            FontWeight.w600,
+                                                            FontWeight.w800,
                                                       ),
                                                     ),
-                                                  ),
-                                                ],
+                                                    Text(
+                                                      'CPF: ${_formatCpf(cpfCtrl.text)}',
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        color: Colors
+                                                            .grey
+                                                            .shade700,
+                                                      ),
+                                                    ),
+                                                    Text(
+                                                      _funcaoLabel(
+                                                        funcList.isNotEmpty
+                                                            ? funcList.first
+                                                            : 'membro',
+                                                      ),
+                                                      style: TextStyle(
+                                                        fontSize: 12,
+                                                        color: Colors
+                                                            .grey
+                                                            .shade700,
+                                                      ),
+                                                    ),
+                                                    Text(
+                                                      'Data/hora: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: Colors
+                                                            .grey
+                                                            .shade500,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
                                             ),
-                                          Wrap(
-                                            spacing: 8,
-                                            runSpacing: 8,
-                                            children: [
-                                              OutlinedButton.icon(
-                                                onPressed: () async {
-                                                  final picker = ImagePicker();
-                                                  final file = await picker
-                                                      .pickImage(
-                                                        source:
-                                                            ImageSource.gallery,
-                                                        maxWidth: 600,
-                                                        imageQuality: 90,
-                                                      );
-                                                  if (file == null ||
-                                                      !ctx.mounted) {
-                                                    return;
-                                                  }
-                                                  final bytes = await file
-                                                      .readAsBytes();
-                                                  setDlg(() {
-                                                    newAssinaturaBytes = bytes;
-                                                    removeAssinatura = false;
-                                                  });
-                                                },
-                                                icon: const Icon(
-                                                  Icons.upload_file_rounded,
-                                                  size: 18,
-                                                ),
-                                                label: const Text(
-                                                  'Imagem da assinatura',
-                                                ),
-                                              ),
-                                              OutlinedButton.icon(
-                                                onPressed: () async {
-                                                  WidgetsBinding.instance.addPostFrameCallback((
-                                                    _,
-                                                  ) async {
-                                                    final boundary =
-                                                        keyAssinaturaPreview
-                                                                .currentContext
-                                                                ?.findRenderObject()
-                                                            as RenderRepaintBoundary?;
-                                                    if (boundary == null) {
-                                                      if (ctx.mounted) {
-                                                        ScaffoldMessenger.of(
-                                                          context,
-                                                        ).showSnackBar(
-                                                          ThemeCleanPremium.successSnackBar(
-                                                            'Aguarde o preview e tente novamente.',
-                                                          ),
-                                                        );
-                                                      }
-                                                      return;
-                                                    }
-                                                    final image = await boundary
-                                                        .toImage(
-                                                          pixelRatio: 2.0,
-                                                        );
-                                                    final byteData = await image
-                                                        .toByteData(
-                                                          format:
-                                                              ImageByteFormat
-                                                                  .png,
-                                                        );
-                                                    if (byteData != null &&
-                                                        ctx.mounted) {
-                                                      setDlg(() {
-                                                        newAssinaturaBytes =
-                                                            byteData.buffer
-                                                                .asUint8List();
-                                                        removeAssinatura =
-                                                            false;
-                                                      });
-                                                    }
-                                                  });
-                                                },
-                                                icon: const Icon(
-                                                  Icons.auto_fix_high_rounded,
-                                                  size: 18,
-                                                ),
-                                                label: const Text(
-                                                  'Assinatura digital',
-                                                ),
-                                              ),
-                                              if ((currentAssinaturaUrl
-                                                          .isNotEmpty ||
-                                                      newAssinaturaBytes !=
-                                                          null) &&
-                                                  !removeAssinatura)
-                                                TextButton.icon(
-                                                  onPressed: () => setDlg(() {
-                                                    newAssinaturaBytes = null;
-                                                    removeAssinatura = true;
-                                                  }),
-                                                  icon: const Icon(
-                                                    Icons
-                                                        .delete_outline_rounded,
-                                                    size: 18,
-                                                  ),
-                                                  label: const Text('Remover'),
-                                                ),
-                                            ],
-                                          ),
-                                          RepaintBoundary(
-                                            key: keyAssinaturaPreview,
-                                            child: Container(
-                                              margin: const EdgeInsets.only(
-                                                top: 14,
-                                              ),
-                                              padding: const EdgeInsets.all(14),
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFFF8FAFC),
-                                                borderRadius:
-                                                    BorderRadius.circular(16),
-                                                border: Border.all(
-                                                  color: Colors.grey.shade200,
-                                                ),
-                                              ),
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    'Preview (assinatura digital)',
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                      color:
-                                                          Colors.grey.shade600,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 8),
-                                                  Text(
-                                                    memberName,
-                                                    style: const TextStyle(
-                                                      fontSize: 14,
-                                                      fontWeight:
-                                                          FontWeight.w800,
-                                                    ),
-                                                  ),
-                                                  Text(
-                                                    'CPF: ${_formatCpf(cpfCtrl.text)}',
-                                                    style: TextStyle(
-                                                      fontSize: 12,
-                                                      color:
-                                                          Colors.grey.shade700,
-                                                    ),
-                                                  ),
-                                                  Text(
-                                                    _funcaoLabel(
-                                                      funcList.isNotEmpty
-                                                          ? funcList.first
-                                                          : 'membro',
-                                                    ),
-                                                    style: TextStyle(
-                                                      fontSize: 12,
-                                                      color:
-                                                          Colors.grey.shade700,
-                                                    ),
-                                                  ),
-                                                  Text(
-                                                    'Data/hora: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      color:
-                                                          Colors.grey.shade500,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                  ],
-                                );
-                              },
-                            ),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: DropdownButtonFormField<String>(
-                              initialValue: estadoCivilSelected,
-                              decoration: InputDecoration(
-                                labelText: 'Estado Civil',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    ThemeCleanPremium.radiusSm,
-                                  ),
-                                ),
-                                prefixIcon: const Icon(Icons.favorite_rounded),
+                                      const SizedBox(height: 12),
+                                    ],
+                                  );
+                                },
                               ),
-                              items: estadoCivilOptions
-                                  .map(
-                                    (s) => DropdownMenuItem(
-                                      value: s,
-                                      child: Text(s),
-                                    ),
-                                  )
-                                  .toList(),
-                              onChanged: (v) => setDlg(
-                                () => estadoCivilSelected =
-                                    (v ?? estadoCivilSelected),
-                              ),
-                            ),
-                          ),
-                          _EditField(
-                            controller: escolaridadeCtrl,
-                            label: 'Escolaridade',
-                            icon: Icons.school_rounded,
-                          ),
-                          _EditField(
-                            controller: profissaoCtrl,
-                            label: 'Profissão',
-                            icon: Icons.work_outline_rounded,
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(
-                                ThemeCleanPremium.radiusSm,
-                              ),
-                              onTap: () async {
-                                final picked = await showDatePicker(
-                                  context: ctx,
-                                  initialDate: dataBatismo ?? DateTime(2000),
-                                  firstDate: DateTime(1920),
-                                  lastDate: DateTime.now(),
-                                );
-                                if (picked != null) {
-                                  setDlg(() => dataBatismo = picked);
-                                }
-                              },
-                              child: InputDecorator(
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: DropdownButtonFormField<String>(
+                                initialValue: estadoCivilSelected,
                                 decoration: InputDecoration(
-                                  labelText: 'Data de batismo (opcional)',
+                                  labelText: 'Estado Civil',
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(
                                       ThemeCleanPremium.radiusSm,
                                     ),
                                   ),
                                   prefixIcon: const Icon(
-                                    Icons.water_drop_rounded,
+                                    Icons.favorite_rounded,
                                   ),
                                 ),
-                                child: Text(
-                                  dataBatismo != null
-                                      ? _fmtDate(dataBatismo!)
-                                      : 'Selecionar…',
-                                  style: TextStyle(
-                                    color: dataBatismo != null
-                                        ? null
-                                        : Colors.grey.shade500,
-                                  ),
+                                items: estadoCivilOptions
+                                    .map(
+                                      (s) => DropdownMenuItem(
+                                        value: s,
+                                        child: Text(s),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (v) => setDlg(
+                                  () => estadoCivilSelected =
+                                      (v ?? estadoCivilSelected),
                                 ),
                               ),
                             ),
-                          ),
-                          if (dataBatismo != null)
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                onPressed: () =>
-                                    setDlg(() => dataBatismo = null),
-                                child: const Text('Limpar batismo'),
-                              ),
+                            _EditField(
+                              controller: escolaridadeCtrl,
+                              label: 'Escolaridade',
+                              icon: Icons.school_rounded,
                             ),
-                          _EditField(
-                            controller: conjugeCtrl,
-                            label: 'Cônjuge',
-                            icon: Icons.people_rounded,
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Expanded(
-                                  child: TextField(
-                                    controller: cepCtrl,
-                                    keyboardType: TextInputType.number,
-                                    decoration: InputDecoration(
-                                      labelText: 'CEP',
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusSm,
-                                        ),
+                            _EditField(
+                              controller: profissaoCtrl,
+                              label: 'Profissão',
+                              icon: Icons.work_outline_rounded,
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusSm,
+                                ),
+                                onTap: () async {
+                                  final picked = await showDatePicker(
+                                    context: ctx,
+                                    initialDate: dataBatismo ?? DateTime(2000),
+                                    firstDate: DateTime(1920),
+                                    lastDate: DateTime.now(),
+                                  );
+                                  if (picked != null) {
+                                    setDlg(() => dataBatismo = picked);
+                                  }
+                                },
+                                child: InputDecorator(
+                                  decoration: InputDecoration(
+                                    labelText: 'Data de batismo (opcional)',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(
+                                        ThemeCleanPremium.radiusSm,
                                       ),
-                                      prefixIcon: const Icon(
-                                        Icons.pin_drop_rounded,
-                                      ),
+                                    ),
+                                    prefixIcon: const Icon(
+                                      Icons.water_drop_rounded,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    dataBatismo != null
+                                        ? _fmtDate(dataBatismo!)
+                                        : 'Selecionar?',
+                                    style: TextStyle(
+                                      color: dataBatismo != null
+                                          ? null
+                                          : Colors.grey.shade500,
                                     ),
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                SizedBox(
-                                  width: 140,
-                                  height: 48,
-                                  child: OutlinedButton.icon(
-                                    onPressed: loadingCep
-                                        ? null
-                                        : () async {
-                                            final cepDigits = cepCtrl.text
-                                                .trim()
-                                                .replaceAll(
-                                                  RegExp(r'[^0-9]'),
-                                                  '',
-                                                );
-                                            if (cepDigits.length != 8) {
-                                              ScaffoldMessenger.of(
-                                                context,
-                                              ).showSnackBar(
-                                                SnackBar(
-                                                  content: const Text(
-                                                    'Informe um CEP válido (8 dígitos).',
-                                                    style: TextStyle(
-                                                      color: Colors.white,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                  ),
-                                                  backgroundColor:
-                                                      ThemeCleanPremium.error,
-                                                  behavior:
-                                                      SnackBarBehavior.floating,
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          ThemeCleanPremium
-                                                              .radiusSm,
-                                                        ),
-                                                  ),
-                                                ),
-                                              );
-                                              return;
-                                            }
-                                            setDlg(() => loadingCep = true);
-                                            try {
-                                              final resultCep = await fetchCep(
-                                                cepDigits,
-                                              );
-                                              if (!mounted) return;
-                                              if (!resultCep.ok) {
+                              ),
+                            ),
+                            if (dataBatismo != null)
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton(
+                                  onPressed: () =>
+                                      setDlg(() => dataBatismo = null),
+                                  child: const Text('Limpar batismo'),
+                                ),
+                              ),
+                            _EditField(
+                              controller: conjugeCtrl,
+                              label: 'Cônjuge',
+                              icon: Icons.people_rounded,
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Expanded(
+                                    child: TextField(
+                                      controller: cepCtrl,
+                                      keyboardType: TextInputType.number,
+                                      decoration: InputDecoration(
+                                        labelText: 'CEP',
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            ThemeCleanPremium.radiusSm,
+                                          ),
+                                        ),
+                                        prefixIcon: const Icon(
+                                          Icons.pin_drop_rounded,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  SizedBox(
+                                    width: 140,
+                                    height: 48,
+                                    child: OutlinedButton.icon(
+                                      onPressed: loadingCep
+                                          ? null
+                                          : () async {
+                                              final cepDigits = cepCtrl.text
+                                                  .trim()
+                                                  .replaceAll(
+                                                    RegExp(r'[^0-9]'),
+                                                    '',
+                                                  );
+                                              if (cepDigits.length != 8) {
                                                 ScaffoldMessenger.of(
                                                   context,
                                                 ).showSnackBar(
-                                                  ThemeCleanPremium.feedbackSnackBar(
-                                                    'CEP não encontrado. Verifique e tente novamente.',
+                                                  SnackBar(
+                                                    content: const Text(
+                                                      'Informe um CEP válido (8 dígitos).',
+                                                      style: TextStyle(
+                                                        color: Colors.white,
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                    backgroundColor:
+                                                        ThemeCleanPremium.error,
+                                                    behavior: SnackBarBehavior
+                                                        .floating,
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            ThemeCleanPremium
+                                                                .radiusSm,
+                                                          ),
+                                                    ),
                                                   ),
                                                 );
                                                 return;
                                               }
-                                              setDlg(() {
-                                                loadingCep = false;
-                                                cepCtrl.text =
-                                                    (resultCep.cep ?? cepDigits)
-                                                        .toString();
-                                                enderecoCtrl.text =
-                                                    resultCep.logradouro ?? '';
-                                                bairroCtrl.text =
-                                                    resultCep.bairro ?? '';
-                                                cidadeCtrl.text =
-                                                    resultCep.localidade ?? '';
-                                                estadoCtrl.text =
-                                                    resultCep.uf ?? '';
-                                              });
-                                              if (mounted) {
-                                                ScaffoldMessenger.of(
-                                                  context,
-                                                ).showSnackBar(
-                                                  ThemeCleanPremium.successSnackBar(
-                                                    'Endereço preenchido automaticamente pelo CEP.',
-                                                  ),
-                                                );
+                                              setDlg(() => loadingCep = true);
+                                              try {
+                                                final resultCep =
+                                                    await fetchCep(cepDigits);
+                                                if (!mounted) return;
+                                                if (!resultCep.ok) {
+                                                  ScaffoldMessenger.of(
+                                                    context,
+                                                  ).showSnackBar(
+                                                    ThemeCleanPremium.feedbackSnackBar(
+                                                      'CEP Não encontrado. Verifique e tente novamente.',
+                                                    ),
+                                                  );
+                                                  return;
+                                                }
+                                                setDlg(() {
+                                                  loadingCep = false;
+                                                  cepCtrl.text =
+                                                      (resultCep.cep ??
+                                                              cepDigits)
+                                                          .toString();
+                                                  enderecoCtrl.text =
+                                                      resultCep.logradouro ??
+                                                      '';
+                                                  bairroCtrl.text =
+                                                      resultCep.bairro ?? '';
+                                                  cidadeCtrl.text =
+                                                      resultCep.localidade ??
+                                                      '';
+                                                  estadoCtrl.text =
+                                                      resultCep.uf ?? '';
+                                                });
+                                                if (mounted) {
+                                                  ScaffoldMessenger.of(
+                                                    context,
+                                                  ).showSnackBar(
+                                                    ThemeCleanPremium.successSnackBar(
+                                                      'Endereço preenchido automaticamente pelo CEP.',
+                                                    ),
+                                                  );
+                                                }
+                                              } catch (e) {
+                                                if (mounted) {
+                                                  ScaffoldMessenger.of(
+                                                    context,
+                                                  ).showSnackBar(
+                                                    ThemeCleanPremium.feedbackSnackBar(
+                                                      'Erro ao buscar CEP: $e',
+                                                    ),
+                                                  );
+                                                }
+                                              } finally {
+                                                if (mounted) {
+                                                  setDlg(
+                                                    () => loadingCep = false,
+                                                  );
+                                                }
                                               }
-                                            } catch (e) {
-                                              if (mounted) {
-                                                ScaffoldMessenger.of(
-                                                  context,
-                                                ).showSnackBar(
-                                                  ThemeCleanPremium.feedbackSnackBar(
-                                                    'Erro ao buscar CEP: $e',
-                                                  ),
-                                                );
-                                              }
-                                            } finally {
-                                              if (mounted) {
-                                                setDlg(
-                                                  () => loadingCep = false,
-                                                );
-                                              }
-                                            }
-                                          },
-                                    icon: const Icon(
-                                      Icons.my_location_rounded,
-                                      size: 18,
-                                    ),
-                                    label: Text(
-                                      loadingCep ? 'Buscando...' : 'Localizar',
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
+                                            },
+                                      icon: const Icon(
+                                        Icons.my_location_rounded,
+                                        size: 18,
                                       ),
-                                    ),
-                                    style: OutlinedButton.styleFrom(
-                                      backgroundColor: Colors.white,
-                                      foregroundColor:
-                                          ThemeCleanPremium.primary,
-                                      side: BorderSide(
-                                        color: ThemeCleanPremium.primary
-                                            .withValues(alpha: 0.25),
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(
-                                          ThemeCleanPremium.radiusSm,
+                                      label: Text(
+                                        loadingCep
+                                            ? 'Buscando...'
+                                            : 'Localizar',
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                      ),
-                                      minimumSize: const Size(120, 48),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          _EditField(
-                            controller: enderecoCtrl,
-                            label: 'Endereço',
-                            icon: Icons.home_rounded,
-                          ),
-                          _EditField(
-                            controller: quadraLoteNumeroCtrl,
-                            label: 'Quadra, Lote e Número',
-                            icon: Icons.apartment_rounded,
-                          ),
-                          _EditField(
-                            controller: bairroCtrl,
-                            label: 'Bairro',
-                            icon: Icons.location_city_rounded,
-                          ),
-                          _EditField(
-                            controller: cidadeCtrl,
-                            label: 'Cidade',
-                            icon: Icons.map_rounded,
-                          ),
-                          _EditField(
-                            controller: estadoCtrl,
-                            label: 'Estado',
-                            icon: Icons.flag_rounded,
-                          ),
-                          if (staffEdit &&
-                              funcoesNotifier.value
-                                  .map((e) => e.toString().toLowerCase())
-                                  .contains('membro')) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFF8FAFC),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: const Color(0xFFE2E8F0),
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.admin_panel_settings_rounded,
-                                        size: 20,
-                                        color: ThemeCleanPremium.primary,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Módulos extras (só papel membro)',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w800,
-                                          color: ThemeCleanPremium.onSurface,
+                                      style: OutlinedButton.styleFrom(
+                                        backgroundColor: Colors.white,
+                                        foregroundColor:
+                                            ThemeCleanPremium.primary,
+                                        side: BorderSide(
+                                          color: ThemeCleanPremium.primary
+                                              .withValues(alpha: 0.25),
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'Por padrão o membro não vê lista de membros, financeiro, patrimônio nem fornecedores. Libere abaixo se fizer sentido para este cadastro.',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                      height: 1.35,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  CheckboxListTile(
-                                    value: podeVerFinanceiro,
-                                    onChanged: (v) => setDlg(() {
-                                      podeVerFinanceiro = v ?? false;
-                                    }),
-                                    title: Text(
-                                      'Liberar Financeiro',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            ThemeCleanPremium.radiusSm,
+                                          ),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                        ),
+                                        minimumSize: const Size(120, 48),
                                       ),
                                     ),
-                                    subtitle: const Text(
-                                      'Módulo Financeiro e relatórios financeiros.',
-                                      style: TextStyle(fontSize: 12),
-                                    ),
-                                    controlAffinity:
-                                        ListTileControlAffinity.leading,
-                                    contentPadding: EdgeInsets.zero,
-                                    activeColor: ThemeCleanPremium.primary,
-                                  ),
-                                  CheckboxListTile(
-                                    value: podeVerPatrimonio,
-                                    onChanged: (v) => setDlg(() {
-                                      podeVerPatrimonio = v ?? false;
-                                    }),
-                                    title: Text(
-                                      'Liberar Patrimônio',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    subtitle: const Text(
-                                      'Inventário e bens da igreja.',
-                                      style: TextStyle(fontSize: 12),
-                                    ),
-                                    controlAffinity:
-                                        ListTileControlAffinity.leading,
-                                    contentPadding: EdgeInsets.zero,
-                                    activeColor: ThemeCleanPremium.primary,
-                                  ),
-                                  CheckboxListTile(
-                                    value: podeVerFornecedores,
-                                    onChanged: (v) => setDlg(() {
-                                      podeVerFornecedores = v ?? false;
-                                    }),
-                                    title: Text(
-                                      'Liberar Fornecedores',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    subtitle: const Text(
-                                      'Cadastro de fornecedores/prestadores e hub vinculado ao financeiro.',
-                                      style: TextStyle(fontSize: 12),
-                                    ),
-                                    controlAffinity:
-                                        ListTileControlAffinity.leading,
-                                    contentPadding: EdgeInsets.zero,
-                                    activeColor: ThemeCleanPremium.primary,
-                                  ),
-                                  CheckboxListTile(
-                                    value: podeEmitirRelatoriosCompletos,
-                                    onChanged: (v) => setDlg(() {
-                                      podeEmitirRelatoriosCompletos =
-                                          v ?? false;
-                                    }),
-                                    title: Text(
-                                      'Relatórios completos (PDF)',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    subtitle: const Text(
-                                      'Membros, aniversariantes e outros PDFs no módulo Relatórios. Sem isto, só Relatório de Eventos.',
-                                      style: TextStyle(fontSize: 12),
-                                    ),
-                                    controlAffinity:
-                                        ListTileControlAffinity.leading,
-                                    contentPadding: EdgeInsets.zero,
-                                    activeColor: ThemeCleanPremium.primary,
                                   ),
                                 ],
                               ),
                             ),
+                            _EditField(
+                              controller: enderecoCtrl,
+                              label: 'Endereço',
+                              icon: Icons.home_rounded,
+                            ),
+                            _EditField(
+                              controller: quadraLoteNumeroCtrl,
+                              label: 'Quadra, Lote e Número',
+                              icon: Icons.apartment_rounded,
+                            ),
+                            _EditField(
+                              controller: bairroCtrl,
+                              label: 'Bairro',
+                              icon: Icons.location_city_rounded,
+                            ),
+                            _EditField(
+                              controller: cidadeCtrl,
+                              label: 'Cidade',
+                              icon: Icons.map_rounded,
+                            ),
+                            _EditField(
+                              controller: estadoCtrl,
+                              label: 'Estado',
+                              icon: Icons.flag_rounded,
+                            ),
+                            if (staffEdit &&
+                                funcoesNotifier.value
+                                    .map((e) => e.toString().toLowerCase())
+                                    .contains('membro')) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.admin_panel_settings_rounded,
+                                          size: 20,
+                                          color: ThemeCleanPremium.primary,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          'Módulos extras (só papel membro)',
+                                          style: TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w800,
+                                            color: ThemeCleanPremium.onSurface,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Por padrão o membro não vê lista de membros, financeiro, patrimônio nem fornecedores. Libere abaixo se fizer sentido para este cadastro.',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600,
+                                        height: 1.35,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                    CheckboxListTile(
+                                      value: podeVerFinanceiro,
+                                      onChanged: (v) => setDlg(() {
+                                        podeVerFinanceiro = v ?? false;
+                                      }),
+                                      title: Text(
+                                        'Liberar Financeiro',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      subtitle: const Text(
+                                        'Módulo Financeiro e relatórios financeiros.',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                      controlAffinity:
+                                          ListTileControlAffinity.leading,
+                                      contentPadding: EdgeInsets.zero,
+                                      activeColor: ThemeCleanPremium.primary,
+                                    ),
+                                    CheckboxListTile(
+                                      value: podeVerPatrimonio,
+                                      onChanged: (v) => setDlg(() {
+                                        podeVerPatrimonio = v ?? false;
+                                      }),
+                                      title: Text(
+                                        'Liberar Patrimônio',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      subtitle: const Text(
+                                        'Inventário e bens da igreja.',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                      controlAffinity:
+                                          ListTileControlAffinity.leading,
+                                      contentPadding: EdgeInsets.zero,
+                                      activeColor: ThemeCleanPremium.primary,
+                                    ),
+                                    CheckboxListTile(
+                                      value: podeVerFornecedores,
+                                      onChanged: (v) => setDlg(() {
+                                        podeVerFornecedores = v ?? false;
+                                      }),
+                                      title: Text(
+                                        'Liberar Fornecedores',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      subtitle: const Text(
+                                        'Cadastro de fornecedores/prestadores e hub vinculado ao financeiro.',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                      controlAffinity:
+                                          ListTileControlAffinity.leading,
+                                      contentPadding: EdgeInsets.zero,
+                                      activeColor: ThemeCleanPremium.primary,
+                                    ),
+                                    CheckboxListTile(
+                                      value: podeEmitirRelatoriosCompletos,
+                                      onChanged: (v) => setDlg(() {
+                                        podeEmitirRelatoriosCompletos =
+                                            v ?? false;
+                                      }),
+                                      title: Text(
+                                        'Relatórios completos (PDF)',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      subtitle: const Text(
+                                        'Membros, aniversariantes e outros PDFs no módulo Relatórios. Sem isto, só Relatório de Eventos.',
+                                        style: TextStyle(fontSize: 12),
+                                      ),
+                                      controlAffinity:
+                                          ListTileControlAffinity.leading,
+                                      contentPadding: EdgeInsets.zero,
+                                      activeColor: ThemeCleanPremium.primary,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ],
+                        ),
+                      ),
+                    ),
+                    // Footer
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(ctx, null),
+                              child: const Text('Cancelar'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: () {
+                                final nameMsg = memberNameValidationMessage(
+                                  nameCtrl.text,
+                                );
+                                if (nameMsg != null) {
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                    ThemeCleanPremium.feedbackSnackBar(nameMsg),
+                                  );
+                                  return;
+                                }
+                                final sel = List<String>.from(
+                                  funcoesNotifier.value,
+                                );
+                                final funcaoSalvar = sel.isNotEmpty
+                                    ? sel.first
+                                    : 'membro';
+                                Navigator.pop(ctx, {
+                                  'saved': true,
+                                  'selfOnly': selfOnly,
+                                  'funcao': funcaoSalvar,
+                                  'funcoesSelecionadas': sel,
+                                  'dataConsagracao': dataConsagracao,
+                                  'removeConsagracao': removeConsagracao,
+                                  'removeProfilePhoto': removeProfilePhoto,
+                                  'name': nameCtrl.text.trim(),
+                                  'email': emailCtrl.text.trim(),
+                                  'phone': phoneCtrl.text.trim(),
+                                  'cpf': cpfCtrl.text.replaceAll(
+                                    RegExp(r'\D'),
+                                    '',
+                                  ),
+                                  'sexo': sexo,
+                                  'status': status,
+                                  'estadoCivil': estadoCivilSelected.trim(),
+                                  'conjuge': conjugeCtrl.text.trim(),
+                                  'escolaridade': escolaridadeCtrl.text.trim(),
+                                  'profissao': profissaoCtrl.text.trim(),
+                                  'dataBatismo': dataBatismo,
+                                  'filiacaoPai': filiacaoPaiCtrl.text.trim(),
+                                  'filiacaoMae': filiacaoMaeCtrl.text.trim(),
+                                  'endereco': enderecoCtrl.text.trim(),
+                                  'bairro': bairroCtrl.text.trim(),
+                                  'cidade': cidadeCtrl.text.trim(),
+                                  'cep': cepCtrl.text.trim(),
+                                  'quadraLoteNumero': quadraLoteNumeroCtrl.text
+                                      .trim(),
+                                  'estado': estadoCtrl.text.trim(),
+                                  'nascimento': nascimento,
+                                  'password': passwordCtrl.text.trim(),
+                                  'newTenantId': selectedTenantIdForEdit,
+                                  'podeVerFinanceiro': podeVerFinanceiro,
+                                  'podeVerPatrimonio': podeVerPatrimonio,
+                                  'podeVerFornecedores': podeVerFornecedores,
+                                  'podeEmitirRelatoriosCompletos':
+                                      podeEmitirRelatoriosCompletos,
+                                });
+                              },
+                              icon: const Icon(Icons.save_rounded),
+                              label: const Text('Salvar'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: ThemeCleanPremium.primary,
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                  ),
-                  // Footer
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pop(ctx, null),
-                            child: const Text('Cancelar'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: () {
-                              final nameMsg = memberNameValidationMessage(
-                                nameCtrl.text,
-                              );
-                              if (nameMsg != null) {
-                                ScaffoldMessenger.of(ctx).showSnackBar(
-                                  ThemeCleanPremium.feedbackSnackBar(nameMsg),
-                                );
-                                return;
-                              }
-                              final sel = List<String>.from(
-                                funcoesNotifier.value,
-                              );
-                              final funcaoSalvar = sel.isNotEmpty
-                                  ? sel.first
-                                  : 'membro';
-                              Navigator.pop(ctx, {
-                                'saved': true,
-                                'selfOnly': selfOnly,
-                                'funcao': funcaoSalvar,
-                                'funcoesSelecionadas': sel,
-                                'dataConsagracao': dataConsagracao,
-                                'removeConsagracao': removeConsagracao,
-                                'removeProfilePhoto': removeProfilePhoto,
-                                'name': nameCtrl.text.trim(),
-                                'email': emailCtrl.text.trim(),
-                                'phone': phoneCtrl.text.trim(),
-                                'cpf': cpfCtrl.text.replaceAll(
-                                  RegExp(r'\D'),
-                                  '',
-                                ),
-                                'sexo': sexo,
-                                'status': status,
-                                'estadoCivil': estadoCivilSelected.trim(),
-                                'conjuge': conjugeCtrl.text.trim(),
-                                'escolaridade': escolaridadeCtrl.text.trim(),
-                                'profissao': profissaoCtrl.text.trim(),
-                                'dataBatismo': dataBatismo,
-                                'filiacaoPai': filiacaoPaiCtrl.text.trim(),
-                                'filiacaoMae': filiacaoMaeCtrl.text.trim(),
-                                'endereco': enderecoCtrl.text.trim(),
-                                'bairro': bairroCtrl.text.trim(),
-                                'cidade': cidadeCtrl.text.trim(),
-                                'cep': cepCtrl.text.trim(),
-                                'quadraLoteNumero': quadraLoteNumeroCtrl.text
-                                    .trim(),
-                                'estado': estadoCtrl.text.trim(),
-                                'nascimento': nascimento,
-                                'password': passwordCtrl.text.trim(),
-                                'newTenantId': selectedTenantIdForEdit,
-                                'podeVerFinanceiro': podeVerFinanceiro,
-                                'podeVerPatrimonio': podeVerPatrimonio,
-                                'podeVerFornecedores': podeVerFornecedores,
-                                'podeEmitirRelatoriosCompletos':
-                                    podeEmitirRelatoriosCompletos,
-                              });
-                            },
-                            icon: const Icon(Icons.save_rounded),
-                            label: const Text('Salvar'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: ThemeCleanPremium.primary,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );
@@ -5252,7 +5307,7 @@ class _MembersPageState extends State<MembersPage> {
       Map<String, dynamic>.from(result),
     );
 
-    /// Membro editando só a si: não altera cargo, status, CPF, senha de terceiros nem `users.role`.
+    /// Membro editando só a si: Não altera cargo, status, CPF, senha de terceiros nem `users.role`.
     final selfOnlySave = result['selfOnly'] == true;
     if (selfOnlySave) {
       try {
@@ -5415,7 +5470,7 @@ class _MembersPageState extends State<MembersPage> {
               ..addAll(updates);
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.successSnackBar('Enviando foto de perfil…'),
+                ThemeCleanPremium.successSnackBar('Enviando foto de perfil?'),
               );
             }
             try {
@@ -5853,7 +5908,7 @@ class _MembersPageState extends State<MembersPage> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.feedbackSnackBar(
-                'Membro salvo, mas não foi possível alterar a senha.',
+                'Membro salvo, mas Não foi possível alterar a senha.',
               ),
             );
           }
@@ -5868,7 +5923,7 @@ class _MembersPageState extends State<MembersPage> {
         final mergedGestor = Map<String, dynamic>.from(member.data)
           ..addAll(updates);
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Enviando foto de perfil…'),
+          ThemeCleanPremium.successSnackBar('Enviando foto de perfil?'),
         );
         try {
           await _publishMemberProfilePhotoStrict(
@@ -5959,7 +6014,7 @@ class _MembersPageState extends State<MembersPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-            'E-mail salvo, mas não foi possível atualizar o login: $e',
+            'E-mail salvo, mas Não foi possível atualizar o login: $e',
           ),
         );
       }
@@ -5974,7 +6029,7 @@ class _MembersPageState extends State<MembersPage> {
     return RegExp(r'^[a-zA-Z0-9]+$').hasMatch(s);
   }
 
-  // ─── Excluir Membro ───────────────────────────────────────────────────────
+  // --- Excluir Membro -------------------------------------------------------
   Future<void> _deleteMember(BuildContext context, _MemberDoc member) async {
     if (!_canDeleteMembers) {
       if (mounted) {
@@ -6009,7 +6064,7 @@ class _MembersPageState extends State<MembersPage> {
         ),
         content: Text(
           'Excluir "$name" do cadastro, apagar ficheiros da ficha, remover o documento de login (Firebase) e o acesso com e-mail/senha? '
-          'Para voltar a ter acesso, será necessário um novo cadastro. Esta ação não pode ser desfeita.',
+          'Para voltar a ter acesso, será necessário um novo cadastro. Esta ação Não pode ser desfeita.',
         ),
         actions: [
           TextButton(
@@ -6033,7 +6088,7 @@ class _MembersPageState extends State<MembersPage> {
     if (!context.mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(ThemeCleanPremium.successSnackBar('Excluindo "$name"…'));
+    ).showSnackBar(ThemeCleanPremium.successSnackBar('Excluindo "$name"?'));
 
     try {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
@@ -6067,7 +6122,7 @@ class _MembersPageState extends State<MembersPage> {
     }
   }
 
-  // ─── Criar login para membro (cadastro público sem authUid) ─────────────────
+  // --- Criar login para membro (cadastro público sem authUid) -----------------
   Future<void> _criarLoginMembro(
     BuildContext context,
     _MemberDoc member,
@@ -6104,7 +6159,7 @@ class _MembersPageState extends State<MembersPage> {
       final data = res.data as Map<dynamic, dynamic>?;
       final msg =
           (data?['message'] ??
-                  'Login criado. O membro pode acessar com o e-mail cadastrado e a senha padrão: 123456 (até aprovação do gestor). Se não lembrar a senha, use "Esqueci a senha" na tela de login para receber um link no e-mail.')
+                  'Login criado. O membro pode acessar com o e-mail cadastrado e a senha padrão: 123456 (até aprovação do gestor). Se Não lembrar a senha, use "Esqueci a senha" na tela de login para receber um link no e-mail.')
               .toString();
       if (mounted) {
         ScaffoldMessenger.of(
@@ -6116,7 +6171,7 @@ class _MembersPageState extends State<MembersPage> {
       if (mounted) {
         final msg = e.code == 'failed-precondition'
             ? (e.message ??
-                  'Este cadastro não é de formulário público. Use "Redefinir senha" se o membro já tiver login.')
+                  'Este cadastro Não ? de formulário público. Use "Redefinir senha" se o membro já tiver login.')
             : 'Erro: ${e.message ?? e.code}';
         ScaffoldMessenger.of(
           context,
@@ -6131,7 +6186,7 @@ class _MembersPageState extends State<MembersPage> {
     }
   }
 
-  // ─── Redefinir senha (gestor) ───────────────────────────────────────────────
+  // --- Redefinir senha (gestor) -----------------------------------------------
   Future<void> _redefinirSenhaMembro(
     BuildContext context,
     _MemberDoc member,
@@ -6149,7 +6204,7 @@ class _MembersPageState extends State<MembersPage> {
     if ((member.data['authUid'] ?? '').toString().trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'Este membro ainda não tem login. Use "Gerar senha / login" primeiro.',
+          'Este membro ainda Não tem login. Use "Gerar senha / login" primeiro.',
         ),
       );
       return;
@@ -6250,7 +6305,7 @@ class _MembersPageState extends State<MembersPage> {
     }
   }
 
-  // ─── Selecionar Foto (web: arquivo; app: câmera ou galeria) ─────────────────
+  // --- Selecionar Foto (web: arquivo; app: câmera ou galeria) -----------------
   Future<XFile?> _pickImage(BuildContext context) async {
     final ImageSource? source;
     if (kIsWeb) {
@@ -6348,7 +6403,7 @@ class _MembersPageState extends State<MembersPage> {
     );
   }
 
-  // ─── Lista de Membros (sliver; scroll/paginação no [CustomScrollView] pai) ─
+  // --- Lista de Membros (sliver; scroll/paginação no [CustomScrollView] pai) -
   // Wrapper: barra de alternância (lista/grade) + o corpo escolhido.
   Widget _buildMembersListSliver(List<_MemberDoc> docs) {
     return SliverMainAxisGroup(
@@ -6372,7 +6427,8 @@ class _MembersPageState extends State<MembersPage> {
   // Barra fina: alterna Lista/Grade + (no grade) contador e Todos/Limpar.
   Widget _buildMembersViewToolbarSliver(List<_MemberDoc> docs) {
     final allIds = docs.map((d) => d.id).toSet();
-    final allSelected = _membersGridView &&
+    final allSelected =
+        _membersGridView &&
         allIds.isNotEmpty &&
         allIds.every(_selectedMemberIds.contains);
     Widget toggle(IconData icon, bool active, VoidCallback onTap, String tip) {
@@ -6411,12 +6467,19 @@ class _MembersPageState extends State<MembersPage> {
         ),
         child: Row(
           children: [
-            toggle(Icons.view_list_rounded, !_membersGridView,
-                () => setState(() => _membersGridView = false), 'Lista'),
+            toggle(
+              Icons.view_list_rounded,
+              !_membersGridView,
+              () => setState(() => _membersGridView = false),
+              'Lista',
+            ),
             const SizedBox(width: 4),
-            toggle(Icons.grid_view_rounded, _membersGridView,
-                () => setState(() => _membersGridView = true),
-                'Grade com fotos'),
+            toggle(
+              Icons.grid_view_rounded,
+              _membersGridView,
+              () => setState(() => _membersGridView = true),
+              'Grade com fotos',
+            ),
             const Spacer(),
             if (_membersGridView) ...[
               if (_selectedMemberIds.isNotEmpty)
@@ -6457,8 +6520,9 @@ class _MembersPageState extends State<MembersPage> {
   // Grade colorida com fotos (paginação compartilhada com a lista).
   Widget _buildMembersPhotoGridSliver(List<_MemberDoc> docs) {
     final instantList = docs.length <= _membersListInstantCap;
-    final count =
-        instantList ? docs.length : _membersVisibleCount.clamp(0, docs.length);
+    final count = instantList
+        ? docs.length
+        : _membersVisibleCount.clamp(0, docs.length);
     return SliverPadding(
       padding: const EdgeInsets.fromLTRB(
         ThemeCleanPremium.spaceMd,
@@ -6473,13 +6537,10 @@ class _MembersPageState extends State<MembersPage> {
           crossAxisSpacing: 10,
           mainAxisSpacing: 10,
         ),
-        delegate: SliverChildBuilderDelegate(
-          (context, i) {
-            if (i >= count) return null;
-            return _memberGridTile(docs[i]);
-          },
-          childCount: count,
-        ),
+        delegate: SliverChildBuilderDelegate((context, i) {
+          if (i >= count) return null;
+          return _memberGridTile(docs[i]);
+        }, childCount: count),
       ),
     );
   }
@@ -6589,9 +6650,13 @@ class _MembersPageState extends State<MembersPage> {
                       left: 6,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEA580C).withValues(alpha: 0.92),
+                          color: const Color(
+                            0xFFEA580C,
+                          ).withValues(alpha: 0.92),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: const Text(
@@ -6772,7 +6837,7 @@ class _MembersPageState extends State<MembersPage> {
                                     memberId: docs[i].id,
                                     cpfDigits: cpfDigits,
                                     authUid: _memberAuthUidFromData(data),
-                                    // Lista: decode ~200px — não puxar 4K para cada linha.
+                                    // Lista: decode ~200px ? Não puxar 4K para cada linha.
                                     memCacheMaxPx: 224,
                                   ),
                                 ),
@@ -6851,7 +6916,7 @@ class _MembersPageState extends State<MembersPage> {
                                           [
                                             if (email.isNotEmpty) email,
                                             if (phone.isNotEmpty) phone,
-                                          ].join(' • '),
+                                          ].join(' ? '),
                                           style: const TextStyle(
                                             fontSize: 13,
                                             color: ThemeCleanPremium
@@ -7270,7 +7335,7 @@ class _MembersPageState extends State<MembersPage> {
                                     [
                                       if (email.isNotEmpty) email,
                                       if (phone.isNotEmpty) phone,
-                                    ].join(' • '),
+                                    ].join(' ? '),
                                     style: const TextStyle(
                                       fontSize: 13,
                                       color: ThemeCleanPremium.onSurfaceVariant,
@@ -7531,57 +7596,18 @@ class _MembersPageState extends State<MembersPage> {
     );
   }
 
-  // ─── Adicionar Membro ─────────────────────────────────────────────────────
-  void _onAddMember(BuildContext context) async {
-    try {
-      final result = await _limitService.checkLimit(
-        _effectiveTenantId,
-        planIdOverride:
-            (widget.subscription?['planId'] ?? '').toString().trim().isEmpty
-            ? null
-            : (widget.subscription?['planId'] ?? '').toString().trim(),
-      );
-      if (result.isBlocked && context.mounted) {
-        // iOS Reader: só «Entendi» — sem CTA de plano (Apple 3.1.1).
-        final iosReader = IosPaymentsGate.shouldHidePayments;
-        await showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Row(
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  color: Colors.orange,
-                  size: 28,
-                ),
-                SizedBox(width: 10),
-                Text('Limite do plano'),
-              ],
-            ),
-            content: Text(result.blockedDialogMessage),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Entendi'),
-              ),
-              if (!iosReader)
-                FilledButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    IosPaymentsGate.navigateToUpgradePlans(context);
-                  },
-                  child: const Text('Ver planos'),
-                ),
-            ],
-          ),
-        );
-        return;
-      }
-    } catch (_) {
-      // Se verificação de limite falhar, permite abrir o cadastro (limite será checado ao enviar).
-    }
-    if (!context.mounted) return;
-    // Tela própria do sistema: cadastro interno pelo gestor/adm — salva como ativo (não usa formulário público).
+  // --- Adicionar Membro -----------------------------------------------------
+  /// Abre o cadastro IMEDIATAMENTE.
+  ///
+  /// Antes havia um `await checkLimit(...)` (chamada de rede) antes do
+  /// `Navigator.push`, e o botão parecia travado até a resposta chegar. Não é
+  /// preciso: o botão já vem desativado quando o limite foi atingido
+  /// (`addBlocked`) e o próprio formulário revalida o limite ao salvar
+  /// ([InternalNewMemberPage] — checkLimit/isBlocked antes de gravar). O
+  /// bloqueio continua garantido, sem custar espera na abertura.
+  void _onAddMember(BuildContext context) {
+    // Tela própria do sistema: cadastro interno pelo gestor/adm — salva como
+    // ativo (não usa o formulário público).
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -7650,7 +7676,7 @@ class _MembersPageState extends State<MembersPage> {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Gerando PDF…'),
+            content: Text('Gerando PDF?'),
             behavior: SnackBarBehavior.floating,
             duration: Duration(seconds: 2),
           ),
@@ -8037,10 +8063,10 @@ class _MembersPageState extends State<MembersPage> {
     final bits = <String>['Toque para expandir'];
     bits.add('Status: $st');
     if (q.isNotEmpty) {
-      final short = q.length > 26 ? '${q.substring(0, 26)}…' : q;
+      final short = q.length > 26 ? '${q.substring(0, 26)}?' : q;
       bits.add('Busca: "$short"');
     }
-    return bits.join(' · ');
+    return bits.join(' ? ');
   }
 
   Widget _buildPremiumSearchField(EdgeInsets padding) {
@@ -8081,7 +8107,7 @@ class _MembersPageState extends State<MembersPage> {
                     controller: _searchCtrl,
                     decoration: InputDecoration(
                       border: InputBorder.none,
-                      hintText: 'Buscar por nome, e-mail, CPF ou telefone…',
+                      hintText: 'Buscar por nome, e-mail, CPF ou telefone?',
                       hintStyle: TextStyle(
                         color: ThemeCleanPremium.onSurfaceVariant.withValues(
                           alpha: 0.55,
@@ -8268,7 +8294,7 @@ class _MembersPageState extends State<MembersPage> {
     );
   }
 
-  // ─── Build ────────────────────────────────────────────────────────────────
+  // --- Build ----------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<MembersLimitResult>(
@@ -8495,6 +8521,21 @@ class _MembersPageState extends State<MembersPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // CTA principal do módulo: cadastrar membro sem procurar
+                      // o ícone pequeno da barra de ações.
+                      if (!_selfOnlyMemberList)
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            padding.left,
+                            0,
+                            padding.right,
+                            10,
+                          ),
+                          child: _MembersNewMemberCta(
+                            blocked: addBlocked,
+                            onTap: () => _onAddMember(context),
+                          ),
+                        ),
                       if (!_selfOnlyMemberList)
                         Padding(
                           padding: EdgeInsets.fromLTRB(
@@ -8714,7 +8755,7 @@ class _MembersPageState extends State<MembersPage> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    'Membro não encontrado na lista (id: $bootDocId). Atualize ou verifique o cadastro.',
+                    'Membro Não encontrado na lista (id: $bootDocId). Atualize ou verifique o cadastro.',
                   ),
                 ),
               );
@@ -8797,7 +8838,7 @@ class _MembersPageState extends State<MembersPage> {
                     ),
                     const SizedBox(height: ThemeCleanPremium.spaceMd),
                     Text(
-                      'Cadastro não encontrado para este login.',
+                      'Cadastro Não encontrado para este login.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 16,
@@ -8922,7 +8963,7 @@ class _MembersPageState extends State<MembersPage> {
                                   ),
                                 ),
                                 Text(
-                                  'Aprove um por um no menu ⋮, selecione vários ou todos de uma vez.',
+                                  'Aprove um por um no menu ?, selecione vários ou todos de uma vez.',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey.shade600,
@@ -9334,9 +9375,87 @@ class _MembersPageState extends State<MembersPage> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
 // Widgets auxiliares
-// ═══════════════════════════════════════════════════════════════════════════════
+// -------------------------------------------------------------------------------
+
+/// Botão principal de cadastro no topo do módulo Membros — fica acima das abas
+/// «Lista» / «Painel & números». Quando o plano atinge o limite de membros o
+/// botão fica desativado e explica o motivo, em vez de sumir.
+class _MembersNewMemberCta extends StatelessWidget {
+  final bool blocked;
+  final VoidCallback onTap;
+
+  const _MembersNewMemberCta({required this.blocked, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = ThemeCleanPremium.primary;
+    final label = blocked
+        ? 'Limite de membros atingido'
+        : 'Cadastrar novo membro';
+
+    return Semantics(
+      button: true,
+      enabled: !blocked,
+      label: label,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: blocked
+              ? null
+              : LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [primary, Color.lerp(primary, Colors.white, .28)!],
+                ),
+          color: blocked ? const Color(0xFFE5E7EB) : null,
+          boxShadow: blocked ? null : ThemeCleanPremium.softUiCardShadow,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: blocked ? null : onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 15),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    blocked
+                        ? Icons.lock_rounded
+                        : Icons.person_add_alt_1_rounded,
+                    size: 22,
+                    color: blocked
+                        ? ThemeCleanPremium.onSurfaceVariant
+                        : Colors.white,
+                  ),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: .2,
+                        color: blocked
+                            ? ThemeCleanPremium.onSurfaceVariant
+                            : Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// Abas superior (lista vs painel) — alto contraste em mobile.
 class _MembersPremiumTabSwitcher extends StatelessWidget {
@@ -9506,13 +9625,13 @@ String _statsDrillTitle(_StatsDrillKind k) {
     case _StatsDrillKind.genderFemale:
       return 'Mulheres';
     case _StatsDrillKind.genderUnknown:
-      return 'Sexo não informado';
+      return 'Sexo Não informado';
     case _StatsDrillKind.ageChild:
       return 'Crianças (<13 anos)';
     case _StatsDrillKind.ageTeen:
-      return 'Adolescentes (13–17)';
+      return 'Adolescentes (13?17)';
     case _StatsDrillKind.ageAdult:
-      return 'Adultos (18–59)';
+      return 'Adultos (18?59)';
     case _StatsDrillKind.ageSenior:
       return 'Idosos (60+)';
     case _StatsDrillKind.ageUnknown:
@@ -9537,7 +9656,7 @@ class _MembersPremiumStatsPanel extends StatefulWidget {
   final EdgeInsets padding;
   final List<_MemberDoc> allDocs;
 
-  /// Total exibido no cartão principal (pode ser `totalCount` do directory, não só docs carregados).
+  /// Total exibido no cartão principal (pode ser `totalCount` do directory, Não só docs carregados).
   final int heroTotal;
   final MembersDirectorySummary? directorySummary;
   final bool useDirectorySummary;
@@ -9741,7 +9860,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Sexo, idade e situação seguem status, gênero, departamento, etc. A caixa “Buscar” só restringe a tabela na aba Lista — não os totais abaixo.',
+            'Sexo, idade e situação seguem status, gênero, departamento, etc. A caixa ?Buscar? só restringe a tabela na aba Lista ? Não os totais abaixo.',
             style: TextStyle(
               fontSize: 12,
               height: 1.35,
@@ -9769,7 +9888,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Há texto na busca da lista. Os números deste painel ignoram essa busca para não “sumirem” os irmãos. Limpe a busca se quiser a lista igual aos gráficos.',
+                      'Há texto na busca da lista. Os números deste painel ignoram essa busca para Não ?sumirem? os irmãos. Limpe a busca se quiser a lista igual aos gráficos.',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.35,
@@ -9861,11 +9980,11 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
           ),
           const SizedBox(height: 10),
           _miniStat(
-            'Sexo não informado',
+            'Sexo Não informado',
             sexoNi,
             const Color(0xFF64748B),
             Icons.help_outline_rounded,
-            tooltip: 'Ver lista (sexo em branco ou não reconhecido)',
+            tooltip: 'Ver lista (sexo em branco ou Não reconhecido)',
             onTap: () => _openDrill(_StatsDrillKind.genderUnknown),
           ),
           const SizedBox(height: 18),
@@ -9962,7 +10081,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                 FilledButton.icon(
                   onPressed: widget.onExportPdf,
                   icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
-                  label: const Text('PDF — lista completa'),
+                  label: const Text('PDF ? lista completa'),
                   style: FilledButton.styleFrom(
                     backgroundColor: primary,
                     padding: const EdgeInsets.symmetric(
@@ -9974,7 +10093,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                 OutlinedButton.icon(
                   onPressed: widget.onExportCsv,
                   icon: const Icon(Icons.table_chart_rounded, size: 20),
-                  label: const Text('CSV — exportar'),
+                  label: const Text('CSV ? exportar'),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16,
@@ -10054,7 +10173,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '$count ${count == 1 ? 'membro' : 'membros'} · toque na linha para abrir a ficha ou use ⋮ para editar',
+                  '$count ${count == 1 ? 'membro' : 'membros'} ? toque na linha para abrir a ficha ou use ? para editar',
                   style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
@@ -10556,7 +10675,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                           ),
                           TextSpan(
                             text:
-                                '  ·  $count ${count == 1 ? 'membro' : 'membros'}',
+                                '  ?  $count ${count == 1 ? 'membro' : 'membros'}',
                             style: TextStyle(
                               fontWeight: FontWeight.w500,
                               fontSize: 12,
@@ -10599,7 +10718,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
           ),
         if (outros > 0)
           legendTile(
-            'Sexo não informado',
+            'Sexo Não informado',
             outros,
             const Color(0xFF64748B),
             _StatsDrillKind.genderUnknown,
@@ -11123,7 +11242,7 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
                         onPressed: () {
                           if (url.isEmpty) return;
                           Share.share(
-                            'Cadastro de membro — preencha por este link:\n$url',
+                            'Cadastro de membro ? preencha por este link:\n$url',
                             subject: 'Cadastro de membro',
                             sharePositionOrigin: const Rect.fromLTWH(
                               0,
@@ -11260,7 +11379,7 @@ class _MembersLimitBanner extends StatelessWidget {
   }
 }
 
-// ─── Funções (cargo/acesso) ────────────────────────────────────────────────────
+// --- Funções (cargo/acesso) ----------------------------------------------------
 const List<String> _funcoesList = [
   'membro',
   'adm',
@@ -11324,9 +11443,9 @@ String _normalizeFuncao(String v) {
   return 'membro';
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// --- Helpers ------------------------------------------------------------------
 
-/// Une mapas de membro: se [a] não tem URL de foto válida, copia campos de imagem de [b]
+/// Une mapas de membro: se [a] Não tem URL de foto válida, copia campos de imagem de [b]
 /// (ex.: foto em `users` e cadastro vazio em `membros`, ou cópias entre tenants).
 ///
 /// Mescla cache leve do painel com doc completo do Firestore (filição, endereço, etc.).
@@ -11338,8 +11457,8 @@ Map<String, dynamic> _mergeMemberCacheWithFirestore(
   ...firestoreData,
 }, firestoreData);
 
-/// **Importante:** não retornar [a] só porque já tem URL "válida" (ex. avatar Google em `photoURL`):
-/// senão a [FOTO_URL_OU_ID] nova do Storage em [b] (membros) nunca entra na lista após salvar.
+/// **Importante:** Não retornar [a] só porque já tem URL "válida" (ex. avatar Google em `photoURL`):
+/// seNão a [FOTO_URL_OU_ID] nova do Storage em [b] (membros) nunca entra na lista após salvar.
 Map<String, dynamic> _mergeMemberPhotoFields(
   Map<String, dynamic> a,
   Map<String, dynamic> b,
@@ -11726,7 +11845,7 @@ class _CachedMemberSnapshotMetadata implements SnapshotMetadata {
   bool get isFromCache => true;
 }
 
-/// Snapshot vazio para quando não há tenant (evita queries com path inválido).
+/// Snapshot vazio para quando Não há tenant (evita queries com path inválido).
 class _EmptyQuerySnapshot implements QuerySnapshot<Map<String, dynamic>> {
   @override
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = [];

@@ -483,7 +483,7 @@ class _EscalaPreviewSection extends StatelessWidget {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        DateFormat("dd/MM/yyyy · EEEE", 'pt_BR').format(dt),
+                        DateFormat("dd/MM/yyyy ? EEEE", 'pt_BR').format(dt),
                         style: TextStyle(
                           fontSize: 13.5,
                           fontWeight: FontWeight.w600,
@@ -1673,7 +1673,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
                           [
                             (doc.data()['escalaDateLabel'] ?? '').toString(),
                             (doc.data()['escalaTitle'] ?? '').toString(),
-                          ].where((s) => s.trim().isNotEmpty).join(' · '),
+                          ].where((s) => s.trim().isNotEmpty).join(' ? '),
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey.shade600,
@@ -2701,7 +2701,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
           dt = (m['date'] as Timestamp).toDate();
         } catch (_) {}
         final dateLine = dt != null
-            ? DateFormat("dd/MM/yyyy · EEE", 'pt_BR').format(dt)
+            ? DateFormat("dd/MM/yyyy ? EEE", 'pt_BR').format(dt)
             : '';
         return Material(
           color: Colors.transparent,
@@ -3082,7 +3082,7 @@ class _ScaleEventCard extends StatelessWidget {
                       if (dt != null) ...[
                         const SizedBox(height: 6),
                         Text(
-                          DateFormat("dd/MM/yyyy · EEEE", 'pt_BR').format(dt),
+                          DateFormat("dd/MM/yyyy ? EEEE", 'pt_BR').format(dt),
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,

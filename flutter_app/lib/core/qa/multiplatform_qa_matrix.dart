@@ -2,9 +2,9 @@ import 'package:flutter/foundation.dart';
 
 /// Matriz canónica — mesma experiência Android / iOS / Web (regras de negócio unificadas).
 enum YahwehQaPlatform {
-  android('Android', '🤖'),
-  ios('iOS', '🍎'),
-  web('Web', '🌐');
+  android('Android', '??'),
+  ios('iOS', '??'),
+  web('Web', '??');
 
   const YahwehQaPlatform(this.label, this.icon);
   final String label;

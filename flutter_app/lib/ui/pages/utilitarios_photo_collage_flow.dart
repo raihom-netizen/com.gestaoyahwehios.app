@@ -1,4 +1,4 @@
-﻿import 'dart:typed_data';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -69,7 +69,7 @@ class _UtilitariosPhotoCollagePanelState
   }
 
   Future<void> _pickPhotos({bool multi = true}) async {
-    await _withBusy('Carregando fotos…', () async {
+    await _withBusy('Carregando fotos?', () async {
       if (multi) {
         final files = await utilitariosPickPlatformFiles(
           allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
@@ -173,14 +173,14 @@ class _UtilitariosPhotoCollagePanelState
   }
 
   ButtonStyle _sessionOutlinedStyle() => OutlinedButton.styleFrom(
-        minimumSize: const Size(0, 44),
-        foregroundColor: const Color(0xFF7C3AED),
-        side: BorderSide(
-          color: const Color(0xFF7C3AED).withValues(alpha: 0.38),
-          width: 1.3,
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      );
+    minimumSize: const Size(0, 44),
+    foregroundColor: const Color(0xFF7C3AED),
+    side: BorderSide(
+      color: const Color(0xFF7C3AED).withValues(alpha: 0.38),
+      width: 1.3,
+    ),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+  );
 
   Widget _exportGradientButton({required bool ready}) {
     return Material(
@@ -239,7 +239,7 @@ class _UtilitariosPhotoCollagePanelState
   }
 
   Future<void> _export() async {
-    await _withBusy('Exportando colagem…', () async {
+    await _withBusy('Exportando colagem?', () async {
       if (_photos.length < _template.slots) {
         throw StateError(
           'Adicione ${_template.slots} foto(s) para este formato.',
@@ -258,7 +258,7 @@ class _UtilitariosPhotoCollagePanelState
           bytes: bytes,
           fileName: 'colagem_${_template.id}.jpg',
           message:
-              'Colagem «${_template.label}» criada localmente no GestÃ£o Yahweh.',
+              'Colagem ?${_template.label}? criada localmente no Gestão Yahweh.',
         ),
       );
     });
@@ -278,7 +278,7 @@ class _UtilitariosPhotoCollagePanelState
             context: context,
             icon: Icons.grid_view_rounded,
             iconGradient: const [Color(0xFF6366F1), Color(0xFF06B6D4)],
-            text: 'Formato · prévia instantânea · exporte quando pronto.',
+            text: 'Formato ? prévia instantânea ? exporte quando pronto.',
           ),
         ),
         SizedBox(
@@ -328,9 +328,7 @@ class _UtilitariosPhotoCollagePanelState
                   colors: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
                   onTap: widget.busy
                       ? null
-                      : () => setState(
-                            () => _gap = _gap >= 20 ? 6 : _gap + 4,
-                          ),
+                      : () => setState(() => _gap = _gap >= 20 ? 6 : _gap + 4),
                 ),
               ),
             ],
@@ -638,15 +636,15 @@ class _UtilitariosPhotoCollagePanelState
             color: selected
                 ? null
                 : (dark
-                    ? context.appDarkModuleSurface
-                    : const Color(0xFFF8FAFC)),
+                      ? context.appDarkModuleSurface
+                      : const Color(0xFFF8FAFC)),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: selected
                   ? Colors.white.withValues(alpha: 0.5)
                   : (dark
-                      ? Colors.white.withValues(alpha: 0.12)
-                      : const Color(0xFFE2E8F0)),
+                        ? Colors.white.withValues(alpha: 0.12)
+                        : const Color(0xFFE2E8F0)),
               width: selected ? 2 : 1,
             ),
             boxShadow: selected
@@ -761,11 +759,7 @@ class _UtilitariosPhotoCollagePanelState
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                icon,
-                size: 18,
-                color: active ? Colors.white : colors.first,
-              ),
+              Icon(icon, size: 18, color: active ? Colors.white : colors.first),
               const SizedBox(width: 6),
               Flexible(
                 child: Text(

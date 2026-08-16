@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
 /// Carga da galeria de clientes (site divulgação).
 ///
@@ -44,9 +45,11 @@ abstract final class MarketingClientesLoadService {
     return s
         .split(RegExp(r'\s+'))
         .where((w) => w.isNotEmpty)
-        .map((w) => w.length <= 2
-            ? w.toUpperCase()
-            : '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}')
+        .map(
+          (w) => w.length <= 2
+              ? w.toUpperCase()
+              : '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}',
+        )
         .join(' ');
   }
 
@@ -69,8 +72,9 @@ abstract final class MarketingClientesLoadService {
     }
     final out = <Map<String, dynamic>>[];
     try {
-      final root =
-          firebaseDefaultStorage.ref(MarketingStorageLayout.clientesRootPrefix);
+      final root = firebaseDefaultStorage.ref(
+        MarketingStorageLayout.clientesRootPrefix,
+      );
       final listed = await root.listAll().timeout(
         const Duration(seconds: 18),
         onTimeout: () => throw TimeoutException('list clientes'),
@@ -103,8 +107,9 @@ abstract final class MarketingClientesLoadService {
                   n.endsWith('.jpeg') ||
                   n.endsWith('.webp') ||
                   n.endsWith('.png')) {
-                fotoPath =
-                    MarketingStorageLayout.normalizeObjectPath(r.fullPath);
+                fotoPath = MarketingStorageLayout.normalizeObjectPath(
+                  r.fullPath,
+                );
                 break;
               }
             }
@@ -131,12 +136,67 @@ abstract final class MarketingClientesLoadService {
     return out;
   }
 
-  /// Firestore → se vazio, Storage legado `public/gestao_yahweh/clientes/`.
-  static Future<({
+  static Future<List<Map<String, dynamic>>> _refreshPublishedItems(
     List<Map<String, dynamic>> items,
-    Map<String, dynamic>? docData,
-    String? warning,
-  })> loadResolved() async {
+  ) async {
+    if (items.isEmpty) return items;
+    return Future.wait(
+      items.map((item) async {
+        final id =
+            (item['tenantId'] ?? item['igrejaTenantId'] ?? item['id'] ?? '')
+                .toString()
+                .trim();
+        if (id.isEmpty) return item;
+        try {
+          final snap = await ChurchRepository.churchDoc(
+            id,
+          ).get().timeout(const Duration(seconds: 5));
+          final source = snap.data();
+          if (source == null || source.isEmpty) return item;
+          final out = <String, dynamic>{...item};
+          String value(List<String> keys) {
+            for (final key in keys) {
+              final v = source[key]?.toString().trim() ?? '';
+              if (v.isNotEmpty) return v;
+            }
+            return '';
+          }
+
+          void setIfPresent(String key, List<String> aliases) {
+            final v = value(aliases);
+            if (v.isNotEmpty) out[key] = v;
+          }
+
+          setIfPresent('nomeIgreja', ['nome', 'name', 'nomeIgreja']);
+          setIfPresent('pastor', ['pastor', 'pastorNome', 'responsavel']);
+          setIfPresent('gestor', ['gestorNome', 'responsavel', 'gestor']);
+          setIfPresent('whatsapp', ['whatsapp', 'telefone', 'phone']);
+          setIfPresent('site', ['sitePublico', 'siteUrl', 'website', 'site']);
+          setIfPresent('localizacao', [
+            'localizacao',
+            'enderecoCompleto',
+            'endereco',
+            'cidade',
+          ]);
+          setIfPresent('logoUrl', ['logoUrl', 'urlLogo', 'logo']);
+          setIfPresent('logoPath', ['logoPath', 'storageLogoPath']);
+          return out;
+        } catch (_) {
+          return item;
+        }
+      }),
+    );
+  }
+
+  /// Firestore → se vazio, Storage legado `public/gestao_yahweh/clientes/`.
+  static Future<
+    ({
+      List<Map<String, dynamic>> items,
+      Map<String, dynamic>? docData,
+      String? warning,
+    })
+  >
+  loadResolved() async {
     Map<String, dynamic>? docData;
     try {
       final snap = await docRef.get().timeout(const Duration(seconds: 12));
@@ -148,23 +208,21 @@ abstract final class MarketingClientesLoadService {
     }
 
     var items = parseItems(docData);
+    items = await _refreshPublishedItems(items);
     if (items.isNotEmpty) {
       return (items: items, docData: docData, warning: null);
     }
 
     final legacy = await loadFromStorageLegacy();
     if (legacy.isNotEmpty) {
-      return (
-        items: legacy,
-        docData: docData,
-        warning: null,
-      );
+      return (items: legacy, docData: docData, warning: null);
     }
 
     return (
       items: <Map<String, dynamic>>[],
       docData: docData,
-      warning: 'Nenhuma igreja em destaque. Cadastre em Divulgação → Clientes ou envie capas para '
+      warning:
+          'Nenhuma igreja em destaque. Cadastre em Divulgação → Clientes ou envie capas para '
           '${MarketingStorageLayout.clientesRootPrefix}/[id]/capa.jpg no Storage.',
     );
   }

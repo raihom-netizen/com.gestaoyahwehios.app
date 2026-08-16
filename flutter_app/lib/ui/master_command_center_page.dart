@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/services/master_churches_list_service.dart';
+import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/services/master_dashboard_cache_service.dart';
 import 'package:gestao_yahweh/services/subscription_guard.dart';
 import 'package:gestao_yahweh/ui/admin_dashboard_page.dart';
@@ -25,7 +26,8 @@ class MasterCommandCenterPage extends StatefulWidget {
   final bool Function(AdminMenuItem item)? moduleVisible;
 
   @override
-  State<MasterCommandCenterPage> createState() => _MasterCommandCenterPageState();
+  State<MasterCommandCenterPage> createState() =>
+      _MasterCommandCenterPageState();
 }
 
 class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
@@ -114,7 +116,10 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
     final b = StringBuffer('id,nome,plano,status\n');
     for (final item in items) {
       final data = item.data;
-      final nome = (data['nome'] ?? data['name'] ?? '').toString().replaceAll(',', ' ');
+      final nome = (data['nome'] ?? data['name'] ?? '').toString().replaceAll(
+        ',',
+        ' ',
+      );
       final plano = (data['plano'] ?? data['planId'] ?? '').toString();
       final st = SubscriptionGuard.evaluate(church: data).masterBadgeLabel;
       b.writeln('${item.id},$nome,$plano,$st');
@@ -122,7 +127,9 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
     await Clipboard.setData(ClipboardData(text: b.toString()));
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('CSV copiado para a área de transferência.')),
+        const SnackBar(
+          content: Text('CSV copiado para a área de transferência.'),
+        ),
       );
     }
   }
@@ -157,16 +164,13 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const MasterExecutiveHeader(),
         Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
-              colors: [
-                Color(0xFF0D9488),
-                Color(0xFF2563EB),
-                Color(0xFF7C3AED),
-              ],
+              colors: [Color(0xFF0D9488), Color(0xFF2563EB), Color(0xFF7C3AED)],
             ),
           ),
           child: TabBar(
@@ -188,7 +192,12 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
               RefreshIndicator(
                 onRefresh: () => _loadSummary(force: true),
                 child: ListView(
-                  padding: EdgeInsets.fromLTRB(pad.left, pad.top, pad.right, 32),
+                  padding: EdgeInsets.fromLTRB(
+                    pad.left,
+                    pad.top,
+                    pad.right,
+                    32,
+                  ),
                   children: [
                     MasterModuleSectionTitle(
                       title: 'Command Center',
@@ -217,9 +226,12 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
                         padding: const EdgeInsets.only(bottom: 8),
                         child: LinearProgressIndicator(
                           minHeight: 2,
-                          color: ThemeCleanPremium.primary.withValues(alpha: 0.7),
-                          backgroundColor:
-                              ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                          color: ThemeCleanPremium.primary.withValues(
+                            alpha: 0.7,
+                          ),
+                          backgroundColor: ThemeCleanPremium.primary.withValues(
+                            alpha: 0.12,
+                          ),
                         ),
                       ),
                     const SizedBox(height: 8),
@@ -236,7 +248,9 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
                               value: '${s.igrejas}',
                               icon: Icons.church_rounded,
                               accent: const Color(0xFF2563EB),
-                              onTap: () => widget.onNavigateTo(AdminMenuItem.igrejasLista),
+                              onTap: () => widget.onNavigateTo(
+                                AdminMenuItem.igrejasLista,
+                              ),
                             ),
                             MasterKpiCard(
                               label: 'Membros',
@@ -246,24 +260,27 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
                               subtitle: s.membrosTotal > s.usuarios
                                   ? '${s.usuarios} contas auth'
                                   : null,
-                              onTap: () =>
-                                  widget.onNavigateTo(AdminMenuItem.igrejasUsuarios),
+                              onTap: () => widget.onNavigateTo(
+                                AdminMenuItem.igrejasUsuarios,
+                              ),
                             ),
                             MasterKpiCard(
                               label: 'Licenças ativas',
                               value: '${s.licencasAtivas}',
                               icon: Icons.verified_rounded,
                               accent: const Color(0xFF16A34A),
-                              onTap: () =>
-                                  widget.onNavigateTo(AdminMenuItem.igrejasPlanos),
+                              onTap: () => widget.onNavigateTo(
+                                AdminMenuItem.igrejasPlanos,
+                              ),
                             ),
                             MasterKpiCard(
                               label: 'Receita (amostra)',
                               value: brl.format(s.receita),
                               icon: Icons.payments_rounded,
                               accent: const Color(0xFFF59E0B),
-                              onTap: () => widget
-                                  .onNavigateTo(AdminMenuItem.igrejasRecebimentos),
+                              onTap: () => widget.onNavigateTo(
+                                AdminMenuItem.igrejasRecebimentos,
+                              ),
                             ),
                             MasterKpiCard(
                               label: 'Alertas',
@@ -273,18 +290,22 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
                               subtitle: s.vencimentos7d > 0
                                   ? '${s.vencimentos7d} vencem em 7d'
                                   : null,
-                              onTap: () =>
-                                  widget.onNavigateTo(AdminMenuItem.sistemaAlertas),
+                              onTap: () => widget.onNavigateTo(
+                                AdminMenuItem.sistemaAlertas,
+                              ),
                             ),
                           ];
                           return Wrap(
                             spacing: 12,
                             runSpacing: 12,
                             children: children
-                                .map((w) => SizedBox(
-                                      width: (c.maxWidth - 12 * (cols - 1)) / cols,
-                                      child: w,
-                                    ))
+                                .map(
+                                  (w) => SizedBox(
+                                    width:
+                                        (c.maxWidth - 12 * (cols - 1)) / cols,
+                                    child: w,
+                                  ),
+                                )
                                 .toList(),
                           );
                         },
@@ -380,11 +401,13 @@ class _ClientsTabState extends State<_ClientsTab> {
       _loadError = null;
     });
     try {
-      var list = await MasterChurchesListService.loadFast(force: force)
-          .timeout(const Duration(seconds: 22));
+      var list = await MasterChurchesListService.loadFast(
+        force: force,
+      ).timeout(const Duration(seconds: 22));
       if (list.isEmpty && !force) {
-        list = await MasterChurchesListService.loadFast(force: true)
-            .timeout(const Duration(seconds: 25));
+        list = await MasterChurchesListService.loadFast(
+          force: true,
+        ).timeout(const Duration(seconds: 25));
       }
       if (!mounted) return;
       setState(() {
@@ -396,20 +419,49 @@ class _ClientsTabState extends State<_ClientsTab> {
       final mem = MasterChurchesListService.peekMemory();
       setState(() {
         _churches = mem ?? const [];
-        _loadError = mem == null || mem.isEmpty ? e.toString() : null;
+        _loadError = mem == null || mem.isEmpty
+            ? MasterAdminFirestore.formatLoadError(e)
+            : null;
         _loading = false;
       });
     }
   }
 
+  List<MasterChurchListItem> _ordered(List<MasterChurchListItem> source) {
+    int priority(MasterChurchListItem item) {
+      final name = (item.data['nome'] ?? item.data['name'] ?? '')
+          .toString()
+          .toLowerCase();
+      if (name.contains('brasil para cristo')) return 0;
+      if (name.contains('batista')) return 1;
+      return 2;
+    }
+
+    final out = List<MasterChurchListItem>.from(source);
+    out.sort((a, b) {
+      final p = priority(a).compareTo(priority(b));
+      if (p != 0) return p;
+      final an = (a.data['nome'] ?? a.data['name'] ?? a.id)
+          .toString()
+          .toLowerCase();
+      final bn = (b.data['nome'] ?? b.data['name'] ?? b.id)
+          .toString()
+          .toLowerCase();
+      return an.compareTo(bn);
+    });
+    return out;
+  }
+
   List<MasterChurchListItem> get _filtered {
     final search = widget.search;
-    if (search.isEmpty) return _churches;
-    return _churches.where((item) {
-      final data = item.data;
-      final nome = '${data['nome'] ?? data['name'] ?? ''}'.toLowerCase();
-      return nome.contains(search) || item.id.toLowerCase().contains(search);
-    }).toList();
+    if (search.isEmpty) return _ordered(_churches);
+    return _ordered(
+      _churches.where((item) {
+        final data = item.data;
+        final nome = '${data['nome'] ?? data['name'] ?? ''}'.toLowerCase();
+        return nome.contains(search) || item.id.toLowerCase().contains(search);
+      }).toList(),
+    );
   }
 
   @override
@@ -446,34 +498,36 @@ class _ClientsTabState extends State<_ClientsTab> {
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : items.isEmpty && _loadError != null
-                  ? Center(
-                      child: Padding(
-                        padding: pad,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'Erro ao carregar clientes.',
-                              style: TextStyle(color: ThemeCleanPremium.error),
-                            ),
-                            const SizedBox(height: 12),
-                            FilledButton.icon(
-                              onPressed: () => _loadChurches(force: true),
-                              icon: const Icon(Icons.refresh_rounded),
-                              label: const Text('Tentar novamente'),
-                            ),
-                          ],
+              ? Center(
+                  child: Padding(
+                    padding: pad,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Erro ao carregar clientes.',
+                          style: TextStyle(color: ThemeCleanPremium.error),
                         ),
-                      ),
-                    )
-                  : Column(
+                        const SizedBox(height: 12),
+                        FilledButton.icon(
+                          onPressed: () => _loadChurches(force: true),
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: const Text('Tentar novamente'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : Column(
                   children: [
                     Padding(
                       padding: EdgeInsets.symmetric(horizontal: pad.left),
                       child: Row(
                         children: [
-                          Text('${items.length} clientes',
-                              style: const TextStyle(fontWeight: FontWeight.w600)),
+                          Text(
+                            '${items.length} clientes',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
                           const Spacer(),
                           TextButton.icon(
                             onPressed: items.isEmpty
@@ -494,55 +548,65 @@ class _ClientsTabState extends State<_ClientsTab> {
                                   'Puxe para atualizar ou use o botão de refresh.',
                             )
                           : ListView.builder(
-                        padding: EdgeInsets.fromLTRB(pad.left, 8, pad.right, 24),
-                        itemCount: items.length,
-                        itemBuilder: (_, i) {
-                          final item = items[i];
-                          final data = item.data;
-                          final nome =
-                              (data['nome'] ?? data['name'] ?? item.id).toString();
-                          final plano =
-                              (data['plano'] ?? data['planId'] ?? '—').toString();
-                          return MasterPremiumCard(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            child: InkWell(
-                              onTap: () => widget.onOpen(item.id, data),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                              padding: EdgeInsets.fromLTRB(
+                                pad.left,
+                                8,
+                                pad.right,
+                                24,
+                              ),
+                              itemCount: items.length,
+                              itemBuilder: (_, i) {
+                                final item = items[i];
+                                final data = item.data;
+                                final nome =
+                                    (data['nome'] ?? data['name'] ?? item.id)
+                                        .toString();
+                                final plano =
+                                    (data['plano'] ?? data['planId'] ?? '—')
+                                        .toString();
+                                return MasterPremiumCard(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  child: InkWell(
+                                    onTap: () => widget.onOpen(item.id, data),
+                                    child: Row(
                                       children: [
-                                        Text(nome,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 15,
-                                            )),
-                                        Text(
-                                          '$plano · ${item.id}',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade600,
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                nome,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 15,
+                                                ),
+                                              ),
+                                              Text(
+                                                '$plano · ${item.id}',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: Colors.grey.shade600,
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
+                                        MasterHealthChip(
+                                          health: widget.healthFor(data),
+                                          compact: true,
+                                        ),
+                                        const Icon(Icons.chevron_right_rounded),
                                       ],
                                     ),
                                   ),
-                                  MasterHealthChip(
-                                    health: widget.healthFor(data),
-                                    compact: true,
-                                  ),
-                                  const Icon(Icons.chevron_right_rounded),
-                                ],
-                              ),
+                                );
+                              },
                             ),
-                          );
-                        },
-                      ),
                     ),
                   ],
                 ),
@@ -565,9 +629,17 @@ class _QuickModulesGrid extends StatelessWidget {
     (AdminMenuItem.sistemaAuditoria, Icons.history_rounded, 'Auditoria'),
     (AdminMenuItem.sistemaFeatureFlags, Icons.toggle_on_rounded, 'Flags'),
     (AdminMenuItem.sistemaAvisoGlobal, Icons.campaign_rounded, 'Comunicação'),
-    (AdminMenuItem.sistemaLegalDocumentos, Icons.policy_rounded, 'Termos / Privacidade'),
+    (
+      AdminMenuItem.sistemaLegalDocumentos,
+      Icons.policy_rounded,
+      'Termos / Privacidade',
+    ),
     (AdminMenuItem.sistemaArmazenamento, Icons.storage_rounded, 'Storage'),
-    (AdminMenuItem.sistemaMultiAdmin, Icons.admin_panel_settings_rounded, 'Admins'),
+    (
+      AdminMenuItem.sistemaMultiAdmin,
+      Icons.admin_panel_settings_rounded,
+      'Admins',
+    ),
   ];
 
   @override
@@ -586,6 +658,80 @@ class _QuickModulesGrid extends StatelessWidget {
               ),
             )
             .toList(),
+      ),
+    );
+  }
+}
+
+class MasterExecutiveHeader extends StatelessWidget {
+  const MasterExecutiveHeader({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0F172A), Color(0xFF1E3A5F)],
+        ),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 16,
+        runSpacing: 10,
+        children: [
+          const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.shield_rounded, color: Color(0xFF67E8F9), size: 22),
+              SizedBox(width: 10),
+              Text(
+                "Centro de Controle Master",
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _masterPill(Icons.circle, "Operação protegida"),
+              const SizedBox(width: 8),
+              _masterPill(Icons.verified_user_rounded, "Raíhom · Isabelle"),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _masterPill(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: const Color(0xFF86EFAC)),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }

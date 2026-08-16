@@ -54,6 +54,7 @@ class ChurchDonationsPage extends StatefulWidget {
   final String tenantId;
   final String role;
   final String? cpf;
+
   /// Dentro de [IgrejaCleanShell]: sem AppBar duplicada; abas “pill” no corpo.
   final bool embeddedInShell;
 
@@ -83,6 +84,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   bool _gerando = false;
   bool _pixMode = true;
   int _parcelas = 1;
+
   /// `dizimo` | `oferta` — enviado ao MP (metadata) e ao financeiro via webhook.
   String _donationKind = 'dizimo';
   String? _memberDocIdForDonation;
@@ -96,10 +98,10 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
   int _donationLoadRetryGen = 0;
 
   String get _effectiveTenantId => ChurchPanelTenant.resolve(
-        (_operationalTenantId ?? '').isNotEmpty
-            ? _operationalTenantId
-            : widget.tenantId,
-      );
+    (_operationalTenantId ?? '').isNotEmpty
+        ? _operationalTenantId
+        : widget.tenantId,
+  );
 
   @override
   void initState() {
@@ -142,8 +144,7 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       _contas = result.contas;
       if (result.contas.isNotEmpty) {
         _contaId ??= result.contas.first.id;
-        if (_contaId != null &&
-            !result.contas.any((e) => e.id == _contaId)) {
+        if (_contaId != null && !result.contas.any((e) => e.id == _contaId)) {
           _contaId = result.contas.first.id;
         }
         _erro = null;
@@ -186,25 +187,28 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       });
     }
 
-    final result = await ChurchDonationLoadService.load(
-      seedTenantId: widget.tenantId.trim(),
-      forceRefresh: _contas.isEmpty,
-    ).timeout(
-      kIsWeb
-          ? PanelResilientLoad.webLoadingCap
-          : const Duration(seconds: 40),
-      onTimeout: () => ChurchDonationLoadResult(
-        churchId: churchId,
-        contas: ChurchDonationLoadService.peekContasRam(churchId) ?? const [],
-        mercadoPagoReady:
-            ChurchDonationLoadService.peekConfigReadyRam(churchId) ?? false,
-        mercadoPagoConfig:
-            ChurchDonationLoadService.peekConfigDocRam(churchId) ?? const {},
-        readSource: 'timeout',
-        softError:
-            'A conexão demorou demais. Toque em recarregar ou abra Financeiro → Contas.',
-      ),
-    );
+    final result =
+        await ChurchDonationLoadService.load(
+          seedTenantId: widget.tenantId.trim(),
+          forceRefresh: _contas.isEmpty,
+        ).timeout(
+          kIsWeb
+              ? PanelResilientLoad.webLoadingCap
+              : const Duration(seconds: 40),
+          onTimeout: () => ChurchDonationLoadResult(
+            churchId: churchId,
+            contas:
+                ChurchDonationLoadService.peekContasRam(churchId) ?? const [],
+            mercadoPagoReady:
+                ChurchDonationLoadService.peekConfigReadyRam(churchId) ?? false,
+            mercadoPagoConfig:
+                ChurchDonationLoadService.peekConfigDocRam(churchId) ??
+                const {},
+            readSource: 'timeout',
+            softError:
+                'A conexão demorou demais. Toque em recarregar ou abra Financeiro → Contas.',
+          ),
+        );
     _applyDonationLoadResult(result);
 
     if (result.contas.isEmpty) {
@@ -236,11 +240,13 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
 
     try {
       final fn =
-          FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
-          .httpsCallable(
-        'syncChurchMercadoPagoFromCluster',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 12)),
-      );
+          FirebaseFunctions.instanceFor(
+            app: firebaseDefaultApp,
+            region: 'us-central1',
+          ).httpsCallable(
+            'syncChurchMercadoPagoFromCluster',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 12)),
+          );
       await fn
           .call(<String, dynamic>{'tenantId': tid})
           .timeout(const Duration(seconds: 12));
@@ -258,11 +264,13 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     if (tid.isEmpty) return;
     try {
       final callable =
-          FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
-          .httpsCallable(
-        'ensureChurchTreasuryAccountPresets',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 15)),
-      );
+          FirebaseFunctions.instanceFor(
+            app: firebaseDefaultApp,
+            region: 'us-central1',
+          ).httpsCallable(
+            'ensureChurchTreasuryAccountPresets',
+            options: HttpsCallableOptions(timeout: const Duration(seconds: 15)),
+          );
       await callable
           .call(<String, dynamic>{'tenantId': tid})
           .timeout(const Duration(seconds: 15));
@@ -397,7 +405,8 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     if (v < 1) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Informe um valor válido (mínimo R\$ 1,00).')),
+          content: Text('Informe um valor válido (mínimo R\$ 1,00).'),
+        ),
       );
       return;
     }
@@ -415,29 +424,36 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       _erro = null;
     });
     try {
-      final callable =
-          FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
-          .httpsCallable('createChurchDonationPix');
+      final callable = FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      ).httpsCallable('createChurchDonationPix');
       final res = await callable
           .call(<String, dynamic>{
-        'tenantId': _effectiveTenantId,
-        'amount': v,
-        'donorName': nome,
-        'payerEmail': _emailCtrl.text.trim(),
-        'contaDestinoId': _contaId ?? '',
-        'memberId': _memberDocIdForDonation ?? '',
-        'memberCpf': _onlyDigits(widget.cpf),
-        'donationKind': _donationKind,
-        'donationObs': _obsCtrl.text.trim(),
-      })
+            'tenantId': _effectiveTenantId,
+            'amount': v,
+            'donorName': nome,
+            'payerEmail': _emailCtrl.text.trim(),
+            'contaDestinoId': _contaId ?? '',
+            'memberId': _memberDocIdForDonation ?? '',
+            'memberCpf': _onlyDigits(widget.cpf),
+            'donationKind': _donationKind,
+            'donationObs': _obsCtrl.text.trim(),
+          })
           .timeout(
-        const Duration(seconds: 50),
-        onTimeout: () => throw TimeoutException(
-          'O Mercado Pago demorou demais. Verifique a conexão e tente de novo.',
-        ),
-      );
+            const Duration(seconds: 50),
+            onTimeout: () => throw TimeoutException(
+              'O Mercado Pago demorou demais. Verifique a conexão e tente de novo.',
+            ),
+          );
       final data = Map<String, dynamic>.from(res.data as Map? ?? {});
-      final qr = (data['qr_code'] ?? '').toString();
+      final qr =
+          (data['qr_code'] ??
+                  data['pix_copia_cola'] ??
+                  data['pix_copy_paste'] ??
+                  '')
+              .toString()
+              .trim();
       if (mounted) {
         setState(() {
           _qrPayload = qr.isNotEmpty ? qr : null;
@@ -454,8 +470,10 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       if (mounted && qr.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(
-                  'PIX gerado (id $_paymentId), mas o QR não veio na resposta. Tente de novo ou verifique o MP.')),
+            content: Text(
+              'PIX gerado (id $_paymentId), mas o QR não veio na resposta. Tente de novo ou verifique o MP.',
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -464,9 +482,9 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
           _gerando = false;
           _erro = formatFirebaseErrorForUser(e);
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(formatFirebaseErrorForUser(e))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(formatFirebaseErrorForUser(e))));
       }
     }
   }
@@ -486,7 +504,8 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     if (v < 1) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Informe um valor válido (mínimo R\$ 1,00).')),
+          content: Text('Informe um valor válido (mínimo R\$ 1,00).'),
+        ),
       );
       return;
     }
@@ -502,32 +521,39 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
       _erro = null;
     });
     try {
-      final callable =
-          FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1')
-          .httpsCallable('createChurchDonationPreference');
+      final callable = FirebaseFunctions.instanceFor(
+        app: firebaseDefaultApp,
+        region: 'us-central1',
+      ).httpsCallable('createChurchDonationPreference');
       final res = await callable
           .call(<String, dynamic>{
-        'tenantId': _effectiveTenantId,
-        'amount': v,
-        'donorName': nome,
-        'payerEmail': _emailCtrl.text.trim(),
-        'contaDestinoId': _contaId ?? '',
-        'memberId': _memberDocIdForDonation ?? '',
-        'memberCpf': _onlyDigits(widget.cpf),
-        'returnUrl': _churchPanelDonationReturnUrl(),
-        'maxInstallments': _parcelas,
-        'donationKind': _donationKind,
-        'donationObs': _obsCtrl.text.trim(),
-        'paymentMethod': 'card',
-      })
+            'tenantId': _effectiveTenantId,
+            'amount': v,
+            'donorName': nome,
+            'payerEmail': _emailCtrl.text.trim(),
+            'contaDestinoId': _contaId ?? '',
+            'memberId': _memberDocIdForDonation ?? '',
+            'memberCpf': _onlyDigits(widget.cpf),
+            'returnUrl': _churchPanelDonationReturnUrl(),
+            'maxInstallments': _parcelas,
+            'donationKind': _donationKind,
+            'donationObs': _obsCtrl.text.trim(),
+            'paymentMethod': 'card',
+          })
           .timeout(
-        const Duration(seconds: 50),
-        onTimeout: () => throw TimeoutException(
-          'O Mercado Pago demorou demais. Verifique a conexão e tente de novo.',
-        ),
-      );
+            const Duration(seconds: 50),
+            onTimeout: () => throw TimeoutException(
+              'O Mercado Pago demorou demais. Verifique a conexão e tente de novo.',
+            ),
+          );
       final data = Map<String, dynamic>.from(res.data as Map? ?? {});
-      final url = (data['init_point'] ?? '').toString().trim();
+      final url =
+          (data['init_point'] ??
+                  data['sandbox_init_point'] ??
+                  data['checkout_url'] ??
+                  '')
+              .toString()
+              .trim();
       if (url.isEmpty) {
         throw Exception('Link do Mercado Pago não retornado.');
       }
@@ -547,9 +573,9 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
           _gerando = false;
           _erro = formatFirebaseErrorForUser(e);
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(formatFirebaseErrorForUser(e))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(formatFirebaseErrorForUser(e))));
       }
     }
   }
@@ -577,151 +603,159 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
         return Padding(
           padding: const EdgeInsets.only(top: 10),
           child: ClipRRect(
-            borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
             child: SizedBox(
               height: maxH,
               child: ColoredBox(
                 color: Colors.white,
                 child: Column(
                   children: [
-                  const SizedBox(height: 10),
-                  Container(
-                    width: 44,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.fromLTRB(18, 16, 8, 16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [primary, deep],
+                    const SizedBox(height: 10),
+                    Container(
+                      width: 44,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(99),
                       ),
                     ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: const Icon(Icons.qr_code_2_rounded,
-                              color: Colors.white, size: 26),
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'PIX pronto para pagar',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 18,
-                                  letterSpacing: -0.3,
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                'Escaneie ou copie — confirmação em segundos',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 12.5,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: 'Fechar',
-                          onPressed: () => Navigator.pop(ctx),
-                          icon:
-                              const Icon(Icons.close_rounded, color: Colors.white),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-                      child: Column(
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(18, 16, 8, 16),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(colors: [primary, deep]),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Center(
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                    color: const Color(0xFFE2E8F0)),
-                                boxShadow: ThemeCleanPremium.softUiCardShadow,
-                              ),
-                              child: QrImageView(
-                                data: qr,
-                                version: QrVersions.auto,
-                                size: 240,
-                                backgroundColor: Colors.white,
-                              ),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Icon(
+                              Icons.qr_code_2_rounded,
+                              color: Colors.white,
+                              size: 26,
                             ),
                           ),
-                          const SizedBox(height: 18),
-                          FilledButton.icon(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              elevation: 3,
-                            ),
-                            onPressed: () async {
-                              await Clipboard.setData(ClipboardData(text: qr));
-                              if (ctx.mounted) {
-                                ScaffoldMessenger.of(ctx).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Código PIX copiado.'),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'PIX pronto para pagar',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 18,
+                                    letterSpacing: -0.3,
                                   ),
-                                );
-                              }
-                            },
-                            icon: const Icon(Icons.copy_rounded),
-                            label: const Text(
-                              'Copiar PIX copia e cola',
-                              style: TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Escaneie ou copie — confirmação em segundos',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 12.5,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 14),
-                          SelectableText(
-                            qr,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade800,
+                          IconButton(
+                            tooltip: 'Fechar',
+                            onPressed: () => Navigator.pop(ctx),
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              color: Colors.white,
                             ),
                           ),
-                          if (_paymentId != null && _paymentId!.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            Text(
-                              'Pagamento MP: $_paymentId',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                     ),
-                  ),
-                ],
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+                        child: Column(
+                          children: [
+                            Center(
+                              child: Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
+                                  ),
+                                  boxShadow: ThemeCleanPremium.softUiCardShadow,
+                                ),
+                                child: QrImageView(
+                                  data: qr,
+                                  version: QrVersions.auto,
+                                  size: 240,
+                                  backgroundColor: Colors.white,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+                            FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                elevation: 3,
+                              ),
+                              onPressed: () async {
+                                await Clipboard.setData(
+                                  ClipboardData(text: qr),
+                                );
+                                if (ctx.mounted) {
+                                  ScaffoldMessenger.of(ctx).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Código PIX copiado.'),
+                                    ),
+                                  );
+                                }
+                              },
+                              icon: const Icon(Icons.copy_rounded),
+                              label: const Text(
+                                'Copiar PIX copia e cola',
+                                style: TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            SelectableText(
+                              qr,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade800,
+                              ),
+                            ),
+                            if (_paymentId != null &&
+                                _paymentId!.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                'Pagamento MP: $_paymentId',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -747,7 +781,8 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                  'Não foi possível abrir o navegador. Acesse o link manualmente.'),
+                'Não foi possível abrir o navegador. Acesse o link manualmente.',
+              ),
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -767,26 +802,32 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
         if (!mounted) return;
         setState(() => _checkoutEmbedUrl = null);
         final status = mpPaymentReturnStatus(u);
-        final rejected = status == 'rejected' || status == 'cancelled' || status == 'failure';
+        final rejected =
+            status == 'rejected' ||
+            status == 'cancelled' ||
+            status == 'failure';
         final approved = status == 'approved' || status == 'success';
         final String title;
         final String message;
         final IconData icon;
         if (rejected) {
           title = 'Pagamento não confirmado';
-          message = 'O Mercado Pago não confirmou este pagamento (recusado ou cancelado). '
+          message =
+              'O Mercado Pago não confirmou este pagamento (recusado ou cancelado). '
               'Se algum valor foi debitado, ele é estornado automaticamente. '
               'Você pode tentar novamente quando quiser.';
           icon = Icons.error_outline_rounded;
         } else if (approved) {
           title = 'Obrigado pela contribuição!';
-          message = 'Pagamento aprovado pelo Mercado Pago. '
+          message =
+              'Pagamento aprovado pelo Mercado Pago. '
               'O lançamento entra no Financeiro em instantes (webhook). '
               'Que Deus abençoe a sua semente.';
           icon = Icons.volunteer_activism_rounded;
         } else {
           title = 'Recebemos sua doação!';
-          message = 'Estamos aguardando a confirmação do Mercado Pago (pode levar alguns minutos, '
+          message =
+              'Estamos aguardando a confirmação do Mercado Pago (pode levar alguns minutos, '
               'principalmente no Pix). Assim que for aprovado, o lançamento entra automaticamente no Financeiro.';
           icon = Icons.hourglass_top_rounded;
         }
@@ -799,9 +840,13 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
             ),
             title: Row(
               children: [
-                Icon(icon,
-                    color: rejected ? ThemeCleanPremium.error : ThemeCleanPremium.primary,
-                    size: 28),
+                Icon(
+                  icon,
+                  color: rejected
+                      ? ThemeCleanPremium.error
+                      : ThemeCleanPremium.primary,
+                  size: 28,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -837,11 +882,15 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
     final mode = (_mercadoPagoConfig['mode'] ?? '').toString().trim();
     final publicKey = (_mercadoPagoConfig['publicKey'] ?? '').toString().trim();
     final clientId = (_mercadoPagoConfig['clientId'] ?? '').toString().trim();
-    final webhook =
-        (_mercadoPagoConfig['notificationWebhookUrl'] ?? '').toString().trim();
-    final statusText = _mercadoPagoReady ? 'Integração ativa' : 'Integração pendente';
-    final statusColor =
-        _mercadoPagoReady ? const Color(0xFF16A34A) : const Color(0xFFD97706);
+    final webhook = (_mercadoPagoConfig['notificationWebhookUrl'] ?? '')
+        .toString()
+        .trim();
+    final statusText = _mercadoPagoReady
+        ? 'Integração ativa'
+        : 'Integração pendente';
+    final statusColor = _mercadoPagoReady
+        ? const Color(0xFF16A34A)
+        : const Color(0xFFD97706);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -899,16 +948,39 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
 
     final embedded = widget.embeddedInShell;
     return Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: embedded
-            ? null
-            : AppBar(
-                backgroundColor: ThemeCleanPremium.primary,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                title: const SizedBox.shrink(),
-                toolbarHeight: 48,
-                bottom: ChurchPanelPillTabBar(
+      backgroundColor: Colors.transparent,
+      appBar: embedded
+          ? null
+          : AppBar(
+              backgroundColor: ThemeCleanPremium.primary,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              title: const SizedBox.shrink(),
+              toolbarHeight: 48,
+              bottom: ChurchPanelPillTabBar(
+                dense: true,
+                controller: _tabCtrl,
+                tabs: const [
+                  Tab(
+                    text: 'Contribuir',
+                    icon: Icon(Icons.volunteer_activism_rounded, size: 18),
+                  ),
+                  Tab(
+                    text: 'Histórico',
+                    icon: Icon(Icons.history_rounded, size: 18),
+                  ),
+                ],
+              ),
+            ),
+      body: SafeArea(
+        top: !embedded,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (embedded)
+              Container(
+                color: ThemeCleanPremium.primary,
+                child: ChurchPanelPillTabBar(
                   dense: true,
                   controller: _tabCtrl,
                   tabs: const [
@@ -923,470 +995,483 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
                   ],
                 ),
               ),
-        body: SafeArea(
-          top: !embedded,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (embedded)
-                Container(
-                  color: ThemeCleanPremium.primary,
-                  child: ChurchPanelPillTabBar(
-                    dense: true,
-                    controller: _tabCtrl,
-                    tabs: const [
-                      Tab(
-                        text: 'Contribuir',
-                        icon: Icon(Icons.volunteer_activism_rounded, size: 18),
-                      ),
-                      Tab(
-                        text: 'Histórico',
-                        icon: Icon(Icons.history_rounded, size: 18),
-                      ),
-                    ],
-                  ),
+            Expanded(
+              child: Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  gradient: ThemeCleanPremium.churchPanelBodyGradient,
                 ),
-              Expanded(
-                child: Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            gradient: ThemeCleanPremium.churchPanelBodyGradient,
-          ),
-          child: TabBarView(
-            controller: _tabCtrl,
-            children: [
-              ListView(
-          padding: ThemeCleanPremium.pagePadding(context),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    primary.withValues(alpha: 0.12),
-                    primary.withValues(alpha: 0.04),
-                  ],
-                ),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-                boxShadow: ThemeCleanPremium.softUiCardShadow,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              primary.withValues(alpha: 0.2),
-                              primary.withValues(alpha: 0.08),
+                child: TabBarView(
+                  controller: _tabCtrl,
+                  children: [
+                    ListView(
+                      padding: ThemeCleanPremium.pagePadding(context),
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusXl,
+                            ),
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                primary.withValues(alpha: 0.12),
+                                primary.withValues(alpha: 0.04),
+                              ],
+                            ),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                            boxShadow: ThemeCleanPremium.softUiCardShadow,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          primary.withValues(alpha: 0.2),
+                                          primary.withValues(alpha: 0.08),
+                                        ],
+                                      ),
+                                      borderRadius: BorderRadius.circular(
+                                        ThemeCleanPremium.radiusLg,
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      Icons.volunteer_activism_rounded,
+                                      color: primary,
+                                      size: 28,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'PIX ou cartão (Mercado Pago)',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 17,
+                                            letterSpacing: -0.3,
+                                            color: Colors.grey.shade900,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'O valor cai na conta MP da igreja. Super Premium: escolha dízimo ou oferta missionária — extrato e financeiro com nome completo do membro (cadastro) ou nome informado.',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.grey.shade700,
+                                            height: 1.4,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
-                          borderRadius:
-                              BorderRadius.circular(ThemeCleanPremium.radiusLg),
                         ),
-                        child: Icon(Icons.volunteer_activism_rounded,
-                            color: primary, size: 28),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'PIX ou cartão (Mercado Pago)',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 17,
-                                letterSpacing: -0.3,
-                                color: Colors.grey.shade900,
+                        const SizedBox(height: 16),
+                        Builder(
+                          builder: (ctx) {
+                            final pad = ThemeCleanPremium.pagePadding(ctx);
+                            return Container(
+                              margin: EdgeInsets.only(
+                                left: -pad.left,
+                                right: -pad.right,
+                                bottom: 2,
+                              ),
+                              child: ChurchPanelPillPair(
+                                valueIsA: _pixMode,
+                                onChanged: (v) {
+                                  setState(() {
+                                    _pixMode = v;
+                                    if (_pixMode) _checkoutEmbedUrl = null;
+                                  });
+                                },
+                                labelA: 'PIX',
+                                labelB: 'Cartão',
+                                iconA: Icons.qr_code_2_rounded,
+                                iconB: Icons.credit_card_rounded,
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 18),
+                        _buildMercadoPagoIntegrationStatusCard(),
+                        DonationKindSelectorGrid(
+                          value: _donationKind,
+                          accentColor: primary,
+                          onChanged: (k) => setState(() => _donationKind = k),
+                        ),
+                        const SizedBox(height: 18),
+                        TextField(
+                          controller: _valorCtrl,
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [BrCurrencyInputFormatter()],
+                          decoration: _inputDec(
+                            label: 'Valor (R\$)',
+                            icon: Icons.payments_outlined,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: _nomeCtrl,
+                          decoration: _inputDec(
+                            label: 'Nome do doador ou membro',
+                            icon: Icons.person_outline_rounded,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: _obsCtrl,
+                          maxLines: 2,
+                          maxLength: 240,
+                          decoration: _inputDec(
+                            label: _donationKind == 'dizimo'
+                                ? 'Observação (opcional — aparece no histórico)'
+                                : 'Observação da oferta (opcional)',
+                            icon: Icons.notes_rounded,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: _emailCtrl,
+                          keyboardType: TextInputType.emailAddress,
+                          decoration: _inputDec(
+                            label: 'E-mail (opcional, para recibo MP)',
+                            icon: Icons.alternate_email_rounded,
+                          ),
+                        ),
+                        if (!_pixMode) ...[
+                          const SizedBox(height: 20),
+                          InputDecorator(
+                            decoration: _inputDec(
+                              label: 'Parcelas no cartão (máximo)',
+                              icon: Icons.numbers_rounded,
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<int>(
+                                value: _parcelas,
+                                isExpanded: true,
+                                isDense: true,
+                                items: List.generate(
+                                  12,
+                                  (i) => DropdownMenuItem(
+                                    value: i + 1,
+                                    child: Text('${i + 1}×'),
+                                  ),
+                                ),
+                                onChanged: (v) =>
+                                    setState(() => _parcelas = v ?? 1),
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'O valor cai na conta MP da igreja. Super Premium: escolha dízimo ou oferta missionária — extrato e financeiro com nome completo do membro (cadastro) ou nome informado.',
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Ao gerar, o checkout abre num painel em destaque (mesma sessão). Se o iframe falhar, use “abrir em nova aba” no rodapé.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 18),
+                        if (_loadingContas)
+                          const LinearProgressIndicator(minHeight: 3)
+                        else if (_contas.isEmpty)
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.orange.shade200),
+                            ),
+                            child: Text(
+                              'É necessária uma conta Mercado Pago (código bancário 323) em Financeiro → Contas, '
+                              'com integração ativa em config/mercado_pago. '
+                              'Ou em Configurações → criar conta Mercado Pago na tesouraria. '
+                              'Outros bancos não entram nesta integração.',
                               style: TextStyle(
+                                color: Colors.orange.shade900,
                                 fontSize: 13,
-                                color: Colors.grey.shade700,
-                                height: 1.4,
+                                height: 1.35,
+                              ),
+                            ),
+                          )
+                        else
+                          DropdownButtonFormField<String>(
+                            key: ValueKey<String>(
+                              'mpconta_${_contaId ?? 'none'}',
+                            ),
+                            initialValue: _contaId,
+                            decoration: _inputDec(
+                              label: 'Conta (tesouraria) para conciliação',
+                              icon: Icons.account_balance_rounded,
+                            ),
+                            isExpanded: true,
+                            items: _contas
+                                .map(
+                                  (e) => DropdownMenuItem(
+                                    value: e.id,
+                                    child: Text(e.nome),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) => setState(() => _contaId = v),
+                          ),
+                        if (_erro != null) ...[
+                          const SizedBox(height: 14),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.red.shade200),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SelectableText(
+                                  _erro!,
+                                  style: TextStyle(
+                                    color: Colors.red.shade900,
+                                    fontSize: 12.5,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                TextButton.icon(
+                                  onPressed: _loadingContas
+                                      ? null
+                                      : () => unawaited(
+                                          _loadContas(forceRefresh: true),
+                                        ),
+                                  icon: const Icon(
+                                    Icons.refresh_rounded,
+                                    size: 18,
+                                  ),
+                                  label: const Text(
+                                    'Recarregar contas Mercado Pago',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 18),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _gerando
+                                    ? null
+                                    : () => Navigator.maybePop(context),
+                                icon: const Icon(
+                                  Icons.arrow_back_rounded,
+                                  size: 20,
+                                ),
+                                label: const Text(
+                                  'Voltar',
+                                  style: TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: deep,
+                                  side: BorderSide(
+                                    color: primary.withValues(alpha: 0.55),
+                                    width: 2,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                    horizontal: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _gerando
+                                    ? null
+                                    : _cancelarFluxoDoacao,
+                                icon: const Icon(Icons.close_rounded, size: 20),
+                                label: const Text(
+                                  'Cancelar',
+                                  style: TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: Colors.grey.shade800,
+                                  side: BorderSide(
+                                    color: Colors.grey.shade400,
+                                    width: 2,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 14,
+                                    horizontal: 12,
+                                  ),
+                                ),
                               ),
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Builder(
-              builder: (ctx) {
-                final pad = ThemeCleanPremium.pagePadding(ctx);
-                return Container(
-                  margin: EdgeInsets.only(
-                    left: -pad.left,
-                    right: -pad.right,
-                    bottom: 2,
-                  ),
-                  child: ChurchPanelPillPair(
-                    valueIsA: _pixMode,
-                    onChanged: (v) {
-                      setState(() {
-                        _pixMode = v;
-                        if (_pixMode) _checkoutEmbedUrl = null;
-                      });
-                    },
-                    labelA: 'PIX',
-                    labelB: 'Cartão',
-                    iconA: Icons.qr_code_2_rounded,
-                    iconB: Icons.credit_card_rounded,
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 18),
-            _buildMercadoPagoIntegrationStatusCard(),
-            DonationKindSelectorGrid(
-              value: _donationKind,
-              accentColor: primary,
-              onChanged: (k) => setState(() => _donationKind = k),
-            ),
-            const SizedBox(height: 18),
-            TextField(
-              controller: _valorCtrl,
-              keyboardType: TextInputType.number,
-              inputFormatters: [BrCurrencyInputFormatter()],
-              decoration: _inputDec(
-                label: 'Valor (R\$)',
-                icon: Icons.payments_outlined,
-              ),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _nomeCtrl,
-              decoration: _inputDec(
-                label: 'Nome do doador ou membro',
-                icon: Icons.person_outline_rounded,
-              ),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _obsCtrl,
-              maxLines: 2,
-              maxLength: 240,
-              decoration: _inputDec(
-                label: _donationKind == 'dizimo'
-                    ? 'Observação (opcional — aparece no histórico)'
-                    : 'Observação da oferta (opcional)',
-                icon: Icons.notes_rounded,
-              ),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _emailCtrl,
-              keyboardType: TextInputType.emailAddress,
-              decoration: _inputDec(
-                label: 'E-mail (opcional, para recibo MP)',
-                icon: Icons.alternate_email_rounded,
-              ),
-            ),
-            if (!_pixMode) ...[
-              const SizedBox(height: 20),
-              InputDecorator(
-                decoration: _inputDec(
-                  label: 'Parcelas no cartão (máximo)',
-                  icon: Icons.numbers_rounded,
-                ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<int>(
-                    value: _parcelas,
-                    isExpanded: true,
-                    isDense: true,
-                    items: List.generate(
-                      12,
-                      (i) => DropdownMenuItem(
-                        value: i + 1,
-                        child: Text('${i + 1}×'),
-                      ),
+                        const SizedBox(height: 22),
+                        Material(
+                          color: Colors.transparent,
+                          elevation: 0,
+                          child: InkWell(
+                            onTap:
+                                (_gerando ||
+                                    _loadingContas ||
+                                    _contas.isEmpty ||
+                                    !_mercadoPagoReady)
+                                ? null
+                                : _onPrimaryAction,
+                            borderRadius: BorderRadius.circular(
+                              ThemeCleanPremium.radiusLg,
+                            ),
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [primary, deep],
+                                ),
+                                borderRadius: BorderRadius.circular(
+                                  ThemeCleanPremium.radiusLg,
+                                ),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.35),
+                                  width: 1.2,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: primary.withValues(alpha: 0.45),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 8),
+                                  ),
+                                  ...ThemeCleanPremium.cardShadowHover,
+                                ],
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 17,
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    if (_gerando)
+                                      const SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    else
+                                      Icon(
+                                        _pixMode
+                                            ? Icons.qr_code_2_rounded
+                                            : Icons.payment_rounded,
+                                        color: Colors.white,
+                                        size: 22,
+                                      ),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      _gerando
+                                          ? 'Aguarde…'
+                                          : (_pixMode
+                                                ? 'Gerar código PIX'
+                                                : 'Abrir checkout (cartão ou PIX)'),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 16,
+                                        letterSpacing: -0.2,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (_pixMode &&
+                            _qrPayload != null &&
+                            _qrPayload!.isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: primary,
+                              side: BorderSide(
+                                color: primary.withValues(alpha: 0.65),
+                                width: 2,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                                horizontal: 16,
+                              ),
+                            ),
+                            onPressed: _showPixPreviewModal,
+                            icon: const Icon(Icons.open_in_full_rounded),
+                            label: const Text(
+                              'Ver código PIX em destaque',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                        ],
+                        if (!_pixMode &&
+                            _checkoutEmbedUrl != null &&
+                            _checkoutEmbedUrl!.isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: primary,
+                              side: BorderSide(
+                                color: primary.withValues(alpha: 0.65),
+                                width: 2,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                                horizontal: 16,
+                              ),
+                            ),
+                            onPressed: _showCheckoutPreviewModal,
+                            icon: const Icon(Icons.layers_rounded),
+                            label: const Text(
+                              'Abrir checkout em destaque',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 80),
+                      ],
                     ),
-                    onChanged: (v) =>
-                        setState(() => _parcelas = v ?? 1),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Ao gerar, o checkout abre num painel em destaque (mesma sessão). Se o iframe falhar, use “abrir em nova aba” no rodapé.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                  height: 1.35,
-                ),
-              ),
-            ],
-            const SizedBox(height: 18),
-            if (_loadingContas)
-              const LinearProgressIndicator(minHeight: 3)
-            else if (_contas.isEmpty)
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.orange.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.orange.shade200),
-                ),
-                child: Text(
-                  'É necessária uma conta Mercado Pago (código bancário 323) em Financeiro → Contas, '
-                  'com integração ativa em config/mercado_pago. '
-                  'Ou em Configurações → criar conta Mercado Pago na tesouraria. '
-                  'Outros bancos não entram nesta integração.',
-                  style: TextStyle(
-                      color: Colors.orange.shade900,
-                      fontSize: 13,
-                      height: 1.35),
-                ),
-              )
-            else
-              DropdownButtonFormField<String>(
-                key: ValueKey<String>('mpconta_${_contaId ?? 'none'}'),
-                initialValue: _contaId,
-                decoration: _inputDec(
-                  label: 'Conta (tesouraria) para conciliação',
-                  icon: Icons.account_balance_rounded,
-                ),
-                isExpanded: true,
-                items: _contas
-                    .map((e) =>
-                        DropdownMenuItem(value: e.id, child: Text(e.nome)))
-                    .toList(),
-                onChanged: (v) => setState(() => _contaId = v),
-              ),
-            if (_erro != null) ...[
-              const SizedBox(height: 14),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.red.shade200),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SelectableText(
-                      _erro!,
-                      style:
-                          TextStyle(color: Colors.red.shade900, fontSize: 12.5),
-                    ),
-                    const SizedBox(height: 10),
-                    TextButton.icon(
-                      onPressed: _loadingContas
-                          ? null
-                          : () => unawaited(_loadContas(forceRefresh: true)),
-                      icon: const Icon(Icons.refresh_rounded, size: 18),
-                      label: const Text('Recarregar contas Mercado Pago'),
+                    _DonationHistoryTab(
+                      key: ValueKey<String>(
+                        'donation_hist_$_effectiveTenantId',
+                      ),
+                      tenantId: _effectiveTenantId.isEmpty
+                          ? widget.tenantId
+                          : _effectiveTenantId,
+                      cpf: widget.cpf,
+                      seeAll: _seeAllDonationHistory(),
                     ),
                   ],
                 ),
               ),
-            ],
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _gerando
-                        ? null
-                        : () => Navigator.maybePop(context),
-                    icon: const Icon(Icons.arrow_back_rounded, size: 20),
-                    label: const Text(
-                      'Voltar',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: deep,
-                      side: BorderSide(
-                        color: primary.withValues(alpha: 0.55),
-                        width: 2,
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 14,
-                        horizontal: 12,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _gerando ? null : _cancelarFluxoDoacao,
-                    icon: const Icon(Icons.close_rounded, size: 20),
-                    label: const Text(
-                      'Cancelar',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.grey.shade800,
-                      side: BorderSide(
-                        color: Colors.grey.shade400,
-                        width: 2,
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 14,
-                        horizontal: 12,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
             ),
-            const SizedBox(height: 22),
-            Material(
-              color: Colors.transparent,
-              elevation: 0,
-              child: InkWell(
-                onTap: (_gerando ||
-                        _loadingContas ||
-                        _contas.isEmpty ||
-                        !_mercadoPagoReady)
-                    ? null
-                    : _onPrimaryAction,
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                child: Ink(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [primary, deep],
-                    ),
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.35),
-                      width: 1.2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: primary.withValues(alpha: 0.45),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
-                      ),
-                      ...ThemeCleanPremium.cardShadowHover,
-                    ],
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 17),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        if (_gerando)
-                          const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        else
-                          Icon(
-                            _pixMode
-                                ? Icons.qr_code_2_rounded
-                                : Icons.payment_rounded,
-                            color: Colors.white,
-                            size: 22,
-                          ),
-                        const SizedBox(width: 10),
-                        Text(
-                          _gerando
-                              ? 'Aguarde…'
-                              : (_pixMode
-                                  ? 'Gerar código PIX'
-                                  : 'Abrir checkout (cartão ou PIX)'),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                            letterSpacing: -0.2,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (_pixMode &&
-                _qrPayload != null &&
-                _qrPayload!.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: primary,
-                  side: BorderSide(
-                    color: primary.withValues(alpha: 0.65),
-                    width: 2,
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 14,
-                    horizontal: 16,
-                  ),
-                ),
-                onPressed: _showPixPreviewModal,
-                icon: const Icon(Icons.open_in_full_rounded),
-                label: const Text(
-                  'Ver código PIX em destaque',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-            ],
-            if (!_pixMode &&
-                _checkoutEmbedUrl != null &&
-                _checkoutEmbedUrl!.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: primary,
-                  side: BorderSide(
-                    color: primary.withValues(alpha: 0.65),
-                    width: 2,
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 14,
-                    horizontal: 16,
-                  ),
-                ),
-                onPressed: _showCheckoutPreviewModal,
-                icon: const Icon(Icons.layers_rounded),
-                label: const Text(
-                  'Abrir checkout em destaque',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ),
-            ],
-            const SizedBox(height: 80),
           ],
         ),
-              _DonationHistoryTab(
-                key: ValueKey<String>('donation_hist_$_effectiveTenantId'),
-                tenantId: _effectiveTenantId.isEmpty
-                    ? widget.tenantId
-                    : _effectiveTenantId,
-                cpf: widget.cpf,
-                seeAll: _seeAllDonationHistory(),
-              ),
-            ],
-          ),
-        ),
       ),
-            ],
-          ),
-        ),
     );
   }
 }
@@ -1416,6 +1501,7 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
     },
   );
   String? _methodFilter;
+
   /// null = todos, `dizimo`, `oferta`
   String? _kindFilter;
   int _periodDays = 152;
@@ -1471,10 +1557,11 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
         );
       }
 
-      final snap = await (kIsWeb
-              ? FirestoreWebGuard.runWithWebRecovery(read, maxAttempts: 2)
-              : read())
-          .timeout(PanelResilientLoad.webLoadingCap);
+      final snap =
+          await (kIsWeb
+                  ? FirestoreWebGuard.runWithWebRecovery(read, maxAttempts: 2)
+                  : read())
+              .timeout(PanelResilientLoad.webLoadingCap);
       if (!mounted || token != _reloadToken) return;
       setState(() {
         _snap = snap;
@@ -1550,419 +1637,424 @@ class _DonationHistoryTabState extends State<_DonationHistoryTab> {
     }
 
     final docs = _snap?.docs ?? [];
-        final now = DateTime.now();
-        final cutoff = now.subtract(Duration(days: _periodDays));
-        final needle = _searchCtrl.text.trim().toLowerCase();
+    final now = DateTime.now();
+    final cutoff = now.subtract(Duration(days: _periodDays));
+    final needle = _searchCtrl.text.trim().toLowerCase();
 
-        var rows = docs.where((x) {
-          final d = x.data();
-          final ap = d['approvedAt'];
-          DateTime? dt;
-          if (ap is Timestamp) dt = ap.toDate();
-          if (dt == null || dt.isBefore(cutoff)) return false;
-          if (!_passesRole(d)) return false;
-          final mk = (d['methodKey'] ?? '').toString();
-          if (_methodFilter != null && mk != _methodFilter) return false;
-          if (!_passesKind(d)) return false;
-          if (needle.isEmpty) return true;
-          final nome = (d['donorName'] ?? '').toString().toLowerCase();
-          final mp = (d['mpPaymentId'] ?? '').toString().toLowerCase();
-          return nome.contains(needle) || mp.contains(needle);
-        }).toList();
+    var rows = docs.where((x) {
+      final d = x.data();
+      final ap = d['approvedAt'];
+      DateTime? dt;
+      if (ap is Timestamp) dt = ap.toDate();
+      if (dt == null || dt.isBefore(cutoff)) return false;
+      if (!_passesRole(d)) return false;
+      final mk = (d['methodKey'] ?? '').toString();
+      if (_methodFilter != null && mk != _methodFilter) return false;
+      if (!_passesKind(d)) return false;
+      if (needle.isEmpty) return true;
+      final nome = (d['donorName'] ?? '').toString().toLowerCase();
+      final mp = (d['mpPaymentId'] ?? '').toString().toLowerCase();
+      return nome.contains(needle) || mp.contains(needle);
+    }).toList();
 
-        final fmtMoney = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
-        final fmtDate =
-            DateFormat("d MMM 'de' yyyy · HH:mm", 'pt_BR');
+    final fmtMoney = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+    final fmtDate = DateFormat("d MMM 'de' yyyy · HH:mm", 'pt_BR');
 
-        return ListView(
-          padding: ThemeCleanPremium.pagePadding(context),
-          children: [
-            if (_loadError != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Material(
-                  color: const Color(0xFFFFF7ED),
-                  borderRadius: BorderRadius.circular(12),
-                  child: ListTile(
-                    dense: true,
-                    leading: const Icon(Icons.wifi_tethering_error_rounded,
-                        color: Color(0xFFEA580C)),
-                    title: const Text(
-                      'Histórico pode estar desatualizado',
-                      style:
-                          TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                    ),
-                    trailing: TextButton(
-                      onPressed: () => unawaited(_loadHistory()),
-                      child: const Text('Atualizar'),
-                    ),
-                  ),
+    return ListView(
+      padding: ThemeCleanPremium.pagePadding(context),
+      children: [
+        if (_loadError != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Material(
+              color: const Color(0xFFFFF7ED),
+              borderRadius: BorderRadius.circular(12),
+              child: ListTile(
+                dense: true,
+                leading: const Icon(
+                  Icons.wifi_tethering_error_rounded,
+                  color: Color(0xFFEA580C),
+                ),
+                title: const Text(
+                  'Histórico pode estar desatualizado',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                ),
+                trailing: TextButton(
+                  onPressed: () => unawaited(_loadHistory()),
+                  child: const Text('Atualizar'),
                 ),
               ),
-            Container(
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    primary.withValues(alpha: 0.14),
-                    primary.withValues(alpha: 0.04),
-                  ],
-                ),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-                boxShadow: ThemeCleanPremium.softUiCardShadow,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            ),
+          ),
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusXl),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                primary.withValues(alpha: 0.14),
+                primary.withValues(alpha: 0.04),
+              ],
+            ),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: ThemeCleanPremium.softUiCardShadow,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  Row(
-                    children: [
-                      Icon(Icons.insights_rounded, color: primary, size: 26),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Histórico temporário',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 17,
-                            color: Colors.grey.shade900,
-                          ),
-                        ),
+                  Icon(Icons.insights_rounded, color: primary, size: 26),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Histórico temporário',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 17,
+                        color: Colors.grey.shade900,
                       ),
-                      IconButton(
-                        tooltip: 'Atualizar',
-                        onPressed: _loading
-                            ? null
-                            : () => unawaited(_loadHistory()),
-                        icon: _loading
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : Icon(Icons.refresh_rounded, color: primary),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    widget.seeAll
-                        ? 'Até 5 meses — registros antigos são removidos automaticamente para poupar espaço. Não substitui o Financeiro.'
-                        : 'Mostramos apenas contribuições vinculadas ao seu CPF no cadastro, quando informado.',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: Colors.grey.shade700,
-                      height: 1.35,
                     ),
+                  ),
+                  IconButton(
+                    tooltip: 'Atualizar',
+                    onPressed: _loading
+                        ? null
+                        : () => unawaited(_loadHistory()),
+                    icon: _loading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(Icons.refresh_rounded, color: primary),
                   ),
                 ],
               ),
+              const SizedBox(height: 6),
+              Text(
+                widget.seeAll
+                    ? 'Até 5 meses — registros antigos são removidos automaticamente para poupar espaço. Não substitui o Financeiro.'
+                    : 'Mostramos apenas contribuições vinculadas ao seu CPF no cadastro, quando informado.',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: Colors.grey.shade700,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (!widget.seeAll && _myCpfDigits.length < 11)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.amber.shade200),
+              ),
+              child: Text(
+                'Para ver apenas as suas contribuições, o cadastro da igreja deve ter o seu CPF associado ao login.',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: Colors.amber.shade900,
+                  height: 1.35,
+                ),
+              ),
             ),
-            const SizedBox(height: 16),
-            if (!widget.seeAll && _myCpfDigits.length < 11)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
+          ),
+        TextField(
+          controller: _searchCtrl,
+          onChanged: _searchDebounce.schedule,
+          decoration: InputDecoration(
+            labelText: 'Buscar por nome ou ID Mercado Pago',
+            prefixIcon: const Icon(Icons.search_rounded),
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Período',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+            color: Colors.grey.shade700,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _periodChip('30 dias', 30, primary),
+            _periodChip('90 dias', 90, primary),
+            _periodChip('5 meses', 152, primary),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Forma de pagamento',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+            color: Colors.grey.shade700,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _methodChip('Todos', null, primary),
+            _methodChip('PIX', 'pix', primary),
+            _methodChip('Cartão', 'cartao', primary),
+            _methodChip('Outro', 'outro', primary),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Dízimo / Oferta',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+            color: Colors.grey.shade700,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _kindChip('Todos', null, primary),
+            _kindChip('Dízimo', 'dizimo', primary),
+            _kindChip('Oferta Missionária', 'oferta', primary),
+          ],
+        ),
+        const SizedBox(height: 20),
+        if (rows.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 48),
+            child: Column(
+              children: [
+                Icon(
+                  Icons.receipt_long_rounded,
+                  size: 56,
+                  color: Colors.grey.shade400,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Nenhuma contribuição neste filtro.',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          ...rows.map((doc) {
+            final d = doc.data();
+            final ap = d['approvedAt'];
+            DateTime? dt;
+            if (ap is Timestamp) dt = ap.toDate();
+            final amount = (d['amount'] is num)
+                ? (d['amount'] as num).toDouble()
+                : 0.0;
+            final mk = (d['methodKey'] ?? '').toString();
+            String label;
+            IconData ic;
+            switch (mk) {
+              case 'pix':
+                label = 'PIX';
+                ic = Icons.qr_code_2_rounded;
+                break;
+              case 'cartao':
+                label = 'Cartão';
+                ic = Icons.credit_card_rounded;
+                break;
+              default:
+                label = 'Outro';
+                ic = Icons.payment_rounded;
+            }
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Material(
+                color: Colors.white,
+                elevation: 0,
+                borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
                 child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.amber.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.amber.shade200),
-                  ),
-                  child: Text(
-                    'Para ver apenas as suas contribuições, o cadastro da igreja deve ter o seu CPF associado ao login.',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: Colors.amber.shade900,
-                      height: 1.35,
+                    borderRadius: BorderRadius.circular(
+                      ThemeCleanPremium.radiusLg,
                     ),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    boxShadow: ThemeCleanPremium.softUiCardShadow,
                   ),
-                ),
-              ),
-            TextField(
-              controller: _searchCtrl,
-              onChanged: _searchDebounce.schedule,
-              decoration: InputDecoration(
-                labelText: 'Buscar por nome ou ID Mercado Pago',
-                prefixIcon: const Icon(Icons.search_rounded),
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Período',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _periodChip('30 dias', 30, primary),
-                _periodChip('90 dias', 90, primary),
-                _periodChip('5 meses', 152, primary),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Forma de pagamento',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _methodChip('Todos', null, primary),
-                _methodChip('PIX', 'pix', primary),
-                _methodChip('Cartão', 'cartao', primary),
-                _methodChip('Outro', 'outro', primary),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Dízimo / Oferta',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _kindChip('Todos', null, primary),
-                _kindChip('Dízimo', 'dizimo', primary),
-                _kindChip('Oferta Missionária', 'oferta', primary),
-              ],
-            ),
-            const SizedBox(height: 20),
-            if (rows.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 48),
-                child: Column(
-                  children: [
-                    Icon(Icons.receipt_long_rounded,
-                        size: 56, color: Colors.grey.shade400),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Nenhuma contribuição neste filtro.',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              ...rows.map((doc) {
-                final d = doc.data();
-                final ap = d['approvedAt'];
-                DateTime? dt;
-                if (ap is Timestamp) dt = ap.toDate();
-                final amount = (d['amount'] is num)
-                    ? (d['amount'] as num).toDouble()
-                    : 0.0;
-                final mk = (d['methodKey'] ?? '').toString();
-                String label;
-                IconData ic;
-                switch (mk) {
-                  case 'pix':
-                    label = 'PIX';
-                    ic = Icons.qr_code_2_rounded;
-                    break;
-                  case 'cartao':
-                    label = 'Cartão';
-                    ic = Icons.credit_card_rounded;
-                    break;
-                  default:
-                    label = 'Outro';
-                    ic = Icons.payment_rounded;
-                }
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Material(
-                    color: Colors.white,
-                    elevation: 0,
-                    borderRadius:
-                        BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusLg),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                        boxShadow: ThemeCleanPremium.softUiCardShadow,
-                      ),
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: primary.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(ic, color: primary, size: 22),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  fmtMoney.format(amount),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 20,
+                                    color: Colors.grey.shade900,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  (d['donorName'] ?? '').toString(),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                    color: Colors.grey.shade800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Container(
-                                padding: const EdgeInsets.all(10),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: primary.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(12),
+                                  color: const Color(0xFFF1F5F9),
+                                  borderRadius: BorderRadius.circular(20),
                                 ),
-                                child: Icon(ic, color: primary, size: 22),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      fmtMoney.format(amount),
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 20,
-                                        color: Colors.grey.shade900,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      (d['donorName'] ?? '').toString(),
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 14,
-                                        color: Colors.grey.shade800,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 10, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF1F5F9),
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      label,
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 11,
-                                        color: Colors.grey.shade800,
-                                      ),
-                                    ),
+                                child: Text(
+                                  label,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 11,
+                                    color: Colors.grey.shade800,
                                   ),
-                                  const SizedBox(height: 6),
-                                  Builder(
-                                    builder: (context) {
-                                      final dk = (d['donationKind'] ?? '')
-                                          .toString()
-                                          .toLowerCase();
-                                      final kindLabel = (d['donationKindLabel'] ??
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Builder(
+                                builder: (context) {
+                                  final dk = (d['donationKind'] ?? '')
+                                      .toString()
+                                      .toLowerCase();
+                                  final kindLabel =
+                                      (d['donationKindLabel'] ??
                                               (dk == 'oferta' ||
                                                       dk ==
                                                           'oferta_missionaria' ||
                                                       dk ==
                                                           'oferta missionaria' ||
-                                                      dk ==
-                                                          'oferta missionária'
+                                                      dk == 'oferta missionária'
                                                   ? 'Oferta Missionária'
                                                   : 'Dízimo'))
                                           .toString();
-                                      return Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color:
-                                              primary.withValues(alpha: 0.12),
-                                          borderRadius:
-                                              BorderRadius.circular(20),
-                                        ),
-                                        child: Text(
-                                          kindLabel,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w900,
-                                            fontSize: 11,
-                                            color: primary,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ],
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: primary.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      kindLabel,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 11,
+                                        color: primary,
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
                             ],
                           ),
-                          if (dt != null) ...[
-                            const SizedBox(height: 10),
-                            Text(
-                              fmtDate.format(dt),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                          if ((d['categoria'] ?? '').toString().trim().isNotEmpty) ...[
-                            const SizedBox(height: 6),
-                            Text(
-                              'Financeiro: ${d['categoria']}',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                          ],
-                          if ((d['contaDestinoNome'] ?? '')
-                              .toString()
-                              .trim()
-                              .isNotEmpty) ...[
-                            const SizedBox(height: 6),
-                            Text(
-                              'Conta: ${d['contaDestinoNome']}',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 6),
-                          Text(
-                            'MP ${d['mpPaymentId'] ?? doc.id}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade500,
-                            ),
-                          ),
                         ],
                       ),
-                    ),
+                      if (dt != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          fmtDate.format(dt),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                      if ((d['categoria'] ?? '')
+                          .toString()
+                          .trim()
+                          .isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Financeiro: ${d['categoria']}',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ],
+                      if ((d['contaDestinoNome'] ?? '')
+                          .toString()
+                          .trim()
+                          .isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Conta: ${d['contaDestinoNome']}',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 6),
+                      Text(
+                        'MP ${d['mpPaymentId'] ?? doc.id}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
                   ),
-                );
-              }),
-            const SizedBox(height: 64),
-          ],
-        );
+                ),
+              ),
+            );
+          }),
+        const SizedBox(height: 64),
+      ],
+    );
   }
 
   Widget _periodChip(String label, int days, Color primary) {

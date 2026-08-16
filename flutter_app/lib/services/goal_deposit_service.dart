@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/utils/finance_transaction_datetime.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:gestao_yahweh/utils/fifty_two_weeks_plan.dart';
 import 'transaction_save_service.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
 /// Dados do vínculo Meta ↔ lançamento financeiro (edição / exclusão).
 class GoalLinkedTransactionInfo {
@@ -385,7 +386,7 @@ class GoalDepositService {
     final sorted = contribSnap.docs.toList()
       ..sort(_compareContributionDocs);
 
-    var batch = FirebaseFirestore.instance.batch();
+    var batch = YahwehBatch();
     var ops = 0;
     var runningPaid = <int>[];
     final target = (goalData['targetAmount'] as num?)?.toDouble() ?? 0;
@@ -411,7 +412,7 @@ class GoalDepositService {
       ops++;
       if (ops >= 450) {
         await batch.commit();
-        batch = FirebaseFirestore.instance.batch();
+        batch = YahwehBatch();
         ops = 0;
       }
     }

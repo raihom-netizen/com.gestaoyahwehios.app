@@ -15,7 +15,7 @@ class ChurchRolePermissionSnapshot {
     required this.badgeColorArgb,
   });
 
-  /// Menu estreito (mural, eventos, minha escala, etc.) — equivalente ao antigo “membro”.
+  /// Menu estreito (mural, eventos, minha escala, etc.) ? equivalente ao antigo ?membro?.
   final bool restrictedNav;
 
   final bool viewFinance;
@@ -299,7 +299,7 @@ class ChurchRolePermissions {
       return _obreiroLeve;
     }
     if (n == 'membro' || n == 'visitante') return _membro;
-    // Cargo desconhecido / sem template → membro comum (só o próprio cadastro).
+    // Cargo desconhecido / sem template ? membro comum (só o próprio cadastro).
     // Não elevar a «obreiro leve» (lista de membros) por defeito.
     return _membro;
   }
@@ -341,7 +341,7 @@ class ChurchRolePermissions {
     // Financeiro restrito: só cargos do corpo administrativo (pastor, tesoureiro,
     // secretário, gestor, adm/master) OU permissão granular 'financeiro' explícita.
     // O campo legado `podeVerFinanceiro` (memberCanViewFinance) NÃO libera mais
-    // — evita membro comum ver despesas/receitas.
+    // ? evita membro comum ver despesas/receitas.
     if (_hasGranularModule(permissions, 'financeiro')) return true;
     return isFinancePanelTeam(role);
   }
@@ -501,7 +501,7 @@ class ChurchRolePermissions {
         // Dízimos e ofertas (PIX MP): todos os utilizadores com acesso ao painel da igreja.
         return true;
       case 23:
-        // Yahweh Chat — membros e departamentos.
+        // Yahweh Chat ? membros e departamentos.
         return true;
       default:
         return true;

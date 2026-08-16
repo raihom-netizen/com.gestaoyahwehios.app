@@ -33,8 +33,9 @@ import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
-/// Mesma faixa dourada dos cards em [DepartmentsPage] — identidade visual alinhada.
+/// Mesma faixa dourada dos cards em [DepartmentsPage] ? identidade visual alinhada.
 const Color _kCargoListGoldAccent = Color(0xFFF5C518);
 
 /// `igrejas/{tenantId}/membros/...`
@@ -459,7 +460,7 @@ class _CargosPageState extends State<CargosPage> {
           path: path,
           error: result.softError!,
         );
-        // Erro de leitura ≠ coleção vazia — sem isto a UI concluía «0 cargos»
+        // Erro de leitura ? coleção vazia ? sem isto a UI conclu?a ?0 cargos?
         // e oferecia recriar os padrões com dados reais no servidor.
         _cargosLoadSoftError = result.softError;
       } else {
@@ -546,7 +547,7 @@ class _CargosPageState extends State<CargosPage> {
     }
   }
 
-  Future<void> _commitCargosBatch(WriteBatch batch) async {
+  Future<void> _commitCargosBatch(YahwehBatch batch) async {
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
@@ -572,7 +573,7 @@ class _CargosPageState extends State<CargosPage> {
         maxAttempts: 3,
       );
       if (snap.docs.isNotEmpty) return;
-      final batch = firebaseDefaultFirestore.batch();
+      final batch = YahwehBatch();
       for (var i = 0; i < _welcomeCargos.length; i++) {
         final row = _welcomeCargos[i];
         batch.set(col.doc(row.docId), <String, dynamic>{
@@ -588,8 +589,8 @@ class _CargosPageState extends State<CargosPage> {
           'modulePermissions': row.key == 'lider_departamento'
               ? AppPermissions.defaultDepartmentLeaderModulePermissions()
               : <String>[],
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': YahwehFv.serverTimestamp,
+          'updatedAt': YahwehFv.serverTimestamp,
         });
       }
       await _commitCargosBatch(batch);
@@ -1321,7 +1322,7 @@ class _CargosPageState extends State<CargosPage> {
       );
       final have = existing.docs.map((d) => d.id).toSet();
       var n = 0;
-      final batch = firebaseDefaultFirestore.batch();
+      final batch = YahwehBatch();
       for (var i = 0; i < _welcomeCargos.length; i++) {
         final row = _welcomeCargos[i];
         if (have.contains(row.docId)) continue;
@@ -1336,8 +1337,8 @@ class _CargosPageState extends State<CargosPage> {
           'isDefaultPreset': true,
           'isWelcomeKit': true,
           'modulePermissions': <String>[],
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': YahwehFv.serverTimestamp,
+          'updatedAt': YahwehFv.serverTimestamp,
         });
         n++;
       }
@@ -1433,7 +1434,7 @@ class _CargosPageState extends State<CargosPage> {
         ref: doc.reference,
         payload: {
           'active': !isActive,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         },
       );
       if (mounted) {
@@ -1561,7 +1562,7 @@ class _CargosPageState extends State<CargosPage> {
       padding.right,
       isMobile ? 88 : padding.bottom,
     );
-    // Alinhado a [DepartmentsPage]: shell com [ModuleHeaderPremium] — sem AppBar duplicada.
+    // Alinhado a [DepartmentsPage]: shell com [ModuleHeaderPremium] ? sem AppBar duplicada.
     return Scaffold(
       backgroundColor: widget.embeddedInShell
           ? Colors.transparent
@@ -2349,14 +2350,14 @@ class _CargoFormPageState extends State<_CargoFormPage> {
       'permissionTemplate': _template,
       'hierarchyLevel': h.clamp(0, 100),
       'modulePermissions': mods,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
 
     final churchId = ChurchPanelTenant.forFirestore(widget.tenantId);
     try {
       if (widget.doc == null) {
         payload['order'] = 999;
-        payload['createdAt'] = FieldValue.serverTimestamp();
+        payload['createdAt'] = YahwehFv.serverTimestamp;
         await ChurchCargosLoadService.createCargo(
           churchId: churchId,
           docId: key,
@@ -2717,7 +2718,11 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
       });
     } catch (e) {
       if (mounted) {
-        setState(() => _loadError = e.toString());
+        setState(
+          () => _loadError = FirestoreWebGuard.isTransientPanelReadError(e)
+              ? 'Não foi possível carregar os membros agora. Tente novamente.'
+              : 'Falha ao carregar os membros deste cargo.',
+        );
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -2843,7 +2848,10 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
 
     List<String> extraMods = [];
     try {
-      final c = await widget.cargoRef.get();
+      final c = await FirestoreWebGuard.runWithWebRecovery(
+        () => widget.cargoRef.get(),
+        maxAttempts: 3,
+      );
       extraMods = AppPermissions.normalizePermissions(
         c.data()?['modulePermissions'],
       );
@@ -2867,7 +2875,10 @@ class _CargoMembrosPageState extends State<_CargoMembrosPage> {
           userPatch['FUNCAO_PERMISSOES'] = rolePatch['FUNCAO_PERMISSOES'];
         }
         if (extraMods.isNotEmpty) {
-          final us = await uref.get();
+          final us = await FirestoreWebGuard.runWithWebRecovery(
+            () => uref.get(),
+            maxAttempts: 3,
+          );
           final cur = AppPermissions.normalizePermissions(
             us.data()?['permissions'],
           );
@@ -3721,13 +3732,13 @@ class _PickMemberForCargoBottomSheetState
           if (s.isNotEmpty) out.add(s);
         }
       }
-      final single =
-          (m.data['departamento'] ?? m.data['DEPARTAMENTO'] ?? '')
-              .toString()
-              .trim();
+      final single = (m.data['departamento'] ?? m.data['DEPARTAMENTO'] ?? '')
+          .toString()
+          .trim();
       if (single.isNotEmpty) out.add(single);
     }
-    final list = out.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final list = out.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return list;
   }
 
@@ -4025,7 +4036,7 @@ class _PickMemberForCargoBottomSheetState
                         child: Text(
                           filtered.isEmpty
                               ? 'Nenhum membro no filtro'
-                              : '${filtered.length} membro(s) no filtro · ${_selectedIds.length} selecionado(s)',
+                              : '${filtered.length} membro(s) no filtro ? ${_selectedIds.length} selecionado(s)',
                           style: GoogleFonts.inter(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w600,
@@ -4285,9 +4296,7 @@ class _PickMemberForCargoBottomSheetState
                           child: OutlinedButton(
                             onPressed: () => Navigator.pop(context),
                             style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 14,
-                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
                               ),
@@ -4310,9 +4319,7 @@ class _PickMemberForCargoBottomSheetState
                                   ),
                             style: FilledButton.styleFrom(
                               backgroundColor: primary,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 14,
-                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
                               ),

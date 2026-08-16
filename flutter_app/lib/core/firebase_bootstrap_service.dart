@@ -167,11 +167,13 @@ class FirebaseHealthReport {
 }
 
 class FirebaseBootstrapResult {
-  FirebaseBootstrapResult._({
-    required this.isReady,
-    this.failure,
-    this.health,
-  });
+  FirebaseBootstrapResult._({required this.isReady, this.failure, this.health});
+
+  factory FirebaseBootstrapResult.unavailable(Object cause, StackTrace stack) =>
+      FirebaseBootstrapResult._(
+        isReady: false,
+        failure: FirebaseBootstrapException.from(cause, stack),
+      );
 
   final bool isReady;
   final FirebaseBootstrapException? failure;
@@ -205,6 +207,7 @@ abstract final class FirebaseBootstrapService {
       throw r.failure!;
     }
   }
+
   static FirebaseApp? _cachedApp;
   static DateTime? _healthOkAt;
   static FirebaseHealthReport? _lastHealth;
@@ -399,8 +402,11 @@ abstract final class FirebaseBootstrapService {
       return sync;
     }
     try {
-      final restored = await SessionRestoreService.waitForPersistedFirebaseUser()
-          .timeout(waitCap, onTimeout: () => null);
+      final restored =
+          await SessionRestoreService.waitForPersistedFirebaseUser().timeout(
+            waitCap,
+            onTimeout: () => null,
+          );
       if (restored != null && !restored.isAnonymous) {
         if (kIsWeb) WebPanelStability.bindLoginSession(restored);
         return restored;
@@ -408,8 +414,6 @@ abstract final class FirebaseBootstrapService {
     } catch (_) {}
     return null;
   }
-
-  static Never _throwSessionExpired() => _throwSessionUnavailable();
 
   /// Arranque obrigatório — chamar em [main] **antes** de [runApp].
   static Future<FirebaseBootstrapResult> initialize() async {
@@ -517,15 +521,13 @@ abstract final class FirebaseBootstrapService {
         last = e;
         lastSt = st;
         if (kDebugMode) {
-          debugPrint('FirebaseBootstrapService.initialize tentativa $attempt: $e');
+          debugPrint(
+            'FirebaseBootstrapService.initialize tentativa $attempt: $e',
+          );
         }
         if (attempt < _reconnectDelaysSec.length) {
           await Future.delayed(
-            Duration(
-              seconds: kIsWeb
-                  ? 1
-                  : _reconnectDelaysSec[attempt],
-            ),
+            Duration(seconds: kIsWeb ? 1 : _reconnectDelaysSec[attempt]),
           );
         }
       }
@@ -534,7 +536,9 @@ abstract final class FirebaseBootstrapService {
     _lastFailure = fail;
     if (!c.isCompleted) c.completeError(fail, lastSt);
     if (CrashlyticsService.shouldReport(fail)) {
-      unawaited(CrashlyticsService.record(fail, lastSt, reason: 'firebase_init'));
+      unawaited(
+        CrashlyticsService.record(fail, lastSt, reason: 'firebase_init'),
+      );
     }
     return FirebaseBootstrapResult.failed(fail);
   }
@@ -652,7 +656,6 @@ abstract final class FirebaseBootstrapService {
     }
 
     try {
-      final a = FirebaseAuth.instanceFor(app: app);
       if (requireAuthSession) {
         final user = await resolveAuthenticatedUser();
         if (user == null) {
@@ -911,9 +914,7 @@ abstract final class FirebaseBootstrapService {
     const maxAttempts = 3;
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        await ensureAlwaysOn(
-          refreshAuthToken: false,
-        );
+        await ensureAlwaysOn(refreshAuthToken: false);
         return await fn();
       } catch (e, st) {
         last = e;

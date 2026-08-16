@@ -366,7 +366,7 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
           if (showHint && (widget.canAdd || widget.canChange)) ...[
             const SizedBox(height: 8),
             Text(
-              'Toque em «Adicionar logo» para escolher a imagem',
+              'Toque em ?Adicionar logo? para escolher a imagem',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
@@ -543,7 +543,7 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
           if (hasPending) ...[
             const SizedBox(height: 8),
             Text(
-              'Nova logo pronta — salve o cadastro para publicar.',
+              'Nova logo pronta ? salve o cadastro para publicar.',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,

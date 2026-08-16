@@ -40,7 +40,7 @@ class ChurchCentralUploadResult {
   final Uint8List bytes;
 }
 
-/// **Pilar central** — compressão → Storage → `getDownloadURL` → Firestore (só link).
+/// **Pilar central** ? compressão ? Storage ? `getDownloadURL` ? Firestore (só link).
 ///
 /// Padrão Controle Total. Usar via [ChurchMediaUploadFacade] nas telas;
 /// orquestradores de domínio (membro, logo, patrimônio, feed, financeiro) delegam aqui.
@@ -57,7 +57,7 @@ abstract final class ChurchCentralStorageUpload {
     int maxBytes = kStorageRulesMaxFeedImageBytes,
   }) {
     if (bytes <= 0) {
-      throw StateError('Ficheiro vazio — selecione outra imagem.');
+      throw StateError('Ficheiro vazio ? selecione outra imagem.');
     }
     if (bytes > maxBytes) {
       final mb = (bytes / (1024 * 1024)).toStringAsFixed(1);
@@ -106,14 +106,14 @@ abstract final class ChurchCentralStorageUpload {
           }
         }
       } else if (compressForFeed) {
-        // Já leve (pick CT) — evita 2.ª compressão e travamento.
+        // Já leve (pick CT) ? evita 2.? compressão e travamento.
         if (rawBytes.length <= 700 * 1024 && _looksLikeWebpOrJpeg(rawBytes)) {
           processed = (bytes: rawBytes, mime: _mimeForBytes(rawBytes));
         } else {
           try {
             processed = await EcoFireImageProcess.processForFeedPhoto(rawBytes);
           } catch (_) {
-            // Falha no decode — envia bytes originais.
+            // Falha no decode ? envia bytes originais.
             processed = (bytes: rawBytes, mime: _mimeForBytes(rawBytes));
           }
         }
@@ -188,7 +188,7 @@ abstract final class ChurchCentralStorageUpload {
     return 'image/jpeg';
   }
 
-  /// Aviso — `igrejas/{id}/avisos/{postId}/capa_aviso.jpg` (+ galeria).
+  /// Aviso ? `igrejas/{id}/avisos/{postId}/capa_aviso.jpg` (+ galeria).
   static Future<ChurchCentralUploadResult> uploadAvisoPhoto({
     required String churchId,
     required String postId,
@@ -211,7 +211,7 @@ abstract final class ChurchCentralStorageUpload {
         onProgress: onProgress,
       );
 
-  /// Evento — `igrejas/{id}/eventos/{postId}/…`.
+  /// Evento ? `igrejas/{id}/eventos/{postId}/?`.
   static Future<ChurchCentralUploadResult> uploadEventoPhoto({
     required String churchId,
     required String postId,
@@ -235,7 +235,7 @@ abstract final class ChurchCentralStorageUpload {
         skipEnsureReady: skipEnsureReady,
       );
 
-  /// Membro — foto perfil.
+  /// Membro ? foto perfil.
   static Future<ChurchCentralUploadResult> uploadMemberProfilePhoto({
     required String churchId,
     required String storageFolderId,
@@ -281,7 +281,7 @@ abstract final class ChurchCentralStorageUpload {
         skipEnsureReady: skipEnsureReady,
       );
 
-  /// Logo igreja — `configuracoes/logo_igreja.png`.
+  /// Logo igreja ? `configuracoes/logo_igreja.png`.
   static Future<ChurchCentralUploadResult> uploadChurchLogo({
     required String churchId,
     required Uint8List pngBytes,
@@ -291,7 +291,7 @@ abstract final class ChurchCentralStorageUpload {
     final path = ChurchStorageLayout.churchIdentityLogoPath(churchId);
     _assertCanonicalPath(path, 'church_logo');
     if (pngBytes.isEmpty) {
-      throw StateError('Logo vazia — selecione outra imagem.');
+      throw StateError('Logo vazia ? selecione outra imagem.');
     }
     logFirebasePublishPhase(
       'storage_upload_start',
@@ -323,7 +323,7 @@ abstract final class ChurchCentralStorageUpload {
     }
   }
 
-  /// Financeiro — comprovante (imagem ou PDF).
+  /// Financeiro ? comprovante (imagem ou PDF).
   /// Com [alreadyCompressed] — NÃO recomprimir (padrão CT / uma compressão só).
   static Future<ChurchCentralUploadResult> uploadFinanceComprovante({
     required String churchId,
@@ -400,8 +400,8 @@ abstract final class ChurchCentralStorageUpload {
     }
   }
 
-  /// Fornecedor — comprovante de compromisso (imagem ou PDF).
-  /// Extensão no path = ficheiro real (JPEG após compress → `.jpg`).
+  /// Fornecedor ? comprovante de compromisso (imagem ou PDF).
+  /// Extensão no path = ficheiro real (JPEG após compress ? `.jpg`).
   static Future<ChurchCentralUploadResult> uploadFornecedorCompromissoComprovante({
     required String churchId,
     required String fornecedorId,
@@ -493,7 +493,7 @@ abstract final class ChurchCentralStorageUpload {
   }) async {
     _assertCanonicalPath(storagePath, logLabel);
     if (bytes.isEmpty) {
-      throw StateError('Ficheiro vazio — selecione outro.');
+      throw StateError('Ficheiro vazio ? selecione outro.');
     }
     try {
       final url = await DirectStorageUrlPublish.uploadBytes(

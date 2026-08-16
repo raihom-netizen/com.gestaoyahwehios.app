@@ -11,7 +11,7 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 /// Leitura canónica de listas tenant — **Web = Android = iOS**.
 ///
 /// - Path: `igrejas/{churchId}/{subcoleção}` via [CollectionReference] do [ChurchRepository].
-/// - **Plain `limit` primeiro** — `orderBy` exclui documentos sem o campo indexado.
+/// - **Plain `limit` primeiro** ? `orderBy` exclui documentos sem o campo indexado.
 /// - Filtro `ativo: true` **no cliente** quando pedido (payload real usa boolean; legado sem campo = activo).
 abstract final class ChurchModuleFirestoreListRead {
   ChurchModuleFirestoreListRead._();
@@ -39,7 +39,7 @@ abstract final class ChurchModuleFirestoreListRead {
     return s == 'true' || s == '1';
   }
 
-  /// Feed mural (avisos/eventos) — `ativo` + `publicado` ou `status: publicado`.
+  /// Feed mural (avisos/eventos) ? `ativo` + `publicado` ou `status: publicado`.
   static bool isPublishedFeedRecord(Map<String, dynamic> data) {
     if (!isActiveRecord(data)) return false;
     if (data.containsKey('publicado')) {
@@ -64,7 +64,7 @@ abstract final class ChurchModuleFirestoreListRead {
   ) =>
       docs.where((d) => isPublishedFeedRecord(d.data())).toList(growable: false);
 
-  /// Query robusta: plain → orderBy (fallback) → plain retry.
+  /// Query robusta: plain ? orderBy (fallback) ? plain retry.
   static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> queryPlainFirst({
     required CollectionReference<Map<String, dynamic>> reference,
     required String cacheKey,
@@ -80,7 +80,7 @@ abstract final class ChurchModuleFirestoreListRead {
     if (kIsWeb) {
       await FirestoreSessionGuard.ensureWriteSession();
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
-      // ⭐ CORREÇÃO TOTAL WEB: leitura por REST puro (imune à INTERNAL ASSERTION
+      // ? CORRE??O TOTAL WEB: leitura por REST puro (imune ? INTERNAL ASSERTION
       // do SDK). Cobre todos os módulos que passam por este helper (escalas,
       // cargos, visitantes, oração, etc.). Em falha, cai no caminho SDK abaixo.
       try {
@@ -92,7 +92,7 @@ abstract final class ChurchModuleFirestoreListRead {
           descending: orderDescending,
           limit: limit,
         ).timeout(ChurchPanelReadTimeouts.queryCap);
-        // orderBy no REST omite docs sem o campo — se veio vazio, tenta plain
+        // orderBy no REST omite docs sem o campo ? se veio vazio, tenta plain
         // (paridade com a cascata "plain primeiro" do caminho SDK).
         if (restDocs.isEmpty && hasOrder) {
           restDocs = await firestoreRestCollect(

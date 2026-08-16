@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -542,7 +542,7 @@ class _EscolhaPlanoPageState extends State<EscolhaPlanoPage> {
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            // Premium: gradiente vibrante (índigo → azul → violeta) + brilho colorido.
+            // Premium: gradiente vibrante (?ndigo ? azul ? violeta) + brilho colorido.
             gradient: isPremium
                 ? const LinearGradient(
                     begin: Alignment.topLeft,
