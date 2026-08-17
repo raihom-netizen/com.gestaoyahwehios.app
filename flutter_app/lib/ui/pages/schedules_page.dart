@@ -33,6 +33,10 @@ import 'package:gestao_yahweh/services/relatorio_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
+    show firestoreRestDeleteDoc;
+import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
 import 'package:gestao_yahweh/core/yahweh_module_analytics.dart';
 import 'package:gestao_yahweh/core/entity_image_fields.dart';
@@ -88,6 +92,20 @@ Map<String, dynamic> _remapScheduleCpfKeyedMap(
 /// Limite seguro para diálogos de escala (Controle Total — sem `.get()` ilimitado).
 const int _kScheduleMembersFetchLimit = 600;
 
+/// Cliente Firestore do web morto no processo (INTERNAL ASSERTION / terminado).
+/// Retentar pelo SDK é inútil — só REST resolve.
+bool _isFirestoreClientBroken(Object e) {
+  if (FirestoreWebGuard.isInternalAssertionError(e) ||
+      FirestoreWebGuard.isClientTerminated(e)) {
+    return true;
+  }
+  final m = e.toString().toUpperCase();
+  return m.contains('INTERNAL ASSERTION') ||
+      m.contains('UNEXPECTED STATE') ||
+      m.contains('WATCHCHANGEAGGREGATOR') ||
+      m.contains('PERSISTENTLISTENSTREAM');
+}
+
 Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
 _loadScheduleMemberDocs(String tenantId) async {
   final tid = tenantId.trim();
@@ -99,8 +117,23 @@ _loadScheduleMemberDocs(String tenantId) async {
     );
     if (snap.docs.isNotEmpty) return snap.docs;
   } catch (_) {}
+  final op = ChurchRepository.churchId(tid);
+  // RAM do módulo Membros: instantâneo e imune ao SDK web derrubado.
+  final ram = ChurchMembersLoadService.peekRamAny(op);
+  if (ram != null && ram.isNotEmpty) return ram;
   try {
-    final op = ChurchRepository.churchId(tid);
+    // `queryPlainFirst` vai por REST no web — único caminho que sobrevive à
+    // INTERNAL ASSERTION do SDK. Antes, um `.get()` cru aqui devolvia lista
+    // vazia e a escala abria sem nenhum membro para escolher.
+    final rest = await ChurchModuleFirestoreListRead.queryPlainFirst(
+      reference: ChurchUiCollections.membros(op),
+      cacheKey: '${op}_escala_membros_$_kScheduleMembersFetchLimit',
+      limit: _kScheduleMembersFetchLimit,
+      sortDocs: (docs) => docs,
+    );
+    if (rest.isNotEmpty) return rest;
+  } catch (_) {}
+  try {
     return (await ChurchUiCollections.membros(
       op,
     ).limit(_kScheduleMembersFetchLimit).get()).docs;
@@ -5915,10 +5948,17 @@ class _SchedulesPageState extends State<SchedulesPage>
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      await FirestoreWebGuard.runWithWebRecovery(
-        () => doc.reference.delete(),
-        maxAttempts: 4,
-      );
+      try {
+        await FirestoreWebGuard.runWithWebRecovery(
+          () => doc.reference.delete(),
+          maxAttempts: 4,
+        );
+      } catch (e) {
+        // SDK do web derrubado por INTERNAL ASSERTION: retentar pelo SDK nunca
+        // funciona (o cliente está morto no processo). REST resolve.
+        if (!kIsWeb || !_isFirestoreClientBroken(e)) rethrow;
+        await firestoreRestDeleteDoc(doc.reference.path);
+      }
       if (mounted) {
         _refreshInstances();
         ScaffoldMessenger.of(
@@ -5980,20 +6020,27 @@ class _SchedulesPageState extends State<SchedulesPage>
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      await FirestoreWebGuard.runWithWebRecovery(() async {
-        YahwehBatch batch = YahwehBatch();
-        var ops = 0;
-        for (final d in toDelete) {
-          batch.deleteDoc(d.reference);
-          ops++;
-          if (ops >= 450) {
-            await batch.commit();
-            batch = YahwehBatch();
-            ops = 0;
+      try {
+        await FirestoreWebGuard.runWithWebRecovery(() async {
+          YahwehBatch batch = YahwehBatch();
+          var ops = 0;
+          for (final d in toDelete) {
+            batch.deleteDoc(d.reference);
+            ops++;
+            if (ops >= 450) {
+              await batch.commit();
+              batch = YahwehBatch();
+              ops = 0;
+            }
           }
+          if (ops > 0) await batch.commit();
+        }, maxAttempts: 4);
+      } catch (e) {
+        if (!kIsWeb || !_isFirestoreClientBroken(e)) rethrow;
+        for (final d in toDelete) {
+          await firestoreRestDeleteDoc(d.reference.path);
         }
-        if (ops > 0) await batch.commit();
-      }, maxAttempts: 4);
+      }
       if (mounted) {
         _refreshInstances();
         setState(() {
@@ -8150,12 +8197,18 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
     if (_departmentId.isEmpty) return;
     setState(() => _loadingMembers = true);
     try {
-      QuerySnapshot<Map<String, dynamic>> snap =
-          await ChurchTenantResilientReads.membrosRecent(
-            widget.tenantId,
-            limit: _kScheduleMembersFetchLimit,
-          ).timeout(const Duration(seconds: 15));
-      List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs = snap.docs;
+      // O timeout desta primeira leitura NÃO pode derrubar a tela: era isso
+      // que mostrava «Erro ao carregar membros: TimeoutException after
+      // 0:00:15» e deixava a escala sem editar. Agora ele apenas cai para a
+      // via resiliente (RAM → REST → get).
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs = const [];
+      try {
+        final snap = await ChurchTenantResilientReads.membrosRecent(
+          widget.tenantId,
+          limit: _kScheduleMembersFetchLimit,
+        ).timeout(const Duration(seconds: 8));
+        allDocs = snap.docs;
+      } catch (_) {}
 
       if (allDocs.isEmpty) {
         try {
@@ -8948,16 +9001,20 @@ class _GeneratedInstanceEditPageState
       final tid = widget.membersCol.path.split('/').length >= 2
           ? widget.membersCol.path.split('/')[1]
           : '';
-      QuerySnapshot<Map<String, dynamic>> snap = tid.isNotEmpty
-          ? await ChurchTenantResilientReads.membrosRecent(
-              tid,
-              limit: _kScheduleMembersFetchLimit,
-            ).timeout(const Duration(seconds: 15))
-          : await widget.membersCol
-                .limit(_kScheduleMembersFetchLimit)
-                .get()
-                .timeout(const Duration(seconds: 15));
-      var allDocs = snap.docs;
+      // Timeout aqui não derruba a tela — cai para a via resiliente.
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs = const [];
+      try {
+        final snap = tid.isNotEmpty
+            ? await ChurchTenantResilientReads.membrosRecent(
+                tid,
+                limit: _kScheduleMembersFetchLimit,
+              ).timeout(const Duration(seconds: 8))
+            : await widget.membersCol
+                  .limit(_kScheduleMembersFetchLimit)
+                  .get()
+                  .timeout(const Duration(seconds: 8));
+        allDocs = snap.docs;
+      } catch (_) {}
 
       if (allDocs.isEmpty && tid.isNotEmpty) {
         try {

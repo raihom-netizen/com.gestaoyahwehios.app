@@ -9,6 +9,12 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_update_service.dart';
+import 'package:gestao_yahweh/services/member_profile_photo_save_service.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show sanitizeImageUrl;
 import 'package:gestao_yahweh/services/cep_service.dart';
 import 'package:gestao_yahweh/services/city_autocomplete_service.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
@@ -23,7 +29,6 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/member_signup_premium_ui.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
-import 'package:image_picker/image_picker.dart';
 
 /// Tela interna do sistema para o gestor/adm cadastrar um novo membro.
 /// Fluxo: cria Firebase Auth (UID) → `membros/{uid}` — CPF só como campo, não como id do documento.
@@ -73,7 +78,6 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
   final _birthDateCtrl = TextEditingController();
   String _sexo = 'Masculino';
 
-  XFile? _photoFile;
   Uint8List? _photoBytes;
   bool _loading = true;
   bool _saving = false;
@@ -288,7 +292,6 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         : await MemberProfilePhotoPickService.pickForMemberEdit(context);
     if (hit == null || !mounted) return;
     setState(() {
-      _photoFile = XFile.fromData(hit.bytes, name: hit.displayName);
       _photoBytes = hit.bytes;
     });
   }
@@ -389,63 +392,54 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     final op = ChurchRepository.churchId(_effectiveTenantId);
     final col = ChurchUiCollections.membros(op);
 
-    // Impedir cadastro duplo: mesmo CPF ou mesmo e-mail na mesma igreja
-    if (cpfDigits.length == 11) {
-      final byCpf = await col.where('CPF', isEqualTo: cpfDigits).limit(1).get();
-      if (byCpf.docs.isNotEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Já existe um cadastro com este CPF nesta igreja.'),
-          ),
-        );
-        return;
+    // Impedir cadastro duplo: mesmo CPF ou mesmo e-mail na mesma igreja.
+    // As quatro consultas correm em paralelo (antes: quatro idas em série
+    // antes de qualquer gravação). A verificação é consultiva: se a leitura
+    // falhar (SDK Firestore envenenado no web), o cadastro segue — a callable
+    // `createMemberAuthAccountForGestor` ainda barra e-mail repetido no Auth.
+    var duplicateCpf = false;
+    var duplicateEmail = false;
+    try {
+      final checks = await Future.wait([
+        if (cpfDigits.length == 11) ...[
+          col.where('CPF', isEqualTo: cpfDigits).limit(1).get(),
+          col.where('cpf', isEqualTo: cpfDigits).limit(1).get(),
+        ],
+        if (emailNorm.isNotEmpty) ...[
+          col.where('EMAIL', isEqualTo: emailNorm).limit(1).get(),
+          col.where('email', isEqualTo: emailNorm).limit(1).get(),
+        ],
+      ]);
+      var i = 0;
+      if (cpfDigits.length == 11) {
+        duplicateCpf =
+            checks[i].docs.isNotEmpty || checks[i + 1].docs.isNotEmpty;
+        i += 2;
       }
-      final byCpfLower = await col
-          .where('cpf', isEqualTo: cpfDigits)
-          .limit(1)
-          .get();
-      if (byCpfLower.docs.isNotEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Já existe um cadastro com este CPF nesta igreja.'),
-          ),
-        );
-        return;
+      if (emailNorm.isNotEmpty) {
+        duplicateEmail =
+            checks[i].docs.isNotEmpty || checks[i + 1].docs.isNotEmpty;
       }
+    } catch (e) {
+      debugPrint('InternalNewMemberPage: checagem de duplicado falhou: $e');
     }
-    if (emailNorm.isNotEmpty) {
-      final byEmail = await col
-          .where('EMAIL', isEqualTo: emailNorm)
-          .limit(1)
-          .get();
-      if (byEmail.docs.isNotEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Já existe um cadastro com este e-mail nesta igreja.',
-            ),
-          ),
-        );
-        return;
-      }
-      final byEmailLower = await col
-          .where('email', isEqualTo: emailNorm)
-          .limit(1)
-          .get();
-      if (byEmailLower.docs.isNotEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Já existe um cadastro com este e-mail nesta igreja.',
-            ),
-          ),
-        );
-        return;
-      }
+    if (duplicateCpf) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Já existe um cadastro com este CPF nesta igreja.'),
+        ),
+      );
+      return;
+    }
+    if (duplicateEmail) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Já existe um cadastro com este e-mail nesta igreja.'),
+        ),
+      );
+      return;
     }
 
     setState(() => _saving = true);
@@ -471,7 +465,11 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         return;
       }
       final pwd = _passwordCtrl.text.trim();
-      final authRes = await functions
+      // Login e código do membro não dependem um do outro — em paralelo.
+      // O código é acessório: se a transação falhar, o cadastro continua
+      // (antes, um erro aqui abortava depois do login já ter sido criado,
+      // deixando o gestor preso em «e-mail já existe» na segunda tentativa).
+      final authFuture = functions
           .httpsCallable('createMemberAuthAccountForGestor')
           .call({
             'tenantId': widget.tenantId,
@@ -480,6 +478,14 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
             'displayName': _nameCtrl.text.trim(),
             'cpf': cpfDigits,
           });
+      final codigoFuture = MemberCodigoService.allocateNext(widget.tenantId)
+          .then<String?>((c) => c)
+          .catchError((Object e) {
+            debugPrint('InternalNewMemberPage: código do membro falhou: $e');
+            return null;
+          });
+
+      final authRes = await authFuture;
       final authMap = Map<String, dynamic>.from(authRes.data as Map? ?? {});
       final uid = (authMap['uid'] ?? '').toString().trim();
       if (uid.isEmpty) {
@@ -487,23 +493,50 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       }
 
       final ref = col.doc(uid);
-      final photoBytes = _photoFile != null
-          ? await _photoFile!.readAsBytes()
-          : null;
-      final photoUrl = photoBytes != null ? '' : _buildAutoAvatarUrl(ref.id);
+      final photoBytes = _photoBytes;
       final age = _calcAge(birthParsed) ?? 0;
       final ageRange = _ageRange(age);
       final alias = _tenantAlias.isNotEmpty ? _tenantAlias : widget.tenantId;
       final slug = _tenantSlug.isNotEmpty ? _tenantSlug : widget.tenantId;
 
-      final codigoMembro = await MemberCodigoService.allocateNext(
-        widget.tenantId,
-      );
+      // Foto ANTES de gravar a ficha (mesmo padrão do cadastro público): o
+      // documento já nasce com a foto em vez de depender de um upload solto em
+      // background, que morria em silêncio quando o gestor fechava a tela.
+      String? photoStoragePathField;
+      String? photoThumbStoragePathField;
+      String? photoUrlField;
+      var photoUploadFailed = false;
+      if (photoBytes != null && photoBytes.isNotEmpty) {
+        GlobalUploadProgress.instance.start('Enviando foto…');
+        try {
+          final uploaded =
+              await MemberProfilePhotoSaveService.uploadStorageOnlyControleTotal(
+                tenantId: widget.tenantId,
+                memberDocId: ref.id,
+                rawBytes: photoBytes,
+              );
+          photoStoragePathField = uploaded.storagePath;
+          photoThumbStoragePathField = uploaded.thumbStoragePath;
+          photoUrlField = sanitizeImageUrl(uploaded.url);
+        } catch (e) {
+          // Cadastro nunca cai por causa da foto — reenvio fica em background.
+          debugPrint('InternalNewMemberPage: upload da foto falhou: $e');
+          photoUploadFailed = true;
+        } finally {
+          GlobalUploadProgress.instance.end();
+        }
+      }
+      final hasPhoto =
+          photoStoragePathField != null && photoStoragePathField.isNotEmpty;
+      final photoUrl = photoBytes != null ? '' : _buildAutoAvatarUrl(ref.id);
+
+      final codigoMembro = await codigoFuture;
 
       final data = {
         'MEMBER_ID': uid,
         'authUid': uid,
-        ...MemberCodigoService.fieldsForFirestore(codigoMembro),
+        if (codigoMembro != null && codigoMembro.isNotEmpty)
+          ...MemberCodigoService.fieldsForFirestore(codigoMembro),
         'CREATED_BY_CPF': cpfDigits.isNotEmpty ? cpfDigits : uid,
         'alias': alias,
         'slug': slug,
@@ -527,15 +560,32 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         'PROFISSAO': _profissaoCtrl.text.trim(),
         'NOME_CONJUGE': _conjugeCtrl.text.trim(),
         'DEPARTAMENTOS': <String>[],
-        'foto_url': photoUrl.isNotEmpty ? photoUrl : null,
-        'FOTO_URL_OU_ID': photoUrl.isNotEmpty ? photoUrl : null,
-        'fotoUrl': photoUrl.isNotEmpty ? photoUrl : null,
-        'photoURL': photoUrl.isNotEmpty ? photoUrl : null,
-        'avatarUrl': photoUrl.isNotEmpty
-            ? photoUrl
-            : _buildAutoAvatarUrl(ref.id),
-        if (photoBytes != null)
-          ...MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
+        if (!hasPhoto) ...{
+          'foto_url': photoUrl.isNotEmpty ? photoUrl : null,
+          'FOTO_URL_OU_ID': photoUrl.isNotEmpty ? photoUrl : null,
+          'fotoUrl': photoUrl.isNotEmpty ? photoUrl : null,
+          'photoURL': photoUrl.isNotEmpty ? photoUrl : null,
+          'avatarUrl': photoUrl.isNotEmpty
+              ? photoUrl
+              : _buildAutoAvatarUrl(ref.id),
+        },
+        // Foto já no Storage: grava path + URL canónicos de uma vez.
+        if (hasPhoto)
+          ...ChurchCanonicalMediaPublish.memberProfileFields(
+            downloadUrl: photoUrlField ?? '',
+            storagePath: photoStoragePathField,
+            thumbStoragePath:
+                photoThumbStoragePathField ?? photoStoragePathField,
+          ),
+        // Só marca «a enviar» quando o upload falhou e vai ser retomado.
+        // Campos inline de propósito: `pendingUploadPatchFields()` inclui um
+        // `FieldValue.delete()`, que o Firestore rejeita num `set()` de criação
+        // — era isso que fazia o cadastro com foto falhar por inteiro.
+        if (photoUploadFailed) ...{
+          MemberProfilePhotoUpdateService.photoUploadStateField:
+              MemberProfilePhotoUpdateService.stateUploading,
+          'fotoUrlCacheRevision': DateTime.now().millisecondsSinceEpoch,
+        },
         'PUBLIC_SIGNUP': false,
         'STATUS': 'ativo',
         'status': 'ativo',
@@ -543,8 +593,6 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         'CARGO': 'membro',
         'role': 'membro',
         'CRIADO_EM': FieldValue.serverTimestamp(),
-        if (_photoFile != null)
-          'fotoUrlCacheRevision': DateTime.now().millisecondsSinceEpoch,
         'FILIACAO_PAI': _filiacaoPaiCtrl.text.trim(),
         'FILIACAO_MAE': _filiacaoMaeCtrl.text.trim(),
         'FILIACAO': _buildFiliacaoLegado(
@@ -553,8 +601,16 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         ),
       };
 
-      await ref.set(data);
-      if (photoBytes != null && photoBytes.isNotEmpty) {
+      // Web: gravação directa com recuperação e fallback para a callable Admin
+      // em INTERNAL ASSERTION do SDK — o `ref.set` cru falhava em silêncio e o
+      // membro nunca aparecia na lista. Mobile mantém Firestore directo.
+      await AdminFeedFirestoreBridge.upsertDocRef(
+        docRef: ref,
+        data: data,
+        isNewDoc: true,
+        directWrite: () => ref.set(data),
+      );
+      if (photoUploadFailed && photoBytes != null && photoBytes.isNotEmpty) {
         MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(
           tenantId: widget.tenantId,
           memberDocId: ref.id,
@@ -571,15 +627,28 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         '${FirebasePaths.storageRoot(ChurchPanelTenant.resolve(widget.tenantId))}/membros/${ref.id}',
       );
 
-      try {
-        await functions.httpsCallable('createMemberLoginFromPublic').call({
-          'tenantId': widget.tenantId,
-          'memberId': ref.id,
-        });
-      } catch (_) {}
+      // O login já foi criado por `createMemberAuthAccountForGestor`; esta
+      // chamada é apenas o vínculo `users/{uid}` e não deve segurar a tela.
+      unawaited(
+        functions
+            .httpsCallable('createMemberLoginFromPublic')
+            .call({'tenantId': widget.tenantId, 'memberId': ref.id})
+            .then((_) {}, onError: (_) {}),
+      );
 
       if (!mounted) return;
       setState(() => _submittedSuccess = true);
+      if (photoUploadFailed) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Membro cadastrado. A foto não subiu agora — está a ser reenviada '
+              'em segundo plano.',
+            ),
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
     } on FirebaseFunctionsException catch (e) {
       if (!mounted) return;
       final msg = e.message ?? e.code;
@@ -617,7 +686,6 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       _filiacaoMaeCtrl.clear();
       _birthDate = null;
       _birthDateCtrl.clear();
-      _photoFile = null;
       _photoBytes = null;
       _passwordCtrl.clear();
     });
@@ -704,7 +772,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                         OutlinedButton.icon(
                           onPressed: _clearAndNew,
                           icon: const Icon(Icons.person_add_rounded, size: 20),
-                          label: const Text('Câmera'),
+                          label: const Text('Cadastrar outro'),
                         ),
                       ],
                     ),

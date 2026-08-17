@@ -151,9 +151,10 @@ abstract final class ChurchMediaUploadFacade {
     Duration timeout = kDefaultTimeout,
     int maxBytes = kStorageRulesMaxFeedImageBytes,
     bool skipEnsureReady = false,
+    bool requireAuth = true,
   }) async {
     if (!skipEnsureReady) {
-      await ensureReady();
+      await ensureReady(requireAuth: requireAuth);
     }
     UploadTask? activeTask;
     try {
@@ -170,6 +171,7 @@ abstract final class ChurchMediaUploadFacade {
         },
         maxBytes: maxBytes,
         skipEnsureReady: true,
+        requireAuth: requireAuth,
       ).timeout(
         timeout,
         onTimeout: () async {
@@ -259,6 +261,12 @@ abstract final class ChurchMediaUploadFacade {
   }
 
   /// Gate único Controle Total — só Storage + Auth (Firestore **depois** do upload).
+  /// Teto do aquecimento. Ele é **best-effort**: se não terminar a tempo o
+  /// upload segue e é ele quem reporta o erro real. Sem este teto um bootstrap
+  /// Storage/Auth pendurado travava a UI para sempre — «Salvando…» no
+  /// Patrimônio, «Anexar comprovante» mudo e publicação de aviso/evento presa.
+  static const Duration kEnsureReadyTimeout = Duration(seconds: 20);
+
   static Future<void> ensureReady({
     YahwehMediaModule? module,
     bool withPhotos = true,
@@ -266,9 +274,14 @@ abstract final class ChurchMediaUploadFacade {
   }) async {
     // Cadastro público não pode passar pelo warm autenticado do painel.
     if (requireAuth) {
-      await FastMediaPublishBootstrap.warmForFeedPublish();
+      await FastMediaPublishBootstrap.warmForFeedPublish().timeout(
+        kEnsureReadyTimeout,
+        onTimeout: () {},
+      );
     }
-    await DirectStorageUrlPublish.ensureReady(requireAuth: requireAuth);
+    await DirectStorageUrlPublish.ensureReady(
+      requireAuth: requireAuth,
+    ).timeout(kEnsureReadyTimeout, onTimeout: () {});
   }
 
   /// Atalho por módulo (Eventos, Avisos, Chat, Património, Financeiro, Cadastro).

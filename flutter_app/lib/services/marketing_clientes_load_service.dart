@@ -7,6 +7,7 @@ import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/public_site_media_auth.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/core/storage/firebase_storage_listing_support.dart';
 
 /// Carga da galeria de clientes (site divulgação).
 ///
@@ -75,6 +76,8 @@ abstract final class MarketingClientesLoadService {
       final root = firebaseDefaultStorage.ref(
         MarketingStorageLayout.clientesRootPrefix,
       );
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return const [];
       final listed = await root.listAll().timeout(
         const Duration(seconds: 18),
         onTimeout: () => throw TimeoutException('list clientes'),
@@ -87,6 +90,8 @@ abstract final class MarketingClientesLoadService {
 
         String? fotoPath;
         try {
+          // (sem guarda aqui: a do topo de loadFromStorageLegacy já impediu
+          // de chegar a este ponto em Windows/Linux)
           final files = await prefix.listAll().timeout(
             const Duration(seconds: 10),
             onTimeout: () => throw TimeoutException('list capa'),

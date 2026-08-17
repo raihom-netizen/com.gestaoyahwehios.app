@@ -1256,14 +1256,14 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     // Duplicado: precisa de leitura em `membros` (regras só para tenant). Visitantes não têm — evitar permission-denied.
     if (!isPublicVisitor) {
       if (cpfDigits.length == 11) {
-        final byCpf = await col
-            .where('CPF', isEqualTo: cpfDigits)
-            .limit(2)
-            .get();
-        final byCpfLower = await col
-            .where('cpf', isEqualTo: cpfDigits)
-            .limit(2)
-            .get();
+        // Em paralelo: eram 4 idas ao Firestore em série antes de qualquer
+        // gravação — o botão «Enviar» ficava parado por vários segundos.
+        final cpfHits = await Future.wait([
+          col.where('CPF', isEqualTo: cpfDigits).limit(2).get(),
+          col.where('cpf', isEqualTo: cpfDigits).limit(2).get(),
+        ]);
+        final byCpf = cpfHits[0];
+        final byCpfLower = cpfHits[1];
         final conflictCpf =
             byCpf.docs.where((d) => d.id != editingDocId).isNotEmpty ||
             byCpfLower.docs.where((d) => d.id != editingDocId).isNotEmpty;
@@ -1278,14 +1278,12 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         }
       }
       if (emailNorm.isNotEmpty) {
-        final byEmail = await col
-            .where('EMAIL', isEqualTo: emailNorm)
-            .limit(2)
-            .get();
-        final byEmailLower = await col
-            .where('email', isEqualTo: emailNorm)
-            .limit(2)
-            .get();
+        final emailHits = await Future.wait([
+          col.where('EMAIL', isEqualTo: emailNorm).limit(2).get(),
+          col.where('email', isEqualTo: emailNorm).limit(2).get(),
+        ]);
+        final byEmail = emailHits[0];
+        final byEmailLower = emailHits[1];
         final conflictEmail =
             byEmail.docs.where((d) => d.id != editingDocId).isNotEmpty ||
             byEmailLower.docs.where((d) => d.id != editingDocId).isNotEmpty;
@@ -1324,6 +1322,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       String? photoStoragePathField;
       String? photoThumbStoragePathField;
       String? photoUrlField;
+      Object? photoUploadError;
       if (_photoBytes != null && _photoBytes!.isNotEmpty) {
         GlobalUploadProgress.instance.start('Enviando foto…');
         try {
@@ -1342,6 +1341,14 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
             photoStoragePathField = null;
             photoUrlField = null;
           }
+        } catch (e) {
+          // A foto NUNCA pode derrubar o cadastro: antes, qualquer falha de
+          // Storage/rede subia até ao catch do _submit e o visitante perdia o
+          // formulário inteiro. Grava a ficha sem foto e avisa no fim.
+          photoUploadError = e;
+          photoStoragePathField = null;
+          photoThumbStoragePathField = null;
+          photoUrlField = null;
         } finally {
           GlobalUploadProgress.instance.end();
         }
@@ -1448,7 +1455,17 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         _submittedMemberName = _nameCtrl.text.trim();
         _lastSubmittedDocId = ref.id;
       });
-      if (photoUrlField == null &&
+      if (photoUploadError != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Cadastro enviado, mas a foto não subiu. A liderança pode '
+              'adicioná-la depois — ou reenvie por «Editar cadastro».',
+            ),
+            duration: Duration(seconds: 6),
+          ),
+        );
+      } else if (photoUrlField == null &&
           _photoBytes != null &&
           _photoBytes!.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(

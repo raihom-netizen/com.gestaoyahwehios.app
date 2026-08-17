@@ -214,6 +214,46 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
             firebaseStorageMediaUrlLooksLike(s));
   }
 
+  /// Resolução já feita (ou em curso) por assinatura de item.
+  ///
+  /// A cadeia capa→logo→`igrejas/{id}` custa até 3 idas à rede POR CARD. Sem
+  /// esta memória, cada rebuild do grid (scroll, «Veja mais», troca de
+  /// breakpoint) refazia tudo — era a maior causa de lentidão da galeria.
+  static final Map<String, Future<({String url, bool logoContain})>>
+  _showcaseImageMemo = {};
+
+  static String showcaseImageMemoKey(Map<String, dynamic> item) =>
+      '${item['id']}|${item['igrejaTenantId']}|${item['tenantId']}|'
+      '${item['fotoPath']}|${item['fotoUrl']}|${item['logoUrl']}|'
+      '${item['capaUrl']}|${item['logoStoragePath']}';
+
+  /// Igual a [resolveShowcaseImage], mas partilhando a resolução entre cards
+  /// e rebuilds. Chamadas concorrentes para o mesmo item viram uma só.
+  static Future<({String url, bool logoContain})> resolveShowcaseImageCached(
+    Map<String, dynamic> item,
+  ) {
+    final key = showcaseImageMemoKey(item);
+    final hit = _showcaseImageMemo[key];
+    if (hit != null) return hit;
+    final f = resolveShowcaseImage(item);
+    _showcaseImageMemo[key] = f;
+    // Resolução falhada não fica presa na memória: permite nova tentativa.
+    unawaited(
+      f
+          .then((r) {
+            if (r.url.isEmpty) _showcaseImageMemo.remove(key);
+          })
+          .catchError((_) {
+            _showcaseImageMemo.remove(key);
+          }),
+    );
+    return f;
+  }
+
+  /// Doc `igrejas/{id}` já lido nesta sessão — a galeria inteira costuma
+  /// precisar do mesmo punhado de igrejas.
+  static final Map<String, Future<Map<String, dynamic>?>> _churchDocMemo = {};
+
   /// Resolve a imagem do card (capa → logo do item → logo canónica da igreja).
   /// `logoContain=true` quando a imagem é logo (exibir com BoxFit.contain).
   /// Blindagem: capa apagada/URL morta no Storage **nunca** deixa o card sem imagem
@@ -258,16 +298,21 @@ class MarketingClientesShowcaseSection extends StatefulWidget {
         .trim();
     if (tid.isEmpty) return (url: '', logoContain: false);
 
-    Map<String, dynamic>? tenantData;
-    try {
-      final op = ChurchPanelTenantGateway.churchId(tid);
-      final doc = await ChurchRepository.churchDoc(op).get().timeout(
-        const Duration(seconds: 5),
-        onTimeout: () =>
-            throw TimeoutException('igrejas/$tid', const Duration(seconds: 5)),
-      );
-      if (doc.exists && doc.data() != null) tenantData = doc.data();
-    } catch (_) {}
+    // Uma leitura por igreja em toda a sessão (várias fatias/cards partilham).
+    final tenantData = await _churchDocMemo.putIfAbsent(tid, () async {
+      try {
+        final op = ChurchPanelTenantGateway.churchId(tid);
+        final doc = await ChurchRepository.churchDoc(op).get().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => throw TimeoutException(
+            'igrejas/$tid',
+            const Duration(seconds: 5),
+          ),
+        );
+        if (doc.exists && doc.data() != null) return doc.data();
+      } catch (_) {}
+      return null;
+    });
 
     final logo = await AppStorageImageService.instance
         .resolveChurchTenantLogoUrl(
@@ -377,7 +422,7 @@ class _MarketingClienteCapaThumbState extends State<MarketingClienteCapaThumb> {
   void initState() {
     super.initState();
     _itemSig = _itemSigOf(widget.item);
-    _future = MarketingClientesShowcaseSection.resolveShowcaseImage(
+    _future = MarketingClientesShowcaseSection.resolveShowcaseImageCached(
       widget.item,
     );
   }
@@ -488,9 +533,65 @@ class _MarketingClientesShowcaseSectionState
   List<Map<String, dynamic>> _mergeItems(
     List<Map<String, dynamic>> firestoreItems,
   ) {
-    if (firestoreItems.isNotEmpty) return firestoreItems;
-    return _fallbackItems;
+    if (firestoreItems.isNotEmpty) return _orderForShowcase(firestoreItems);
+    return _orderForShowcase(_fallbackItems);
   }
+
+  /// Igrejas fixadas no topo da vitrine, na ordem em que entraram como cliente.
+  /// O resto segue exactamente a ordem de cadastro que veio da fonte.
+  static const List<List<String>> _pinnedChurchMatchers = [
+    ['brasil para cristo'],
+    ['batista nacional', 'ibna'],
+  ];
+
+  static String _normalizeForMatch(String raw) {
+    const from = 'áàâãäéèêëíìîïóòôõöúùûüçñ';
+    const to = 'aaaaaeeeeiiiiooooouuuucn';
+    final lower = raw.toLowerCase().trim();
+    final buf = StringBuffer();
+    for (final ch in lower.split('')) {
+      final i = from.indexOf(ch);
+      buf.write(i >= 0 ? to[i] : ch);
+    }
+    return buf.toString().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  static int _pinRank(Map<String, dynamic> item) {
+    final nome = _normalizeForMatch(
+      '${item['nomeIgreja'] ?? ''} ${item['alias'] ?? ''} ${item['slug'] ?? ''}',
+    );
+    for (var i = 0; i < _pinnedChurchMatchers.length; i++) {
+      for (final needle in _pinnedChurchMatchers[i]) {
+        if (nome.contains(needle)) return i;
+      }
+    }
+    return _pinnedChurchMatchers.length;
+  }
+
+  static List<Map<String, dynamic>> _orderForShowcase(
+    List<Map<String, dynamic>> items,
+  ) {
+    if (items.length < 2) return items;
+    // Índice original como desempate — mantém a ordem de cadastro estável.
+    final indexed = items.asMap().entries.toList();
+    indexed.sort((a, b) {
+      final ra = _pinRank(a.value);
+      final rb = _pinRank(b.value);
+      if (ra != rb) return ra.compareTo(rb);
+      return a.key.compareTo(b.key);
+    });
+    return indexed.map((e) => e.value).toList(growable: false);
+  }
+
+  /// Paleta da vitrine — cada card ganha o seu acento (galeria colorida).
+  static const List<List<Color>> _cardAccents = [
+    [Color(0xFF1D4ED8), Color(0xFF3B82F6)],
+    [Color(0xFF047857), Color(0xFF10B981)],
+    [Color(0xFF7C3AED), Color(0xFFA78BFA)],
+    [Color(0xFFB45309), Color(0xFFF59E0B)],
+    [Color(0xFFBE123C), Color(0xFFFB7185)],
+    [Color(0xFF0E7490), Color(0xFF22D3EE)],
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -533,9 +634,12 @@ class _MarketingClientesShowcaseSectionState
         final title = (data?['sectionTitle'] as String?)?.trim();
         final sectionSubtitle = (data?['sectionSubtitle'] as String?)?.trim();
         final w = MediaQuery.sizeOf(context).width;
-        final crossAxisCount = w >= 1100
+        // Cards menores: mais colunas em telas largas e altura enxuta.
+        final crossAxisCount = w >= 1500
+            ? 4
+            : w >= 1080
             ? 3
-            : w >= 700
+            : w >= 680
             ? 2
             : 1;
 
@@ -569,9 +673,9 @@ class _MarketingClientesShowcaseSectionState
                 physics: const NeverScrollableScrollPhysics(),
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: crossAxisCount,
-                  mainAxisSpacing: ThemeCleanPremium.spaceLg,
-                  crossAxisSpacing: ThemeCleanPremium.spaceLg,
-                  mainAxisExtent: crossAxisCount == 1 ? 600 : 540,
+                  mainAxisSpacing: ThemeCleanPremium.spaceMd,
+                  crossAxisSpacing: ThemeCleanPremium.spaceMd,
+                  mainAxisExtent: crossAxisCount == 1 ? 448 : 424,
                 ),
                 itemCount: shown.length,
                 itemBuilder: (context, i) {
@@ -581,6 +685,7 @@ class _MarketingClientesShowcaseSectionState
                       'cli_${it['id']}_${it['igrejaTenantId']}_${it['fotoUrl']}_${it['fotoPath']}',
                     ),
                     item: it,
+                    accent: _cardAccents[i % _cardAccents.length],
                   );
                 },
               ),
@@ -852,9 +957,13 @@ class _PremiumGaleriaIgrejasLead extends StatelessWidget {
 
 /// Hero da capa: tenta Storage/URL do marketing; se falhar, logo canónica da igreja (`configuracoes/`, legados).
 class _ClienteShowcaseHero extends StatefulWidget {
-  const _ClienteShowcaseHero({required this.item});
+  const _ClienteShowcaseHero({
+    required this.item,
+    this.accent = const [Color(0xFF1D4ED8), Color(0xFF3B82F6)],
+  });
 
   final Map<String, dynamic> item;
+  final List<Color> accent;
 
   @override
   State<_ClienteShowcaseHero> createState() => _ClienteShowcaseHeroState();
@@ -890,7 +999,7 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
       // Cadeia completa capa → logo item → logo canónica. Timeout largo o
       // suficiente para web fria (auth anónima + getDownloadURL) — antes 8s
       // totais cortavam o fallback e a logo «sumia» do card.
-      return await MarketingClientesShowcaseSection.resolveShowcaseImage(
+      return await MarketingClientesShowcaseSection.resolveShowcaseImageCached(
         widget.item,
       ).timeout(
         const Duration(seconds: 22),
@@ -903,104 +1012,106 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
 
   @override
   Widget build(BuildContext context) {
-    final ph = Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFE8EEF9), Color(0xFFF8FAFC)],
-        ),
-      ),
-      child: const Center(
+    final c1 = widget.accent.first;
+    final c2 = widget.accent.length > 1 ? widget.accent[1] : c1;
+    // Fundo tingido com o acento do card (galeria colorida) — bem claro para
+    // não competir com a logo, que é o que interessa ver.
+    final tint = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        Color.lerp(c1, Colors.white, 0.90)!,
+        Color.lerp(c2, Colors.white, 0.96)!,
+      ],
+    );
+    final ph = DecoratedBox(
+      decoration: BoxDecoration(gradient: tint),
+      child: Center(
         child: SizedBox(
-          width: 28,
-          height: 28,
-          child: CircularProgressIndicator(strokeWidth: 2),
+          width: 26,
+          height: 26,
+          child: CircularProgressIndicator(strokeWidth: 2, color: c1),
         ),
       ),
     );
-    final err = Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFE8EEF9), Color(0xFFF1F5F9)],
+    final err = DecoratedBox(
+      decoration: BoxDecoration(gradient: tint),
+      child: Center(
+        child: Icon(
+          Icons.church_rounded,
+          size: 46,
+          color: c1.withValues(alpha: 0.45),
         ),
-      ),
-      child: const Center(
-        child: Icon(Icons.church_rounded, size: 52, color: Color(0xFF94A3B8)),
       ),
     );
 
+    // Alta resolução: pede os bytes no tamanho FÍSICO do card (largura lógica ×
+    // devicePixelRatio), com teto de 4K. Sem isto a logo era decodificada no
+    // tamanho lógico e ficava macia em telas Retina/4K.
+    final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 4.0);
+
     return AspectRatio(
-      aspectRatio: 16 / 10,
-      child: FutureBuilder<({String url, bool logoContain})>(
-        future: _future,
-        builder: (context, snap) {
-          if (snap.hasError) {
-            return err;
-          }
-          if (snap.connectionState == ConnectionState.waiting &&
-              !snap.hasData) {
-            return ph;
-          }
-          final data = snap.data;
-          if (data == null || data.url.isEmpty) {
-            return err;
-          }
-          final u = data.url;
-          final logoMode = data.logoContain;
-          final webp = MarketingClientesShowcaseSection.webpUrlFromItem(
-            widget.item,
-          );
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              ColoredBox(
-                color: logoMode ? const Color(0xFFF8FAFC) : Colors.black12,
-                child: logoMode
-                    ? Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: marketingClienteShowcaseImage(
-                          imageUrl: u,
-                          webpUrl: webp,
-                          width: double.infinity,
-                          height: double.infinity,
-                          fit: BoxFit.contain,
-                          placeholder: ph,
-                          errorWidget: err,
+      aspectRatio: 16 / 9,
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final targetW = (c.maxWidth * dpr).round().clamp(320, 3840);
+          return FutureBuilder<({String url, bool logoContain})>(
+            future: _future,
+            builder: (context, snap) {
+              if (snap.hasError) return err;
+              if (snap.connectionState == ConnectionState.waiting &&
+                  !snap.hasData) {
+                return ph;
+              }
+              final data = snap.data;
+              if (data == null || data.url.isEmpty) return err;
+              final u = data.url;
+              final logoMode = data.logoContain;
+              final webp = MarketingClientesShowcaseSection.webpUrlFromItem(
+                widget.item,
+              );
+              final img = marketingClienteShowcaseImage(
+                imageUrl: u,
+                webpUrl: webp,
+                width: double.infinity,
+                height: double.infinity,
+                fit: BoxFit.contain,
+                placeholder: ph,
+                errorWidget: err,
+                memCacheWidth: targetW,
+              );
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  DecoratedBox(
+                    decoration: BoxDecoration(gradient: tint),
+                    child: Padding(
+                      padding: EdgeInsets.all(logoMode ? 12 : 6),
+                      child: img,
+                    ),
+                  ),
+                  if (!logoMode)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.30),
+                            ],
+                          ),
                         ),
-                      )
-                    : marketingClienteShowcaseImage(
-                        imageUrl: u,
-                        webpUrl: webp,
-                        width: double.infinity,
-                        height: double.infinity,
-                        fit: BoxFit.contain,
-                        placeholder: ph,
-                        errorWidget: err,
-                      ),
-              ),
-              if (!logoMode)
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.transparent,
-                          Colors.black.withValues(alpha: 0.42),
-                        ],
+                        child: const SizedBox(height: 36),
                       ),
                     ),
-                    child: const SizedBox(height: 48),
-                  ),
-                ),
-            ],
+                ],
+              );
+            },
           );
         },
       ),
@@ -1009,9 +1120,16 @@ class _ClienteShowcaseHeroState extends State<_ClienteShowcaseHero> {
 }
 
 class _ClienteCard extends StatelessWidget {
-  const _ClienteCard({super.key, required this.item});
+  const _ClienteCard({
+    super.key,
+    required this.item,
+    this.accent = const [Color(0xFF1D4ED8), Color(0xFF3B82F6)],
+  });
 
   final Map<String, dynamic> item;
+
+  /// Par de cores do card (galeria colorida) — topo, faixa e ícones.
+  final List<Color> accent;
 
   String _str(String key) => (item[key] ?? '').toString().trim();
 
@@ -1063,7 +1181,9 @@ class _ClienteCard extends StatelessWidget {
         : null;
     final locHint = MarketingClientesShowcaseSection._locationDisplayHint(loc);
 
-    const radius = ThemeCleanPremium.radiusLg;
+    const radius = 20.0;
+    final c1 = accent.first;
+    final c2 = accent.length > 1 ? accent[1] : accent.first;
 
     return Material(
       color: Colors.transparent,
@@ -1073,31 +1193,30 @@ class _ClienteCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(radius),
           boxShadow: [
             BoxShadow(
-              color: ThemeCleanPremium.navSidebar.withValues(alpha: 0.10),
-              blurRadius: 28,
-              offset: const Offset(0, 14),
-              spreadRadius: -2,
+              color: c1.withValues(alpha: 0.18),
+              blurRadius: 22,
+              offset: const Offset(0, 12),
+              spreadRadius: -4,
             ),
             ...YahwehDesignSystem.softCardShadow,
           ],
-          border: Border(
-            top: BorderSide(
-              color: YahwehDesignSystem.brandGold.withValues(alpha: 0.55),
-              width: 3,
-            ),
-            left: const BorderSide(color: Color(0xFFE2E8F0)),
-            right: const BorderSide(color: Color(0xFFE2E8F0)),
-            bottom: const BorderSide(color: Color(0xFFE2E8F0)),
-          ),
+          border: Border.all(color: c1.withValues(alpha: 0.22), width: 1.2),
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _ClienteShowcaseHero(item: item),
+            // Faixa de cor no topo — identidade visual por card.
+            Container(
+              height: 5,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [c1, c2]),
+              ),
+            ),
+            _ClienteShowcaseHero(item: item, accent: accent),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1106,62 +1225,60 @@ class _ClienteCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(
-                        fontSize: 16,
+                        fontSize: 15,
                         fontWeight: FontWeight.w800,
-                        height: 1.22,
+                        height: 1.2,
                         letterSpacing: -0.25,
                         color: ThemeCleanPremium.onSurface,
                       ),
                     ),
                     if (corpo.isNotEmpty) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       Text.rich(
                         TextSpan(
                           children: lightMarkdownInlineSpans(
                             corpo,
                             GoogleFonts.inter(
-                              fontSize: 13,
+                              fontSize: 12.5,
                               fontWeight: FontWeight.w500,
-                              height: 1.4,
+                              height: 1.35,
                               color: ThemeCleanPremium.onSurfaceVariant,
                             ),
                           ),
                         ),
-                        maxLines: 6,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
                     if (pastor.isNotEmpty) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       _InfoRow(
                         icon: Icons.person_outline_rounded,
                         label: 'Pastor',
                         value: pastor,
+                        color: c1,
                       ),
                     ],
                     if (gestor.isNotEmpty) ...[
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 3),
                       _InfoRow(
                         icon: Icons.manage_accounts_outlined,
                         label: 'Gestor',
                         value: gestor,
+                        color: c1,
                       ),
                     ],
                     if (locHint != null && locHint.isNotEmpty) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.place_outlined,
-                            size: 17,
-                            color: ThemeCleanPremium.primary,
-                          ),
+                          Icon(Icons.place_outlined, size: 16, color: c1),
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               locHint,
-                              maxLines: 2,
+                              maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(
@@ -1174,7 +1291,7 @@ class _ClienteCard extends StatelessWidget {
                         ],
                       ),
                     ],
-                    const SizedBox(height: 12),
+                    const Spacer(),
                     _ClienteActionRow(
                       wa: wa,
                       siteUri: siteUri,
@@ -1237,7 +1354,8 @@ class _ClienteActionRow extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, c) {
-        final useRow = c.maxWidth >= 280 && actions.length <= 3;
+        // Card compacto: mantém os atalhos numa linha só até bem estreito.
+        final useRow = c.maxWidth >= 220 && actions.length <= 3;
         if (useRow) {
           return Row(
             children: [
@@ -1296,13 +1414,13 @@ class _ClienteActionButton extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(14),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 20, color: color),
-              const SizedBox(width: 8),
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 6),
               Flexible(
                 child: Text(
                   label,
@@ -1328,23 +1446,25 @@ class _InfoRow extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
+    this.color,
   });
 
   final IconData icon;
   final String label;
   final String value;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 17, color: ThemeCleanPremium.onSurfaceVariant),
+        Icon(icon, size: 16, color: color ?? ThemeCleanPremium.onSurfaceVariant),
         const SizedBox(width: 6),
         Expanded(
           child: Text(
             '$label: $value',
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: ThemeCleanPremium.onSurfaceVariant,

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:gestao_yahweh/ui/widgets/member_segment_preview_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/home_daily_financial_tip_card.dart';
@@ -1342,7 +1343,11 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
                 cachedTotalMembers: _effectiveCachedMemberTotal(),
               ),
               const SizedBox(height: ThemeCleanPremium.spaceXl),
-              _GraficosMembrosPizza(snap: mergedSnap, isNarrow: isNarrow),
+              _GraficosMembrosPizza(
+                snap: mergedSnap,
+                isNarrow: isNarrow,
+                tenantId: _effectiveTenantId,
+              ),
               const SizedBox(height: ThemeCleanPremium.spaceXl),
               _TarefasPendentes(
                 tenantId: _effectiveTenantId,
@@ -3533,8 +3538,13 @@ class _StatCard extends StatelessWidget {
 class _GraficosMembrosPizza extends StatelessWidget {
   final AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snap;
   final bool isNarrow;
+  final String tenantId;
 
-  const _GraficosMembrosPizza({required this.snap, required this.isNarrow});
+  const _GraficosMembrosPizza({
+    required this.snap,
+    required this.isNarrow,
+    required this.tenantId,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -3594,138 +3604,173 @@ class _GraficosMembrosPizza extends StatelessWidget {
       );
     }
     final docs = snap.data?.docs ?? [];
-    int criSoc = 0,
-        jovSoc = 0,
-        homensAdulto = 0,
-        mulheresAdulto = 0,
-        semDadosOutros = 0;
-    for (final d in docs) {
-      final data = d.data();
-      final idadeSoc = ageFromMemberData(data);
-      final gSoc = genderCategoryFromMemberData(data);
-      if (idadeSoc == null) {
-        semDadosOutros++;
-        continue;
-      }
-      if (idadeSoc < 13) {
-        criSoc++;
-      } else if (idadeSoc < 18) {
-        jovSoc++;
-      } else {
-        if (gSoc == 'M') {
-          homensAdulto++;
-        } else if (gSoc == 'F') {
-          mulheresAdulto++;
-        } else {
-          semDadosOutros++;
-        }
-      }
-    }
-    final demografiaTotal =
-        criSoc + jovSoc + homensAdulto + mulheresAdulto + semDadosOutros;
-    final demografiaEntries = <MapEntry<String, int>>[
-      if (criSoc > 0) MapEntry('Crianças', criSoc),
-      if (jovSoc > 0) MapEntry('Jovens', jovSoc),
-      if (homensAdulto > 0) MapEntry('Homens (18+)', homensAdulto),
-      if (mulheresAdulto > 0) MapEntry('Mulheres (18+)', mulheresAdulto),
-      if (semDadosOutros > 0) MapEntry('Outros / sem dados', semDadosOutros),
+    // Cada fatia guarda os MEMBROS, não só o número: é o que o preview em tela
+    // cheia mostra quando o utilizador toca no percentual.
+    final all = [
+      for (final d in docs) MemberSegmentMember(id: d.id, data: d.data()),
     ];
-    final pieDemografia = demografiaTotal > 0 && demografiaEntries.isNotEmpty
+
+    List<MemberSegmentMember> pick(bool Function(Map<String, dynamic>) test) =>
+        all.where((m) => test(m.data)).toList(growable: false);
+
+    final criSoc = pick((d) {
+      final i = ageFromMemberData(d);
+      return i != null && i < 13;
+    });
+    final jovSoc = pick((d) {
+      final i = ageFromMemberData(d);
+      return i != null && i >= 13 && i < 18;
+    });
+    final homensAdulto = pick((d) {
+      final i = ageFromMemberData(d);
+      return i != null && i >= 18 && genderCategoryFromMemberData(d) == 'M';
+    });
+    final mulheresAdulto = pick((d) {
+      final i = ageFromMemberData(d);
+      return i != null && i >= 18 && genderCategoryFromMemberData(d) == 'F';
+    });
+    final semDadosOutros = pick((d) {
+      final i = ageFromMemberData(d);
+      if (i == null) return true;
+      if (i < 18) return false;
+      final g = genderCategoryFromMemberData(d);
+      return g != 'M' && g != 'F';
+    });
+
+    final demografiaTotal =
+        criSoc.length +
+        jovSoc.length +
+        homensAdulto.length +
+        mulheresAdulto.length +
+        semDadosOutros.length;
+    final demografiaSegments = <MemberSegment>[
+      if (criSoc.isNotEmpty)
+        MemberSegment(
+          label: 'Crianças',
+          members: criSoc,
+          color: const Color(0xFFF59E0B),
+        ),
+      if (jovSoc.isNotEmpty)
+        MemberSegment(
+          label: 'Jovens',
+          members: jovSoc,
+          color: const Color(0xFF14B8A6),
+        ),
+      if (homensAdulto.isNotEmpty)
+        MemberSegment(
+          label: 'Homens (18+)',
+          members: homensAdulto,
+          color: const Color(0xFF2563EB),
+        ),
+      if (mulheresAdulto.isNotEmpty)
+        MemberSegment(
+          label: 'Mulheres (18+)',
+          members: mulheresAdulto,
+          color: const Color(0xFFDB2777),
+        ),
+      if (semDadosOutros.isNotEmpty)
+        MemberSegment(
+          label: 'Outros / sem dados',
+          members: semDadosOutros,
+          color: const Color(0xFF94A3B8),
+        ),
+    ];
+    final pieDemografia = demografiaTotal > 0 && demografiaSegments.isNotEmpty
         ? _PieMembros(
             title: 'Demografia (visão social)',
             icon: Icons.donut_large_rounded,
-            entries: demografiaEntries,
+            segments: demografiaSegments,
             total: demografiaTotal,
-            cores: const [
-              Color(0xFFF59E0B),
-              Color(0xFF14B8A6),
-              Color(0xFF2563EB),
-              Color(0xFFDB2777),
-              Color(0xFF94A3B8),
-            ],
+            tenantId: tenantId,
           )
         : null;
 
-    int masculino = 0, feminino = 0, outros = 0, generoNaoInformado = 0;
-    int criancas = 0, adolescentes = 0, adultos = 0, idosos = 0, semIdade = 0;
-    for (final d in docs) {
-      final data = d.data();
-      final g = genderCategoryFromMemberData(data);
-      if (g == 'M') {
-        masculino++;
-      } else if (g == 'F') {
-        feminino++;
-      } else {
-        final rawSex =
-            (data['SEXO'] ??
-                    data['sexo'] ??
-                    data['genero'] ??
-                    data['gender'] ??
-                    '')
-                .toString()
-                .trim();
-        if (rawSex.isEmpty) {
-          generoNaoInformado++;
-        } else {
-          outros++;
-        }
-      }
-
-      final idade = ageFromMemberData(data);
-      if (idade != null) {
-        if (idade < 13) {
-          criancas++;
-        } else if (idade < 18) {
-          adolescentes++;
-        } else if (idade < 60) {
-          adultos++;
-        } else {
-          idosos++;
-        }
-      } else {
-        semIdade++;
-      }
-    }
     final total = docs.length;
 
-    final generoEntries = <MapEntry<String, int>>[
-      if (masculino > 0) MapEntry('Masculino', masculino),
-      if (feminino > 0) MapEntry('Feminino', feminino),
-      if (outros > 0) MapEntry('Outros', outros),
-      if (generoNaoInformado > 0) MapEntry('Não informado', generoNaoInformado),
-    ];
-    final idadeEntries = <MapEntry<String, int>>[
-      if (criancas > 0) MapEntry('Crianças (<13)', criancas),
-      if (adolescentes > 0) MapEntry('Adolescentes (13-17)', adolescentes),
-      if (adultos > 0) MapEntry('Adultos (18-59)', adultos),
-      if (idosos > 0) MapEntry('Idosos (60+)', idosos),
-      if (semIdade > 0) MapEntry('Sem idade informada', semIdade),
-    ];
+    final generoSegments = <MemberSegment>[
+      MemberSegment(
+        label: 'Masculino',
+        members: pick((d) => genderCategoryFromMemberData(d) == 'M'),
+        color: const Color(0xFF2563EB),
+      ),
+      MemberSegment(
+        label: 'Feminino',
+        members: pick((d) => genderCategoryFromMemberData(d) == 'F'),
+        color: const Color(0xFFDB2777),
+      ),
+      MemberSegment(
+        label: 'Outros',
+        members: pick((d) {
+          final g = genderCategoryFromMemberData(d);
+          if (g == 'M' || g == 'F') return false;
+          return (d['SEXO'] ?? d['sexo'] ?? d['genero'] ?? d['gender'] ?? '')
+              .toString()
+              .trim()
+              .isNotEmpty;
+        }),
+        color: const Color(0xFF7C3AED),
+      ),
+      MemberSegment(
+        label: 'Não informado',
+        members: pick((d) {
+          final g = genderCategoryFromMemberData(d);
+          if (g == 'M' || g == 'F') return false;
+          return (d['SEXO'] ?? d['sexo'] ?? d['genero'] ?? d['gender'] ?? '')
+              .toString()
+              .trim()
+              .isEmpty;
+        }),
+        color: const Color(0xFF94A3B8),
+      ),
+    ].where((s) => s.count > 0).toList(growable: false);
+
+    final idadeSegments = <MemberSegment>[
+      MemberSegment(
+        label: 'Crianças (<13)',
+        members: criSoc,
+        color: const Color(0xFFF59E0B),
+      ),
+      MemberSegment(
+        label: 'Adolescentes (13-17)',
+        members: jovSoc,
+        color: const Color(0xFF14B8A6),
+      ),
+      MemberSegment(
+        label: 'Adultos (18-59)',
+        members: pick((d) {
+          final i = ageFromMemberData(d);
+          return i != null && i >= 18 && i < 60;
+        }),
+        color: const Color(0xFF2563EB),
+      ),
+      MemberSegment(
+        label: 'Idosos (60+)',
+        members: pick((d) {
+          final i = ageFromMemberData(d);
+          return i != null && i >= 60;
+        }),
+        color: const Color(0xFF4F46E5),
+      ),
+      MemberSegment(
+        label: 'Sem idade informada',
+        members: pick((d) => ageFromMemberData(d) == null),
+        color: const Color(0xFFCBD5E1),
+      ),
+    ].where((s) => s.count > 0).toList(growable: false);
 
     final pieGenero = _PieMembros(
       title: 'Por gênero',
       icon: Icons.pie_chart_rounded,
-      entries: generoEntries,
+      segments: generoSegments,
       total: total,
-      cores: [
-        const Color(0xFF2563EB),
-        const Color(0xFFDB2777),
-        const Color(0xFF7C3AED),
-        const Color(0xFF94A3B8),
-      ],
+      tenantId: tenantId,
     );
     final pieIdade = _PieMembros(
       title: 'Por faixa etária',
       icon: Icons.people_rounded,
-      entries: idadeEntries,
+      segments: idadeSegments,
       total: total,
-      cores: [
-        const Color(0xFFF59E0B),
-        const Color(0xFF14B8A6),
-        const Color(0xFF2563EB),
-        const Color(0xFF4F46E5),
-        const Color(0xFFCBD5E1),
-      ],
+      tenantId: tenantId,
     );
 
     if (isNarrow) {
@@ -3830,17 +3875,30 @@ class _PieCard extends StatelessWidget {
 class _PieMembros extends StatelessWidget {
   final String title;
   final IconData icon;
-  final List<MapEntry<String, int>> entries;
+  final List<MemberSegment> segments;
   final int total;
-  final List<Color> cores;
+  final String tenantId;
 
   const _PieMembros({
     required this.title,
     required this.icon,
-    required this.entries,
+    required this.segments,
     required this.total,
-    required this.cores,
+    required this.tenantId,
   });
+
+  void _openSegment(BuildContext context, MemberSegment seg) {
+    if (seg.count == 0) return;
+    unawaited(
+      openMemberSegmentPreview(
+        context,
+        segment: seg,
+        chartTitle: title,
+        tenantId: tenantId,
+        totalForPercent: total,
+      ),
+    );
+  }
 
   LinearGradient _sliceGradient(Color base) {
     final lighter = Color.lerp(base, Colors.white, 0.38)!;
@@ -3853,74 +3911,93 @@ class _PieMembros extends StatelessWidget {
     );
   }
 
-  Widget _legendItem(MapEntry<int, MapEntry<String, int>> e) {
-    final idx = e.key;
-    final label = e.value.key;
-    final count = e.value.value;
+  /// Item da legenda — clicável: abre o preview em tela cheia da fatia.
+  Widget _legendItem(BuildContext context, MemberSegment seg) {
+    final count = seg.count;
     final pct = total > 0 ? (count / total * 100) : 0.0;
-    final base = cores[idx % cores.length];
+    final base = seg.color;
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 12,
-            height: 12,
-            margin: const EdgeInsets.only(top: 3),
-            decoration: BoxDecoration(
-              gradient: _sliceGradient(base),
-              borderRadius: BorderRadius.circular(4),
-              boxShadow: [
-                BoxShadow(
-                  color: base.withValues(alpha: 0.35),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: () => _openSegment(context, seg),
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  margin: const EdgeInsets.only(top: 3),
+                  decoration: BoxDecoration(
+                    gradient: _sliceGradient(base),
+                    borderRadius: BorderRadius.circular(4),
+                    boxShadow: [
+                      BoxShadow(
+                        color: base.withValues(alpha: 0.35),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text.rich(
+                    TextSpan(
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.35,
+                        color: Color(0xFF475569),
+                      ),
+                      children: [
+                        TextSpan(
+                          text: '${seg.label}\n',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        TextSpan(
+                          text: '${pct.toStringAsFixed(1)}%',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                            color: Color(0xFF0F172A),
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        TextSpan(
+                          text:
+                              '  •  $count ${count == 1 ? 'membro' : 'membros'}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: base.withValues(alpha: 0.75),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                style: const TextStyle(
-                  fontSize: 13,
-                  height: 1.35,
-                  color: Color(0xFF475569),
-                ),
-                children: [
-                  TextSpan(
-                    text: '$label\n',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  TextSpan(
-                    text: '${pct.toStringAsFixed(1)}%',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.2,
-                    ),
-                  ),
-                  TextSpan(
-                    text: '  ?  $count ${count == 1 ? 'membro' : 'membros'}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w500,
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _chartWithCenterTotal(List<PieChartSectionData> sections) {
+  Widget _chartWithCenterTotal(
+    BuildContext context,
+    List<PieChartSectionData> sections,
+  ) {
     return AspectRatio(
       aspectRatio: 1,
       child: LayoutBuilder(
@@ -3953,7 +4030,18 @@ class _PieMembros extends StatelessWidget {
                       sections: sections,
                       sectionsSpace: 2.5,
                       centerSpaceRadius: side * 0.22,
-                      pieTouchData: PieTouchData(enabled: false),
+                      // Fatia tocada abre o mesmo preview da legenda.
+                      pieTouchData: PieTouchData(
+                        enabled: true,
+                        touchCallback: (event, resp) {
+                          if (event is! FlTapUpEvent) return;
+                          final i = resp?.touchedSection?.touchedSectionIndex;
+                          if (i == null || i < 0 || i >= segments.length) {
+                            return;
+                          }
+                          _openSegment(context, segments[i]);
+                        },
+                      ),
                     ),
                     swapAnimationDuration: const Duration(milliseconds: 550),
                   ),
@@ -3997,7 +4085,7 @@ class _PieMembros extends StatelessWidget {
   }
 
   Widget _buildContent(BuildContext context) {
-    if (total == 0 || entries.isEmpty) {
+    if (total == 0 || segments.isEmpty) {
       return SizedBox(
         height: 220,
         child: Center(
@@ -4009,10 +4097,9 @@ class _PieMembros extends StatelessWidget {
       );
     }
 
-    final sections = entries.asMap().entries.map((e) {
-      final idx = e.key;
-      final count = e.value.value;
-      final base = cores[idx % cores.length];
+    final sections = segments.map((seg) {
+      final count = seg.count;
+      final base = seg.color;
       final share = total > 0 ? count / total : 0.0;
       final showOnSlice = share >= 0.06 && count > 0;
       return PieChartSectionData(
@@ -4032,7 +4119,9 @@ class _PieMembros extends StatelessWidget {
       );
     }).toList();
 
-    final legend = entries.asMap().entries.map(_legendItem).toList();
+    final legend = [
+      for (final seg in segments) _legendItem(context, seg),
+    ];
     final narrow = MediaQuery.sizeOf(context).width < 520;
 
     if (narrow) {
@@ -4041,8 +4130,8 @@ class _PieMembros extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _chartWithCenterTotal(sections),
-            const SizedBox(height: 20),
+            _chartWithCenterTotal(context, sections),
+            const SizedBox(height: 16),
             ...legend,
           ],
         ),
@@ -4065,7 +4154,7 @@ class _PieMembros extends StatelessWidget {
               ),
             ),
           ),
-          Expanded(flex: 10, child: _chartWithCenterTotal(sections)),
+          Expanded(flex: 10, child: _chartWithCenterTotal(context, sections)),
         ],
       ),
     );
@@ -4700,9 +4789,9 @@ class _GraficoFinanceiroState extends State<_GraficoFinanceiro> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text(
-          '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} ? '
+          '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} — '
           '${widget.range.start.day.toString().padLeft(2, '0')}/${widget.range.start.month.toString().padLeft(2, '0')} '
-          '? ${widget.range.end.day.toString().padLeft(2, '0')}/${widget.range.end.month.toString().padLeft(2, '0')}/${widget.range.end.year}',
+          '→ ${widget.range.end.day.toString().padLeft(2, '0')}/${widget.range.end.month.toString().padLeft(2, '0')}/${widget.range.end.year}',
           style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
         ),
         const SizedBox(height: 8),
@@ -5052,7 +5141,7 @@ class _PainelDespesasDashboardState extends State<_PainelDespesasDashboard> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} ? mesmo período do fluxo',
+                '${ChurchDashboardFinancePeriod.presetLabel(widget.preset)} — mesmo período do fluxo',
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
               const SizedBox(height: 8),

@@ -32,6 +32,7 @@ import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/church_module_query_probe.dart';
 import 'package:gestao_yahweh/core/finance_church_ops.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -4559,26 +4560,37 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
 
       // Cadastro de fornecedor: gravação directa no servidor (evita «salvo» só em cache
       // local quando as rules/rede falham — causa lista Cadastros vazia).
+      // `runWithWebRecovery` sozinho não bastava: quando o SDK do web morre com
+      // INTERNAL ASSERTION, retentar pelo mesmo cliente falha sempre. O bridge
+      // tenta direto e, no assert, cai para a callable Admin (HTTP puro).
       if (_isEdit) {
         final docId = widget.docId!.trim();
         final ref = col.doc(docId);
-        final exists = await FirestoreWebGuard.runWithWebRecovery(
-          () => ref.get(const GetOptions(source: Source.serverAndCache)),
-          maxAttempts: 3,
-        );
-        if (!exists.exists) {
-          payload['createdAt'] = FieldValue.serverTimestamp();
+        var isNew = false;
+        try {
+          final exists = await FirestoreWebGuard.runWithWebRecovery(
+            () => ref.get(const GetOptions(source: Source.serverAndCache)),
+            maxAttempts: 2,
+          );
+          isNew = !exists.exists;
+        } catch (_) {
+          // Leitura de checagem falhou — não pode bloquear o salvamento.
         }
-        await FirestoreWebGuard.runWithWebRecovery(
-          () => ref.set(payload, SetOptions(merge: true)),
-          maxAttempts: 4,
+        if (isNew) payload['createdAt'] = FieldValue.serverTimestamp();
+        await AdminFeedFirestoreBridge.upsertDocRef(
+          docRef: ref,
+          data: payload,
+          isNewDoc: isNew,
+          directWrite: () => ref.set(payload, SetOptions(merge: true)),
         );
       } else {
         payload['createdAt'] = FieldValue.serverTimestamp();
         final ref = col.doc();
-        await FirestoreWebGuard.runWithWebRecovery(
-          () => ref.set(payload),
-          maxAttempts: 4,
+        await AdminFeedFirestoreBridge.upsertDocRef(
+          docRef: ref,
+          data: payload,
+          isNewDoc: true,
+          directWrite: () => ref.set(payload),
         );
       }
 

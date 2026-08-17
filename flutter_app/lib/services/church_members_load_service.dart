@@ -82,12 +82,17 @@ abstract final class ChurchMembersLoadService {
   ) {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) return null;
+    // Sempre o MAIOR conjunto em RAM, nunca o primeiro encontrado: a entrada
+    // do limite 500 pode ter sido gravada por uma carga parcial (rede cortada,
+    // SDK web envenenado) com menos documentos que a entrada de 120 — devolver
+    // a primeira fazia o picker de Departamentos mostrar só parte dos membros.
+    List<QueryDocumentSnapshot<Map<String, dynamic>>>? best;
     for (final limit in [500, 200, 120, kDefaultLimit, 80, 50, 30]) {
       final hit = _peekRam(churchId, limit);
-      if (hit != null && hit.isNotEmpty) return hit;
+      if (hit == null || hit.isEmpty) continue;
+      if (best == null || hit.length > best.length) best = hit;
     }
     final prefix = '${churchId}_membros_blind_';
-    List<QueryDocumentSnapshot<Map<String, dynamic>>>? best;
     for (final e in _ram.entries) {
       if (!e.key.startsWith(prefix) || e.value.docs.isEmpty) continue;
       if (best == null || e.value.docs.length > best.length) {

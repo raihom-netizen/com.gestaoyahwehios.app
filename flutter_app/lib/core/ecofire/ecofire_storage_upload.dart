@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
 import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
 import 'package:gestao_yahweh/core/tenant/legacy_path_guard.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
+import 'package:gestao_yahweh/core/storage/firebase_storage_listing_support.dart';
 
 /// Upload directo Storage ? URL ? port 1:1 do EcoFire `StorageUploadService`,
 /// com paths canónicos `igrejas/{churchId}/…` do Gestão YAHWEH.
@@ -17,26 +18,32 @@ abstract final class EcoFireStorageUpload {
 
   static const int _maxAttempts = 3;
 
+  /// [requireAuth] false = cadastro público de membro (visitante sem sessão).
+  /// Sem este flag, `ensureForStoragePut` exigia login e a foto do formulário
+  /// externo falhava sempre com «Sessão expirada», derrubando o cadastro todo.
   static Future<String> putData({
     required String storagePath,
     required Uint8List bytes,
     required String mimeType,
     void Function(double progress)? onProgress,
     void Function(UploadTask task)? onUploadTaskCreated,
+    bool requireAuth = true,
   }) async {
     LegacyPathGuard.assertCanonicalStoragePath(
       storagePath,
       context: 'EcoFireStorageUpload.putData',
     );
     EcoFireFlow.log('STORAGE putData $storagePath');
-    await EcoFireDirectFirebase.ensureForStoragePut();
+    await EcoFireDirectFirebase.ensureForStoragePut(requireAuth: requireAuth);
 
     Object? lastError;
     for (var attempt = 0; attempt < _maxAttempts; attempt++) {
       try {
         if (attempt > 0) {
           await Future<void>.delayed(Duration(seconds: attempt));
-          await EcoFireDirectFirebase.ensureForStoragePut();
+          await EcoFireDirectFirebase.ensureForStoragePut(
+            requireAuth: requireAuth,
+          );
         }
         final ref = await EcoFireDirectFirebase.storageRef(storagePath);
         final ct = StorageUploadMetadata.contentTypeForPut(
@@ -275,6 +282,8 @@ abstract final class EcoFireStorageUpload {
       final folder = await EcoFireDirectFirebase.storageRef(
         '${ChurchStorageLayout.churchRoot(churchId)}/${ChurchStorageLayout.kSegMembros}/fotos',
       );
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return null;
       final list = await folder.listAll();
       for (final item in list.items) {
         if (item.name.startsWith(prefix)) {

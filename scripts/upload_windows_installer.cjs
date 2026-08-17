@@ -61,6 +61,22 @@ admin.initializeApp({
   const publicUrl = `https://storage.googleapis.com/${bucket.name}/${dest}`;
   console.log('Público:', publicUrl);
 
+  // Mantém APENAS a versão atual em downloads/windows/ — apaga builds antigos
+  // (instaladores e zips) para não acumular custo/confusão no Storage.
+  const [antigos] = await bucket.getFiles({ prefix: 'downloads/windows/' });
+  const paraApagar = antigos.filter((f) => f.name !== dest);
+  if (paraApagar.length === 0) {
+    console.log('Limpeza: nada antigo para remover.');
+  } else {
+    for (const f of paraApagar) {
+      await f.delete().catch((e) => {
+        console.warn('  falhou apagar', f.name, '-', e.message);
+      });
+      console.log('  removido:', f.name);
+    }
+    console.log(`Limpeza: ${paraApagar.length} ficheiro(s) antigo(s) removido(s).`);
+  }
+
   const db = admin.firestore();
   await db.doc('config/appDownloads').set({
     windowsUrl: publicUrl,

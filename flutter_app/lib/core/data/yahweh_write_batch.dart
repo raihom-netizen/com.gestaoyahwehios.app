@@ -28,6 +28,7 @@ library;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
     show firestoreRestCommit, RestWrite;
 
@@ -187,7 +188,11 @@ class YahwehBatch {
         continue;
       }
 
-      final batch = FirebaseFirestore.instance.batch();
+      // `firebaseDefaultFirestore` (e não `FirebaseFirestore.instance`): o
+      // projeto acede sempre pelo app [DEFAULT] via bootstrap, que valida que
+      // o Firebase já está pronto. Usar `.instance` solto contorna essa
+      // verificação — proibido por convenção neste repositório.
+      final batch = firebaseDefaultFirestore.batch();
       for (final op in slice) {
         if (op.isDelete) {
           batch.delete(op.ref);

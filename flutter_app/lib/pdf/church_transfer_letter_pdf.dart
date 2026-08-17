@@ -135,7 +135,7 @@ Future<Uint8List> buildChurchTransferLetterPdf({
             children: [
               pw.Expanded(
                 child: pw.Text(
-                  left.isEmpty ? 'Carta ministerial' : '$left ? Carta ministerial',
+                  left.isEmpty ? 'Carta ministerial' : '$left • Carta ministerial',
                   style: pw.TextStyle(fontSize: 7.8, color: muted),
                 ),
               ),
@@ -161,7 +161,7 @@ String _oficioDateLineExtensa(Map<String, dynamic> data) {
   final uf = (data['estado'] ?? data['UF'] ?? data['uf'] ?? '').toString().trim();
   String local = '';
   if (cidade.isNotEmpty && uf.isNotEmpty) {
-    local = '$cidade?$uf';
+    local = '$cidade/$uf';
   } else if (cidade.isNotEmpty) {
     local = cidade;
   } else if (uf.isNotEmpty) {
@@ -509,9 +509,9 @@ String churchLetterMembersBlock(Iterable<ChurchLetterMemberLine> members) {
     if (n.isEmpty) continue;
     final c = (m.cpfDigits ?? '').replaceAll(RegExp(r'\D'), '');
     if (c.length == 11) {
-      buf.writeln('$n ? CPF ${_formatCpf(c)}');
+      buf.writeln('$n — CPF ${_formatCpf(c)}');
     } else if (c.isNotEmpty) {
-      buf.writeln('$n ? CPF $c');
+      buf.writeln('$n — CPF $c');
     } else {
       buf.writeln(n);
     }
@@ -712,7 +712,7 @@ String applyChurchLetterPlaceholders({
   rep('[Cargo 2 - ex: Pastor, Líder, etc.]', issuer2Role.trim());
   rep('[Cargo 2 – ex: Pastor, Líder, etc.]', issuer2Role.trim());
   rep('[Contato - telefone/WhatsApp/e-mail]', issuerContact.trim());
-  rep('[Contato ? telefone/WhatsApp/e-mail]', issuerContact.trim());
+  rep('[Contato — telefone/WhatsApp/e-mail]', issuerContact.trim());
   rep('[Igreja Nome]', issuerChurchLine.trim());
   return s;
 }

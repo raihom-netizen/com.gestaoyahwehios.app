@@ -50,6 +50,8 @@ import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 import 'package:gestao_yahweh/ui/widgets/member_avatar_utils.dart'
     show avatarColorForMember;
 import 'package:gestao_yahweh/ui/widgets/member_demographics_utils.dart';
+import 'package:gestao_yahweh/ui/widgets/member_segment_pie_card.dart';
+import 'package:gestao_yahweh/ui/widgets/member_segment_preview_page.dart';
 import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:gestao_yahweh/services/member_nameless_purge_service.dart';
 import 'package:gestao_yahweh/core/global_upload_progress.dart';
@@ -3065,7 +3067,7 @@ class _MembersPageState extends State<MembersPage> {
                                                   path: email,
                                                   queryParameters: {
                                                     'subject':
-                                                        'Contato ? $name',
+                                                        'Contato — $name',
                                                   },
                                                 ),
                                               ),
@@ -6171,7 +6173,7 @@ class _MembersPageState extends State<MembersPage> {
       if (mounted) {
         final msg = e.code == 'failed-precondition'
             ? (e.message ??
-                  'Este cadastro Não ? de formulário público. Use "Redefinir senha" se o membro já tiver login.')
+                  'Este cadastro não é de formulário público. Use "Redefinir senha" se o membro já tiver login.')
             : 'Erro: ${e.message ?? e.code}';
         ScaffoldMessenger.of(
           context,
@@ -6916,7 +6918,7 @@ class _MembersPageState extends State<MembersPage> {
                                           [
                                             if (email.isNotEmpty) email,
                                             if (phone.isNotEmpty) phone,
-                                          ].join(' ? '),
+                                          ].join(' • '),
                                           style: const TextStyle(
                                             fontSize: 13,
                                             color: ThemeCleanPremium
@@ -7335,7 +7337,7 @@ class _MembersPageState extends State<MembersPage> {
                                     [
                                       if (email.isNotEmpty) email,
                                       if (phone.isNotEmpty) phone,
-                                    ].join(' ? '),
+                                    ].join(' • '),
                                     style: const TextStyle(
                                       fontSize: 13,
                                       color: ThemeCleanPremium.onSurfaceVariant,
@@ -8066,7 +8068,7 @@ class _MembersPageState extends State<MembersPage> {
       final short = q.length > 26 ? '${q.substring(0, 26)}?' : q;
       bits.add('Busca: "$short"');
     }
-    return bits.join(' ? ');
+    return bits.join(' • ');
   }
 
   Widget _buildPremiumSearchField(EdgeInsets padding) {
@@ -9174,6 +9176,7 @@ class _MembersPageState extends State<MembersPage> {
             if (docsForStats.isNotEmpty) {
               return _MembersPremiumStatsPanel(
                 padding: padding,
+                tenantId: widget.tenantId,
                 allDocs: docsForStats,
                 heroTotal: _heroTotalForMembersStatsPanel(
                   docsForStats,
@@ -9221,6 +9224,7 @@ class _MembersPageState extends State<MembersPage> {
                   _buildMembersOfflineBanner(onRetry: _refreshMembers),
                   _MembersPremiumStatsPanel(
                     padding: padding,
+                    tenantId: widget.tenantId,
                     allDocs: docsForStats,
                     heroTotal: _heroTotalForMembersStatsPanel(
                       docsForStats,
@@ -9294,6 +9298,7 @@ class _MembersPageState extends State<MembersPage> {
         final docsForStats = _docsForMembersStatsPanel(merged);
         return _MembersPremiumStatsPanel(
           padding: padding,
+          tenantId: widget.tenantId,
           allDocs: docsForStats,
           heroTotal: _heroTotalForMembersStatsPanel(
             docsForStats,
@@ -9629,9 +9634,9 @@ String _statsDrillTitle(_StatsDrillKind k) {
     case _StatsDrillKind.ageChild:
       return 'Crianças (<13 anos)';
     case _StatsDrillKind.ageTeen:
-      return 'Adolescentes (13?17)';
+      return 'Adolescentes (13–17)';
     case _StatsDrillKind.ageAdult:
-      return 'Adultos (18?59)';
+      return 'Adultos (18–59)';
     case _StatsDrillKind.ageSenior:
       return 'Idosos (60+)';
     case _StatsDrillKind.ageUnknown:
@@ -9676,9 +9681,13 @@ class _MembersPremiumStatsPanel extends StatefulWidget {
   final VoidCallback? onRelatorioAvancado;
   final VoidCallback? onOpenAprovar;
 
+  /// Necessário para as fotos no preview em tela cheia das fatias.
+  final String tenantId;
+
   const _MembersPremiumStatsPanel({
     required this.padding,
     required this.allDocs,
+    required this.tenantId,
     required this.heroTotal,
     this.directorySummary,
     this.useDirectorySummary = false,
@@ -9702,9 +9711,67 @@ class _MembersPremiumStatsPanel extends StatefulWidget {
 class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
   _StatsDrillKind _drill = _StatsDrillKind.overview;
 
+  static Color _statsDrillColor(_StatsDrillKind k) {
+    switch (k) {
+      case _StatsDrillKind.genderMale:
+        return const Color(0xFF2563EB);
+      case _StatsDrillKind.genderFemale:
+        return const Color(0xFFDB2777);
+      case _StatsDrillKind.genderUnknown:
+        return const Color(0xFF64748B);
+      case _StatsDrillKind.ageChild:
+        return const Color(0xFFF59E0B);
+      case _StatsDrillKind.ageTeen:
+        return const Color(0xFF14B8A6);
+      case _StatsDrillKind.ageAdult:
+        return const Color(0xFF2563EB);
+      case _StatsDrillKind.ageSenior:
+        return const Color(0xFF4F46E5);
+      case _StatsDrillKind.ageUnknown:
+        return const Color(0xFF94A3B8);
+      case _StatsDrillKind.overview:
+        return ThemeCleanPremium.primary;
+    }
+  }
+
+  /// Fonte dos gráficos, memoizada por identidade da lista: os builders varrem
+  /// os membros várias vezes e o painel reconstrói a cada `setState`.
+  List<_MemberDoc>? _segmentSourceKey;
+  List<MemberSegmentMember>? _segmentSourceCache;
+
+  List<MemberSegmentMember> get _segmentSource {
+    if (identical(_segmentSourceKey, widget.allDocs) &&
+        _segmentSourceCache != null) {
+      return _segmentSourceCache!;
+    }
+    _segmentSourceKey = widget.allDocs;
+    _segmentSourceCache = [
+      for (final m in widget.allDocs)
+        MemberSegmentMember(id: m.id, data: m.data),
+    ];
+    return _segmentSourceCache!;
+  }
+
+  /// Cartões e barras abrem o MESMO preview em tela cheia dos gráficos —
+  /// antes cada entrada levava a uma lista in-place diferente.
   void _openDrill(_StatsDrillKind k) {
     if (k == _StatsDrillKind.overview) return;
-    setState(() => _drill = k);
+    final members = [
+      for (final m in widget.allDocs)
+        if (_memberMatchesStatsDrill(m, k))
+          MemberSegmentMember(id: m.id, data: m.data),
+    ];
+    openMemberSegmentPreview(
+      context,
+      segment: MemberSegment(
+        label: _statsDrillTitle(k),
+        members: members,
+        color: _statsDrillColor(k),
+      ),
+      chartTitle: 'Membros',
+      tenantId: widget.tenantId,
+      totalForPercent: widget.allDocs.length,
+    );
   }
 
   void _backToOverview() => setState(() => _drill = _StatsDrillKind.overview);
@@ -9766,6 +9833,8 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
     }
 
     final primary = ThemeCleanPremium.primary;
+
+    final segmentSource = _segmentSource;
 
     if (_drill != _StatsDrillKind.overview) {
       final filtered = widget.allDocs
@@ -9860,7 +9929,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Sexo, idade e situação seguem status, gênero, departamento, etc. A caixa ?Buscar? só restringe a tabela na aba Lista ? Não os totais abaixo.',
+            'Sexo, idade e situação seguem status, gênero, departamento, etc. A caixa «Buscar» só restringe a tabela na aba Lista — não os totais abaixo.',
             style: TextStyle(
               fontSize: 12,
               height: 1.35,
@@ -9888,7 +9957,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Há texto na busca da lista. Os números deste painel ignoram essa busca para Não ?sumirem? os irmãos. Limpe a busca se quiser a lista igual aos gráficos.',
+                      'Há texto na busca da lista. Os números deste painel ignoram essa busca para não «sumirem» os irmãos. Limpe a busca se quiser a lista igual aos gráficos.',
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.35,
@@ -9988,6 +10057,24 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
             onTap: () => _openDrill(_StatsDrillKind.genderUnknown),
           ),
           const SizedBox(height: 18),
+          // Mesmos gráficos do painel inicial da igreja, aqui dentro de
+          // «Painel & números» — cada fatia/percentual abre o preview.
+          MemberSegmentPieCard(
+            title: 'Demografia (visão social)',
+            icon: Icons.donut_large_rounded,
+            segments: MemberSegmentBuilders.demografia(segmentSource),
+            total: widget.allDocs.length,
+            tenantId: widget.tenantId,
+          ),
+          const SizedBox(height: 12),
+          MemberSegmentPieCard(
+            title: 'Por faixa etária',
+            icon: Icons.people_rounded,
+            segments: MemberSegmentBuilders.faixaEtaria(segmentSource),
+            total: widget.allDocs.length,
+            tenantId: widget.tenantId,
+          ),
+          const SizedBox(height: 18),
           Text(
             'Faixa etária',
             style: TextStyle(
@@ -10081,7 +10168,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                 FilledButton.icon(
                   onPressed: widget.onExportPdf,
                   icon: const Icon(Icons.picture_as_pdf_rounded, size: 20),
-                  label: const Text('PDF ? lista completa'),
+                  label: const Text('PDF — lista completa'),
                   style: FilledButton.styleFrom(
                     backgroundColor: primary,
                     padding: const EdgeInsets.symmetric(
@@ -10093,7 +10180,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                 OutlinedButton.icon(
                   onPressed: widget.onExportCsv,
                   icon: const Icon(Icons.table_chart_rounded, size: 20),
-                  label: const Text('CSV ? exportar'),
+                  label: const Text('CSV — exportar'),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16,
@@ -10173,7 +10260,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '$count ${count == 1 ? 'membro' : 'membros'} ? toque na linha para abrir a ficha ou use ? para editar',
+                  '$count ${count == 1 ? 'membro' : 'membros'} • toque na linha para abrir a ficha ou no lápis para editar',
                   style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
@@ -10675,7 +10762,7 @@ class _MembersPremiumStatsPanelState extends State<_MembersPremiumStatsPanel> {
                           ),
                           TextSpan(
                             text:
-                                '  ?  $count ${count == 1 ? 'membro' : 'membros'}',
+                                '  •  $count ${count == 1 ? 'membro' : 'membros'}',
                             style: TextStyle(
                               fontWeight: FontWeight.w500,
                               fontSize: 12,
@@ -11242,7 +11329,7 @@ class _LinkCadastroPublicoCard extends StatelessWidget {
                         onPressed: () {
                           if (url.isEmpty) return;
                           Share.share(
-                            'Cadastro de membro ? preencha por este link:\n$url',
+                            'Cadastro de membro — preencha por este link:\n$url',
                             subject: 'Cadastro de membro',
                             sharePositionOrigin: const Rect.fromLTWH(
                               0,

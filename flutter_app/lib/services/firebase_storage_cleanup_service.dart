@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/member_photo_storage_naming.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/core/storage/firebase_storage_listing_support.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         imageUrlsFromVariantMap,
@@ -114,6 +115,8 @@ class FirebaseStorageCleanupService {
   }
 
   static Future<void> _deleteAllObjectsRecursive(Reference ref) async {
+    // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+    if (!firebaseStorageListingSupported) return;
     final list = await ref.listAll();
     for (final item in list.items) {
       try {
@@ -351,6 +354,8 @@ class FirebaseStorageCleanupService {
       } catch (_) {}
     }
     try {
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return;
       final list = await firebaseDefaultStorage.ref(base).listAll();
       for (final item in list.items) {
         if (_isCanonicalGestorProfileFile(item.name)) continue;
@@ -429,6 +434,8 @@ class FirebaseStorageCleanupService {
       } catch (_) {}
     }
     try {
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return;
       final list = await firebaseDefaultStorage.ref(base).listAll();
       for (final item in list.items) {
         if (_isCanonicalChurchConfigFile(item.name)) continue;
@@ -507,6 +514,8 @@ class FirebaseStorageCleanupService {
       } catch (_) {}
     }
     try {
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return;
       final list = await firebaseDefaultStorage.ref(base).listAll();
       for (final item in list.items) {
         if (_isCanonicalAvisoPostFile(item.name)) continue;
@@ -615,6 +624,8 @@ class FirebaseStorageCleanupService {
       } catch (_) {}
     }
     try {
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return;
       final list = await firebaseDefaultStorage.ref(base).listAll();
       for (final item in list.items) {
         if (_isCanonicalEventPostFile(item.name)) continue;
@@ -691,6 +702,8 @@ class FirebaseStorageCleanupService {
       } catch (_) {}
     }
     try {
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return;
       final list = await firebaseDefaultStorage.ref(dir).listAll();
       for (final item in list.items) {
         if (_isCanonicalEventTemplateCoverFile(item.name, stem)) continue;
@@ -752,6 +765,8 @@ class FirebaseStorageCleanupService {
       } catch (_) {}
     }
     try {
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return;
       final list = await firebaseDefaultStorage.ref(base).listAll();
       for (final item in list.items) {
         final n = item.name.toLowerCase();
@@ -851,6 +866,8 @@ class FirebaseStorageCleanupService {
     }
 
     try {
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return;
       final list = await prefixRef.listAll();
       for (final item in list.items) {
         if (!shouldDeleteGenerated(item.name)) continue;
@@ -1114,6 +1131,8 @@ class FirebaseStorageCleanupService {
       itemFolderPrefix: prefix,
     );
     try {
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return;
       final list = await firebaseDefaultStorage.ref(prefix).listAll();
       for (final item in list.items) {
         if (_isCanonicalPatrimonioItemFile(item.name)) continue;
@@ -1198,6 +1217,8 @@ class FirebaseStorageCleanupService {
       itemFolderPrefix: prefix,
     );
     try {
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return;
       final list = await firebaseDefaultStorage.ref(prefix).listAll();
       for (final item in list.items) {
         if (_isCanonicalPatrimonioItemFile(item.name)) continue;
@@ -1250,6 +1271,8 @@ class FirebaseStorageCleanupService {
       caseSensitive: false,
     );
     try {
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return;
       final list =
           await firebaseDefaultStorage.ref('igrejas/$tid/patrimonio').listAll();
       for (final item in list.items) {
@@ -1323,6 +1346,8 @@ class FirebaseStorageCleanupService {
     if (tid.isEmpty) return;
     try {
       final ref = firebaseDefaultStorage.ref('igrejas/$tid/members');
+      // Windows/Linux: listagem nao existe no SDK C++ e o processo morre.
+      if (!firebaseStorageListingSupported) return;
       final list = await ref.listAll();
       for (final item in list.items) {
         final n = item.name.toLowerCase();

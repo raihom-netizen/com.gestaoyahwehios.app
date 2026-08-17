@@ -79,6 +79,7 @@ abstract final class FinanceComprovantePublishService {
       );
 
   static Future<void> _ensureReady() async {
+    // Aquecimento best-effort — teto em `kEnsureReadyTimeout` na fachada.
     await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
   }
 

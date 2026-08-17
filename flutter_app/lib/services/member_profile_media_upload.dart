@@ -42,6 +42,7 @@ abstract final class MemberProfileMediaUpload {
       onProgress: onProgress,
       timeout: uploadTimeout,
       skipEnsureReady: true,
+      requireAuth: requireAuth,
     );
     return uploaded.downloadUrl;
   }
@@ -67,6 +68,7 @@ abstract final class MemberProfileMediaUpload {
       onProgress: onProgress,
       timeout: uploadTimeout,
       skipEnsureReady: true,
+      requireAuth: requireAuth,
     );
     return uploaded.downloadUrl;
   }

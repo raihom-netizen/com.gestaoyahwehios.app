@@ -106,32 +106,55 @@ class _ChurchDepartmentMemberPickerPageState
         seedTenantId: widget.tenantId,
       );
       if (!mounted) return;
-      final selected = <String>{..._selected};
-      final deptId = widget.deptId?.trim() ?? '';
-      if (!_singleLeader && deptId.isNotEmpty && selected.isEmpty) {
-        for (final row in loaded.members) {
-          if (ChurchDepartmentMembersLoadService.memberInDepartment(
-            row.data,
-            deptId,
-          )) {
-            selected.add(row.memberDocId);
-          }
-        }
-      }
-      setState(() {
-        _members = loaded.members;
-        _selected = selected;
-        _loading = false;
-        _loadError = loaded.members.isEmpty ? loaded.softError : null;
-      });
+      _applyLoaded(loaded);
+      // A primeira leitura pode vir de um cache PARCIAL (rede cortada ou SDK
+      // Firestore do web derrubado por INTERNAL ASSERTION) — era isso que
+      // fazia «não aparecem todos os membros». Revalida na rede e adota o
+      // resultado quando ele traz mais gente.
+      unawaited(_revalidateFromNetwork(loaded.members.length));
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _loadError = e.toString();
       });
+      unawaited(_revalidateFromNetwork(0));
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _applyLoaded(ChurchDepartmentMembersLoadResult loaded) {
+    final selected = <String>{..._selected};
+    final deptId = widget.deptId?.trim() ?? '';
+    if (!_singleLeader && deptId.isNotEmpty && selected.isEmpty) {
+      for (final row in loaded.members) {
+        if (ChurchDepartmentMembersLoadService.memberInDepartment(
+          row.data,
+          deptId,
+        )) {
+          selected.add(row.memberDocId);
+        }
+      }
+    }
+    setState(() {
+      _members = loaded.members;
+      _selected = selected;
+      _loading = false;
+      _loadError = loaded.members.isEmpty ? loaded.softError : null;
+    });
+  }
+
+  Future<void> _revalidateFromNetwork(int currentCount) async {
+    try {
+      final fresh = await ChurchDepartmentMembersLoadService.loadAllForPicker(
+        seedTenantId: widget.tenantId,
+        forceRefresh: true,
+      );
+      if (!mounted) return;
+      if (fresh.members.length > currentCount) _applyLoaded(fresh);
+    } catch (_) {
+      // Silencioso: a lista do cache continua utilizável.
     }
   }
 

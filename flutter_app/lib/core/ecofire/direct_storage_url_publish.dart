@@ -77,6 +77,7 @@ abstract final class DirectStorageUrlPublish {
       mimeType: mimeType,
       onProgress: onProgress,
       onUploadTaskCreated: onUploadTaskCreated,
+      requireAuth: requireAuth,
     );
   }
 

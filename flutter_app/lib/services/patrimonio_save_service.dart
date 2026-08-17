@@ -39,6 +39,8 @@ abstract final class PatrimonioSaveService {
 
     final hasSlotUploads = uploadsBySlot.isNotEmpty || newImages.isNotEmpty;
     if (hasSlotUploads) {
+      // Aquecimento é best-effort e fica FORA do `kSaveTimeout`; o teto vive
+      // em `ChurchMediaUploadFacade.kEnsureReadyTimeout`.
       await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
     }
 

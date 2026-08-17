@@ -18,6 +18,7 @@ import 'package:http/http.dart' as http;
 import 'package:photo_view/photo_view.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/core/storage/firebase_storage_listing_support.dart';
 
 enum _GalleryKind { video, image, pdf }
 
@@ -357,6 +358,10 @@ class _MarketingGestaoYahwehGallerySectionState
     int depth = 0,
   }) async {
     if (depth > 8) return [];
+    // Windows/Linux: o SDK C++ não implementa listagem e chamar `listAll()`
+    // MATA o processo (Segmentation fault) — era esta chamada que deixava o
+    // app instalado «Não está respondendo». Nem tentar.
+    if (!firebaseStorageListingSupported) return [];
     final out = <Reference>[];
     try {
       final list = await ref.listAll().timeout(

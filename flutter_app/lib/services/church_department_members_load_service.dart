@@ -9,7 +9,6 @@ import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/models/blind_member_doc.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart' show imageUrlFromMap;
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -71,7 +70,12 @@ abstract final class ChurchDepartmentMembersLoadService {
   ChurchDepartmentMembersLoadService._();
 
   static const int _kLinkedLimit = 200;
-  static const int _kPickerLimit = YahwehPerformanceV4.defaultPageSize;
+
+  /// Picker de «Vincular membros» / «Escolher líder» precisa da igreja INTEIRA:
+  /// com `defaultPageSize` (20) uma igreja de 59 membros mostrava só 20 e o
+  /// gestor não encontrava o irmão que queria vincular. Mesmo teto da lista
+  /// de membros (500) — é uma tela de seleção, não uma lista paginada.
+  static const int _kPickerLimit = 500;
 
   static Duration get _queryCap => kIsWeb
       ? const Duration(seconds: 14)
@@ -464,15 +468,23 @@ abstract final class ChurchDepartmentMembersLoadService {
       if (loaded.docs.isNotEmpty) return loaded.docs;
     } catch (_) {}
 
+    // `queryPlainFirst` vai por REST no web — é o único caminho que sobrevive
+    // ao SDK Firestore derrubado por INTERNAL ASSERTION. Num `forceRefresh`
+    // ele vem ANTES da RAM: cair na RAM aqui devolvia a lista parcial que o
+    // utilizador já estava a ver e a revalidação não corrigia nada.
     final ram = ChurchMembersLoadService.peekRamAny(churchId);
-    if (ram != null && ram.isNotEmpty) return ram;
+    if (!forceRefresh && ram != null && ram.isNotEmpty) return ram;
 
-    return ChurchModuleFirestoreListRead.queryPlainFirst(
+    final rest = await ChurchModuleFirestoreListRead.queryPlainFirst(
       reference: ChurchUiCollections.membros(churchId),
       cacheKey: '${churchId.trim()}_dept_picker_$_kPickerLimit',
       limit: _kPickerLimit,
       sortDocs: (docs) => docs,
     );
+    if (rest.isNotEmpty) return rest;
+    return (ram != null && ram.isNotEmpty)
+        ? ram
+        : const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
   }
 
   static Future<void> _refreshLinkedInBackground(

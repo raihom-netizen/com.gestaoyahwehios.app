@@ -3852,6 +3852,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
+      // Sem esta constraint o Material 3 corta a folha em 640px de largura.
+      constraints: const BoxConstraints(),
+      shape: const RoundedRectangleBorder(),
       builder: (ctx) => FinanceAccountCategorySheet(
         uid: widget.uid.trim(),
         profile: widget.profile,
@@ -3884,6 +3887,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
+      // Sem esta constraint o Material 3 corta a folha em 640px de largura.
+      constraints: const BoxConstraints(),
+      shape: const RoundedRectangleBorder(),
       builder: (ctx) => FinanceAccountCategorySheet(
         uid: widget.uid.trim(),
         profile: widget.profile,
@@ -4345,7 +4351,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
+      constraints: const BoxConstraints(),
+      shape: const RoundedRectangleBorder(),
       builder: (ctx) => FinanceInsightSheet(
         uid: widget.uid.trim(),
         initialScope: scope,
@@ -4385,7 +4394,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
             await showModalBottomSheet<void>(
               context: sheetContext,
               isScrollControlled: true,
+              useSafeArea: true,
               backgroundColor: Theme.of(context).colorScheme.surface,
+              constraints: const BoxConstraints(),
+              shape: const RoundedRectangleBorder(),
               builder: (_) => FinanceInsightSheet(
                 uid: widget.uid.trim(),
                 initialScope: FinanceInsightScope.expense,
@@ -4878,6 +4890,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
+      constraints: const BoxConstraints(),
+      shape: const RoundedRectangleBorder(),
       builder: (ctx) => DraggableScrollableSheet(
         initialChildSize: 1.0,
         minChildSize: 1.0,
@@ -5201,6 +5215,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Theme.of(context).colorScheme.surface,
+      constraints: const BoxConstraints(),
+      shape: const RoundedRectangleBorder(),
       builder: (ctx) => DraggableScrollableSheet(
         initialChildSize: 1.0,
         minChildSize: 1.0,
