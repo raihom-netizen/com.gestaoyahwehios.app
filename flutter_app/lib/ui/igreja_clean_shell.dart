@@ -37,7 +37,7 @@ import 'package:gestao_yahweh/services/widget_update_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show imageUrlFromMap;
+    show SafeNetworkImage, imageUrlFromMap;
 import 'package:gestao_yahweh/ui/widgets/user_display_name_edit_sheet.dart';
 import 'pages/igreja_dashboard_moderno.dart';
 import 'pages/igreja_cadastro_page.dart';
@@ -2427,84 +2427,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final escolhido = await showModalBottomSheet<String?>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => SafeArea(
-        child: Container(
-          margin: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
-                child: Row(
-                  children: [
-                    const Icon(Icons.swap_horiz_rounded, size: 22),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Text(
-                        'Trocar de igreja',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 17,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                child: Text(
-                  'Abre o painel inteiro (membros, financeiro, agenda) na base '
-                  'escolhida. Nada é gravado na igreja visitada.',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    color: Colors.grey.shade700,
-                    height: 1.35,
-                  ),
-                ),
-              ),
-              const Divider(height: 1),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.home_rounded),
-                      title: const Text('Minha igreja (padrão)'),
-                      trailing: atual == null
-                          ? const Icon(Icons.check_rounded)
-                          : null,
-                      onTap: () => Navigator.pop(ctx, ''),
-                    ),
-                    for (final c in churches)
-                      ListTile(
-                        leading: const Icon(Icons.church_rounded),
-                        title: Text(c.name),
-                        subtitle: Text(
-                          c.id,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                        trailing: atual == c.id
-                            ? const Icon(Icons.check_rounded)
-                            : null,
-                        onTap: () => Navigator.pop(ctx, c.id),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
+      builder: (ctx) => _MasterChurchSwitcherSheet(
+        churches: churches,
+        atual: atual,
       ),
     );
     if (escolhido == null || !mounted) return;
@@ -3495,6 +3422,279 @@ class _ChurchShellNavMaterialIconsKeepalive extends StatelessWidget {
     ];
     return Offstage(
       child: Wrap(children: [for (final id in icons) Icon(id, size: 1)]),
+    );
+  }
+}
+
+/// Folha «Trocar de igreja» — logo da igreja, cores e botao de voltar.
+class _MasterChurchSwitcherSheet extends StatelessWidget {
+  const _MasterChurchSwitcherSheet({
+    required this.churches,
+    required this.atual,
+  });
+
+  final List<MasterSwitchableChurch> churches;
+  final String? atual;
+
+  /// Cor estavel por id — cada igreja tem sempre o mesmo tom.
+  List<Color> _tons(String seed) {
+    const paletas = <List<Color>>[
+      [Color(0xFF2563EB), Color(0xFF7C3AED)],
+      [Color(0xFF0EA5E9), Color(0xFF0891B2)],
+      [Color(0xFF10B981), Color(0xFF059669)],
+      [Color(0xFFF59E0B), Color(0xFFEA580C)],
+      [Color(0xFFEC4899), Color(0xFFDB2777)],
+    ];
+    var h = 0;
+    for (final c in seed.codeUnits) {
+      h = (h * 31 + c) & 0x7fffffff;
+    }
+    return paletas[h % paletas.length];
+  }
+
+  Widget _logo(MasterSwitchableChurch c) {
+    final tons = _tons(c.id);
+    final letra = c.name.trim().isEmpty
+        ? '?'
+        : c.name.trim().substring(0, 1).toUpperCase();
+    final recuo = Container(
+      width: 48,
+      height: 48,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        gradient: LinearGradient(
+          colors: tons,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Text(
+        letra,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 20,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+    if (c.logoRef.trim().isEmpty) return recuo;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: SizedBox(
+        width: 48,
+        height: 48,
+        child: SafeNetworkImage(
+          imageUrl: c.logoRef,
+          fit: BoxFit.cover,
+          width: 48,
+          height: 48,
+          memCacheWidth: 160,
+          placeholder: recuo,
+          errorWidget: recuo,
+        ),
+      ),
+    );
+  }
+
+  Widget _linha(
+    BuildContext context, {
+    required Widget avatar,
+    required String titulo,
+    required String subtitulo,
+    required bool marcada,
+    required List<Color> tons,
+    required VoidCallback onTap,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Material(
+        color: marcada ? tons.first.withValues(alpha: 0.09) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: marcada
+                    ? tons.first.withValues(alpha: 0.55)
+                    : const Color(0xFFE8EDF5),
+                width: marcada ? 1.6 : 1,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  avatar,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          titulo,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w800,
+                            height: 1.2,
+                          ),
+                        ),
+                        if (subtitulo.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitulo,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontFamily: 'monospace',
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: marcada ? tons.first : Colors.transparent,
+                      border: Border.all(
+                        color: marcada ? tons.first : const Color(0xFFCBD5E1),
+                        width: 2,
+                      ),
+                    ),
+                    child: marcada
+                        ? const Icon(
+                            Icons.check_rounded,
+                            size: 17,
+                            color: Colors.white,
+                          )
+                        : null,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.75,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            // Faixa colorida com o botao de voltar.
+            Container(
+              padding: const EdgeInsets.fromLTRB(4, 10, 16, 14),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF1D4ED8), Color(0xFF7C3AED)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Voltar',
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    color: Colors.white,
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Trocar de igreja',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Abre o painel inteiro na base escolhida. '
+                          'Nada e gravado na igreja visitada.',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11.5,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.swap_horiz_rounded, color: Colors.white70),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: ListView(
+                controller: scrollController,
+                padding: const EdgeInsets.only(bottom: 18),
+                children: [
+                  _linha(
+                    context,
+                    avatar: Container(
+                      width: 48,
+                      height: 48,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        color: const Color(0xFF1D4ED8).withValues(alpha: 0.12),
+                      ),
+                      child: const Icon(
+                        Icons.home_rounded,
+                        color: Color(0xFF1D4ED8),
+                      ),
+                    ),
+                    titulo: 'Minha igreja (padrao)',
+                    subtitulo: '',
+                    marcada: atual == null,
+                    tons: const [Color(0xFF1D4ED8), Color(0xFF7C3AED)],
+                    onTap: () => Navigator.pop(context, ''),
+                  ),
+                  for (final c in churches)
+                    _linha(
+                      context,
+                      avatar: _logo(c),
+                      titulo: c.name,
+                      subtitulo: c.id,
+                      marcada: atual == c.id,
+                      tons: _tons(c.id),
+                      onTap: () => Navigator.pop(context, c.id),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

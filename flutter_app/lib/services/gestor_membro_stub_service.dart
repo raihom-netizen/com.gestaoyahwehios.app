@@ -2,7 +2,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
+    show firestoreRestGetDoc;
 /// Garante documento mínimo em `igrejas/{tenantId}/membros/{authUid}` para o gestor —
 /// nome (displayName ou e-mail) e e-mail; foto e demais dados em **Membros**.
 class GestorMembroStubService {
@@ -22,7 +25,29 @@ class GestorMembroStubService {
     final col =         ChurchOperationalPaths.churchDoc(op)
         .collection('membros');
     final ref = col.doc(user.uid);
-    final snap = await ref.get();
+
+    // Leitura curada: este `.get()` cru era a fonte do
+    // «Igreja salva. Pre-cadastro em Membros: INTERNAL ASSERTION FAILED».
+    // Com o SDK web envenenado ele lanca, e a escrita a seguir (que ja usa
+    // YahwehDocWrite, com REST) nem chegava a acontecer. Falhar a leitura nao
+    // pode impedir o stub: no pior caso trata-se como documento inexistente.
+    Map<String, dynamic>? existente;
+    var existe = false;
+    try {
+      final snap = await ref.get().timeout(const Duration(seconds: 8));
+      existe = snap.exists;
+      existente = snap.data();
+    } catch (_) {
+      if (kIsWeb) {
+        try {
+          final rest = await firestoreRestGetDoc(
+            ref.path,
+          ).timeout(const Duration(seconds: 10));
+          existe = rest != null;
+          existente = rest;
+        } catch (_) {}
+      }
+    }
 
     String nome() {
       final dn = user.displayName?.trim() ?? '';
@@ -40,8 +65,8 @@ class GestorMembroStubService {
     final placeholderAvatar =
         'https://api.dicebear.com/7.x/initials/png?seed=$seed&backgroundColor=EAF2FF,DDEBFF,CFE3FF';
 
-    if (snap.exists) {
-      final d = snap.data() ?? {};
+    if (existe) {
+      final d = existente ?? {};
       final patch = <String, dynamic>{
         'ATUALIZADO_EM': FieldValue.serverTimestamp(),
       };

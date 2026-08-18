@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
+    show firestoreRestGetDoc;
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
@@ -201,6 +203,27 @@ abstract final class ChurchProfileLoader {
         }
       } catch (e) {
         lastReadError = e;
+      }
+    }
+
+    // Cura REST: o SDK web fica inutilizavel depois da INTERNAL ASSERTION e
+    // tanto `FirestoreReadResilience` como `runWithWebRecovery` continuam a
+    // falhar, porque ambos usam o mesmo cliente envenenado. O canal REST nao
+    // depende dele — era isto que faltava para o «Cadastro da Igreja» deixar
+    // de mostrar «Sincronizacao parcial ... INTERNAL ASSERTION FAILED».
+    if (data.isEmpty && kIsWeb) {
+      try {
+        final rest = await firestoreRestGetDoc(
+          firestorePath,
+        ).timeout(const Duration(seconds: 12));
+        if (rest != null && rest.isNotEmpty) {
+          data = Map<String, dynamic>.from(rest);
+          readSource = 'rest';
+          lastReadError = null;
+          docConfirmedMissing = false;
+        }
+      } catch (_) {
+        // Mantem o erro original do SDK para a mensagem ao utilizador.
       }
     }
 

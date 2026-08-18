@@ -40,17 +40,35 @@ abstract final class ChurchContext {
     return id.isEmpty ? '' : ChurchStorageLayout.churchRoot(id);
   }
 
-  /// Resolve churchId: sessão bound → mapa BPC/slug → hint do shell (ID directo).
+  /// Igreja escolhida a dedo pelo operador global (seletor «Trocar de igreja»).
   ///
-  /// **Sempre** aplica [TenantResolverService.mapLegacySeedToCanonical] — mesmo quando
-  /// a sessão ficou bound a um slug legado (`o-brasil-cristo-jardim-goiano`).
+  /// Existe porque nem todo documento em `igrejas/` respeita o padrao
+  /// `igreja_*`: ha tenants gravados como `assembleia_de_deus_...` e
+  /// `igreta_batista_...` (gralha no nome de origem). Sem esta excecao, o
+  /// `resolveChurchId` descartava a dica e caia no `currentChurchId` — a
+  /// igreja do proprio utilizador —, e a troca nunca saia do lugar.
+  ///
+  /// Fica em `core` (e nao no servico) para nao criar ciclo de imports.
+  static String? explicitTenantOverride;
+
+  /// Resolve churchId: tenant escolhido → sessão bound → mapa BPC/slug → hint.
+  ///
+  /// **Sempre** aplica [TenantResolverService.mapLegacySeedToCanonical] — mesmo
+  /// quando a sessão ficou bound a um slug legado
+  /// (`o-brasil-cristo-jardim-goiano`).
   static String resolveChurchId([String? shellHint]) {
     final hint = shellHint?.trim() ?? '';
+    final forced = explicitTenantOverride?.trim() ?? '';
     if (hint.isNotEmpty) {
+      // Dica igual ao tenant escolhido: vale como esta, seja qual for o id.
+      if (forced.isNotEmpty && hint == forced) return hint;
       final mapped = TenantResolverService.mapLegacySeedToCanonical(hint);
       if (mapped != null && mapped.isNotEmpty) return mapped;
       if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(hint)) return hint;
     }
+
+    // Com igreja escolhida, ela manda — nunca a sessao da igreja de origem.
+    if (forced.isNotEmpty) return forced;
 
     final ctx = currentChurchId;
     if (ctx != null && ctx.isNotEmpty) return _canonicalize(ctx);

@@ -3,15 +3,23 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
     show firestoreRestCollect;
 
 /// Igreja disponível para o master abrir no painel.
 class MasterSwitchableChurch {
-  const MasterSwitchableChurch({required this.id, required this.name});
+  const MasterSwitchableChurch({
+    required this.id,
+    required this.name,
+    this.logoRef = '',
+  });
 
   final String id;
   final String name;
+
+  /// URL https ou path do Storage — [SafeNetworkImage] resolve os dois.
+  final String logoRef;
 }
 
 /// Troca de igreja (base de dados) dentro do painel — **só para os operadores
@@ -52,6 +60,7 @@ abstract final class MasterTenantOverrideService {
   static Future<void> restore() async {
     if (!isAllowedUser) {
       current.value = null;
+      ChurchContext.explicitTenantOverride = null;
       return;
     }
     try {
@@ -61,12 +70,16 @@ abstract final class MasterTenantOverrideService {
     } catch (_) {
       current.value = null;
     }
+    ChurchContext.explicitTenantOverride = current.value;
   }
 
   static Future<void> setTenant(String? churchId) async {
     if (!isAllowedUser) return;
     final id = (churchId ?? '').trim();
     current.value = id.isEmpty ? null : id;
+    // O resolvedor de tenant le isto ANTES do regex `igreja_*`, para aceitar
+    // ids fora do padrao (ver ChurchContext.explicitTenantOverride).
+    ChurchContext.explicitTenantOverride = current.value;
     try {
       final prefs = await SharedPreferences.getInstance();
       if (id.isEmpty) {
@@ -90,12 +103,30 @@ abstract final class MasterTenantOverrideService {
       return id;
     }
 
+    String logoOf(Map<String, dynamic> d) {
+      for (final k in [
+        'logoUrl',
+        'logo',
+        'logoPath',
+        'logoStoragePath',
+        'imagemUrl',
+      ]) {
+        final v = (d[k] ?? '').toString().trim();
+        if (v.isNotEmpty) return v;
+      }
+      return '';
+    }
+
     if (kIsWeb) {
       try {
         final docs = await firestoreRestCollect(collectionPath: 'igrejas');
         final out = [
           for (final d in docs)
-            MasterSwitchableChurch(id: d.id, name: nameOf(d.data(), d.id)),
+            MasterSwitchableChurch(
+              id: d.id,
+              name: nameOf(d.data(), d.id),
+              logoRef: logoOf(d.data()),
+            ),
         ];
         if (out.isNotEmpty) {
           out.sort(
@@ -113,7 +144,11 @@ abstract final class MasterTenantOverrideService {
           .get(const GetOptions(source: Source.serverAndCache));
       final out = [
         for (final d in snap.docs)
-          MasterSwitchableChurch(id: d.id, name: nameOf(d.data(), d.id)),
+          MasterSwitchableChurch(
+            id: d.id,
+            name: nameOf(d.data(), d.id),
+            logoRef: logoOf(d.data()),
+          ),
       ];
       out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       return out;
