@@ -271,6 +271,13 @@ abstract final class ChurchContextService {
 
     final id = _canonicalizePanelId(churchId);
 
+    // Trocou de igreja: os dados em memória são da igreja ANTERIOR e não
+    // podem sobreviver ao rebind — era isto que fazia o painel continuar
+    // mostrando a igreja antiga depois de trocar de base.
+    if (_currentChurchId != null && _currentChurchId != id) {
+      _currentChurchData = null;
+    }
+
     _currentChurchId = id;
 
     _seedId = seed.trim();
@@ -286,6 +293,7 @@ abstract final class ChurchContextService {
     debugPrint('CHURCH_CONTEXT bound churchId=$id path=igrejas/$id');
 
   }
+
 
   /// Hidrata perfil da igreja após bind — cadastro e módulos leem [currentChurchData].
   static Future<void> _ensureChurchProfileLoaded(String churchId) async {

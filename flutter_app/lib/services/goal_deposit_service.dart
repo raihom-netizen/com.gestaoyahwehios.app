@@ -1,6 +1,7 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_datetime.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
@@ -143,7 +144,7 @@ class GoalDepositService {
         if (!paid.contains(w)) paid.add(w);
       }
       paid.sort();
-      await goalRef.update({'weeksPaid': paid});
+      await YahwehDocWrite.update(goalRef, {'weeksPaid': paid});
     }
 
     FinanceTransactionsHub.notifyMutated(uid: uid);
@@ -184,7 +185,7 @@ class GoalDepositService {
       );
       paid.addAll(newWeeks);
       paid.sort();
-      await goalRef.update({'weeksPaid': paid});
+      await YahwehDocWrite.update(goalRef, {'weeksPaid': paid});
     }
 
     final effectiveDate = FinanceTransactionDatetime.mergeCalendarDayWithClockNow(date);
@@ -205,7 +206,7 @@ class GoalDepositService {
         contribUpdate['weekNumbers'] = FieldValue.delete();
       }
     }
-    await contribDoc.reference.update(contribUpdate);
+    await YahwehDocWrite.update(contribDoc.reference, contribUpdate);
 
     if (txId.isNotEmpty) {
       final weekLabel = is52 ? _weekLabel(newWeeks) : _weekLabel(weeksFromContribData(data));
@@ -364,7 +365,7 @@ class GoalDepositService {
       await TransactionSaveService.txRef(uid).doc(txId).delete();
     }
 
-    await contribDoc.reference.delete();
+    await YahwehDocWrite.delete(contribDoc.reference);
     await recalculate52WeeksPaid(goalRef: goalRef);
 
     if (deleteLinkedTransaction && uid != null) {

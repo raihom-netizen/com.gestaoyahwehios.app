@@ -74,7 +74,15 @@ class ChurchTenantOfflineWarmupService {
     if (!AppConnectivityService.instance.isOnline) return;
     // Só light no login — heavy (20+ coleções) competia com o dashboard na Web.
     unawaited(_runWarmup(tidIn, light: true));
-    if (!_heavyWarmupScheduled && !kIsWeb) {
+    // Heavy (20+ coleções) só no MOBILE. Na Web competia com o dashboard; no
+    // desktop nativo (Windows/Linux/macOS) o Firestore é o SDK C++ e essa
+    // rajada passava pela thread de plataforma — era o "Não está respondendo"
+    // que aparecia ~45 s depois de entrar no painel.
+    final desktopNativo = !kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux ||
+            defaultTargetPlatform == TargetPlatform.macOS);
+    if (!_heavyWarmupScheduled && !kIsWeb && !desktopNativo) {
       _heavyWarmupScheduled = true;
       Future<void>.delayed(
         const Duration(seconds: 45),

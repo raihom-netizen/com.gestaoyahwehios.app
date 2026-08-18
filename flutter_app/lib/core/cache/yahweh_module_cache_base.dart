@@ -75,6 +75,19 @@ class YahwehModuleCacheBase extends ChangeNotifier {
   }
 
   /// Restaura JSON do disco — instantâneo antes da rede (Web + mobile).
+  /// Payload grande (membros, financeiro…) decodificado FORA da thread de UI.
+  ///
+  ///  de várias listas grandes em paralelo travava o arranque —
+  /// muito pior no desktop, que não tem a folga de threads do mobile.
+  static const int _decodeInIsolateOverBytes = 96 * 1024;
+
+  static Future<dynamic> _decodeCacheJson(String raw) {
+    if (raw.length < _decodeInIsolateOverBytes) {
+      return Future<dynamic>.value(jsonDecode(raw));
+    }
+    return compute<String, dynamic>(jsonDecode, raw);
+  }
+
   Future<void> warmUp(String churchId) async {
     final cid = churchId.trim();
     if (cid.isEmpty) return;
@@ -83,7 +96,7 @@ class YahwehModuleCacheBase extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_prefsKey(cid));
       if (raw == null || raw.isEmpty) return;
-      final list = jsonDecode(raw);
+      final list = await _decodeCacheJson(raw);
       if (list is! List || list.isEmpty) return;
       final docs = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
       for (final row in list) {

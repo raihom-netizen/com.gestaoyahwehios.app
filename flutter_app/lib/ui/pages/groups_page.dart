@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -166,7 +167,7 @@ class _GroupsPageState extends State<GroupsPage> {
     if (confirmed == true) {
       try {
         await FirebaseAuth.instance.currentUser?.getIdToken(true);
-        await doc.reference.delete();
+        await YahwehDocWrite.delete(doc.reference);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Grupo excluído', style: TextStyle(color: Colors.white)), backgroundColor: Colors.green),
@@ -872,7 +873,7 @@ class _GroupFormPageState extends State<_GroupFormPage> {
         payload['membros'] = <Map<String, dynamic>>[];
         await col.add(payload);
       } else {
-        await widget.doc!.reference.update(payload);
+        await YahwehDocWrite.update(widget.doc!.reference, payload);
       }
 
       if (mounted) Navigator.pop(context, true);
@@ -1418,7 +1419,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
     }
 
     membros.add({'id': result['id'], 'nome': result['nome']});
-    await _groupRef.update({
+    await YahwehDocWrite.update(_groupRef, {
       'membros': membros,
       'membrosCount': membros.length,
     });
@@ -1448,7 +1449,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
     if (confirmed != true) return;
 
     final updated = List<Map<String, dynamic>>.from(membros)..removeAt(index);
-    await _groupRef.update({
+    await YahwehDocWrite.update(_groupRef, {
       'membros': updated,
       'membrosCount': updated.length,
     });
@@ -1617,7 +1618,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage>
                                     ),
                                   );
                                   if (ok == true) {
-                                    await docs[i].reference.delete();
+                                    await YahwehDocWrite.delete(docs[i].reference);
                                   }
                                 },
                                 style: IconButton.styleFrom(

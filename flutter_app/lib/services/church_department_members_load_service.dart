@@ -205,10 +205,28 @@ abstract final class ChurchDepartmentMembersLoadService {
     return score;
   }
 
-  /// Ordena por nome **e remove a mesma pessoa repetida** (docs duplicados).
+  /// Nome normalizado (sem acento/duplo espaço) — última rede do dedupe.
+  static String _normalizedName(ChurchDepartmentMemberRow r) {
+    const from = 'áàâãäéèêëíìîïóòôõöúùûüçñ';
+    const to = 'aaaaaeeeeiiiiooooouuuucn';
+    final lower = r.displayName.toLowerCase().trim();
+    final buf = StringBuffer();
+    for (final ch in lower.split('')) {
+      final i = from.indexOf(ch);
+      buf.write(i >= 0 ? to[i] : ch);
+    }
+    return buf.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  /// Ordena por nome **e remove a mesma pessoa repetida**.
+  ///
+  /// Dois passes porque `membros_vinculados` guarda um "stub" só com nome e
+  /// foto: ele não tem UID nem CPF, então nunca casava com o doc real do
+  /// membro pela chave de identidade — e a pessoa aparecia duas vezes.
   static List<ChurchDepartmentMemberRow> _sortRows(
     List<ChurchDepartmentMemberRow> rows,
   ) {
+    // 1) identidade forte (uid / cpf / e-mail / nome)
     final best = <String, ChurchDepartmentMemberRow>{};
     for (final r in rows) {
       final key = _personKey(r);
@@ -217,14 +235,26 @@ abstract final class ChurchDepartmentMembersLoadService {
         best[key] = r;
       }
     }
-    final sorted = best.values.toList();
+
+    // 2) mesmo nome → fica só o registo mais completo (mata o stub)
+    final porNome = <String, ChurchDepartmentMemberRow>{};
+    for (final r in best.values) {
+      final nome = _normalizedName(r);
+      if (nome.isEmpty) continue;
+      final atual = porNome[nome];
+      if (atual == null || _rowRichness(r) > _rowRichness(atual)) {
+        porNome[nome] = r;
+      }
+    }
+    final semNome = best.values.where((r) => _normalizedName(r).isEmpty);
+
+    final sorted = [...porNome.values, ...semNome];
     sorted.sort(
       (a, b) =>
           a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
     );
     return sorted;
   }
-
 
   static void _putLinkedRam(
     String churchId,

@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
-    show firestoreRestCommit, RestWrite;
+    show firestoreRestCollect, firestoreRestCommit, RestFieldFilter, RestWrite;
 import 'package:gestao_yahweh/core/church_department_leaders.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -284,11 +284,15 @@ class DepartmentMemberIntegrationService {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     await FirestoreWebGuard.runWithWebRecovery(() => batch.commit());
-    await removeMemberFromFutureSchedulesOfDepartment(
-      tenantId: tid,
-      departmentId: did,
-      memberData: memberData,
-    );
+    // Limpeza das escalas é BEST-EFFORT: o vínculo já foi removido acima, e
+    // uma falha aqui não pode fazer a tela dizer "Erro ao remover".
+    try {
+      await removeMemberFromFutureSchedulesOfDepartment(
+        tenantId: tid,
+        departmentId: did,
+        memberData: memberData,
+      );
+    } catch (_) {}
   }
 
   /// Só subcoleção + contador (membro já tem o array atualizado).
@@ -407,11 +411,27 @@ class DepartmentMemberIntegrationService {
     final startOfToday = DateTime(now.year, now.month, now.day);
 
     final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-    final snap = await ChurchOperationalPaths.churchDoc(op)
-        .collection('escalas')
-        .where('departmentId', isEqualTo: did)
-        .limit(400)
-        .get();
+    // Web: consulta por REST. O `.get()` cru estourava INTERNAL ASSERTION
+    // DEPOIS do unlink já ter gravado — o membro saía, mas a tela dizia
+    // "Erro ao remover" e não atualizava a lista.
+    final List<QueryDocumentSnapshot<Map<String, dynamic>>> escalaDocs;
+    if (kIsWeb) {
+      final rest = await firestoreRestCollect(
+        collectionPath: ChurchOperationalPaths.churchDoc(op)
+            .collection('escalas')
+            .path,
+        filters: [RestFieldFilter.equal('departmentId', did)],
+        limit: 400,
+      );
+      escalaDocs = rest.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
+    } else {
+      final snap = await ChurchOperationalPaths.churchDoc(op)
+          .collection('escalas')
+          .where('departmentId', isEqualTo: did)
+          .limit(400)
+          .get();
+      escalaDocs = snap.docs;
+    }
 
     WriteBatch? batch;
     var ops = 0;
@@ -424,7 +444,7 @@ class DepartmentMemberIntegrationService {
       }
     }
 
-    for (final esc in snap.docs) {
+    for (final esc in escalaDocs) {
       DateTime? dt;
       try {
         dt = (esc.data()['date'] as Timestamp?)?.toDate();

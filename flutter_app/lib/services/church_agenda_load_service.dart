@@ -12,6 +12,8 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/igreja_direct_firestore_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
+    show firestoreRestDeleteDoc, firestoreRestSetDoc, firestoreRestUpdateDoc;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
@@ -633,13 +635,20 @@ abstract final class ChurchAgendaLoadService {
     required Map<String, dynamic> payload,
   }) async {
     await _prepareWrite();
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => runFirestorePublishWithRecovery(
-        () => ref.update(payload),
+    try {
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => runFirestorePublishWithRecovery(
+          () => ref.update(payload),
+          maxAttempts: 4,
+        ),
         maxAttempts: 4,
-      ),
-      maxAttempts: 4,
-    );
+      );
+    } catch (e) {
+      // Web com SDK envenenado: só o REST grava. Era por isto que editar
+      // evento/culto/reunião não salvava.
+      if (!kIsWeb) rethrow;
+      await firestoreRestUpdateDoc(ref.path, setFields: payload);
+    }
     _invalidateFromRef(ref);
   }
 
@@ -649,13 +658,18 @@ abstract final class ChurchAgendaLoadService {
     required Map<String, dynamic> payload,
   }) async {
     await _prepareWrite();
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => runFirestorePublishWithRecovery(
-        () => ref.set(payload),
+    try {
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => runFirestorePublishWithRecovery(
+          () => ref.set(payload),
+          maxAttempts: 4,
+        ),
         maxAttempts: 4,
-      ),
-      maxAttempts: 4,
-    );
+      );
+    } catch (e) {
+      if (!kIsWeb) rethrow;
+      await firestoreRestSetDoc(ref.path, payload);
+    }
     _invalidateFromRef(ref);
   }
 
@@ -676,13 +690,21 @@ abstract final class ChurchAgendaLoadService {
     DocumentReference<Map<String, dynamic>> ref,
   ) async {
     await _prepareWrite();
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => runFirestorePublishWithRecovery(
-        () => ref.delete(),
+    try {
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => runFirestorePublishWithRecovery(
+          () => ref.delete(),
+          maxAttempts: 4,
+        ),
         maxAttempts: 4,
-      ),
-      maxAttempts: 4,
-    );
+      );
+    } catch (e) {
+      // SDK web envenenado (INTERNAL ASSERTION): retentar por ele nunca
+      // resolve — era por isto que excluir evento/culto/reunião não fazia
+      // nada. REST apaga de verdade.
+      if (!kIsWeb) rethrow;
+      await firestoreRestDeleteDoc(ref.path);
+    }
     _invalidateFromRef(ref);
   }
 

@@ -96,6 +96,169 @@ class _AgendaItem {
   final Map<String, dynamic> data;
 }
 
+/// Ficha completa do compromisso (evento / culto / reunião).
+///
+/// Antes o "Ver detalhes" mostrava uma linha só («Evento · data hora») e o
+/// gestor não via descrição, local, responsável nem quem está escalado.
+Future<void> _showAgendaItemDetails(BuildContext context, _AgendaItem item) async {
+  final d = item.data;
+
+  String pick(List<String> keys) {
+    for (final k in keys) {
+      final v = (d[k] ?? '').toString().trim();
+      if (v.isNotEmpty && v != 'null') return v;
+    }
+    return '';
+  }
+
+  List<String> pickList(List<String> keys) {
+    for (final k in keys) {
+      final v = d[k];
+      if (v is List && v.isNotEmpty) {
+        return v.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+      }
+    }
+    return const [];
+  }
+
+  final dataLabel = DateFormat("EEEE, dd/MM/yyyy", 'pt_BR').format(item.when);
+  final horaLabel = item.allDay
+      ? 'Dia inteiro'
+      : DateFormat('HH:mm', 'pt_BR').format(item.when);
+  final descricao = pick([
+    'description', 'descricao', 'text', 'body', 'mensagem', 'observacao', 'obs',
+  ]);
+  final local = pick([
+    'location', 'local', 'endereco', 'enderecoCompleto', 'localNome',
+  ]);
+  final responsavel = pick([
+    'responsavel', 'responsavelNome', 'ministro', 'pregador', 'dirigente',
+  ]);
+  final departamento = pick(['departmentName', 'departamento', 'departamentoNome']);
+  final categoria = pick(['category', 'categoria', 'categoriaNome']);
+  final escalados = pickList(['memberNames', 'escalados', 'participantes']);
+
+  final linhas = <({IconData icon, String label, String value})>[
+    (icon: Icons.event_rounded, label: 'Tipo', value: item.kind.label),
+    (icon: Icons.calendar_month_rounded, label: 'Data', value: dataLabel),
+    (icon: Icons.schedule_rounded, label: 'Horário', value: horaLabel),
+    if (categoria.isNotEmpty)
+      (icon: Icons.local_offer_rounded, label: 'Categoria', value: categoria),
+    if (departamento.isNotEmpty)
+      (icon: Icons.groups_rounded, label: 'Departamento', value: departamento),
+    if (responsavel.isNotEmpty)
+      (icon: Icons.person_rounded, label: 'Responsável', value: responsavel),
+    if (local.isNotEmpty)
+      (icon: Icons.place_rounded, label: 'Local', value: local),
+    if (escalados.isNotEmpty)
+      (
+        icon: Icons.people_alt_rounded,
+        label: 'Escalados (${escalados.length})',
+        value: escalados.join(' · '),
+      ),
+    if (descricao.isNotEmpty)
+      (icon: Icons.notes_rounded, label: 'Descrição', value: descricao),
+  ];
+
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titlePadding: EdgeInsets.zero,
+      title: Container(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [item.kind.color, item.kind.color.withValues(alpha: 0.72)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              item.kind.label.toUpperCase(),
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+                color: Colors.white70,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              item.title,
+              style: const TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w900,
+                height: 1.15,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+      content: SizedBox(
+        width: 420,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final l in linhas)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 7),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(l.icon, size: 18, color: Colors.grey.shade600),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              l.label,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.3,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 1),
+                            SelectableText(
+                              l.value,
+                              style: const TextStyle(
+                                fontSize: 14.5,
+                                height: 1.35,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Fechar'),
+        ),
+      ],
+    ),
+  );
+}
+
 class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
   late DateTime _visibleMonth;
   DateTime _selectedDay = _dateOnly(DateTime.now());
@@ -506,6 +669,8 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
       onDaySelectedTap: (day) => _openDayEditor(day),
     );
   }
+
+
 
   Widget _resumoDoDia() {
     final items = _itemsOf(_selectedDay);
@@ -1020,19 +1185,7 @@ class _AgendaKindPreviewPage extends StatelessWidget {
                           ),
                         ),
                         AgendaPreviewActions(
-                          onDetails: () => showDialog<void>(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: Text(item.title),
-                              content: Text("${item.kind.label} ? $date $time"),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(ctx),
-                                  child: const Text("Fechar"),
-                                ),
-                              ],
-                            ),
-                          ),
+                          onDetails: () => _showAgendaItemDetails(context, item),
                           canEdit: canEdit(item),
                           onEdit: () => onEdit(item),
                           onDelete: () => onDelete(item),

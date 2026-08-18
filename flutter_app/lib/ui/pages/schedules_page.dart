@@ -35,7 +35,7 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
-    show firestoreRestDeleteDoc, firestoreRestUpdateDoc;
+    show firestoreRestDeleteDoc, firestoreRestSetDoc, firestoreRestUpdateDoc;
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
@@ -645,7 +645,15 @@ class _SchedulesPageState extends State<SchedulesPage>
         }
       });
     }
-    return r.snapshot;
+    // Modelo já excluído neste aparelho não volta por RAM/Hive/cache do SDK.
+    final live = TenantDeletedDocTombstones.filter(
+      r.churchId.trim().isNotEmpty ? r.churchId : ChurchRepository.churchId(tid),
+      TenantModuleKeys.escalaTemplates,
+      r.docs,
+      (d) => d.id,
+    );
+    if (live.length == r.docs.length) return r.snapshot;
+    return MergedFirestoreQuerySnapshot(live);
   }
 
   Future<QuerySnapshot<Map<String, dynamic>>> _fetchEscalas(
@@ -3317,8 +3325,7 @@ class _SchedulesPageState extends State<SchedulesPage>
                           ),
                         );
                         if (ok == true) {
-                          await docs[i].reference.delete();
-                          if (mounted) _refreshTemplates();
+                          await _deleteTemplate(docs[i]);
                         }
                       },
                     );
@@ -3331,6 +3338,56 @@ class _SchedulesPageState extends State<SchedulesPage>
       ),
     );
   }
+
+  /// Exclui um MODELO de escala.
+  ///
+  /// Antes era `reference.delete()` cru: no web o SDK envenenado (INTERNAL
+  /// ASSERTION) fazia a chamada falhar em silêncio — o diálogo fechava e o
+  /// modelo continuava lá. Agora: lápide + REST de recurso + erro visível.
+  Future<void> _deleteTemplate(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    TenantDeletedDocTombstones.mark(
+      _churchId,
+      TenantModuleKeys.escalaTemplates,
+      [doc.id],
+    );
+    try {
+      if (kIsWeb) {
+        await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      }
+      try {
+        await FirestoreWebGuard.runWithWebRecovery(
+          () => doc.reference.delete(),
+          maxAttempts: 4,
+        );
+      } catch (e) {
+        if (!kIsWeb || !_isFirestoreClientBroken(e)) rethrow;
+        await firestoreRestDeleteDoc(doc.reference.path);
+      }
+      if (!mounted) return;
+      _refreshTemplates();
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar('Modelo excluído.'),
+      );
+    } catch (e) {
+      TenantDeletedDocTombstones.unmark(
+        _churchId,
+        TenantModuleKeys.escalaTemplates,
+        doc.id,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Não foi possível excluir o modelo: '
+            '${formatFirebaseErrorForUser(e)}',
+          ),
+        ),
+      );
+    }
+  }
+
 
   String _instancesFilterSummaryLine(List<_DeptItem> allDepts) {
     String period;
@@ -8543,14 +8600,34 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
       'active': true,
       'updatedAt': Timestamp.now(),
     };
+    // Web: REST. Com o SDK envenenado (INTERNAL ASSERTION) o `add`/`update`
+    // cru falhava e a edição do modelo simplesmente não salvava.
     if (widget.doc == null) {
       final u = FirebaseAuth.instance.currentUser;
       payload['createdAt'] = Timestamp.now();
       payload['createdByUid'] = u?.uid ?? '';
       payload['createdByName'] = u?.displayName ?? '';
-      await widget.templatesCol.add(payload);
+      final ref = widget.templatesCol.doc();
+      if (kIsWeb) {
+        try {
+          await firestoreRestSetDoc(ref.path, payload);
+        } catch (_) {
+          await ref.set(payload);
+        }
+      } else {
+        await ref.set(payload);
+      }
     } else {
-      await widget.doc!.reference.update(payload);
+      final ref = widget.doc!.reference;
+      if (kIsWeb) {
+        try {
+          await firestoreRestUpdateDoc(ref.path, setFields: payload);
+        } catch (_) {
+          await ref.update(payload);
+        }
+      } else {
+        await ref.update(payload);
+      }
     }
 
     if (mounted) Navigator.pop(context, true);

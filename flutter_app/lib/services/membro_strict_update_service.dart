@@ -1,4 +1,5 @@
 import 'dart:async' show unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -317,7 +318,7 @@ abstract final class MembroStrictUpdateService {
         final tokRef = db.collection('users').doc(uid).collection('fcmTokens');
         final tokSnap = await tokRef.get();
         for (final d in tokSnap.docs) {
-          await d.reference.delete();
+          await YahwehDocWrite.delete(d.reference);
         }
       } catch (_) {}
       try {
@@ -407,7 +408,7 @@ abstract final class MembroStrictUpdateService {
     await runFirestorePublishWithRecovery(
       () async {
         if (existing.exists) {
-          await docRef.update(payload);
+          await YahwehDocWrite.update(docRef, payload);
         } else {
           await docRef.set(payload, SetOptions(merge: true));
         }

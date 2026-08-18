@@ -1,4 +1,5 @@
 import 'dart:async' show Timer, unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -2587,7 +2588,7 @@ class _FornecedoresCompromissosListaTabState
     _CompromissosRamCache.invalidate(_tenantId);
     unawaited(ChurchFornecedoresLoadService.invalidate(_tenantId));
     try {
-      await doc.reference.delete();
+      await YahwehDocWrite.delete(doc.reference);
     } catch (e) {
       TenantDeletedDocTombstones.unmark(
         _tenantId,
@@ -3766,7 +3767,7 @@ class _FornecedoresAgendaGeralTabState
     _CompromissosRamCache.invalidate(_tenantId);
     unawaited(ChurchFornecedoresLoadService.invalidate(_tenantId));
     try {
-      await doc.reference.delete();
+      await YahwehDocWrite.delete(doc.reference);
     } catch (e) {
       TenantDeletedDocTombstones.unmark(
         _tenantId,
@@ -5985,7 +5986,7 @@ class _AgendaTabState extends State<_AgendaTab> {
     _CompromissosRamCache.invalidate(widget.tenantId);
     unawaited(ChurchFornecedoresLoadService.invalidate(widget.tenantId));
     try {
-      await doc.reference.delete();
+      await YahwehDocWrite.delete(doc.reference);
     } catch (e) {
       TenantDeletedDocTombstones.unmark(
         widget.tenantId,
