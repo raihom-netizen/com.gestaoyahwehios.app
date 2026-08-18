@@ -2,6 +2,8 @@
 // (Funções legadas do bloco gestor/meta mantidas até remoção total.)
 
 import 'dart:async' show StreamSubscription, TimeoutException, unawaited;
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
+    show firestoreRestGetDoc;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -1433,7 +1435,25 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
 
     final ref = col.doc(docId);
-    final existingSnap = await ref.get();
+
+    // Leitura curada: um `.get()` cru aqui, com o SDK web envenenado pela
+    // INTERNAL ASSERTION, lancava no meio da gravacao do gestor e a ficha nao
+    // era salva. Falhar a leitura nao pode abortar o save — no pior caso
+    // trata-se como documento inexistente (o ramo de criacao).
+    var existingExists = false;
+    try {
+      final snap = await ref.get().timeout(const Duration(seconds: 8));
+      existingExists = snap.exists;
+    } catch (_) {
+      if (kIsWeb) {
+        try {
+          final rest = await firestoreRestGetDoc(
+            ref.path,
+          ).timeout(const Duration(seconds: 10));
+          existingExists = rest != null;
+        } catch (_) {}
+      }
+    }
 
     String? photoUrl = _gestorExistingPhotoUrl;
     if ((photoUrl == null || photoUrl.isEmpty) && docId.isNotEmpty) {
@@ -1530,7 +1550,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         MemberProfilePhotoUpdateService.pendingUploadPatchFields(),
       );
     }
-    if (!existingSnap.exists) {
+    if (!existingExists) {
       payload['CRIADO_EM'] = FieldValue.serverTimestamp();
     }
     await FirestoreWebGuard.runWithWebRecovery(

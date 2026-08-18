@@ -1076,6 +1076,10 @@ Future<bool> showFinanceTransactionEditDialog({
     updateData['calendarColorHex'] = FieldValue.delete();
   }
 
+  /// Motivo da falha do comprovante, quando houver — o lancamento grava na
+  /// mesma e o utilizador e avisado no fim.
+  String? comprovanteFalhou;
+
   // Comprovante NÃO é recurso premium: a igreja em plano FREE anexava, via a
   // miniatura e o olho, salvava — e o ficheiro era descartado em silêncio
   // porque este bloco estava dentro de `if (profile.temAcessoPremium)`.
@@ -1086,15 +1090,26 @@ Future<bool> showFinanceTransactionEditDialog({
       newReceiptBytes!.isNotEmpty &&
       newReceiptName.isNotEmpty &&
       newReceiptMime != null) {
-    await FinanceReceiptUploadService.attachToTransaction(
-      uid: uid,
-      txDocId: docId,
-      bytes: newReceiptBytes!,
-      filename: newReceiptName,
-      mimeType: newReceiptMime!,
-      context: context,
-    );
-    updateData['hasReceipt'] = true;
+    // O comprovante e anexo: nao pode vetar o lancamento. Este `await` estava
+    // FORA do try da gravacao — uma falha de upload (rede, Storage, cliente
+    // web envenenado) derrubava o save inteiro e o utilizador perdia valor,
+    // data e categoria que tinha acabado de editar, nao so o ficheiro.
+    try {
+      await FinanceReceiptUploadService.attachToTransaction(
+        uid: uid,
+        txDocId: docId,
+        bytes: newReceiptBytes!,
+        filename: newReceiptName,
+        mimeType: newReceiptMime!,
+        context: context,
+      );
+      updateData['hasReceipt'] = true;
+    } catch (receiptErr) {
+      comprovanteFalhou = receiptErr is StateError
+          ? receiptErr.message
+          : 'Nao foi possivel anexar o comprovante. '
+                'O lancamento foi gravado sem ele.';
+    }
   }
 
   try {
@@ -1138,8 +1153,17 @@ Future<bool> showFinanceTransactionEditDialog({
         effectiveDate);
     if (context.mounted) {
       HapticFeedback.lightImpact();
+      // Lancamento gravado; se so o comprovante falhou, avisa sem o perder.
+      final falha = comprovanteFalhou;
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Lançamento atualizado.')));
+        falha == null
+            ? const SnackBar(content: Text('Lançamento atualizado.'))
+            : SnackBar(
+                content: Text(falha),
+                backgroundColor: Colors.orange.shade800,
+                duration: const Duration(seconds: 6),
+              ),
+      );
     }
     unawaited(
       LogsService()

@@ -26,6 +26,19 @@ class ChurchDepartmentsLoadResult {
   final String readSource;
   final String? softError;
 
+  /// Leitura que veio mesmo do servidor — nao de RAM/Hive nem de falha.
+  ///
+  /// Uma lista VAZIA so pode limpar cache e ecra quando e autoritativa; se nao,
+  /// uma falha de rede apagaria os dados do painel.
+  bool get isAuthoritative =>
+      (softError ?? '').trim().isEmpty &&
+      const {
+        'direct_list',
+        'firestore_mem',
+        'firestore_cache',
+      }.contains(readSource);
+
+
   QuerySnapshot<Map<String, dynamic>> get snapshot =>
       MergedFirestoreQuerySnapshot(docs);
 
@@ -286,7 +299,17 @@ abstract final class ChurchDepartmentsLoadService {
   }
 
   static Future<void> persistAfterLoad(ChurchDepartmentsLoadResult result) async {
-    if (result.docs.isEmpty) return;
+    if (result.docs.isEmpty) {
+      // Sem esta limpeza, apagar o ULTIMO registo deixava a copia em cache
+      // para sempre: o servidor devolvia vazio, o vazio nao era gravado, e o
+      // proximo arranque ressuscitava o que ja nao existe.
+      if (!result.isAuthoritative) return;
+      invalidateRam(result.churchId);
+      try {
+        await TenantModuleHiveCache.clearModule(result.churchId, TenantModuleKeys.departamentos);
+      } catch (_) {}
+      return;
+    }
     putRam(result.churchId, result.docs);
     try {
       await TenantModuleHiveCache.saveFromQuerySnapshot(
