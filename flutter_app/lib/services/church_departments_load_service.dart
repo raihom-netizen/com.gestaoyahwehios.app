@@ -302,4 +302,18 @@ abstract final class ChurchDepartmentsLoadService {
     if (id.isEmpty) return;
     _ram.remove(id);
   }
+
+  /// Apaga RAM **e** Hive do modulo.
+  ///
+  /// Sem isto, um departamento acabado de criar so aparecia noutros modulos
+  /// (escala, organograma) depois de fechar e reabrir a app: a escrita ia para
+  /// o Firestore, mas todo o resto continuava a ler a copia em cache.
+  static Future<void> invalidateAll(String churchId) async {
+    final id = churchId.trim();
+    if (id.isEmpty) return;
+    _ram.remove(id);
+    try {
+      await TenantModuleHiveCache.clearModule(id, TenantModuleKeys.departamentos);
+    } catch (_) {}
+  }
 }

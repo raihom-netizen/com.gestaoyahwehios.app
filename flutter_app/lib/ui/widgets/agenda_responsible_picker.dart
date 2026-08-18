@@ -1,12 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart' show Timestamp;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 
 /// Seletor de responsáveis da agenda.
 ///
-/// A lista de membros **não** fica exposta no formulário: o campo abre uma
-/// folha de busca e os resultados só aparecem depois de escrever. Antes o
-/// formulário despejava uma lista rolável com a igreja inteira, o que enchia
-/// o ecrã e obrigava a rolar por dezenas de nomes para achar um.
+/// O formulário mostra só um campo de busca; a lista completa vive numa folha
+/// dedicada, com foto, filtros por perfil e seleção múltipla.
 class AgendaResponsiblePicker extends StatefulWidget {
   const AgendaResponsiblePicker({
     super.key,
@@ -24,34 +24,81 @@ class AgendaResponsiblePicker extends StatefulWidget {
       _AgendaResponsiblePickerState();
 }
 
-String _memberName(Map<String, dynamic> member) =>
-    (member['nome'] ??
-            member['NOME_COMPLETO'] ??
-            member['nomeCompleto'] ??
-            member['displayName'] ??
-            member['name'] ??
-            'Membro')
-        .toString()
-        .trim();
+// ─── Leitura dos campos da ficha ────────────────────────────────────────────
+// A ficha canónica usa MAIÚSCULAS (`NOME_COMPLETO`, `SEXO`, `DATA_NASCIMENTO`).
+// `nome`/`name` existem em pouco mais de metade dos documentos e podem estar
+// vazios — consultá-los primeiro (como antes) devolvia string vazia e a busca
+// por nome não achava ninguém.
+
+String _first(Map<String, dynamic> m, List<String> keys) {
+  for (final k in keys) {
+    final v = (m[k] ?? '').toString().trim();
+    if (v.isNotEmpty && v != 'null') return v;
+  }
+  return '';
+}
+
+String _memberName(Map<String, dynamic> member) {
+  final n = _first(member, [
+    'NOME_COMPLETO',
+    'nomeCompleto',
+    'nome',
+    'name',
+    'displayName',
+  ]);
+  return n.isEmpty ? 'Membro' : n;
+}
 
 String _memberRole(Map<String, dynamic> member) =>
-    (member['cargo'] ??
-            member['cargoNome'] ??
-            member['role'] ??
-            member['funcao'] ??
-            '')
-        .toString()
-        .trim();
+    _first(member, ['CARGO', 'cargo', 'cargoNome', 'FUNCAO', 'funcao', 'role']);
 
 String _memberDept(Map<String, dynamic> member) {
   final value =
       member['departamento'] ??
       member['departamentoNome'] ??
+      member['DEPARTAMENTOS'] ??
       member['departamentos'] ??
+      member['departamentosIds'] ??
       member['department'] ??
       '';
-  if (value is List) return value.map((e) => e.toString()).join(', ').trim();
+  if (value is List) {
+    return value.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).join(', ');
+  }
   return value.toString().trim();
+}
+
+/// `Masculino` / `Feminino` — normalizado para a 1.ª letra.
+String _memberSexo(Map<String, dynamic> member) {
+  final s = _first(member, ['SEXO', 'sexo', 'genero', 'gender']).toLowerCase();
+  if (s.startsWith('m')) return 'M';
+  if (s.startsWith('f')) return 'F';
+  return '';
+}
+
+/// Idade a partir de `DATA_NASCIMENTO` (a coluna `IDADE` só existe em parte
+/// das fichas, por isso não dá para confiar nela).
+int? _memberIdade(Map<String, dynamic> member) {
+  final raw = member['DATA_NASCIMENTO'] ?? member['dataNascimento'];
+  DateTime? nasc;
+  if (raw is Timestamp) {
+    nasc = raw.toDate();
+  } else if (raw is DateTime) {
+    nasc = raw;
+  } else if (raw is String && raw.trim().isNotEmpty) {
+    nasc = DateTime.tryParse(raw.trim());
+  }
+  if (nasc != null) {
+    final hoje = DateTime.now();
+    var idade = hoje.year - nasc.year;
+    if (hoje.month < nasc.month ||
+        (hoje.month == nasc.month && hoje.day < nasc.day)) {
+      idade--;
+    }
+    if (idade >= 0 && idade < 130) return idade;
+  }
+  final n = member['IDADE'] ?? member['idade'];
+  if (n is num) return n.toInt();
+  return int.tryParse((n ?? '').toString().trim());
 }
 
 String _initials(String name) {
@@ -61,9 +108,7 @@ String _initials(String name) {
       .where((e) => e.isNotEmpty)
       .toList();
   if (parts.isEmpty) return '?';
-  if (parts.length == 1) {
-    return parts.first.substring(0, 1).toUpperCase();
-  }
+  if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
   return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
       .toUpperCase();
 }
@@ -85,16 +130,22 @@ List<Color> _avatarColors(String seed) {
   return palettes[h % palettes.length];
 }
 
+/// Foto do membro com recuo para as iniciais.
 class _MemberAvatar extends StatelessWidget {
-  const _MemberAvatar({required this.name, this.size = 40});
+  const _MemberAvatar({
+    required this.name,
+    required this.photoRef,
+    this.size = 46,
+  });
 
   final String name;
+  final String photoRef;
   final double size;
 
   @override
   Widget build(BuildContext context) {
     final colors = _avatarColors(name);
-    return Container(
+    final fallback = Container(
       width: size,
       height: size,
       alignment: Alignment.center,
@@ -110,11 +161,76 @@ class _MemberAvatar extends StatelessWidget {
         _initials(name),
         style: TextStyle(
           color: Colors.white,
-          fontSize: size * 0.36,
+          fontSize: size * 0.34,
           fontWeight: FontWeight.w800,
         ),
       ),
     );
+    if (photoRef.isEmpty) return fallback;
+    return ClipOval(
+      child: SizedBox(
+        width: size,
+        height: size,
+        // SafeNetworkImage resolve tanto URL https como path do Storage
+        // (`igrejas/{tenant}/membros/.../foto_perfil.jpg`).
+        child: SafeNetworkImage(
+          imageUrl: photoRef,
+          fit: BoxFit.cover,
+          width: size,
+          height: size,
+          memCacheWidth: 160,
+          placeholder: fallback,
+          errorWidget: fallback,
+        ),
+      ),
+    );
+  }
+}
+
+/// Filtros de perfil da folha.
+enum _PerfilFiltro { todos, homens, mulheres, criancas, idosos }
+
+extension _PerfilFiltroX on _PerfilFiltro {
+  String get label => switch (this) {
+    _PerfilFiltro.todos => 'Todos',
+    _PerfilFiltro.homens => 'Homens',
+    _PerfilFiltro.mulheres => 'Mulheres',
+    _PerfilFiltro.criancas => 'Crianças',
+    _PerfilFiltro.idosos => 'Idosos',
+  };
+
+  IconData get icon => switch (this) {
+    _PerfilFiltro.todos => Icons.groups_rounded,
+    _PerfilFiltro.homens => Icons.man_rounded,
+    _PerfilFiltro.mulheres => Icons.woman_rounded,
+    _PerfilFiltro.criancas => Icons.child_care_rounded,
+    _PerfilFiltro.idosos => Icons.elderly_rounded,
+  };
+
+  Color get color => switch (this) {
+    _PerfilFiltro.todos => const Color(0xFF2563EB),
+    _PerfilFiltro.homens => const Color(0xFF0EA5E9),
+    _PerfilFiltro.mulheres => const Color(0xFFEC4899),
+    _PerfilFiltro.criancas => const Color(0xFFF59E0B),
+    _PerfilFiltro.idosos => const Color(0xFF7C3AED),
+  };
+
+  /// Criança < 12 anos; idoso a partir de 60 (Estatuto do Idoso).
+  bool matches(Map<String, dynamic> m) {
+    switch (this) {
+      case _PerfilFiltro.todos:
+        return true;
+      case _PerfilFiltro.homens:
+        return _memberSexo(m) == 'M';
+      case _PerfilFiltro.mulheres:
+        return _memberSexo(m) == 'F';
+      case _PerfilFiltro.criancas:
+        final i = _memberIdade(m);
+        return i != null && i < 12;
+      case _PerfilFiltro.idosos:
+        final i = _memberIdade(m);
+        return i != null && i >= 60;
+    }
   }
 }
 
@@ -129,6 +245,8 @@ class _AgendaResponsiblePickerState extends State<AgendaResponsiblePicker> {
   void initState() {
     super.initState();
     _selected = <String>{...widget.selectedIds};
+    // Pré-carrega em silêncio: quando o utilizador toca, a folha já abre cheia.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureMembers());
   }
 
   @override
@@ -139,14 +257,14 @@ class _AgendaResponsiblePickerState extends State<AgendaResponsiblePicker> {
     }
   }
 
-  /// Carrega só quando o utilizador abre a busca — o formulário da agenda
-  /// deixa de esperar por 500 membros para conseguir pintar.
   Future<void> _ensureMembers() async {
     if (_loaded || _loading) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       // Gateway: REST no Web (o `.get()` cru criava alvo de Listen temporário
       // e caía na INTERNAL ASSERTION, que envenenava o cliente) e SDK no nativo.
@@ -155,7 +273,7 @@ class _AgendaResponsiblePickerState extends State<AgendaResponsiblePicker> {
         churchId: widget.tenantId,
         subcollectionName: 'membros',
         limit: 500,
-      );
+      ).timeout(const Duration(seconds: 15));
       if (!mounted) return;
       final rows =
           snap.docs.map((doc) {
@@ -203,9 +321,12 @@ class _AgendaResponsiblePickerState extends State<AgendaResponsiblePicker> {
   }
 
   Future<void> _openSearch() async {
-    await _ensureMembers();
+    if (!_loaded) {
+      _loaded = false;
+      await _ensureMembers();
+    }
     if (!mounted) return;
-    if (_error != null) {
+    if (_members.isEmpty && _error != null) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(_error!)));
@@ -232,12 +353,11 @@ class _AgendaResponsiblePickerState extends State<AgendaResponsiblePicker> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Campo que parece uma busca, mas abre a folha — nada de lista aqui.
         Material(
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(16),
-            onTap: _loading ? null : _openSearch,
+            onTap: _openSearch,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
               decoration: BoxDecoration(
@@ -245,7 +365,9 @@ class _AgendaResponsiblePickerState extends State<AgendaResponsiblePicker> {
                   alpha: 0.45,
                 ),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: theme.dividerColor.withValues(alpha: 0.6)),
+                border: Border.all(
+                  color: theme.dividerColor.withValues(alpha: 0.6),
+                ),
               ),
               child: Row(
                 children: [
@@ -258,7 +380,9 @@ class _AgendaResponsiblePickerState extends State<AgendaResponsiblePicker> {
                   Expanded(
                     child: Text(
                       _selected.isEmpty
-                          ? 'Buscar membro pelo nome…'
+                          ? (_loading
+                                ? 'Carregando membros…'
+                                : 'Buscar e escolher responsáveis')
                           : '${_selected.length} responsável(is) selecionado(s)',
                       style: TextStyle(
                         fontSize: 14,
@@ -294,6 +418,7 @@ class _AgendaResponsiblePickerState extends State<AgendaResponsiblePicker> {
             children: _selected.map((id) {
               final member = _memberById(id);
               final name = member == null ? id : _memberName(member);
+              final photo = member == null ? '' : imageUrlFromMap(member);
               return Container(
                 padding: const EdgeInsets.fromLTRB(4, 4, 6, 4),
                 decoration: BoxDecoration(
@@ -305,7 +430,7 @@ class _AgendaResponsiblePickerState extends State<AgendaResponsiblePicker> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _MemberAvatar(name: name, size: 26),
+                    _MemberAvatar(name: name, photoRef: photo, size: 26),
                     const SizedBox(width: 8),
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 180),
@@ -346,7 +471,7 @@ class _AgendaResponsiblePickerState extends State<AgendaResponsiblePicker> {
   }
 }
 
-/// Folha de busca — resultados só depois de escrever.
+/// Folha de escolha — todos os membros à vista, com filtros de perfil.
 class _ResponsibleSearchSheet extends StatefulWidget {
   const _ResponsibleSearchSheet({
     required this.members,
@@ -363,48 +488,37 @@ class _ResponsibleSearchSheet extends StatefulWidget {
 
 class _ResponsibleSearchSheetState extends State<_ResponsibleSearchSheet> {
   final _controller = TextEditingController();
-  final _focus = FocusNode();
   late final Set<String> _selected = <String>{...widget.initialSelected};
   String _query = '';
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _focus.requestFocus();
-    });
-  }
+  _PerfilFiltro _filtro = _PerfilFiltro.todos;
 
   @override
   void dispose() {
     _controller.dispose();
-    _focus.dispose();
     super.dispose();
   }
 
   List<Map<String, dynamic>> get _results {
     final q = _query.toLowerCase().trim();
-    if (q.isEmpty) {
-      // Sem busca mostra só quem já está escolhido — nunca a igreja inteira.
-      return widget.members
-          .where((m) => _selected.contains(m['id'].toString()))
-          .toList();
-    }
     return widget.members.where((m) {
+      if (!_filtro.matches(m)) return false;
+      if (q.isEmpty) return true;
       final text = '${_memberName(m)} ${_memberRole(m)} ${_memberDept(m)}'
           .toLowerCase();
       return text.contains(q);
-    }).take(40).toList();
+    }).toList();
   }
+
+  int _countFor(_PerfilFiltro f) =>
+      widget.members.where(f.matches).length;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final results = _results;
-    final searching = _query.trim().isNotEmpty;
 
     return DraggableScrollableSheet(
-      initialChildSize: 0.75,
+      initialChildSize: 0.85,
       minChildSize: 0.5,
       maxChildSize: 0.95,
       expand: false,
@@ -424,12 +538,16 @@ class _ResponsibleSearchSheetState extends State<_ResponsibleSearchSheet> {
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
+            // Cabeçalho com VOLTAR à esquerda e Concluir à direita.
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 8, 6),
+              padding: const EdgeInsets.fromLTRB(4, 8, 8, 4),
               child: Row(
                 children: [
-                  const Icon(Icons.groups_rounded, size: 22),
-                  const SizedBox(width: 10),
+                  IconButton(
+                    tooltip: 'Voltar',
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    onPressed: () => Navigator.pop(context),
+                  ),
                   const Expanded(
                     child: Text(
                       'Responsáveis',
@@ -439,18 +557,22 @@ class _ResponsibleSearchSheetState extends State<_ResponsibleSearchSheet> {
                       ),
                     ),
                   ),
-                  TextButton(
+                  FilledButton.icon(
                     onPressed: () => Navigator.pop(context, _selected),
-                    child: const Text('Concluir'),
+                    icon: const Icon(Icons.check_rounded, size: 18),
+                    label: Text(
+                      _selected.isEmpty
+                          ? 'Concluir'
+                          : 'Concluir (${_selected.length})',
+                    ),
                   ),
                 ],
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
               child: TextField(
                 controller: _controller,
-                focusNode: _focus,
                 textInputAction: TextInputAction.search,
                 decoration: InputDecoration(
                   hintText: 'Nome, cargo ou departamento',
@@ -474,24 +596,63 @@ class _ResponsibleSearchSheetState extends State<_ResponsibleSearchSheet> {
                 onChanged: (v) => setState(() => _query = v),
               ),
             ),
-            if (_selected.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '${_selected.length} selecionado(s)',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: theme.colorScheme.primary,
+            // Filtros de perfil, com a contagem de cada um.
+            SizedBox(
+              height: 40,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: _PerfilFiltro.values.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 8),
+                itemBuilder: (_, i) {
+                  final f = _PerfilFiltro.values[i];
+                  final on = f == _filtro;
+                  final n = _countFor(f);
+                  return GestureDetector(
+                    onTap: () => setState(() => _filtro = f),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 13,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: on
+                            ? f.color
+                            : f.color.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            f.icon,
+                            size: 16,
+                            color: on ? Colors.white : f.color,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${f.label} ($n)',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                              color: on ? Colors.white : f.color,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
+            ),
+            const SizedBox(height: 10),
             Expanded(
               child: results.isEmpty
-                  ? _EmptyState(searching: searching)
+                  ? _EmptyState(
+                      searching: _query.trim().isNotEmpty ||
+                          _filtro != _PerfilFiltro.todos,
+                    )
                   : ListView.separated(
                       controller: scrollController,
                       padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
@@ -501,9 +662,10 @@ class _ResponsibleSearchSheetState extends State<_ResponsibleSearchSheet> {
                         final m = results[i];
                         final id = m['id'].toString();
                         final name = _memberName(m);
+                        final idade = _memberIdade(m);
                         final subtitle = [
                           _memberRole(m),
-                          _memberDept(m),
+                          if (idade != null) '$idade anos',
                         ].where((v) => v.isNotEmpty).join(' • ');
                         final picked = _selected.contains(id);
                         return Material(
@@ -529,7 +691,10 @@ class _ResponsibleSearchSheetState extends State<_ResponsibleSearchSheet> {
                               ),
                               child: Row(
                                 children: [
-                                  _MemberAvatar(name: name),
+                                  _MemberAvatar(
+                                    name: name,
+                                    photoRef: imageUrlFromMap(m),
+                                  ),
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
@@ -613,17 +778,15 @@ class _EmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              searching
-                  ? Icons.search_off_rounded
-                  : Icons.person_search_rounded,
+              searching ? Icons.search_off_rounded : Icons.groups_rounded,
               size: 46,
               color: theme.hintColor,
             ),
             const SizedBox(height: 12),
             Text(
               searching
-                  ? 'Nenhum membro encontrado.'
-                  : 'Escreva o nome do membro para buscar.',
+                  ? 'Nenhum membro para este filtro.'
+                  : 'Nenhum membro cadastrado.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,

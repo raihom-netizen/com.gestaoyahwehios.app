@@ -1037,7 +1037,16 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   Future<void> _resolveOperationalTenant({bool forceRefresh = false}) async {
-    final raw = widget.tenantId.trim();
+    // Operador global com igreja escolhida no seletor: o seed TEM de ser a
+    // igreja visitada. Sem isto, este resolve religava o contexto a
+    // `widget.tenantId` (a igreja de origem) logo a seguir a trocar — o painel
+    // mudava de ID, mas cabecalho, links publicos e dados voltavam todos para
+    // a igreja do utilizador. Era esta a causa de "troquei de igreja e continua
+    // mostrando os dados da Brasil Para Cristo".
+    final masterOverride = MasterTenantOverrideService.tenantId?.trim() ?? '';
+    final raw = masterOverride.isNotEmpty
+        ? masterOverride
+        : widget.tenantId.trim();
     if (raw.isEmpty) return;
     final uid = firebaseDefaultAuth.currentUser?.uid;
     try {
@@ -3507,8 +3516,15 @@ class _HeaderVencimento extends StatelessWidget {
     if (want.isNotEmpty && (ctxId == want || ctxId.isEmpty)) {
       data = ChurchContextService.currentChurchData;
     }
-    // Fallback: último doc do shell mesmo se o id do contexto ainda não bater.
-    data ??= ChurchContextService.currentChurchData;
+    // Sem fallback cego: `data ??= currentChurchData` anulava a guarda acima e
+    // mostrava a licenca da igreja de ORIGEM enquanto o operador visitava
+    // outra. Se o contexto ainda nao bate com o tenant pedido, nao se inventa.
+    if (want.isNotEmpty && ctxId.isNotEmpty && ctxId != want) {
+      return Text(
+        'Licenca: --',
+        style: TextStyle(fontSize: 11, color: textColor),
+      );
+    }
     if (data == null || data.isEmpty) {
       return Text(
         'Vencimento: —',

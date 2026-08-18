@@ -1255,6 +1255,19 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     required Map<String, dynamic> payload,
     required String iconKey,
   }) async {
+    final ok = await _persistNewDepartmentInner(
+      payload: payload,
+      iconKey: iconKey,
+    );
+    // Departamento gravado: derruba o cache para escala/organograma verem já.
+    await _invalidateDepartmentsCaches();
+    return ok;
+  }
+
+  Future<bool> _persistNewDepartmentInner({
+    required Map<String, dynamic> payload,
+    required String iconKey,
+  }) async {
     final nome = (payload['name'] ?? '').toString().trim();
     final norm = normalizeChurchDepartmentNameKey(nome);
     if (norm.isEmpty) return false;
@@ -1305,6 +1318,16 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     copy['createdAt'] = Timestamp.now();
     await _col.add(copy);
     return false;
+  }
+
+  /// Derruba o cache de departamentos apos gravar.
+  ///
+  /// A escala, o organograma e o corpo administrativo leem pelo
+  /// [ChurchDepartmentsLoadService]; sem esta invalidacao o departamento novo
+  /// so aparecia la depois de reabrir a app.
+  Future<void> _invalidateDepartmentsCaches() async {
+    final id = ChurchRepository.churchId(_tid);
+    await ChurchDepartmentsLoadService.invalidateAll(id);
   }
 
   /// Opções de ícone para departamentos — ordem alfabética via _iconOptionsSorted.

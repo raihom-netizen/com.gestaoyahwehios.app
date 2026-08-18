@@ -132,13 +132,15 @@ _loadScheduleMemberDocs(String tenantId) async {
       cacheKey: '${op}_escala_membros_$_kScheduleMembersFetchLimit',
       limit: _kScheduleMembersFetchLimit,
       sortDocs: (docs) => docs,
-    );
+    ).timeout(const Duration(seconds: 10));
     if (rest.isNotEmpty) return rest;
   } catch (_) {}
   try {
-    return (await ChurchUiCollections.membros(
-      op,
-    ).limit(_kScheduleMembersFetchLimit).get()).docs;
+    return (await ChurchUiCollections.membros(op)
+            .limit(_kScheduleMembersFetchLimit)
+            .get()
+            .timeout(const Duration(seconds: 10)))
+        .docs;
   } catch (_) {
     return const [];
   }
@@ -150,6 +152,57 @@ _loadScheduleMemberDocs(String tenantId) async {
 /// - a subcoleção autoritativa `departamentos/{id}/membros_vinculados`
 ///   (cobre membros sem os arrays e/ou sem `updatedAt`, que o `membrosRecent`
 ///   ? ordenado por updatedAt ? silenciosamente descarta).
+/// Igual a [_buildDeptMemberSelects] mas **sem rede**: so o casamento pelos
+/// arrays do proprio doc do membro. Plano B quando a leitura da subcolecao
+/// `membros_vinculados` nao responde a tempo.
+List<_MemberSelect> _deptMembersFromDocsOnly({
+  required String tenantId,
+  required String departmentId,
+  required List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
+  required Map<String, int> freq,
+}) {
+  final did = departmentId.trim();
+  final out = <_MemberSelect>[];
+  if (did.isEmpty) return out;
+  final seen = <String>{};
+  String normCpf(dynamic v) =>
+      (v ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '');
+  for (final m in allDocs) {
+    final data = m.data();
+    var inArray = false;
+    for (final f in const ['DEPARTAMENTOS', 'departamentosIds']) {
+      final list = (data[f] as List?)?.map((e) => e.toString()) ?? const [];
+      if (list.contains(did)) {
+        inArray = true;
+        break;
+      }
+    }
+    if (!inArray) continue;
+    final cpf = normCpf(data['CPF'] ?? data['cpf']);
+    final name = (data['NOME_COMPLETO'] ?? data['nome'] ?? data['name'] ?? '')
+        .toString();
+    if (cpf.isEmpty && name.isEmpty) continue;
+    if (!seen.add(cpf.isNotEmpty ? cpf : 'doc_${m.id}')) continue;
+    final photoUrl = imageUrlFromMap(data);
+    out.add(
+      _MemberSelect(
+        cpf: cpf,
+        name: name,
+        photoUrl: isValidImageUrl(photoUrl) ? photoUrl : '',
+        frequency: freq[cpf] ?? 0,
+        memberDocId: m.id,
+        unavailableYmds: MemberScheduleAvailability.parseYmdList(
+          data[MemberScheduleAvailability.fieldYmds],
+        ),
+        tenantId: tenantId.trim(),
+        memberData: data,
+      ),
+    );
+  }
+  out.sort((a, b) => b.frequency.compareTo(a.frequency));
+  return out;
+}
+
 Future<List<_MemberSelect>> _buildDeptMemberSelects({
   required String tenantId,
   required String departmentId,
@@ -1003,6 +1056,29 @@ class _SchedulesPageState extends State<SchedulesPage>
         depts: _deptsItems,
       );
     } catch (_) {}
+  }
+
+  /// Recarrega a lista de departamentos e actualiza o future do ecra.
+  ///
+  /// Devolve lista vazia se falhar — o chamador cai no valor ja carregado em
+  /// vez de abrir o formulario sem nenhum departamento.
+  Future<List<_DeptItem>> _refreshDepartmentsForForm(String tid) async {
+    try {
+      final id = ChurchRepository.churchId(tid);
+      await ChurchDepartmentsLoadService.invalidateAll(id);
+      final fresh = await _loadDepartmentsForTenant(
+        tid,
+      ).timeout(const Duration(seconds: 10));
+      if (fresh.isNotEmpty && mounted) {
+        setState(() {
+          _deptsItems = fresh;
+          _deptsFuture = Future.value(fresh);
+        });
+      }
+      return fresh;
+    } catch (_) {
+      return const <_DeptItem>[];
+    }
   }
 
   Future<List<_DeptItem>> _loadDepartmentsForTenant(String tid) async {
@@ -2030,7 +2106,11 @@ class _SchedulesPageState extends State<SchedulesPage>
   }) async {
     if (!_canWrite) return;
     final tid = await _effectiveTidFuture;
-    final depts = await _deptsFuture;
+    // Rele os departamentos ao abrir o formulario: `_deptsFuture` e criado uma
+    // unica vez no arranque, por isso um departamento criado depois disso nunca
+    // aparecia no seletor da escala ate reabrir a app.
+    var depts = await _refreshDepartmentsForForm(tid);
+    if (depts.isEmpty) depts = await _deptsFuture;
     final data = doc?.data() ?? {};
     final deptsForForm = _canWriteFull
         ? depts
@@ -8413,6 +8493,19 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
         departmentId: _departmentId,
         allDocs: allDocs,
         freq: freq,
+      ).timeout(
+        const Duration(seconds: 15),
+        // Sem este tecto o «Membros do Departamento» ficava a girar
+        // para sempre quando uma leitura pendurava no web. O
+        // casamento por array (DEPARTAMENTOS/departamentosIds) e
+        // local e nao precisa de rede: devolve o que ja da para
+        // montar em vez de bloquear a tela.
+        onTimeout: () => _deptMembersFromDocsOnly(
+          tenantId: widget.tenantId,
+          departmentId: _departmentId,
+          allDocs: allDocs,
+          freq: freq,
+        ),
       );
 
       if (mounted) {
@@ -9239,6 +9332,19 @@ class _GeneratedInstanceEditPageState
         departmentId: _departmentId,
         allDocs: allDocs,
         freq: freq,
+      ).timeout(
+        const Duration(seconds: 15),
+        // Sem este tecto o «Membros do Departamento» ficava a girar
+        // para sempre quando uma leitura pendurava no web. O
+        // casamento por array (DEPARTAMENTOS/departamentosIds) e
+        // local e nao precisa de rede: devolve o que ja da para
+        // montar em vez de bloquear a tela.
+        onTimeout: () => _deptMembersFromDocsOnly(
+          tenantId: tid,
+          departmentId: _departmentId,
+          allDocs: allDocs,
+          freq: freq,
+        ),
       );
 
       if (mounted) {
@@ -9851,46 +9957,32 @@ class _MemberCheckTile extends StatelessWidget {
     }
 
     Widget row = Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Material(
         color: selected
-            ? ThemeCleanPremium.primary.withValues(alpha: 0.06)
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(10),
+            ? ThemeCleanPremium.primary.withValues(alpha: 0.07)
+            : Colors.white,
+        borderRadius: BorderRadius.circular(14),
         child: InkWell(
           onTap: toggle,
-          borderRadius: BorderRadius.circular(10),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Row(
+          borderRadius: BorderRadius.circular(14),
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: selected
+                    ? ThemeCleanPremium.primary.withValues(alpha: 0.45)
+                    : const Color(0xFFE8EDF5),
+                width: selected ? 1.4 : 1,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: Checkbox(
-                    value: selected,
-                    onChanged: (v) {
-                      if (v == true && dim) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Indisponível ou conflito de horário: não é possível incluir nesta escala.',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-                      onChanged(v);
-                    },
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
                 FotoMembroWidget(
-                  size: 36,
+                  size: 44,
                   tenantId: member.tenantId,
                   memberId: member.memberDocId.isNotEmpty
                       ? member.memberDocId
@@ -9906,9 +9998,12 @@ class _MemberCheckTile extends StatelessWidget {
                     children: [
                       Text(
                         member.name.isNotEmpty ? member.name : member.cpf,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14.5,
+                          height: 1.2,
                         ),
                       ),
                       if (member.frequency > 0)
@@ -9972,7 +10067,35 @@ class _MemberCheckTile extends StatelessWidget {
                       ),
                     ),
                   ),
+                const SizedBox(width: 10),
+                // Indicador de escolha a direita, no lugar do checkbox
+                // quadrado que ficava colado a esquerda do nome.
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  width: 26,
+                  height: 26,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: selected
+                        ? ThemeCleanPremium.primary
+                        : Colors.transparent,
+                    border: Border.all(
+                      color: selected
+                          ? ThemeCleanPremium.primary
+                          : const Color(0xFFCBD5E1),
+                      width: 2,
+                    ),
+                  ),
+                  child: selected
+                      ? const Icon(
+                          Icons.check_rounded,
+                          size: 17,
+                          color: Colors.white,
+                        )
+                      : null,
+                ),
               ],
+              ),
             ),
           ),
         ),

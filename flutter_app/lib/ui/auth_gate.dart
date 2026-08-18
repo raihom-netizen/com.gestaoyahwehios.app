@@ -1120,6 +1120,16 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       }
       if (igrejaId.isEmpty) return null;
 
+      // Operador global visitando outra igreja: o contexto tem de ficar preso
+      // a ela, nao a igreja do PERFIL. Sem isto, este bind corria a cada
+      // recarga do perfil e devolvia `ChurchContextService` a igreja de origem
+      // — o painel abria no ID certo, mas o nome no cabecalho, os links
+      // publicos e o doc da igreja continuavam os da igreja do utilizador.
+      final masterVisit = MasterTenantOverrideService.tenantId?.trim() ?? '';
+      if (masterVisit.isNotEmpty) {
+        igrejaId = masterVisit;
+      }
+
       final seedIgrejaId = igrejaId;
       try {
         igrejaId = await ChurchContextService.resolveAndBind(
