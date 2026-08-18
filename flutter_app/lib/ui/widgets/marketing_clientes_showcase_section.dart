@@ -501,10 +501,57 @@ class _MarketingClientesShowcaseSectionState
   bool _fallbackTried = false;
   String? _fallbackWarning;
 
+  /// Dados vivos de `igrejas/{id}` por tenant — o que o gestor preenche no
+  /// cadastro entra na vitrine sem o Master republicar a igreja.
+  final Map<String, Map<String, dynamic>> _liveByTenant = {};
+  String _hydratedSignature = '';
+  bool _hydrating = false;
+
   @override
   void initState() {
     super.initState();
     unawaited(_ensureFallbackItems());
+  }
+
+  static String _tenantIdOf(Map<String, dynamic> item) =>
+      (item['tenantId'] ?? item['igrejaTenantId'] ?? item['id'] ?? '')
+          .toString()
+          .trim();
+
+  void _hydrateLiveChurchData(List<Map<String, dynamic>> items) {
+    final ids = items.map(_tenantIdOf).where((e) => e.isNotEmpty).toList()
+      ..sort();
+    final signature = ids.join('|');
+    if (signature.isEmpty || signature == _hydratedSignature || _hydrating) {
+      return;
+    }
+    _hydrating = true;
+    unawaited(
+      MarketingClientesLoadService.hydrateFromChurchDocs(items)
+          .then((hydrated) {
+            if (!mounted) return;
+            setState(() {
+              _hydratedSignature = signature;
+              _hydrating = false;
+              for (final h in hydrated) {
+                final id = _tenantIdOf(h);
+                if (id.isNotEmpty) _liveByTenant[id] = h;
+              }
+            });
+          })
+          .catchError((Object e) {
+            debugPrint('MarketingClientes hydrate: $e');
+            if (mounted) setState(() => _hydrating = false);
+          }),
+    );
+  }
+
+  List<Map<String, dynamic>> _applyLiveData(List<Map<String, dynamic>> items) {
+    if (_liveByTenant.isEmpty) return items;
+    return [
+      for (final item in items)
+        _liveByTenant[_tenantIdOf(item)] ?? item,
+    ];
   }
 
   Future<void> _ensureFallbackItems() async {
@@ -533,8 +580,10 @@ class _MarketingClientesShowcaseSectionState
   List<Map<String, dynamic>> _mergeItems(
     List<Map<String, dynamic>> firestoreItems,
   ) {
-    if (firestoreItems.isNotEmpty) return _orderForShowcase(firestoreItems);
-    return _orderForShowcase(_fallbackItems);
+    final base = firestoreItems.isNotEmpty ? firestoreItems : _fallbackItems;
+    if (base.isEmpty) return const [];
+    _hydrateLiveChurchData(base);
+    return _orderForShowcase(_applyLiveData(base));
   }
 
   /// Igrejas fixadas no topo da vitrine, na ordem em que entraram como cliente.

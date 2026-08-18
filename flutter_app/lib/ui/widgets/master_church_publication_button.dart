@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
+    show formatFirebaseErrorForUser;
 import 'package:gestao_yahweh/services/master_church_publication_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
@@ -68,9 +70,13 @@ class _MasterChurchPublicationButtonState
     } catch (e) {
       if (!mounted) return;
       setState(() => _busy = false);
+      // Mensagem real: sem isto qualquer falha (permissão, rede, regra)
+      // aparecia como o mesmo texto genérico e não dava para diagnosticar.
       ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.feedbackSnackBar(
-          'Não foi possível atualizar a publicação agora.',
+        ThemeCleanPremium.errorSnackBarWithRetry(
+          'Não foi possível ${next ? 'publicar' : 'retirar'} na Galeria: '
+          '${formatFirebaseErrorForUser(e)}',
+          onRetry: _toggle,
         ),
       );
     }

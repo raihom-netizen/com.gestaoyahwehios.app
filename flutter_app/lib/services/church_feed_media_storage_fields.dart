@@ -103,6 +103,7 @@ abstract final class ChurchFeedMediaStorageFields {
     Map<String, dynamic>? capaImageVariants,
     bool allowDeleteSentinels = true,
     bool isEvento = false,
+    bool hasExternalVideoUrl = false,
   }) {
     final patch = <String, dynamic>{};
     final paths = photoPaths.map((p) => p.trim()).where((p) => p.isNotEmpty).toList();
@@ -148,8 +149,16 @@ abstract final class ChurchFeedMediaStorageFields {
     final vp = videoPath?.trim() ?? '';
     if (vp.isNotEmpty) {
       patch['videoPath'] = vp;
-      if (allowDeleteSentinels) {
+      // Vídeo hospedado: a URL https é reescrita logo a seguir pelo pipeline
+      // linear. Só limpar quando NÃO há link externo (YouTube/Vimeo) no payload.
+      if (allowDeleteSentinels && !hasExternalVideoUrl) {
         patch['videoUrl'] = FieldValue.delete();
+      }
+    } else if (hasExternalVideoUrl) {
+      // Link YouTube/Vimeo: preservar `videoUrl` do payload e só largar o path
+      // do vídeo hospedado antigo (troca de ficheiro por link).
+      if (allowDeleteSentinels) {
+        patch['videoPath'] = FieldValue.delete();
       }
     } else if (allowDeleteSentinels && !hasVideo) {
       patch['videoPath'] = FieldValue.delete();

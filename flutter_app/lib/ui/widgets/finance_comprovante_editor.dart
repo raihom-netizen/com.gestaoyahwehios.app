@@ -1,6 +1,8 @@
 ﻿import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_pending_receipt_preview.dart'
+    show showPendingReceiptViewer;
 import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_update_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -451,7 +453,39 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
           const SizedBox(height: 12),
           Row(
             children: [
-              _pendingPreview(_pending!),
+              // Toque na miniatura = ver o anexo em tela cheia antes de salvar.
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => unawaited(
+                  showPendingReceiptViewer(
+                    context,
+                    bytes: _pending!.bytes,
+                    fileName: _pending!.fileName,
+                    isPdf: _pending!.isPdf,
+                  ),
+                ),
+                child: Stack(
+                  children: [
+                    _pendingPreview(_pending!),
+                    Positioned(
+                      right: 6,
+                      bottom: 6,
+                      child: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.visibility_rounded,
+                          size: 18,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(

@@ -8,6 +8,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
+import 'package:gestao_yahweh/services/master_tenant_override_service.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/theme_mode_provider.dart';
 import 'package:gestao_yahweh/services/express_renew_bootstrap.dart';
@@ -283,6 +285,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
 
   /// Doc canónico `igrejas/{churchId}` — hint do shell/operacional primeiro (padrão Membros).
   String get _moduleTenantId {
+    // Operador global com igreja escolhida no seletor: manda em tudo (o painel
+    // inteiro — membros, financeiro, etc. — abre na base escolhida).
+    final master = MasterTenantOverrideService.tenantId;
+    if (master != null && master.trim().isNotEmpty) {
+      return ChurchPanelTenant.resolve(_forceCanonicalTenantId(master));
+    }
     final op = (_operationalTenantId ?? '').trim();
     if (op.isNotEmpty) {
       return ChurchPanelTenant.resolve(_forceCanonicalTenantId(op));
@@ -721,6 +729,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _tenantResolveComplete = false;
     }
     unawaited(_warmTenantDocFromLocalCacheFirst());
+    // Operador global: restaura a igreja escolhida e reconstrói ao trocar.
+    MasterTenantOverrideService.current.addListener(_onMasterTenantChanged);
+    unawaited(
+      MasterTenantOverrideService.restore().then((_) {
+        if (mounted) setState(() {});
+      }),
+    );
     WidgetsBinding.instance.addObserver(this);
     AppSessionStability.registerResumeListener(_onGlobalSessionResume);
     unawaited(_resolveMasterPanelShield());
@@ -886,11 +901,26 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     }
 
     try {
+      // `tid` (não widget.tenantId): com a troca de igreja do operador global
+      // o destino é outro — usar o hint fixo trazia o doc da igreja de origem.
       final local = await ChurchShellTenantLoadService.tryLocal(
-        seedTenantId: widget.tenantId,
+        seedTenantId: tid,
       );
       if (local != null && local.data.isNotEmpty && mounted) {
         _storeTenantDocSnapshot(local.churchId, local.data);
+        setState(() {});
+        return;
+      }
+    } catch (_) {}
+
+    // Sem cache local da igreja destino: buscar o doc no servidor, senão o
+    // cabeçalho fica com o nome da igreja anterior.
+    try {
+      final snap = await ChurchFirestoreAccess.getChurchRoot(churchId: tid)
+          .timeout(const Duration(seconds: 12));
+      final data = snap.data();
+      if (data != null && data.isNotEmpty && mounted) {
+        _storeTenantDocSnapshot(tid, Map<String, dynamic>.from(data));
         setState(() {});
         return;
       }
@@ -921,7 +951,49 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
     _footerScrollController.removeListener(_onFooterScroll);
     _footerScrollController.dispose();
+    MasterTenantOverrideService.current.removeListener(_onMasterTenantChanged);
     super.dispose();
+  }
+
+  /// Troca de igreja pelo operador global: derruba os módulos já montados para
+  /// tudo (membros, financeiro, agenda…) recarregar na base escolhida.
+  void _onMasterTenantChanged() {
+    if (!mounted) return;
+    final alvo = MasterTenantOverrideService.tenantId;
+    final destino = (alvo ?? _forceCanonicalTenantId(widget.tenantId)).trim();
+    final canonical = ChurchPanelTenant.resolve(destino);
+
+    // 1) Reapontar o contexto global — é dele que saem nome da igreja,
+    //    caminhos e o churchId que cada módulo usa nas consultas.
+    if (canonical.isNotEmpty) {
+      ChurchContextService.bindPanelIdImmediate(
+        seed: destino,
+        canonicalId: canonical,
+        userUid: firebaseDefaultAuth.currentUser?.uid,
+      );
+    }
+
+    // 2) Derrubar o doc da igreja e TODOS os módulos já montados: sem isto o
+    //    cabeçalho continuava com o nome da igreja antiga e os módulos
+    //    mostravam os dados que já estavam em memória.
+    setState(() {
+      _operationalTenantId = canonical.isEmpty ? null : canonical;
+      _lastGoodTenantDoc = null;
+      for (var i = 0; i < _pageCache.length; i++) {
+        _pageCache[i] = null;
+      }
+      _materializedModuleLru.clear();
+      _shellPrefetchDone.clear();
+      _tenantResolveComplete = false;
+    });
+
+    // 3) Recarregar o doc da igreja destino e liberar os módulos.
+    unawaited(
+      _warmTenantDocFromLocalCacheFirst().whenComplete(() {
+        if (!mounted) return;
+        setState(() => _tenantResolveComplete = true);
+      }),
+    );
   }
 
   Future<void> _bindHomeWidgetLaunchListener() async {
@@ -1687,6 +1759,18 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     );
   }
 
+  /// Passagem do rato na barra lateral.
+  ///
+  /// No desktop nativo (Windows/Linux/macOS) o cursor cruza a lista inteira a
+  /// cada movimento e isto disparava a carga Firestore de vários módulos
+  /// pesados ao mesmo tempo — a razão de o app de Windows travar («Não está
+  /// respondendo») enquanto Android/iOS, que não têm hover, ficam fluidos.
+  /// Lá o prefetch só acontece ao abrir o módulo.
+  void _prefetchShellModuleDataOnHover(int index) {
+    if (ChurchShellLazyModulePolicy.isDesktopPlatform) return;
+    _prefetchShellModuleData(index);
+  }
+
   void _prefetchShellModuleData(int index) {
     if (!_canAccessItem(index)) return;
     if (_shellPrefetchDone.contains(index)) return;
@@ -1898,7 +1982,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final item = _items[i];
     final selected = _selectedIndex == i;
     final tile = MouseRegion(
-      onEnter: (_) => _prefetchShellModuleData(i),
+      onEnter: (_) => _prefetchShellModuleDataOnHover(i),
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(14),
@@ -2251,6 +2335,21 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                   ],
                 ),
               ),
+              // Operador global: trocar a igreja (base de dados) sem sair da
+              // conta. Só aparece para os UIDs autorizados.
+              if (MasterTenantOverrideService.isAllowedUser)
+                IconButton(
+                  tooltip: 'Trocar de igreja (operador)',
+                  onPressed: () => unawaited(_openMasterChurchSwitcher()),
+                  icon: Icon(
+                    Icons.swap_horiz_rounded,
+                    color: MasterTenantOverrideService.tenantId == null
+                        ? Colors.white
+                        : Colors.amber.shade300,
+                    size: 22,
+                  ),
+                  style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+                ),
               if (_showMasterPanelShield)
                 IconButton(
                   tooltip: 'Painel Master',
@@ -2298,6 +2397,127 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
           ),
         ),
       ),
+    );
+  }
+
+  /// Seletor de igreja do operador global (raihom / isabelle).
+  ///
+  /// Só troca o que o painel LÊ — nada é gravado no tenant visitado, então
+  /// gestor e membros não têm como perceber a visita.
+  Future<void> _openMasterChurchSwitcher() async {
+    if (!MasterTenantOverrideService.isAllowedUser) return;
+    final churches = await MasterTenantOverrideService.listChurches();
+    if (!mounted) return;
+    if (churches.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Não foi possível listar as igrejas agora.',
+        ),
+      );
+      return;
+    }
+    final atual = MasterTenantOverrideService.tenantId;
+    final escolhido = await showModalBottomSheet<String?>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => SafeArea(
+        child: Container(
+          margin: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.swap_horiz_rounded, size: 22),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Trocar de igreja',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 17,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: Text(
+                  'Abre o painel inteiro (membros, financeiro, agenda) na base '
+                  'escolhida. Nada é gravado na igreja visitada.',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: Colors.grey.shade700,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+              const Divider(height: 1),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.home_rounded),
+                      title: const Text('Minha igreja (padrão)'),
+                      trailing: atual == null
+                          ? const Icon(Icons.check_rounded)
+                          : null,
+                      onTap: () => Navigator.pop(ctx, ''),
+                    ),
+                    for (final c in churches)
+                      ListTile(
+                        leading: const Icon(Icons.church_rounded),
+                        title: Text(c.name),
+                        subtitle: Text(
+                          c.id,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                        trailing: atual == c.id
+                            ? const Icon(Icons.check_rounded)
+                            : null,
+                        onTap: () => Navigator.pop(ctx, c.id),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (escolhido == null || !mounted) return;
+    await MasterTenantOverrideService.setTenant(
+      escolhido.isEmpty ? null : escolhido,
+    );
+    if (!mounted) return;
+    final nome = escolhido.isEmpty
+        ? 'sua igreja'
+        : churches
+              .firstWhere(
+                (c) => c.id == escolhido,
+                orElse: () => MasterSwitchableChurch(
+                  id: escolhido,
+                  name: escolhido,
+                ),
+              )
+              .name;
+    ScaffoldMessenger.of(context).showSnackBar(
+      ThemeCleanPremium.successSnackBar('Painel aberto em: $nome'),
     );
   }
 
@@ -2676,7 +2896,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                             Builder(
                               builder: (context) {
                                 return MouseRegion(
-                                  onEnter: (_) => _prefetchShellModuleData(i),
+                                  onEnter: (_) => _prefetchShellModuleDataOnHover(i),
                                   child: ListTile(
                                     key: ValueKey('drawer_$i'),
                                     leading: _navMenuIconChip(

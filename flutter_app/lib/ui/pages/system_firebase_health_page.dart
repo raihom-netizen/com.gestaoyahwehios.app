@@ -649,7 +649,7 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
             label: m.label,
             ok: !measured || ok,
             detail: measured
-                ? '${m.lastMs}ms ? meta ${m.targetLabel}'
+                ? '${m.lastMs}ms — meta ${m.targetLabel}'
                 : 'Ainda não medido nesta sessão',
           );
         }),

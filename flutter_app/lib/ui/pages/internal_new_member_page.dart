@@ -22,7 +22,9 @@ import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_pick_service.dart';
 import 'package:gestao_yahweh/services/ios_payments_gate.dart';
 import 'package:gestao_yahweh/services/member_codigo_service.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/dashboard_stats_counter_service.dart';
+import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/members_limit_service.dart';
 import 'package:gestao_yahweh/ui/pages/plans/renew_plan_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -618,6 +620,16 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
           rawBytes: photoBytes,
         );
       }
+      // Lista de Membros instantânea: o `_panel_cache/members_directory` só é
+      // reconstruído pela Cloud Function, então o cadastro novo só aparecia
+      // depois. Injecta em RAM e larga o cache de lista para o refresh do
+      // painel (forceServer) reconciliar com o servidor.
+      MembersDirectorySnapshotService.upsertMemberInMemory(
+        tenantId: widget.tenantId,
+        memberDocId: ref.id,
+        memberData: _memberDataForLocalCache(data),
+      );
+      unawaited(ChurchMembersLoadService.invalidate(widget.tenantId));
       unawaited(DashboardStatsCounterService.onMemberCreated(widget.tenantId));
       FirebaseStorageService.invalidateMemberPhotoCache(
         tenantId: widget.tenantId,
@@ -663,6 +675,24 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  /// Sentinelas (`FieldValue.serverTimestamp()`, `delete()`) não existem no
+  /// documento lido — troca por valores locais antes de alimentar o cache.
+  Map<String, dynamic> _memberDataForLocalCache(Map<String, dynamic> data) {
+    final now = Timestamp.now();
+    final out = <String, dynamic>{};
+    data.forEach((k, v) {
+      if (v is FieldValue) {
+        if (k == 'CRIADO_EM' || k == 'createdAt' || k == 'updatedAt') {
+          out[k] = now;
+        }
+        return;
+      }
+      out[k] = v;
+    });
+    out['updatedAt'] ??= now;
+    return out;
   }
 
   void _clearAndNew() {

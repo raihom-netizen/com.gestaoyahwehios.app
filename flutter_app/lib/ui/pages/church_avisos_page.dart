@@ -1905,13 +1905,27 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
                       accent: tone.primary,
                       aspectRatio: 4 / 5,
                     ),
-                  if (item.instagramUrl.isNotEmpty) ...[
+                  if (item.instagramUrl.isNotEmpty || ytId.isNotEmpty) ...[
                     const SizedBox(height: 12),
-                    AvisoEventoSocialLinkButton(
-                      url: item.instagramUrl,
-                      icon: Icons.camera_alt_rounded,
-                      label: 'Abrir no Instagram',
-                      color: const Color(0xFFE1306C),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (item.instagramUrl.isNotEmpty)
+                          AvisoEventoSocialLinkButton(
+                            url: item.instagramUrl,
+                            icon: Icons.camera_alt_rounded,
+                            label: 'Abrir no Instagram',
+                            color: const Color(0xFFE1306C),
+                          ),
+                        if (ytId.isNotEmpty)
+                          AvisoEventoSocialLinkButton(
+                            url: YoutubeUrlHelper.watchUrl(ytId),
+                            icon: Icons.play_circle_fill_rounded,
+                            label: 'Abrir no YouTube',
+                            color: const Color(0xFFFF0000),
+                          ),
+                      ],
                     ),
                   ],
                   if (item.body.isNotEmpty) ...[
@@ -2068,10 +2082,31 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
       maxSizeMb: 80,
     );
     if (!mounted || xfile == null) return;
-    final localPath = await FeedEditorMediaService.persistVideoXFileToTemp(
-      xfile,
-      prefix: 'gy_aviso_video',
-    );
+    if (kIsWeb) {
+      // O picker web ignora maxDuration/maxSizeMb — valida aqui para o aviso
+      // não falhar só no publish.
+      const maxBytes = 80 * 1024 * 1024;
+      final size = await xfile.length();
+      if (!mounted) return;
+      if (size > maxBytes) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Vídeo muito grande (${(size / (1024 * 1024)).toStringAsFixed(1)}MB). '
+              'Máximo: 80MB — ou cole o link do YouTube.',
+            ),
+          ),
+        );
+        return;
+      }
+    }
+    // Web não tem disco: o blob do picker é a fonte (o serviço lê os bytes).
+    final localPath = kIsWeb
+        ? xfile.path
+        : await FeedEditorMediaService.persistVideoXFileToTemp(
+            xfile,
+            prefix: 'gy_aviso_video',
+          );
     if (localPath == null || localPath.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2112,19 +2147,33 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
         );
     if (!mounted || files.isEmpty) return;
 
+    // Preparo em paralelo (1 isolate por foto): em série, 5 fotos = 5 compressões
+    // encadeadas e o editor ficava "pendurado" ao montar o aviso.
+    final prepared = await Future.wait(
+      files.take(remaining).map<Future<({Uint8List bytes, String name})?>>((
+        f,
+      ) async {
+        final b = await f.readAsBytes();
+        if (b.isEmpty) return null;
+        final out = await ChurchInstantUploadPipeline.prepareImageBytes(
+          b,
+          postType: kChurchPostTypeAviso,
+        );
+        return (
+          bytes: out.isNotEmpty ? out : b,
+          name: f.name.trim().isNotEmpty ? f.name.trim() : 'foto.webp',
+        );
+      }),
+    );
+    if (!mounted) return;
+
     Uint8List? lastBytes;
     String lastName = 'foto.webp';
-    for (final f in files.take(remaining)) {
-      final b = await f.readAsBytes();
-      if (b.isEmpty) continue;
-      final prepared = await ChurchInstantUploadPipeline.prepareImageBytes(
-        b,
-        postType: kChurchPostTypeAviso,
-      );
-      final bytes = prepared.isNotEmpty ? prepared : b;
-      _photos.add(bytes);
-      lastBytes = bytes;
-      lastName = f.name.trim().isNotEmpty ? f.name.trim() : 'foto.webp';
+    for (final item in prepared) {
+      if (item == null) continue;
+      _photos.add(item.bytes);
+      lastBytes = item.bytes;
+      lastName = item.name;
     }
     setState(() {});
     if (lastBytes != null && mounted) {
@@ -2578,22 +2627,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                           child: OutlinedButton.icon(
                             onPressed: _publishing
                                 ? null
-                                : () {
-                                    if (kIsWeb) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            'Na web, cole o link do YouTube. '
-                                            'Upload de vídeo do aparelho: app Android/iOS.',
-                                          ),
-                                        ),
-                                      );
-                                      return;
-                                    }
-                                    unawaited(_pickVideo());
-                                  },
+                                : () => unawaited(_pickVideo()),
                             icon: const Icon(
                               Icons.video_library_rounded,
                               size: 18,

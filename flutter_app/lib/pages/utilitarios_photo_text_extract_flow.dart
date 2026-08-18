@@ -228,7 +228,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
     if (mounted) {
       setState(() {
         _busy = true;
-        _busyLabel = 'Extraindo?';
+        _busyLabel = 'Extraindo…';
         if (bytes.isNotEmpty) _previewImage = bytes;
         _sourceName = sourceName;
       });
@@ -327,7 +327,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
 
   Future<void> _exportWord() async {
     if (!_hasText) return;
-    await _withBusy('Gerando Word?', () async {
+    await _withBusy('Gerando Word…', () async {
       final paras = _paragraphsFromEditedText();
       final bytes = UtilitariosPhotoTextExtractService.buildDocx(paras);
       if (!mounted) return;
@@ -343,7 +343,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
 
   Future<void> _exportPdf() async {
     if (!_hasText) return;
-    await _withBusy('Gerando PDF?', () async {
+    await _withBusy('Gerando PDF…', () async {
       final paras = _paragraphsFromEditedText();
       final bytes = await UtilitariosPhotoTextExtractService.buildPdf(paras);
       if (!mounted) return;
@@ -497,7 +497,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Câmera do aparelho ? texto na hora (ML Kit / Lens). Edite e exporte Word ou PDF.',
+                  'Câmera do aparelho → texto na hora (ML Kit / Lens). Edite e exporte Word ou PDF.',
                   textAlign: TextAlign.center,
                   style: ModernModuleUI.moduleSubtitleStyle(context),
                 ),
@@ -703,7 +703,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '$chars caracteres ? ${_wordCountLabel(words)}'
+                        '$chars caracteres · ${_wordCountLabel(words)}'
                         '${headings > 0 ? ' ? $headings títulos' : ''}',
                         style: TextStyle(
                           fontSize: 12,
@@ -895,7 +895,7 @@ class _PhotoTextExtractPageState extends State<_PhotoTextExtractPage> {
             ),
             const SizedBox(height: 14),
             Text(
-              _busyLabel ?? 'Processando?',
+              _busyLabel ?? 'Processando…',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Theme.of(context).colorScheme.onSurface,

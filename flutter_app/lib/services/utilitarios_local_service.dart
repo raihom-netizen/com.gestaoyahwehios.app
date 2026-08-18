@@ -199,21 +199,21 @@ extension UtilitariosCompressLevelX on UtilitariosCompressLevel {
 
   String get subtitle => switch (this) {
         UtilitariosCompressLevel.baixa =>
-          'Quase original ? ~15?25% menor (imagem, PDF, MP4)',
+          'Quase original · ~15–25% menor (imagem, PDF, MP4)',
         UtilitariosCompressLevel.media =>
-          'Smart Compress ? ~40?55% menor ? recomendado',
+          'Smart Compress · ~40–55% menor · recomendado',
         UtilitariosCompressLevel.alta =>
-          'Ultra Smart ? até ~80% menor ? nitidez recuperada',
+          'Ultra Smart · até ~80% menor · nitidez recuperada',
       };
 
   /// Resumo técnico exibido na UI do compressor.
   String get techSummary => switch (this) {
         UtilitariosCompressLevel.baixa =>
-          'Imagem até 2K ? PDF legível ? vídeo até 1080p',
+          'Imagem até 2K · PDF legível · vídeo até 1080p',
         UtilitariosCompressLevel.media =>
-          'Resize + sharpen Smart ? PDF otimizado ? vídeo 900p',
+          'Resize + sharpen Smart · PDF otimizado · vídeo 900p',
         UtilitariosCompressLevel.alta =>
-          'Máxima redução ? sharpen forte ? vídeo 720p preset slow',
+          'Máxima redução · sharpen forte · vídeo 720p preset slow',
       };
 
   /// Faixa estimada de redução (UI).
@@ -279,10 +279,10 @@ extension UtilitariosArchiveFormatX on UtilitariosArchiveFormat {
       };
 
   String get subtitle => switch (this) {
-        UtilitariosArchiveFormat.zip => 'Rápido ? compatível com tudo',
-        UtilitariosArchiveFormat.zipMax => 'Menor tamanho ? extensão .zip',
+        UtilitariosArchiveFormat.zip => 'Rápido · compatível com tudo',
+        UtilitariosArchiveFormat.zipMax => 'Menor tamanho · extensão .zip',
         UtilitariosArchiveFormat.rar =>
-          'Ultra-compacto ? .zip no celular (padrão universal)',
+          'Ultra-compacto · .zip no celular (padrão universal)',
       };
 
   String get fileExtension => 'zip';
@@ -733,7 +733,7 @@ abstract final class UtilitariosLocalService {
       if (s.isEmpty) {
         return 'Documento convertido no Gestão Yahweh.\n'
             'Este PDF não possui texto selecionável (pode ser imagem/scan).\n'
-            'Use ?PDF ? JPEG? ou ?PDF ? PNG? para obter as páginas em imagem.';
+            'Use «PDF → JPEG» ou «PDF → PNG» para obter as páginas em imagem.';
       }
       return s;
     } finally {
@@ -1755,7 +1755,7 @@ abstract final class UtilitariosLocalService {
           blocks: const [],
           plainFallback: 'Documento convertido no Gestão Yahweh.\n'
               'Este PDF não possui texto selecionável (pode ser imagem/scan).\n'
-              'Use ?PDF ? JPEG? ou ?PDF ? PNG? para obter as páginas em imagem.',
+              'Use «PDF → JPEG» ou «PDF → PNG» para obter as páginas em imagem.',
         );
       }
       final fallbackBlocks = plain
@@ -4735,7 +4735,7 @@ Future<Uint8List> _rowsToPdfWithTheme(
           pw.Padding(
             padding: const pw.EdgeInsets.only(top: 8),
             child: pw.Text(
-              '? linhas extras omitidas para manter o PDF leve.',
+              '… linhas extras omitidas para manter o PDF leve.',
               style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
             ),
           ),

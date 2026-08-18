@@ -892,7 +892,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
-                'Carregando dados da igreja?',
+                'Carregando dados da igreja…',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.85),
                   fontSize: 12,

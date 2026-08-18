@@ -76,7 +76,7 @@ class PremiumProDepoisChecklist extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const items = [
-      'Compra ? já aparece no app',
+      'Compra → já aparece no app',
       'Já categorizado automaticamente',
       'Controle total sem esforço',
     ];
@@ -257,7 +257,7 @@ class PremiumProMarketingHighlights extends StatelessWidget {
                 ] else ...[
                   SizedBox(height: 8),
                   Text(
-                    '${p.premiumProAnnualLine} ou ${p.premiumProMonthlyLine} ? valores em tempo real no checkout.',
+                    '${p.premiumProAnnualLine} ou ${p.premiumProMonthlyLine} — valores em tempo real no checkout.',
                     style: TextStyle(fontSize: 12, color: context.appTextSecondary, height: 1.35),
                   ),
                 ],

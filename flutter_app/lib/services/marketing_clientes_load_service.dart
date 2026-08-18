@@ -141,6 +141,12 @@ abstract final class MarketingClientesLoadService {
     return out;
   }
 
+  /// Recarrega cada item da galeria a partir de `igrejas/{id}` — o que o gestor
+  /// preenche no cadastro aparece no site de divulgação sem republicar.
+  static Future<List<Map<String, dynamic>>> hydrateFromChurchDocs(
+    List<Map<String, dynamic>> items,
+  ) => _refreshPublishedItems(items);
+
   static Future<List<Map<String, dynamic>>> _refreshPublishedItems(
     List<Map<String, dynamic>> items,
   ) async {
@@ -173,18 +179,53 @@ abstract final class MarketingClientesLoadService {
           }
 
           setIfPresent('nomeIgreja', ['nome', 'name', 'nomeIgreja']);
-          setIfPresent('pastor', ['pastor', 'pastorNome', 'responsavel']);
-          setIfPresent('gestor', ['gestorNome', 'responsavel', 'gestor']);
-          setIfPresent('whatsapp', ['whatsapp', 'telefone', 'phone']);
+          setIfPresent('pastor', [
+            'pastor',
+            'pastorNome',
+            'pastor_nome',
+            'nomePastor',
+            'pastorPrincipal',
+            'PASTOR',
+            'responsavel',
+          ]);
+          setIfPresent('gestor', [
+            'gestorNome',
+            'gestor_nome',
+            'nomeGestor',
+            'gestor',
+            'responsavel',
+          ]);
+          setIfPresent('whatsapp', [
+            'whatsapp',
+            'whatsappChatUrl',
+            'telefone',
+            'telefone1',
+            'celular',
+            'phone',
+          ]);
           setIfPresent('site', ['sitePublico', 'siteUrl', 'website', 'site']);
           setIfPresent('localizacao', [
             'localizacao',
             'enderecoCompleto',
             'endereco',
+            'ENDERECO',
             'cidade',
           ]);
           setIfPresent('logoUrl', ['logoUrl', 'urlLogo', 'logo']);
-          setIfPresent('logoPath', ['logoPath', 'storageLogoPath']);
+          setIfPresent('logoPath', [
+            'logoPath',
+            'logoStoragePath',
+            'storageLogoPath',
+          ]);
+          setIfPresent('slug', ['slug', 'slugId']);
+          // Sem campo de site guardado: o site público da igreja é derivado do
+          // slug — assim o botão «Site» aparece assim que o slug existe.
+          if ((out['site']?.toString().trim() ?? '').isEmpty) {
+            final slug = value(['slug', 'slugId']);
+            if (slug.isNotEmpty) {
+              out['site'] = 'https://gestaoyahweh.com.br/$slug';
+            }
+          }
           return out;
         } catch (_) {
           return item;

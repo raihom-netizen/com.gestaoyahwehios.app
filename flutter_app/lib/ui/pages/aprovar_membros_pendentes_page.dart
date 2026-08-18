@@ -2725,7 +2725,7 @@ class _BarMensalChart extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'Barras verdes: aprovados ? vermelhas: reprovados',
+            'Barras verdes: aprovados · vermelhas: reprovados',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           ),
           const SizedBox(height: 16),

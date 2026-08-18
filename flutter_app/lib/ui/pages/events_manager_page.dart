@@ -3988,7 +3988,7 @@ class _EventCategoriesManagerPageState
                         ),
                       )
                     : const Icon(Icons.add_rounded),
-                label: Text(_saving ? 'Salvando?' : 'Adicionar categoria'),
+                label: Text(_saving ? 'Salvando…' : 'Adicionar categoria'),
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
@@ -6064,6 +6064,8 @@ class _EventoPostState extends State<_EventoPost>
       tenantId: widget.tenantId.trim(),
       noticiaId: widget.doc.id,
       churchSlug: links.resolvedSlug,
+      postInstagramUrl: (data['instagramUrl'] ?? '').toString(),
+      postVideoUrl: eventNoticiaExternalVideoUrl(data),
     );
     if (!mounted) return;
     await showChurchNoticiaShareSheet(
@@ -9707,11 +9709,30 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (durationSec != null && durationSec > kMediaEventVideoMaxSeconds) {
         throw StateError('Vídeo excede o limite de 90 segundos.');
       }
-      final localPath = await FeedEditorMediaService.persistVideoXFileToTemp(
-        xfile,
-        prefix: 'gy_event_video',
-      );
-      if (localPath == null || !File(localPath).existsSync()) {
+      if (kIsWeb) {
+        // O picker web ignora maxDuration/tamanho — avisa no anexo, não no publish.
+        final size = await xfile.length();
+        if (size > mediaEventVideoHardMaxBytesEffective) {
+          final sizeMb = (size / (1024 * 1024)).toStringAsFixed(1);
+          final limitMb =
+              (mediaEventVideoHardMaxBytesEffective / (1024 * 1024)).round();
+          throw StateError(
+            'Vídeo muito grande (${sizeMb}MB). Máximo: ${limitMb}MB — '
+            'ou use o campo de link (YouTube / Vimeo).',
+          );
+        }
+      }
+      // Web não tem disco: o próprio blob do picker é a fonte (o upload lê os
+      // bytes via XFile). Só mobile copia para um ficheiro temporário estável.
+      final localPath = kIsWeb
+          ? xfile.path
+          : await FeedEditorMediaService.persistVideoXFileToTemp(
+              xfile,
+              prefix: 'gy_event_video',
+            );
+      if (localPath == null ||
+          localPath.isEmpty ||
+          (!kIsWeb && !File(localPath).existsSync())) {
         throw StateError(
           'Não foi possível ler o vídeo da galeria. Tente outro ficheiro ou grave em MP4.',
         );
@@ -9953,7 +9974,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     ),
                     subtitle: Text(
                       _uploadingVideo
-                          ? 'Aguarde o envio em andamento?'
+                          ? 'Aguarde o envio em andamento…'
                           : videosFull
                           ? 'Máx. $_maxVideosPerEvent vídeos por evento'
                           : 'Até $_maxVideoSeconds s — MP4 leve envia direto; senão 720p HD',
@@ -10081,6 +10102,19 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return payload;
   }
 
+  /// `videoUrl` só sai do payload quando está vazia (sem vídeo) ou quando há
+  /// upload de ficheiro pendente — nesse caso o pipeline grava a URL real do
+  /// Storage. Link YouTube/Vimeo tem de seguir para o Firestore.
+  void _dropVideoUrlIfNotPublishable(
+    Map<String, dynamic> payload,
+    String? pendingLocalVideoPath,
+  ) {
+    final current = (payload['videoUrl'] ?? '').toString().trim();
+    if (current.isEmpty || (pendingLocalVideoPath ?? '').trim().isNotEmpty) {
+      payload.remove('videoUrl');
+    }
+  }
+
   Future<void> _mergePublishedEventVideoFields() async {
     try {
       await runFirebaseBackgroundTask(() async {
@@ -10154,7 +10188,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       aspectRatio: aspectRatio,
       isNewDoc: isNewDoc,
     );
-    payload.remove('videoUrl');
+    _dropVideoUrlIfNotPublishable(payload, _pendingLocalVideoPath());
     await EventoCreatePublishService.publish(
       docRef: docRef,
       tenantId: publishTenantId,
@@ -10390,7 +10424,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'Publicando ${dates.length} eventos?',
+          'Publicando ${dates.length} eventos…',
         ),
       );
     }
@@ -10639,7 +10673,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         aspectRatio: aspectRatio,
         isNewDoc: isNewDoc,
       );
-      payload.remove('videoUrl');
+      // Só descartar `videoUrl` quando está vazia ou quando o upload do
+      // ficheiro vai preenchê-la logo a seguir. Removê-la sempre era o motivo
+      // de o vídeo por link (YouTube/Vimeo) nunca ficar gravado no evento.
+      _dropVideoUrlIfNotPublishable(payload, localVideoPath);
 
       final publishDone = Completer<bool>();
       try {

@@ -176,6 +176,10 @@ abstract final class ChurchMembersLoadService {
     int limit = kDefaultLimit,
     bool forceRefresh = false,
     bool forceServer = false,
+    /// Telas de SELEÇÃO (picker de Departamentos/Cargos/Escalas) precisam da
+    /// igreja inteira. Sem isto o `capListLimit('membros')` cortava em 50 e o
+    /// gestor não achava o irmão que queria vincular.
+    bool fullList = false,
   }) async {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) {
@@ -191,7 +195,9 @@ abstract final class ChurchMembersLoadService {
     final path = 'igrejas/$churchId/membros';
     final ramKey = cacheKey(churchId, limit);
     final reference = ChurchUiCollections.membros(churchId);
-    final capped = FirebasePerformanceLimits.capListLimit('membros', limit);
+    final capped = fullList
+        ? limit.clamp(1, 1000)
+        : FirebasePerformanceLimits.capListLimit('membros', limit);
 
     if (!forceRefresh && !forceServer) {
       try {

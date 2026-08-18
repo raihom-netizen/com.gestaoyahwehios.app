@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart'
     show YahwehMediaModule;
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
+import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/utils/utilitarios_file_io.dart'
     show utilitariosReadPlatformFileBytes;
@@ -75,11 +76,35 @@ abstract final class ChurchCtModuleUpload {
         'Permissão de câmera negada. Ative nas configurações do aparelho.',
       );
     }
-    final x = await ImagePicker().pickImage(
-      source: source,
-      imageQuality: imageQuality,
-      maxWidth: maxWidth,
-    );
+    // Windows/Linux não registam o `image_picker` — cair no seletor de
+    // ficheiros nativo em vez de rebentar com MissingPluginException.
+    final XFile? x;
+    if (MediaHandlerService.isDesktopWithoutImagePicker) {
+      if (source == ImageSource.camera) {
+        throw StateError(
+          'Câmera não disponível no app de Windows. '
+          'Escolha a imagem do computador.',
+        );
+      }
+      final res = await YahwehFilePicker.pickFiles(
+        dialogTitle: 'Escolher imagem',
+        type: FileType.custom,
+        allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'],
+        withData: true,
+      );
+      final f = (res == null || res.files.isEmpty) ? null : res.files.first;
+      x = (f == null)
+          ? null
+          : ((f.path ?? '').trim().isNotEmpty
+                ? XFile(f.path!, name: f.name)
+                : XFile.fromData(f.bytes ?? Uint8List(0), name: f.name));
+    } else {
+      x = await ImagePicker().pickImage(
+        source: source,
+        imageQuality: imageQuality,
+        maxWidth: maxWidth,
+      );
+    }
     if (x == null) return null;
     final bytes = await MediaService.readXFileBytes(x);
     if (bytes.isEmpty) return null;

@@ -539,6 +539,47 @@ class MembersDirectorySnapshotService {
     );
   }
 
+  /// Insere (ou actualiza) um membro no cache RAM do directório.
+  ///
+  /// O `_panel_cache/members_directory` só é reconstruído pela Cloud Function,
+  /// por isso um cadastro novo demorava a surgir na lista. Só actua quando já
+  /// existe snapshot em RAM — sem isso a lista passaria a mostrar **apenas** o
+  /// membro acabado de criar.
+  static void upsertMemberInMemory({
+    required String tenantId,
+    required String memberDocId,
+    required Map<String, dynamic> memberData,
+  }) {
+    final tid = tenantId.trim();
+    final mid = memberDocId.trim();
+    if (tid.isEmpty || mid.isEmpty) return;
+    final snap = peekMemory(tid);
+    if (snap == null || !snap.hasEntries) return;
+    MemberDirectoryEntry entry;
+    try {
+      entry = BlindMemberDoc.fromFirestore(
+        id: mid,
+        data: memberData,
+      ).toDirectoryEntry();
+    } catch (_) {
+      return;
+    }
+    final entries = <MemberDirectoryEntry>[
+      ...snap.entries.where((e) => e.memberDocId != mid),
+      entry,
+    ];
+    rememberInMemory(
+      tid,
+      MembersDirectorySnapshot(
+        totalCount: snap.totalCount >= entries.length
+            ? snap.totalCount
+            : entries.length,
+        entries: entries,
+        summary: snap.summary,
+      ),
+    );
+  }
+
   static void invalidateMemory(String tenantId) {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;

@@ -30,6 +30,7 @@ import 'brl_amount_text_field.dart';
 import 'fast_text_field.dart';
 import 'finance_calendar_color_picker.dart';
 import 'finance_category_picker.dart';
+import 'finance_pending_receipt_preview.dart';
 import 'finance_premium_ui.dart';
 import 'finance_transfer_bottom_sheet.dart';
 import 'goal_deposit_ui.dart';
@@ -794,6 +795,27 @@ Future<bool> showFinanceTransactionEditDialog({
                                   ),
                                 ],
                               ),
+                            // Anexo recém-escolhido: miniatura + «olho» para
+                            // conferir antes de salvar (padrão Controle Total).
+                            if (hasNewReceipt) ...[
+                              FinancePendingReceiptCard(
+                                bytes: newReceiptBytes!,
+                                fileName: newReceiptName.isEmpty
+                                    ? 'Comprovante'
+                                    : newReceiptName,
+                                isPdf:
+                                    (newReceiptMime ?? '').contains('pdf') ||
+                                    newReceiptName
+                                        .toLowerCase()
+                                        .endsWith('.pdf'),
+                                onRemove: () => setState(() {
+                                  newReceiptBytes = null;
+                                  newReceiptName = '';
+                                  newReceiptMime = null;
+                                }),
+                              ),
+                              SizedBox(height: 8),
+                            ],
                             OutlinedButton.icon(
                               icon: Icon(
                                 hasExistingReceipt || hasNewReceipt

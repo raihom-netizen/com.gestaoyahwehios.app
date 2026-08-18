@@ -165,7 +165,7 @@ class _IosDonationReaderViewState extends State<IosDonationReaderView> {
                         )
                       : const Icon(Icons.open_in_new_rounded, size: 20),
                   label: Text(
-                    _openingSafari ? 'Abrindo Safari?' : 'Abrir no Safari',
+                    _openingSafari ? 'Abrindo Safari…' : 'Abrir no Safari',
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                   style: OutlinedButton.styleFrom(

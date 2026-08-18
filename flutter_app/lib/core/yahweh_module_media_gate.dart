@@ -2,7 +2,8 @@ import 'dart:async' show unawaited;
 
 
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
 
 import 'package:flutter/material.dart';
 
@@ -182,6 +183,18 @@ abstract final class YahwehModuleMediaGate {
 
 
 
+  /// Desktop nativo (Windows/Linux/macOS).
+
+  static bool get _isDesktopPlatform =>
+
+      !kIsWeb &&
+
+      (defaultTargetPlatform == TargetPlatform.windows ||
+
+          defaultTargetPlatform == TargetPlatform.linux ||
+
+          defaultTargetPlatform == TargetPlatform.macOS);
+
   /// Antes de abrir câmera/galeria/ficheiro (todos os módulos).
 
   static Future<bool> ensureReadyForPick({
@@ -193,6 +206,32 @@ abstract final class YahwehModuleMediaGate {
     bool requireAuth = true,
 
   }) async {
+
+    // Windows/Linux/macOS: escolher o ficheiro não precisa do Storage pronto.
+
+    // O SDK de desktop demora (ou falha) a aquecer e o seletor nunca abria —
+
+    // era por isto que Financeiro, Fornecedores e Património «não anexavam».
+
+    // O gate a sério continua no upload (ensureReadyForPublish).
+
+    if (_isDesktopPlatform) {
+
+      unawaited(
+
+        (requireAuth
+
+                ? EcoFireDirectFirebase.ensureForStoragePut(requireAuth: true)
+
+                : EcoFireDirectFirebase.ensureDefaultApp())
+
+            .catchError((_) {}),
+
+      );
+
+      return true;
+
+    }
 
     try {
 

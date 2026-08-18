@@ -212,7 +212,7 @@ class _DebugChurchPageState extends State<DebugChurchPage> {
           for (final p in s.probes) _probeTile(p),
         ]),
         if (s.legacyHitsInLogs.isNotEmpty)
-          _section('LEGADO DETECTADO NOS LOGS ? REPROVADO', [
+          _section('LEGADO DETECTADO NOS LOGS — REPROVADO', [
             for (final l in s.legacyHitsInLogs)
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
@@ -270,7 +270,7 @@ class _DebugChurchPageState extends State<DebugChurchPage> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.cloud_upload_rounded),
-              label: Text(_publishing ? 'Publicando?' : 'Publicar prova ${_snap?.platform ?? ""}'),
+              label: Text(_publishing ? 'Publicando…' : 'Publicar prova ${_snap?.platform ?? ""}'),
             ),
           ),
           const SizedBox(height: 8),

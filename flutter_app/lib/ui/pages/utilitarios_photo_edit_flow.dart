@@ -369,7 +369,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     if (raw == null || _captions.isEmpty) {
       throw StateError('Adicione texto ou emoji antes de fixar.');
     }
-    await _withBusy('Fixando legenda?', () async {
+    await _withBusy('Fixando legenda…', () async {
       final out = await UtilitariosPhotoService.burnCaptionOverlays(
         raw,
         List<UtilPhotoCaptionOverlay>.from(_captions),
@@ -559,7 +559,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   );
 
   Future<void> _pickImage({bool camera = false}) async {
-    await _withBusy('Carregando foto?', () async {
+    await _withBusy('Carregando foto…', () async {
       Uint8List? bytes;
       String name = 'foto.jpg';
       if (camera) {
@@ -599,7 +599,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   Future<void> _runRotate() async {
     final raw = _image;
     if (raw == null) return;
-    await _withBusy('Girando?', () async {
+    await _withBusy('Girando…', () async {
       final out = await UtilitariosPhotoService.rotateClockwise(raw);
       await _setImage(out);
     });
@@ -608,7 +608,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   Future<void> _runFlip() async {
     final raw = _image;
     if (raw == null) return;
-    await _withBusy('Espelhando?', () async {
+    await _withBusy('Espelhando…', () async {
       final out = await UtilitariosPhotoService.flipHorizontal(raw);
       await _setImage(out);
     });
@@ -620,7 +620,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     if (raw == null || rect == null) {
       throw StateError('Desenhe a área de corte na foto.');
     }
-    await _withBusy('Cortando?', () async {
+    await _withBusy('Cortando…', () async {
       final out = await UtilitariosPhotoService.cropImage(
         raw,
         nx: rect.left,
@@ -649,7 +649,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
       );
       return;
     }
-    await _withBusy('Detectando rostos?', () async {
+    await _withBusy('Detectando rostos…', () async {
       final found = await UtilitariosPhotoService.detectFaces(raw);
       if (found.isEmpty) {
         if (mounted) {
@@ -678,7 +678,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     final raw = _image;
     if (raw == null) return;
     final radius = (6 + _blurIntensity * 34).round();
-    await _withBusy('Aplicando ${_blurMode.label.toLowerCase()}?', () async {
+    await _withBusy('Aplicando ${_blurMode.label.toLowerCase()}…', () async {
       if (_regions.isEmpty) {
         throw StateError('Marque ou detecte áreas para borrar.');
       }
@@ -740,7 +740,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
       fileName: _outputFileName,
       mimeType: 'image/jpeg',
       preferShare: true,
-      shareText: 'Foto editada ? Gestão Yahweh',
+      shareText: 'Foto editada — Gestão Yahweh',
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -774,7 +774,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   Future<void> _openNativeCropper() async {
     final raw = _image;
     if (raw == null) return;
-    await _withBusy('Abrindo corte?', () async {
+    await _withBusy('Abrindo corte…', () async {
       final sourcePath = await utilitariosWriteBytesToTempFile(
         raw,
         _fileName ?? 'foto.jpg',
@@ -1062,7 +1062,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                 value: 'rotate',
                 child: ListTile(
                   leading: Icon(Icons.rotate_right_rounded),
-                  title: Text('Girar 90?'),
+                  title: Text('Girar 90°'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -1135,7 +1135,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: const Text(
-                        'Original ? solte para voltar',
+                        'Original — solte para voltar',
                         style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w700,
@@ -1390,9 +1390,9 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   Future<void> _copyPhotoToClipboard() async {
     final bytes = _image;
     if (bytes == null) return;
-    await _withBusy('Copiando?', () async {
+    await _withBusy('Copiando…', () async {
       await Clipboard.setData(
-        ClipboardData(text: 'Foto editada ? Gestão Yahweh'),
+        ClipboardData(text: 'Foto editada — Gestão Yahweh'),
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1678,7 +1678,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
     ];
     final maxH = MediaQuery.sizeOf(context).height * 0.82;
     final draft = _captionInputCtrl.text.trim();
-    final previewText = draft.isEmpty ? 'Digite a legenda?' : draft;
+    final previewText = draft.isEmpty ? 'Digite a legenda…' : draft;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 0, 10, 6),
@@ -1771,7 +1771,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                       fontWeight: FontWeight.w700,
                     ),
                     decoration: InputDecoration(
-                      hintText: 'Digite legenda?',
+                      hintText: 'Digite legenda…',
                       hintStyle: TextStyle(
                         color: Colors.white.withValues(alpha: 0.45),
                       ),
@@ -2302,7 +2302,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   Future<void> _rotatePhoto() async {
     final raw = _image;
     if (raw == null) return;
-    await _withBusy('Girando?', () async {
+    await _withBusy('Girando…', () async {
       final out = await UtilitariosPhotoService.rotateClockwise(raw);
       await _setImage(out);
       if (mounted) _hapticLight();
@@ -2312,7 +2312,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
   Future<void> _flipPhoto() async {
     final raw = _image;
     if (raw == null) return;
-    await _withBusy('Espelhando?', () async {
+    await _withBusy('Espelhando…', () async {
       final out = await UtilitariosPhotoService.flipHorizontal(raw);
       await _setImage(out);
       if (mounted) _hapticLight();
@@ -2892,7 +2892,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
                   ),
                   child: Text(
                     _tool == _PhotoTool.faces
-                        ? 'Rostos detectados ? confira e confirme'
+                        ? 'Rostos detectados — confira e confirme'
                         : 'Arraste na foto para marcar áreas',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.7),
@@ -2968,7 +2968,7 @@ class _UtilitariosPhotoEditPageState extends State<_UtilitariosPhotoEditPage> {
             const SizedBox(width: 12),
             Flexible(
               child: Text(
-                _busyLabel ?? 'Processando?',
+                _busyLabel ?? 'Processando…',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,

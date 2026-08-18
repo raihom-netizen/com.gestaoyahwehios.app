@@ -328,7 +328,7 @@ abstract final class UtilitariosVideoDownloaderService {
         isAudioOnly: false,
       );
     } catch (e) {
-      debugPrint('[VideoDown] YouTube explode error: $e ? tentando Cobalt?');
+      debugPrint('[VideoDown] YouTube explode error: $e — tentando Cobalt…');
       // Fallback rápido via Cobalt quando o player do YouTube muda.
       final cobaltUrl = await _cobaltExtract(cleanUrl);
       if (cobaltUrl != null && cobaltUrl.isNotEmpty) {
@@ -797,7 +797,7 @@ abstract final class UtilitariosVideoDownloaderService {
       videoUrl = _decodeMediaUrl(videoUrl);
       if (!videoUrl.startsWith('http')) return null;
       debugPrint(
-        '[VideoDown] Cobalt OK ($base): ${videoUrl.substring(0, videoUrl.length > 70 ? 70 : videoUrl.length)}?',
+        '[VideoDown] Cobalt OK ($base): ${videoUrl.substring(0, videoUrl.length > 70 ? 70 : videoUrl.length)}…',
       );
       return videoUrl;
     } catch (e) {

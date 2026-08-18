@@ -962,9 +962,11 @@ class ChurchPublicWelcomeStrip extends StatelessWidget {
         borderTint: accentColor,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(YahwehDesignSystem.radiusMd),
+          // Hero moderno: gradiente diagonal + halos de luz, nome da igreja
+          // como protagonista e uma linha de "chips" com o que o visitante
+          // encontra (avisos, eventos, cultos, localização).
           child: Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
@@ -976,62 +978,145 @@ class ChurchPublicWelcomeStrip extends StatelessWidget {
                 ],
               ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Stack(
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.church_rounded,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Seja bem-vindo(a)',
-                        style: GoogleFonts.poppins(
-                          fontSize: MediaQuery.sizeOf(context).width < 400
-                              ? 22
-                              : 26,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          height: 1.12,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                if (name.isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    name,
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white.withValues(alpha: 0.94),
-                      height: 1.35,
+                Positioned(
+                  top: -70,
+                  right: -50,
+                  child: Container(
+                    width: 210,
+                    height: 210,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.09),
                     ),
                   ),
-                ],
-                const SizedBox(height: 6),
-                Text(
-                  'Portal da família — mural, cultos e novidades',
-                  style: GoogleFonts.poppins(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white.withValues(alpha: 0.88),
-                    height: 1.3,
+                ),
+                Positioned(
+                  bottom: -95,
+                  left: -55,
+                  child: Container(
+                    width: 190,
+                    height: 190,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white.withValues(alpha: 0.06),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isDesktop ? 34 : 22,
+                    vertical: isDesktop ? 40 : 28,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.24),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.church_rounded,
+                              color: Colors.white,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 7),
+                            Text(
+                              'SEJA BEM-VINDO(A)',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.1,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      if (name.isNotEmpty)
+                        Text(
+                          name,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.poppins(
+                            fontSize: MediaQuery.sizeOf(context).width < 400
+                                ? 26
+                                : (isDesktop ? 42 : 32),
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                            height: 1.08,
+                            letterSpacing: -1.0,
+                          ),
+                        ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Portal da família — avisos, eventos e cultos num só lugar.',
+                        style: GoogleFonts.poppins(
+                          fontSize: isDesktop ? 15.5 : 13.5,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white.withValues(alpha: 0.92),
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final chip in const [
+                            (Icons.campaign_rounded, 'Avisos'),
+                            (Icons.event_rounded, 'Eventos'),
+                            (Icons.auto_awesome_rounded, 'Cultos'),
+                            (Icons.place_rounded, 'Como chegar'),
+                          ])
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.20),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    chip.$1,
+                                    size: 15,
+                                    color: Colors.white,
+                                  ),
+                                  const SizedBox(width: 7),
+                                  Text(
+                                    chip.$2,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -1370,21 +1455,59 @@ class ChurchPublicContactBar extends StatelessWidget {
                   final infoCol = Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Cabeçalho moderno: chip de ícone com o gradiente da
+                      // igreja + título forte + subtítulo de apoio.
                       Row(
                         children: [
-                          Icon(
-                            Icons.place_rounded,
-                            size: 20,
-                            color: accentColor,
+                          Container(
+                            width: 36,
+                            height: 36,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [accentColor, deep],
+                              ),
+                              borderRadius: BorderRadius.circular(11),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: accentColor.withValues(alpha: 0.28),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.place_rounded,
+                              size: 19,
+                              color: Colors.white,
+                            ),
                           ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Contato e localização',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: -0.3,
-                              color: deep,
+                          const SizedBox(width: 11),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Contato e localização',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.4,
+                                    color: deep,
+                                  ),
+                                ),
+                                Text(
+                                  'Fale com a igreja ou trace a rota',
+                                  style: TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],

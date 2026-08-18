@@ -20,11 +20,16 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
+import 'package:gestao_yahweh/services/media_upload_service.dart';
+import 'package:gestao_yahweh/services/video_thumb_capture.dart';
+import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
-    show eventNoticiaDocHasPhotoMedia;
+    show eventNoticiaDocHasPhotoMedia, eventNoticiaHostedVideoPlayUrl;
+import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
+    show isValidImageUrl;
 import 'package:gestao_yahweh/utils/youtube_url_helper.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart'
     show noticiaGalleryRefsForShare;
@@ -112,7 +117,13 @@ class ChurchAvisoItem {
     final e1 = m['avisoExpiresAt'] ?? m['validUntil'];
     if (e1 is Timestamp) exp = e1.toDate();
 
-    final videoUrl = (m['videoUrl'] ?? m['mediaUrl'] ?? '').toString().trim();
+    var videoUrl = (m['videoUrl'] ?? m['mediaUrl'] ?? '').toString().trim();
+    if (videoUrl.isEmpty) {
+      // Docs gravados só com `videos[]` / path do Storage (ou com `videoUrl`
+      // limpo por uma edição antiga) continuam a mostrar o vídeo no painel.
+      final hosted = (eventNoticiaHostedVideoPlayUrl(m) ?? '').trim();
+      if (isValidImageUrl(hosted)) videoUrl = hosted;
+    }
     var ytId = (m['youtubeVideoId'] ?? '').toString().trim();
     if (ytId.isEmpty) {
       ytId = YoutubeUrlHelper.extractVideoId(videoUrl) ?? '';
@@ -283,6 +294,72 @@ abstract final class ChurchAvisosService {
     }
   }
 
+  /// Web: sem disco — os bytes vêm do blob do picker e sobem direto ao Storage,
+  /// com a miniatura extraída do 1.º frame (mesmo padrão do módulo Eventos).
+  static Future<({String videoPath, String thumbPath})> _uploadAvisoWebVideo({
+    required String churchId,
+    required String postId,
+    required String blobPath,
+    void Function(double progress)? onProgress,
+  }) async {
+    final bytes = await XFile(blobPath).readAsBytes();
+    if (bytes.isEmpty) {
+      throw StateError('Vídeo vazio — selecione outro ficheiro.');
+    }
+    final hardLimit = mediaVideoHardMaxBytesEffective;
+    if (bytes.length > hardLimit) {
+      final sizeMb = (bytes.length / (1024 * 1024)).toStringAsFixed(1);
+      final limitMb = (hardLimit / (1024 * 1024)).round();
+      throw StateError(
+        'O vídeo pesa ${sizeMb}MB. Na web envie vídeos de até ${limitMb}MB '
+        'ou cole o link do YouTube.',
+      );
+    }
+
+    final storagePath = ChurchStorageLayout.avisoHostedVideoMp4Path(
+      churchId,
+      postId,
+      0,
+    );
+    final thumbPath = ChurchStorageLayout.avisoHostedVideoThumbPath(
+      churchId,
+      postId,
+      0,
+    );
+
+    Future<String> uploadThumb() async {
+      try {
+        final thumbBytes = await captureVideoFirstFrameJpeg(
+          bytes,
+          mimeType: 'video/mp4',
+        ).timeout(const Duration(seconds: 20), onTimeout: () => null);
+        if (thumbBytes == null || thumbBytes.isEmpty) return '';
+        return await MediaUploadService.uploadBytesWithRetry(
+          storagePath: thumbPath,
+          bytes: thumbBytes,
+          contentType: 'image/jpeg',
+        );
+      } catch (_) {
+        return '';
+      }
+    }
+
+    final results = await Future.wait([
+      MediaUploadService.uploadBytesWithRetry(
+        storagePath: storagePath,
+        bytes: bytes,
+        contentType: 'video/mp4',
+        skipClientPrepare: true,
+        onProgress: onProgress,
+      ),
+      uploadThumb(),
+    ]);
+    return (
+      videoPath: storagePath,
+      thumbPath: results[1].isNotEmpty ? thumbPath : '',
+    );
+  }
+
   static Future<({String videoPath, String thumbPath})> _uploadAvisoLocalVideo({
     required String churchId,
     required String postId,
@@ -290,9 +367,11 @@ abstract final class ChurchAvisosService {
     void Function(double progress)? onProgress,
   }) async {
     if (kIsWeb) {
-      throw StateError(
-        'Upload de vídeo do aparelho no aviso: use o app Android/iOS, '
-        'ou cole o link do YouTube na web.',
+      return _uploadAvisoWebVideo(
+        churchId: churchId,
+        postId: postId,
+        blobPath: localPath,
+        onProgress: onProgress,
       );
     }
     final file = File(localPath);

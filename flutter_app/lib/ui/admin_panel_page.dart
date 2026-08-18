@@ -84,7 +84,7 @@ String _masterMenuTitle(AdminMenuItem item) {
     case AdminMenuItem.igrejasUsuarios:
       return 'Usuários e igrejas';
     case AdminMenuItem.igrejasControle360:
-      return 'Controle 360 ? Utilizadores';
+      return 'Controle 360 · Utilizadores';
     case AdminMenuItem.igrejasMercadoPago:
       return 'Mercado Pago';
     case AdminMenuItem.igrejasRecebimentos:
@@ -1083,7 +1083,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         _drawerTile(
           context,
           Icons.threesixty_rounded,
-          'Controle 360 ? Utilizadores',
+          'Controle 360 · Utilizadores',
           AdminMenuItem.igrejasControle360,
         ),
       if (_canAccessMasterItem(AdminMenuItem.igrejasMercadoPago))

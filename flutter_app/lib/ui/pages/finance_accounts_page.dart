@@ -1390,7 +1390,7 @@ class _AccountTile extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '${account.productTypeLabel} ? ${p?.name ?? account.presetId}',
+              '${account.productTypeLabel} • ${p?.name ?? account.presetId}',
               style: TextStyle(fontSize: 12, color: context.appTextSecondary),
             ),
             if (account.isCardProduct && account.statementClosingDay != null) ...[

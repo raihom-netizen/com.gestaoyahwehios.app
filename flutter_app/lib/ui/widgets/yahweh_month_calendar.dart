@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/shared/utils/holiday_helper.dart';
+import 'package:gestao_yahweh/ui/widgets/holiday_footer.dart';
 import 'package:intl/intl.dart';
 
 /// Calendário mensal PADRÃO do Gestão YAHWEH (visual do módulo Agenda).
@@ -23,6 +25,7 @@ class YahwehMonthCalendar extends StatelessWidget {
     this.onDaySelectedTap,
     required this.onMonthDelta,
     this.mixedColor = const Color(0xFF0EA5A4),
+    this.showHolidayFooter = true,
   });
 
   /// Primeiro dia do mês visível.
@@ -51,6 +54,15 @@ class YahwehMonthCalendar extends StatelessWidget {
 
   /// Navegação de mês (-1 anterior, +1 próximo).
   final void Function(int delta) onMonthDelta;
+
+  /// Lista os feriados nacionais do mês logo abaixo do calendário (padrão
+  /// Controle Total). Desligar só em pickers compactos.
+  final bool showHolidayFooter;
+
+  /// Vermelho de fim de semana / feriado (mesmo tom do Controle Total).
+  static const Color _redDay = Color(0xFFDC2626);
+  static const Color _redDayBg = Color(0xFFFEF2F2);
+  static const Color _redDayBorder = Color(0xFFFECACA);
 
   static const List<String> _weekdays = [
     'DOM',
@@ -86,28 +98,40 @@ class YahwehMonthCalendar extends StatelessWidget {
           // Web: limita a largura para o calendário não esticar/inchar no
           // desktop (células menores). Mobile: usa toda a largura (maior).
           constraints: BoxConstraints(maxWidth: kIsWeb ? 640 : double.infinity),
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(10, 14, 10, 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 16,
-                  offset: const Offset(0, 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(10, 14, 10, 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    _monthHeader(),
+                    const SizedBox(height: 10),
+                    _weekdayRow(),
+                    const SizedBox(height: 6),
+                    _grid(),
+                  ],
+                ),
+              ),
+              if (showHolidayFooter) ...[
+                const SizedBox(height: 12),
+                HolidayFooter(
+                  year: visibleMonth.year,
+                  month: visibleMonth.month,
                 ),
               ],
-            ),
-            child: Column(
-              children: [
-                _monthHeader(),
-                const SizedBox(height: 10),
-                _weekdayRow(),
-                const SizedBox(height: 6),
-                _grid(),
-              ],
-            ),
+            ],
           ),
         ),
       ),
@@ -233,99 +257,131 @@ class YahwehMonthCalendar extends StatelessWidget {
     final count = dayCounts[key] ?? 0;
     final bands = dayColorBands[key] ?? const <Color>[];
     final hasItems = bg != null || bands.isNotEmpty;
-    final fg = hasItems ? Colors.white : const Color(0xFF334155);
+    // Padrão Controle Total: sábado, domingo e feriado nacional em vermelho.
+    // Só quando o dia não tem compromisso — aí a célula colorida tem prioridade.
+    final holidayName = HolidayHelper.holidayNameOn(day);
+    final isRedDay = HolidayHelper.isWeekend(day) || holidayName != null;
+    final fg = hasItems
+        ? Colors.white
+        : (isRedDay ? _redDay : const Color(0xFF334155));
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: () {
-        if (isSelected && onDaySelectedTap != null) {
-          onDaySelectedTap!(day);
-        } else {
-          onDayTap(day);
-        }
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: bands.length > 1 ? null : (bg ?? Colors.white),
-          gradient: bands.length > 1
-              ? LinearGradient(
-                  colors: bands,
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                )
-              : null,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected
-                ? const Color(0xFF1D4ED8)
-                : (hasItems ? Colors.transparent : const Color(0xFFE2E8F0)),
-            width: isSelected ? 2.4 : 1,
+    return Tooltip(
+      message: holidayName ?? '',
+      triggerMode: holidayName == null
+          ? TooltipTriggerMode.manual
+          : TooltipTriggerMode.longPress,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          if (isSelected && onDaySelectedTap != null) {
+            onDaySelectedTap!(day);
+          } else {
+            onDayTap(day);
+          }
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: bands.length > 1
+                ? null
+                : (bg ?? (isRedDay ? _redDayBg : Colors.white)),
+            gradient: bands.length > 1
+                ? LinearGradient(
+                    colors: bands,
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  )
+                : null,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected
+                  ? const Color(0xFF1D4ED8)
+                  : (hasItems
+                        ? Colors.transparent
+                        : (isRedDay ? _redDayBorder : const Color(0xFFE2E8F0))),
+              width: isSelected ? 2.4 : 1,
+            ),
           ),
-        ),
-        child: Stack(
-          children: [
-            Center(
-              child: Text(
-                '${day.day}',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: fg,
+          child: Stack(
+            children: [
+              Center(
+                child: Text(
+                  '${day.day}',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: isRedDay ? FontWeight.w800 : FontWeight.w700,
+                    color: fg,
+                  ),
                 ),
               ),
-            ),
-            if (isToday)
-              Positioned(
-                bottom: 3,
-                left: 3,
-                child: Center(
+              // Ponto vermelho: feriado nacional (mesmo sinal do Controle Total).
+              if (holidayName != null)
+                Positioned(
+                  top: 4,
+                  left: 5,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 5,
-                      vertical: 1,
-                    ),
+                    width: 6,
+                    height: 6,
                     decoration: BoxDecoration(
-                      color: hasItems ? Colors.white : const Color(0xFF1D4ED8),
-                      borderRadius: BorderRadius.circular(6),
+                      color: hasItems ? Colors.white : _redDay,
+                      shape: BoxShape.circle,
                     ),
-                    child: Text(
-                      maxLines: 1,
-                      overflow: TextOverflow.clip,
-                      'HOJE',
-                      style: TextStyle(
-                        fontSize: 8.0,
-                        fontWeight: FontWeight.w900,
+                  ),
+                ),
+              if (isToday)
+                Positioned(
+                  bottom: 3,
+                  left: 3,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 5,
+                        vertical: 1,
+                      ),
+                      decoration: BoxDecoration(
                         color: hasItems
-                            ? const Color(0xFF1D4ED8)
-                            : Colors.white,
+                            ? Colors.white
+                            : const Color(0xFF1D4ED8),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        maxLines: 1,
+                        overflow: TextOverflow.clip,
+                        'HOJE',
+                        style: TextStyle(
+                          fontSize: 8.0,
+                          fontWeight: FontWeight.w900,
+                          color: hasItems
+                              ? const Color(0xFF1D4ED8)
+                              : Colors.white,
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            if (count > 1)
-              Positioned(
-                top: 3,
-                right: 4,
-                child: Container(
-                  width: 22,
-                  height: 22,
-                  alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Text(
-                    '$count',
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w900,
-                      color: bg ?? mixedColor,
+              if (count > 1)
+                Positioned(
+                  top: 3,
+                  right: 4,
+                  child: Container(
+                    width: 22,
+                    height: 22,
+                    alignment: Alignment.center,
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Text(
+                      '$count',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w900,
+                        color: bg ?? mixedColor,
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

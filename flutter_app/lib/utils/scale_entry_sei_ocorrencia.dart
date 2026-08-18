@@ -151,12 +151,12 @@ String scaleEntryResumoDisplayTitle(ScaleEntry e) {
   var label = (e.label ?? 'Plantão').trim();
   if (label.isEmpty) return 'Plantão';
   final seiMatch =
-      RegExp(r'\s*?\s*SEI\s', caseSensitive: false).firstMatch(label);
+      RegExp(r'\s*·\s*SEI\s', caseSensitive: false).firstMatch(label);
   if (seiMatch != null) {
     label = label.substring(0, seiMatch.start).trim();
   }
   final ocoMatch =
-      RegExp(r'\s*?\s*OCO\s', caseSensitive: false).firstMatch(label);
+      RegExp(r'\s*·\s*OCO\s', caseSensitive: false).firstMatch(label);
   if (ocoMatch != null) {
     label = label.substring(0, ocoMatch.start).trim();
   }
@@ -295,12 +295,12 @@ String _cleanScaleEntryTitleLabel(String? raw) {
   var label = (raw ?? '').trim();
   if (label.isEmpty) return '';
   final seiMatch =
-      RegExp(r'\s*?\s*SEI\s', caseSensitive: false).firstMatch(label);
+      RegExp(r'\s*·\s*SEI\s', caseSensitive: false).firstMatch(label);
   if (seiMatch != null) {
     label = label.substring(0, seiMatch.start).trim();
   }
   final ocoMatch =
-      RegExp(r'\s*?\s*OCO\s', caseSensitive: false).firstMatch(label);
+      RegExp(r'\s*·\s*OCO\s', caseSensitive: false).firstMatch(label);
   if (ocoMatch != null) {
     label = label.substring(0, ocoMatch.start).trim();
   }
@@ -355,7 +355,7 @@ String scaleEntryDiaSemanaDataHorario(ScaleEntry e) {
   final diaSemana =
       raw.isEmpty ? raw : '${raw[0].toUpperCase()}${raw.substring(1)}';
   final data = DateFormat('dd/MM/yyyy', 'pt_BR').format(e.date);
-  return '$diaSemana ? $data ? ${e.start}?${e.end}';
+  return '$diaSemana · $data · ${e.start}–${e.end}';
 }
 
 /// Linhas SEI / n? ocorrência (módulo Audiências).

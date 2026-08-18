@@ -81,6 +81,15 @@ class ImageHelper {
   }) async {
     final targetMaxBytes = maxBytes ?? memberPhotoMaxUploadBytes;
     if (list.isEmpty) return list;
+    // JPEG já dentro do teto: o picker entrega 1600px/78%, recomprimir de novo
+    // era um decode+resize+encode inteiro à toa por foto (mesma guarda já usada
+    // em compressPatrimonioPhotoForUpload) — é o que travava avisos/eventos.
+    if (list.length <= targetMaxBytes &&
+        list.length >= 2 &&
+        list[0] == 0xFF &&
+        list[1] == 0xD8) {
+      return list;
+    }
     // Isolate compression — fast, no UI blocking.
     final compressed = await YahwehIsolateCompress.compressWithTarget(
       list,

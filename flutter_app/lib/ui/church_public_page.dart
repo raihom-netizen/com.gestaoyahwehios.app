@@ -69,6 +69,7 @@ import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
 import 'package:gestao_yahweh/ui/widgets/lazy_viewport_media.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_premium_feed_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_feed_video.dart';
+import 'package:gestao_yahweh/ui/widgets/aviso_evento_social_link_button.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_social_post_bar.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_event_detail_sheet.dart';
 import 'package:gestao_yahweh/ui/site_publico_igreja/church_public_site_shell.dart';
@@ -2926,13 +2927,15 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                               );
                                             },
                                           ),
-                                          // Espaço para não cobrir o rodapé com os FABs
+                                          // Espaço para a coluna de atalhos +
+                                          // FAB do WhatsApp não cobrirem o fim
+                                          // do conteúdo.
                                           SizedBox(
                                             height:
                                                 MediaQuery.paddingOf(
                                                   context,
                                                 ).bottom +
-                                                96,
+                                                260,
                                           ),
                                         ],
                                       ),
@@ -2942,72 +2945,9 @@ class _ChurchPublicPageInner extends StatelessWidget {
                               ],
                             ),
                           ),
-                          Positioned(
-                            right:
-                                churchPublicSiteMobileFrameSideInset(context) +
-                                12,
-                            top: MediaQuery.paddingOf(context).top + 12,
-                            child: YahwehPublicFloatingActions(
-                              brandBlue: accent,
-                              onLogin: () {
-                                logChurchPublic('fab_bar_login');
-                                Navigator.pushNamed(context, '/igreja/login');
-                              },
-                              onMaps:
-                                  (latitude != null && longitude != null) ||
-                                      endereco.trim().isNotEmpty ||
-                                      linkGoogleMaps.isNotEmpty
-                                  ? () {
-                                      logChurchPublic('fab_bar_maps');
-                                      _launchExternal(
-                                        context,
-                                        linkGoogleMaps.isNotEmpty
-                                            ? (Uri.tryParse(linkGoogleMaps) ??
-                                                  _mapsUri(
-                                                    endereco,
-                                                    latitude: latitude,
-                                                    longitude: longitude,
-                                                  ))
-                                            : _mapsUri(
-                                                endereco,
-                                                latitude: latitude,
-                                                longitude: longitude,
-                                              ),
-                                      );
-                                    }
-                                  : null,
-                              onTop: onScrollInicio,
-                              onPrayer: waPrayerUri == null
-                                  ? null
-                                  : () {
-                                      logChurchPublic(
-                                        'fab_bar_prayer_whatsapp',
-                                      );
-                                      _launchExternal(context, waPrayerUri);
-                                    },
-                            ),
-                          ),
-                          if (waLaunchUri != null)
-                            Positioned(
-                              right:
-                                  churchPublicSiteMobileFrameSideInset(
-                                    context,
-                                  ) +
-                                  16,
-                              bottom: MediaQuery.paddingOf(context).bottom + 84,
-                              child: FloatingActionButton(
-                                heroTag: 'public_whatsapp_fab',
-                                backgroundColor: const Color(0xFF16A34A),
-                                onPressed: () {
-                                  logChurchPublic('fab_whatsapp_chat');
-                                  _launchExternal(context, waLaunchUri);
-                                },
-                                child: const Icon(
-                                  Icons.chat_rounded,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
+                          // Botões flutuantes REMOVIDOS a pedido: tapavam o
+                          // conteúdo. Os mesmos atalhos continuam nos botões
+                          // fixos da página (WhatsApp, Localização, Entrar).
                         ],
                       ),
                     );
@@ -5640,26 +5580,71 @@ class _ChurchTenantFallback extends StatelessWidget {
                               )
                               .toList();
 
+                          // Cabeçalho de seção moderno: chip de ícone com o
+                          // gradiente da igreja + título forte + fio suave.
                           Widget sectionTitle(String text, IconData icon) {
                             return Padding(
                               padding: const EdgeInsets.only(
-                                bottom: 10,
-                                top: 4,
+                                bottom: 14,
+                                top: 10,
                               ),
                               child: Row(
                                 children: [
-                                  Icon(
-                                    icon,
-                                    size: 20,
-                                    color: const Color(0xFF1E3A8A),
+                                  Container(
+                                    width: 38,
+                                    height: 38,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          accentFb,
+                                          Color.lerp(
+                                            accentFb,
+                                            const Color(0xFF0F172A),
+                                            0.35,
+                                          )!,
+                                        ],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: accentFb.withValues(alpha: 0.28),
+                                          blurRadius: 12,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Icon(
+                                      icon,
+                                      size: 20,
+                                      color: Colors.white,
+                                    ),
                                   ),
-                                  const SizedBox(width: 8),
+                                  const SizedBox(width: 12),
                                   Text(
                                     text,
                                     style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w800,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: -0.4,
                                       color: Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Container(
+                                      height: 1.5,
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            accentFb.withValues(alpha: 0.30),
+                                            accentFb.withValues(alpha: 0.0),
+                                          ],
+                                        ),
+                                        borderRadius: BorderRadius.circular(1),
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -6150,44 +6135,149 @@ class _ChurchTenantFallback extends StatelessWidget {
                               }
                             }
 
+                            // Card moderno: branco, cantos suaves, sombra leve,
+                            // faixa de cor no topo (aviso x evento).
+                            final cardAccent = isEvento
+                                ? const Color(0xFFE11D48)
+                                : accentFb;
                             return Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.only(bottom: 16),
                               child: Container(
-                                padding: const EdgeInsets.all(14),
+                                clipBehavior: Clip.antiAlias,
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFF7F8FA),
-                                  borderRadius: BorderRadius.circular(16),
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: const Color(0xFFE8EDF5),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(
+                                        0xFF0F172A,
+                                      ).withValues(alpha: 0.06),
+                                      blurRadius: 18,
+                                      offset: const Offset(0, 6),
+                                    ),
+                                  ],
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      title,
-                                      style: const TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    ...media,
-                                    if (body.isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 10),
-                                        child: Text(
-                                          body,
-                                          style: TextStyle(
-                                            fontSize: 14,
-                                            color: Colors.grey.shade800,
-                                            height: 1.35,
-                                          ),
+                                    Container(
+                                      height: 4,
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            cardAccent,
+                                            cardAccent.withValues(alpha: 0.35),
+                                          ],
                                         ),
                                       ),
-                                    YahwehSocialPostBar(
-                                      tenantId: igrejaId,
-                                      postId: d.id,
-                                      isEvento: isEvento,
-                                      churchSlug: slugClean,
-                                      churchName: nome,
-                                      postsParentCollection: seg,
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        16,
+                                        14,
+                                        16,
+                                        4,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            padding:
+                                                const EdgeInsets.symmetric(
+                                                  horizontal: 10,
+                                                  vertical: 4,
+                                                ),
+                                            decoration: BoxDecoration(
+                                              color: cardAccent.withValues(
+                                                alpha: 0.10,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                            ),
+                                            child: Text(
+                                              isEvento ? 'EVENTO' : 'AVISO',
+                                              style: TextStyle(
+                                                fontSize: 10.5,
+                                                fontWeight: FontWeight.w900,
+                                                letterSpacing: 0.8,
+                                                color: cardAccent,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        16,
+                                        0,
+                                        16,
+                                        14,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            title,
+                                            style: const TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.w900,
+                                              letterSpacing: -0.3,
+                                              height: 1.2,
+                                              color: Color(0xFF0F172A),
+                                            ),
+                                          ),
+                                          ...media,
+                                          if (body.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 10,
+                                              ),
+                                              child: Text(
+                                                body,
+                                                style: TextStyle(
+                                                  fontSize: 14.5,
+                                                  color: Colors.grey.shade800,
+                                                  height: 1.45,
+                                                ),
+                                              ),
+                                            ),
+                                          if ((p['instagramUrl'] ?? '')
+                                                  .toString()
+                                                  .trim()
+                                                  .isNotEmpty ||
+                                              (eventNoticiaExternalVideoUrl(
+                                                        p,
+                                                      ) ??
+                                                      '')
+                                                  .isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 12,
+                                              ),
+                                              child: avisoEventoSocialLinksRow(
+                                                instagramUrl:
+                                                    (p['instagramUrl'] ?? '')
+                                                        .toString(),
+                                                youtubeUrl:
+                                                    eventNoticiaExternalVideoUrl(
+                                                      p,
+                                                    ),
+                                              ),
+                                            ),
+                                          YahwehSocialPostBar(
+                                            tenantId: igrejaId,
+                                            postId: d.id,
+                                            isEvento: isEvento,
+                                            churchSlug: slugClean,
+                                            churchName: nome,
+                                            postsParentCollection: seg,
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ],
                                 ),

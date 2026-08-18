@@ -2314,7 +2314,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                                             ),
                                       label: Text(
                                         _savingTpl
-                                            ? 'A guardar?'
+                                            ? 'A guardar…'
                                             : 'Guardar modelos na nuvem',
                                       ),
                                     ),

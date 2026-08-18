@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart' show BuildContext, Rect, ScaffoldMessenger;
+import 'package:gestao_yahweh/core/event_noticia_media.dart'
+    show eventNoticiaExternalVideoUrl;
 import 'package:gestao_yahweh/core/noticia_share_links.dart';
 import 'package:gestao_yahweh/core/noticia_share_utils.dart';
 import 'package:gestao_yahweh/core/yahweh_contact_greeting.dart';
@@ -130,6 +132,10 @@ abstract final class YahwehWhatsAppService {
       noticiaId: noticiaId,
       churchSlug: slug,
       churchData: postData,
+      postInstagramUrl: (postData['instagramUrl'] ?? '').toString(),
+      postVideoUrl: eventNoticiaExternalVideoUrl(
+        Map<String, dynamic>.from(postData),
+      ),
     );
   }
 

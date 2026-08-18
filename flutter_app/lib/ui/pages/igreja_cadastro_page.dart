@@ -2421,7 +2421,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Carregando igrejas/$resolvedId?',
+                  'Carregando igrejas/$resolvedId…',
                   style: TextStyle(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,

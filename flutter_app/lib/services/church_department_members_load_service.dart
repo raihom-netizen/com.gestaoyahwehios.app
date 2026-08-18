@@ -162,15 +162,69 @@ abstract final class ChurchDepartmentMembersLoadService {
     );
   }
 
+  /// Identidade da PESSOA (não do documento): a base tem membros com dois
+  /// docs — um legado por CPF e outro canónico por UID — e o hub listava a
+  /// mesma pessoa duas vezes. Ordem: authUid > CPF > e-mail > nome.
+  static String _personKey(ChurchDepartmentMemberRow r) {
+    final d = r.data;
+    String pick(List<String> keys) {
+      for (final k in keys) {
+        final v = (d[k] ?? '').toString().trim();
+        if (v.isNotEmpty) return v;
+      }
+      return '';
+    }
+
+    final uid = pick(['authUid', 'AUTH_UID', 'uid', 'userUid']);
+    if (uid.isNotEmpty) return 'uid:${uid.toLowerCase()}';
+    final cpf = pick(['CPF', 'cpf']).replaceAll(RegExp(r'\D'), '');
+    if (cpf.length == 11) return 'cpf:$cpf';
+    final email = pick(['EMAIL', 'email']).toLowerCase();
+    if (email.isNotEmpty) return 'mail:$email';
+    final nome =
+        r.displayName.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (nome.isNotEmpty) return 'nome:$nome';
+    return 'doc:${r.memberDocId}';
+  }
+
+  /// Quanto mais campos preenchidos, melhor o documento — na duplicata fica
+  /// o mais completo (o que costuma ter foto e ficha cheia).
+  static int _rowRichness(ChurchDepartmentMemberRow r) {
+    var score = r.data.entries.where((e) {
+      final v = e.value;
+      if (v == null) return false;
+      if (v is String) return v.trim().isNotEmpty;
+      if (v is Iterable) return v.isNotEmpty;
+      return true;
+    }).length;
+    // Doc keyado por UID do Firebase Auth é o canónico (o legado é o CPF).
+    if (r.memberDocId.length >= 20 &&
+        !RegExp(r'^\d+$').hasMatch(r.memberDocId)) {
+      score += 5;
+    }
+    return score;
+  }
+
+  /// Ordena por nome **e remove a mesma pessoa repetida** (docs duplicados).
   static List<ChurchDepartmentMemberRow> _sortRows(
     List<ChurchDepartmentMemberRow> rows,
   ) {
-    final sorted = List<ChurchDepartmentMemberRow>.from(rows);
+    final best = <String, ChurchDepartmentMemberRow>{};
+    for (final r in rows) {
+      final key = _personKey(r);
+      final atual = best[key];
+      if (atual == null || _rowRichness(r) > _rowRichness(atual)) {
+        best[key] = r;
+      }
+    }
+    final sorted = best.values.toList();
     sorted.sort(
-      (a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
+      (a, b) =>
+          a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()),
     );
     return sorted;
   }
+
 
   static void _putLinkedRam(
     String churchId,
@@ -464,6 +518,8 @@ abstract final class ChurchDepartmentMembersLoadService {
         seedTenantId: churchId,
         limit: _kPickerLimit,
         forceRefresh: forceRefresh,
+        // Picker de departamento = igreja inteira (sem o teto de página de 50).
+        fullList: true,
       ).timeout(_queryCap);
       if (loaded.docs.isNotEmpty) return loaded.docs;
     } catch (_) {}

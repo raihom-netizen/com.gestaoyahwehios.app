@@ -204,7 +204,7 @@ abstract final class SmartCategoryHintsService {
     for (final c in sorted) {
       final key = _normalizeSearchText(c);
       if (key.length < 3) continue;
-      final re = RegExp(r'(?:^|[\s,.;|?]+)' + RegExp.escape(key) + r'(?:$|[\s,.;|?]+)');
+      final re = RegExp(r'(?:^|[\s,.;|·]+)' + RegExp.escape(key) + r'(?:$|[\s,.;|·]+)');
       if (re.hasMatch(descNorm)) return c.trim();
     }
     return null;

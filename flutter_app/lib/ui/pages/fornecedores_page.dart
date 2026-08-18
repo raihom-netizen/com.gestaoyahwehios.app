@@ -3987,6 +3987,8 @@ class _FornecedoresAgendaGeralTabState
                             selectedDay: _selected ?? DateTime.now(),
                             dayColors: dayColors,
                             dayCounts: dayCounts,
+                            // Fornecedores já tem o cartão «Resumo feriados».
+                            showHolidayFooter: false,
                             onMonthDelta: (delta) => setState(() => _focused =
                                 DateTime(_focused.year, _focused.month + delta)),
                             onDayTap: (day) => setState(() {

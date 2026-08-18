@@ -40,9 +40,22 @@ abstract final class ChurchShellLazyModulePolicy {
   /// Compat ? preferir [retainLimitForPlatform].
   static const int kMaxRetainedMaterializedModules = 8;
 
-  /// Web: 2 (ativo+anterior) | Mobile: 3 | Desktop: 8 — nav rápida CT-like.
+  /// Desktop **real** (Windows/Linux/macOS) — não confundir com [isDesktop],
+  /// que é só a largura da janela (um tablet deitado também é «desktop»).
+  static bool get isDesktopPlatform =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.macOS);
+
+  /// Web: 2 (ativo+anterior) | Desktop nativo: 3 | Mobile: 3 | Tablet largo: 8.
+  ///
+  /// No Windows o Firestore é o SDK C++ e cada módulo vivo mantém listeners
+  /// que passam pela thread de plataforma — segurar 8 módulos montados era o
+  /// que deixava o app «Não está respondendo» com o uso normal.
   static int retainLimitForPlatform({required bool isDesktop}) {
     if (kIsWeb) return 2;
+    if (isDesktopPlatform) return 3;
     if (isDesktop) return 8;
     return 3;
   }
@@ -87,8 +100,13 @@ abstract final class ChurchShellLazyModulePolicy {
     }
   }
 
+  /// Prefetch ao passar o rato **nunca** no desktop nativo: no Windows o
+  /// cursor cruza a barra lateral inteira a cada movimento e disparava a carga
+  /// Firestore de Membros, Departamentos, Financeiro, Património e
+  /// Fornecedores ao mesmo tempo — Android/iOS não têm hover, por isso só o
+  /// Windows travava. Lá o prefetch acontece só ao abrir o módulo.
   static bool shouldPrefetchOnHover(int index) =>
-      !kIsWeb && heavyModuleIndices.contains(index);
+      !kIsWeb && !isDesktopPlatform && heavyModuleIndices.contains(index);
 
   static bool keepMountedOnMobile(int index) => isMobileFooterTab(index);
 

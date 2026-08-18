@@ -183,6 +183,8 @@ abstract final class ChurchCargoMembersLoadService {
       seedTenantId: churchId,
       limit: _kLimit,
       forceRefresh: forceRefresh,
+      // Picker de cargo = igreja inteira (sem o teto de página de 50).
+      fullList: true,
     ).timeout(_queryCap);
 
     if (loaded.docs.isNotEmpty) return loaded.docs;

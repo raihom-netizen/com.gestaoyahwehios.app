@@ -401,9 +401,9 @@ const List<FinancialTipSeedDocument> kFinancialTipsFirestoreSeedBank = [
   // ?? Impostos / trabalho ??
   FinancialTipSeedDocument(
     docId: 'tax_13_prepare',
-    titulo: '13? e férias',
+    titulo: '13º e férias',
     descricao:
-        'Reserve parte do 13? para impostos, dívidas caras ou reserva ? evita ?sumir? em compras de fim de ano.',
+        'Reserve parte do 13º para impostos, dívidas caras ou reserva ? evita ?sumir? em compras de fim de ano.',
     categoriaSlug: 'trabalho',
     iconKey: 'percent',
     colorKey: 'orange',

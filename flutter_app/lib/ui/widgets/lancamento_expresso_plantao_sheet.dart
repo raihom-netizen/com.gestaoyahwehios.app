@@ -564,7 +564,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
     }
     buffer
       ..writeln()
-      ..write('? via Controle Total App');
+      ..write('— via Controle Total App');
     return buffer.toString();
   }
 
@@ -981,7 +981,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
     final fmt = DateFormat('dd/MM');
     final shown = ds.take(8).map(fmt.format).join(', ');
     if (ds.length > 8) {
-      return '$shown ? (+${ds.length - 8})';
+      return '$shown … (+${ds.length - 8})';
     }
     return shown;
   }
@@ -1322,13 +1322,13 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
 
         final baseMsg = useYearlyRepeat
             ? (_isEditing
-                ? '$baseName atualizado ? repete todo ano em Escalas.'
-                : '$baseName salvo ? repete automaticamente todo ano.')
+                ? '$baseName atualizado — repete todo ano em Escalas.'
+                : '$baseName salvo — repete automaticamente todo ano.')
             : (_isEditing
                 ? '$baseName atualizado na Agenda e no calendário.'
                 : (dias.length == 1
-                    ? '$baseName gravado ? aparece no painel, Agenda e Escalas.'
-                    : '${dias.length} compromissos gravados ? painel, Agenda e Escalas.'));
+                    ? '$baseName gravado — aparece no painel, Agenda e Escalas.'
+                    : '${dias.length} compromissos gravados — painel, Agenda e Escalas.'));
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -1567,7 +1567,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
                       : 'Calendário e relatórios — não grava no pré-cadastro de Plantões.',
                   children: [
                     Text(
-                      'Para reutilizar um nome depois, cadastre em Configurações ? Plantões (recorrentes).',
+                      'Para reutilizar um nome depois, cadastre em Configurações → Plantões (recorrentes).',
                       style: TextStyle(
                           fontSize: 12.5,
                           color: context.appTextSecondary,
@@ -1865,8 +1865,8 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
                               if (_privateTemplate != null && !_privateOverride)
                                 Text(
                                   _isPrivateFixedFromTemplate(_privateTemplate!)
-                                      ? 'Valor fixo do plantão ?${_privateTemplate!.name}? (Configurações ? Plantões).'
-                                      : 'Por hora conforme tabela da escala e o plantão ?${_privateTemplate!.name}? (Configurações ? Plantões).',
+                                      ? 'Valor fixo do plantão «${_privateTemplate!.name}» (Configurações → Plantões).'
+                                      : 'Por hora conforme tabela da escala e o plantão «${_privateTemplate!.name}» (Configurações → Plantões).',
                                   style: TextStyle(
                                       fontSize: 12.5,
                                       color: context.appTextSecondary,
@@ -1875,7 +1875,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
                               else if (_privateTemplate == null &&
                                   !_privateOverride)
                                 Text(
-                                  'Nenhum plantão Particular com financeiro no pré-cadastro. Usando a tabela de horas da escala (Configurações ? Escala). Use a opção abaixo para informar valor por hora ou fixo.',
+                                  'Nenhum plantão Particular com financeiro no pré-cadastro. Usando a tabela de horas da escala (Configurações → Escala). Use a opção abaixo para informar valor por hora ou fixo.',
                                   style: TextStyle(
                                       fontSize: 12.5,
                                       color: context.appTextSecondary,
@@ -2046,7 +2046,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
                 title: 'Cor no calendário',
                 subtitle: _isCompromissoMode
                     ? 'Como o compromisso aparece no calendário.'
-                    : 'Mesmas 72 cores do pré-cadastro (Configurações ? Plantões).',
+                    : 'Mesmas 72 cores do pré-cadastro (Configurações → Plantões).',
                 children: [
                   Material(
                     color: pickedFill,
@@ -2197,7 +2197,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
                     ? 'Gravar em ${_daysSorted.length} dias'
                     : 'Gravar'),
             isBusy: _loading,
-            busyLabel: 'Salvando?',
+            busyLabel: 'Salvando…',
             saveIcon: _isEditing ? Icons.save_rounded : Icons.add_task_rounded,
           ),
         ),

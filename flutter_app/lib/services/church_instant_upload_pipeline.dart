@@ -56,6 +56,9 @@ abstract final class ChurchInstantUploadPipeline {
     }
     if (base.isEmpty) return base;
     if (isAviso) {
+      // Já dentro do teto (o picker entrega a foto recortada/reencodada): sem
+      // isto cada foto pagava mais um decode+resize+encode inteiro à toa.
+      if (base.length <= kAvisoCapaMaxUploadBytes) return base;
       return ImageHelper.compressImageUnderMaxBytes(
         base,
         maxBytes: kAvisoCapaMaxUploadBytes,
@@ -64,6 +67,7 @@ abstract final class ChurchInstantUploadPipeline {
     final type = postType?.trim().toLowerCase() ?? '';
     final isEvento = type == 'evento';
     if (isEvento) {
+      if (base.length <= kEventoFotoMaxUploadBytes) return base;
       var work = base;
       if (work.length > kEventoFotoMaxUploadBytes) {
         try {

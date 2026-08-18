@@ -7,6 +7,8 @@ import 'package:flutter/material.dart'
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
+import 'package:file_picker/file_picker.dart' show FileType;
+import 'package:gestao_yahweh/utils/yahweh_file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
 
@@ -27,6 +29,59 @@ class MediaHandlerService {
   void _showPermissionError(BuildContext? context, String message) {
     if (context == null || !context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Windows/Linux **não registam** o `image_picker`
+  /// (ver `windows/flutter/generated_plugins.cmake`): qualquer `pickImage`
+  /// rebentava com MissingPluginException e nenhum módulo conseguia anexar
+  /// (Financeiro, Fornecedores, Patrimônio, Membros…). No desktop a galeria
+  /// abre pelo seletor de ficheiros nativo (`file_selector_windows`).
+  static bool get isDesktopWithoutImagePicker =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux);
+
+  static const List<String> _imageExtensions = [
+    'jpg',
+    'jpeg',
+    'png',
+    'webp',
+    'bmp',
+    'gif',
+    'heic',
+  ];
+
+  static const List<String> _videoExtensions = [
+    'mp4',
+    'mov',
+    'm4v',
+    'webm',
+    'avi',
+    'mkv',
+  ];
+
+  Future<List<XFile>> _pickFromDesktopFileDialog({
+    required String dialogTitle,
+    required List<String> extensions,
+    bool allowMultiple = false,
+    int maxCount = 1,
+  }) async {
+    final result = await YahwehFilePicker.pickFiles(
+      dialogTitle: dialogTitle,
+      type: FileType.custom,
+      allowedExtensions: extensions,
+      allowMultiple: allowMultiple,
+      // Caminho real no disco: o pipeline io lê por path e não gasta RAM.
+      withData: false,
+    );
+    if (result == null || result.files.isEmpty) return const [];
+    final out = <XFile>[];
+    for (final f in result.files.take(allowMultiple ? maxCount : 1)) {
+      final path = (f.path ?? '').trim();
+      if (path.isEmpty) continue;
+      out.add(XFile(path, name: f.name));
+    }
+    return out;
   }
 
   Future<bool> _ensureCameraPermission() async {
@@ -91,12 +146,29 @@ class MediaHandlerService {
     if (!kIsWeb) {
       BiometricService.markBiometricVerifiedForNextPainelEntry();
     }
-    final XFile? picked = await _picker.pickImage(
-      source: source,
-      imageQuality: kIsWeb ? (imageQuality ?? quality) : 100,
-      maxWidth: kIsWeb ? (minWidth ?? maxWidth).toDouble() : null,
-      maxHeight: kIsWeb ? (minHeight ?? maxHeight).toDouble() : null,
-    );
+    XFile? picked;
+    if (isDesktopWithoutImagePicker) {
+      if (source == ImageSource.camera) {
+        _showPermissionError(
+          context,
+          'Câmera não disponível no app de Windows. '
+          'Use «Arquivo» para escolher a imagem do computador.',
+        );
+        return null;
+      }
+      final files = await _pickFromDesktopFileDialog(
+        dialogTitle: 'Escolher imagem',
+        extensions: _imageExtensions,
+      );
+      picked = files.isEmpty ? null : files.first;
+    } else {
+      picked = await _picker.pickImage(
+        source: source,
+        imageQuality: kIsWeb ? (imageQuality ?? quality) : 100,
+        maxWidth: kIsWeb ? (minWidth ?? maxWidth).toDouble() : null,
+        maxHeight: kIsWeb ? (minHeight ?? maxHeight).toDouble() : null,
+      );
+    }
     if (picked == null) return null;
     return impl.processPickedImage(
       picked,
@@ -152,12 +224,19 @@ class MediaHandlerService {
     if (!kIsWeb) {
       BiometricService.markBiometricVerifiedForNextPainelEntry();
     }
-    final list = await _picker.pickMultiImage(
-      limit: maxCount,
-      imageQuality: kIsWeb ? quality : 100,
-      maxWidth: kIsWeb ? maxWidth.toDouble() : null,
-      maxHeight: kIsWeb ? maxHeight.toDouble() : null,
-    );
+    final list = isDesktopWithoutImagePicker
+        ? await _pickFromDesktopFileDialog(
+            dialogTitle: 'Escolher imagens',
+            extensions: _imageExtensions,
+            allowMultiple: true,
+            maxCount: maxCount,
+          )
+        : await _picker.pickMultiImage(
+            limit: maxCount,
+            imageQuality: kIsWeb ? quality : 100,
+            maxWidth: kIsWeb ? maxWidth.toDouble() : null,
+            maxHeight: kIsWeb ? maxHeight.toDouble() : null,
+          );
     if (list.isEmpty) return [];
     const batch = 4;
     final out = <XFile>[];
@@ -278,12 +357,21 @@ class MediaHandlerService {
       BiometricService.markBiometricVerifiedForNextPainelEntry();
     }
     final edge = kEffectiveFeedEncodeMaxEdgePx.toDouble();
-    final list = await _picker.pickMultiImage(
-      limit: maxPickCount,
-      imageQuality: kIsWeb ? kEventoAvisoFeedWebpQuality : kEffectiveMuralFeedWebpQuality,
-      maxWidth: edge,
-      maxHeight: edge,
-    );
+    final list = isDesktopWithoutImagePicker
+        ? await _pickFromDesktopFileDialog(
+            dialogTitle: 'Escolher imagens',
+            extensions: _imageExtensions,
+            allowMultiple: true,
+            maxCount: maxPickCount ?? kChatMaxImagesPerPick,
+          )
+        : await _picker.pickMultiImage(
+            limit: maxPickCount,
+            imageQuality: kIsWeb
+                ? kEventoAvisoFeedWebpQuality
+                : kEffectiveMuralFeedWebpQuality,
+            maxWidth: edge,
+            maxHeight: edge,
+          );
     if (list.isEmpty) return [];
     onGalleryPicked?.call(list);
     // Foto inteira automática (sem ecrã de recorte por foto) — pedido do usuário:
@@ -327,10 +415,19 @@ class MediaHandlerService {
     if (!kIsWeb) {
       BiometricService.markBiometricVerifiedForNextPainelEntry();
     }
-    final XFile? picked = await _picker.pickVideo(
-      source: ImageSource.gallery,
-      maxDuration: maxDuration,
-    );
+    XFile? picked;
+    if (isDesktopWithoutImagePicker) {
+      final files = await _pickFromDesktopFileDialog(
+        dialogTitle: 'Escolher vídeo',
+        extensions: _videoExtensions,
+      );
+      picked = files.isEmpty ? null : files.first;
+    } else {
+      picked = await _picker.pickVideo(
+        source: ImageSource.gallery,
+        maxDuration: maxDuration,
+      );
+    }
     if (picked == null) return null;
     // Validação de tamanho (mobile).
     if (!kIsWeb && maxSizeMb != null) {
@@ -369,6 +466,14 @@ class MediaHandlerService {
     }
     if (!kIsWeb) {
       BiometricService.markBiometricVerifiedForNextPainelEntry();
+    }
+    if (isDesktopWithoutImagePicker) {
+      _showPermissionError(
+        context,
+        'Câmera não disponível no app de Windows. '
+        'Use «Arquivo» para escolher o vídeo do computador.',
+      );
+      return null;
     }
     final XFile? picked = await _picker.pickVideo(
       source: ImageSource.camera,

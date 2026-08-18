@@ -529,7 +529,7 @@ abstract final class UtilitariosPhotoTextExtractService {
           .where((p) => p.text.trim().isNotEmpty)
           .map(
             (p) => (
-              text: p.isBullet ? '? ${p.text.trim()}' : p.text.trim(),
+              text: p.isBullet ? '• ${p.text.trim()}' : p.text.trim(),
               isHeading: p.isHeading,
               isBold: p.isBold && !p.isHeading,
             ),
@@ -544,7 +544,7 @@ abstract final class UtilitariosPhotoTextExtractService {
             .where((p) => p.text.trim().isNotEmpty)
             .map(
               (p) => (
-                text: p.isBullet ? '? ${p.text.trim()}' : p.text.trim(),
+                text: p.isBullet ? '• ${p.text.trim()}' : p.text.trim(),
                 isHeading: p.isHeading,
                 isBold: p.isBold && !p.isHeading,
               ),

@@ -69,7 +69,7 @@ class _UtilitariosPhotoCollagePanelState
   }
 
   Future<void> _pickPhotos({bool multi = true}) async {
-    await _withBusy('Carregando fotos?', () async {
+    await _withBusy('Carregando fotos…', () async {
       if (multi) {
         final files = await utilitariosPickPlatformFiles(
           allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
@@ -239,7 +239,7 @@ class _UtilitariosPhotoCollagePanelState
   }
 
   Future<void> _export() async {
-    await _withBusy('Exportando colagem?', () async {
+    await _withBusy('Exportando colagem…', () async {
       if (_photos.length < _template.slots) {
         throw StateError(
           'Adicione ${_template.slots} foto(s) para este formato.',
@@ -278,7 +278,7 @@ class _UtilitariosPhotoCollagePanelState
             context: context,
             icon: Icons.grid_view_rounded,
             iconGradient: const [Color(0xFF6366F1), Color(0xFF06B6D4)],
-            text: 'Formato ? prévia instantânea ? exporte quando pronto.',
+            text: 'Formato · prévia instantânea · exporte quando pronto.',
           ),
         ),
         SizedBox(

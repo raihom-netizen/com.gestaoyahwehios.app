@@ -2879,7 +2879,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                         children: [
                           Text(
                             'Pré-visualização (exemplo: $sampleNome). '
-                            'Ajuste os textos ? valem para todos do lote. '
+                            'Ajuste os textos — valem para todos do lote. '
                             'Use {NOME}, {CPF} e {DATA_CERTIFICADO} no texto.',
                             style: TextStyle(
                               fontSize: 13,
@@ -3340,7 +3340,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                     ),
                     const SizedBox(height: 22),
                     Text(
-                      'Gerando certificado(s) na nuvem?',
+                      'Gerando certificado(s) na nuvem…',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
@@ -3499,7 +3499,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
     }
 
     final nav = Navigator.of(context, rootNavigator: true);
-    final phase = ValueNotifier<String>('Preparando?');
+    final phase = ValueNotifier<String>('Preparando…');
     final total = selectedDocs.length;
     final cur = ValueNotifier<int>(total > 0 ? 1 : 0);
     final layoutBatch = _layoutForTemplate(tpl(selectedDocs.first.id));
@@ -3904,7 +3904,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
         titleNv.value = 'Certificado ${i + 1}/$total';
         prog01.value = 0.45 + (i + 0.08) / total * 0.47;
         phase.value =
-            'Certificado ${i + 1} de $total ? a gerar PDF?';
+            'Certificado ${i + 1} de $total — a gerar PDF…';
 
         final bytes = await runCertificatePdfPipeline(
           CertPdfPipelineParams(
@@ -3958,9 +3958,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
       }
 
       cur.value = total;
-      titleNv.value = 'Compactando arquivo?';
+      titleNv.value = 'Compactando arquivo…';
       prog01.value = 0.92;
-      phase.value = 'Compactando ZIP?';
+      phase.value = 'Compactando ZIP…';
 
       if (zipEntries.isEmpty) {
         throw Exception('Nenhum PDF gerado');
@@ -6490,8 +6490,8 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     }
     onProgress?.call(
       _signatureMode == 'digital'
-          ? 'Preparando logo e selo digital?'
-          : 'Preparando logo e assinaturas?',
+          ? 'Preparando logo e selo digital…'
+          : 'Preparando logo e assinaturas…',
       0.1,
     );
     return _preResolveCertificatePdfAssets(warmSig);
@@ -7871,7 +7871,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
         CertificadoConsultaUrl.protocolValidationUrl(protocolId);
 
     // Pipeline local Gala Luxo — respeita modelo visual (Clássico/Pergaminho/Moderno).
-    onProgress?.call('Montando PDF premium?', preResolvedShared != null ? 0.72 : 0.2);
+    onProgress?.call('Montando PDF premium…', preResolvedShared != null ? 0.72 : 0.2);
 
     final bytes = await runCertificatePdfPipeline(
       CertPdfPipelineParams(

@@ -25,6 +25,9 @@ export async function notifyGestoresNewVisitor(params: {
   const email = String(params.email || "").trim();
   if (!tenantId || !visitanteId) return;
 
+  const tituloVisitante = nome !== 'Novo visitante'
+    ? 'Novo visitante: ' + nome
+    : 'Novo visitante';
   const contactBits = [telefone, email].filter((s) => s.length > 0);
   const body = contactBits.length > 0
     ? `${nome} — ${contactBits.join(" · ")}. Toque para ver a ficha.`
@@ -33,7 +36,7 @@ export async function notifyGestoresNewVisitor(params: {
   await sendGyTopicPush(tenantId, "gestores", (churchId) =>
     buildGyTopicMessage({
       topic: topicPushNovo(churchId, "gestores"),
-      title: "🙋 Novo visitante",
+      title: "🙋 " + tituloVisitante,
       body,
       data: {
         type: "novo_visitante",
@@ -49,7 +52,7 @@ export async function notifyGestoresNewVisitor(params: {
   try {
     await getDb().collection("igrejas").doc(tenantId).collection("notificacoes").add({
       type: "novo_visitante",
-      title: "Novo visitante",
+      title: tituloVisitante,
       body,
       visitorId: visitanteId,
       visitorName: nome,

@@ -1254,7 +1254,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
           header: (ctx) => pw.Padding(
             padding: const pw.EdgeInsets.only(bottom: 12),
             child: PdfSuperPremiumTheme.header(
-              mural ? '$titulo ? Mural' : titulo,
+              mural ? '$titulo — Mural' : titulo,
               branding: branding,
               extraLines: ['Total de aniversariantes: ${list.length}'],
             ),

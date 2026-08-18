@@ -1,0 +1,73 @@
+nt: Text('Já existe um cadastro com este e-mail nesta igreja.')),
+        );
+        return;
+      }
+    }
+
+    setState(() => _saving = true);
+
+    try {
+      final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
+      final emailForAuth = emailNorm.isNotEmpty
+          ? emailNorm
+          : (cpfDigits.length == 11
+              ? '$cpfDigits@membro.gestaoyahweh.com.br'
+              : '');
+      if (emailForAuth.isEmpty) {
+        if (mounted) {
+          setState(() => _saving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Informe e-mail ou CPF com 11 dígitos para criar o login do membro.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+      final pwd = _passwordCtrl.text.trim();
+      final authRes =
+          await functions.httpsCallable('createMemberAuthAccountForGestor').call({
+        'tenantId': widget.tenantId,
+        'email': emailForAuth,
+        'password': pwd.length >= 6 ? pwd : '123456',
+        'displayName': _nameCtrl.text.trim(),
+        'cpf': cpfDigits,
+      });
+      final authMap = Map<String, dynamic>.from(authRes.data as Map? ?? {});
+      final uid = (authMap['uid'] ?? '').toString().trim();
+      if (uid.isEmpty) {
+        throw Exception('UID do login não retornado pelo servidor.');
+      }
+
+      final ref = col.doc(uid);
+      final photoBytes =
+          _photoFile != null ? await _photoFile!.readAsBytes() : null;
+      final photoUrl = photoBytes != null
+          ? ''
+          : _buildAutoAvatarUrl(ref.id);
+      final age = _calcAge(birthParsed) ?? 0;
+      final ageRange = _ageRange(age);
+      final alias = _tenantAlias.isNotEmpty ? _tenantAlias : widget.tenantId;
+      final slug = _tenantSlug.isNotEmpty ? _tenantSlug : widget.tenantId;
+
+      final codigoMembro = await MemberCodigoService.allocateNext(widget.tenantId);
+
+      final data = {
+        'MEMBER_ID': uid,
+        'authUid': uid,
+        ...MemberCodigoService.fieldsForFirestore(codigoMembro),
+        'CREATED_BY_CPF': cpfDigits.isNotEmpty ? cpfDigits : uid,
+        'alias': alias,
+        'slug': slug,
+        'tenantId': widget.tenantId,
+        'NOME_COMPLETO': _nameCtrl.text.trim(),
+        'EMAIL': _emailCtrl.text.trim(),
+        'DATA_NASCIMENTO': Timestamp.fromDate(birthParsed),
+        'TELEFONES': _phoneCtrl.text.trim(),
+        'SEXO': _sexo,
+        'FAIXA_ETARIA': ageRange,
+        'IDADE': age,
+        'ENDERECO': _enderecoCtrl.text.trim(),
+        'QUADRA_LOTE_NUMERO': _quadraLoteNumeroCtrl.text.t

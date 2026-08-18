@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
+    show firestoreRestUpdateDoc;
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
@@ -85,6 +87,17 @@ Future<void> _writeMembroDocMergeResilient({
     await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
   }
   final ref = ChurchUiCollections.membros(cid).doc(memberDocId.trim());
+  // Web: REST primeiro. Com o SDK envenenado (INTERNAL ASSERTION) retentar
+  // pelo próprio SDK nunca resolve — era o erro ao gravar membros no cargo.
+  // `updates` só tem valores simples (strings + List<String>), sem sentinelas.
+  if (kIsWeb) {
+    try {
+      await firestoreRestUpdateDoc(ref.path, setFields: updates);
+      return;
+    } catch (_) {
+      // Segue para o SDK (offline/cache ou falha de rede no REST).
+    }
+  }
   await FirestoreWebGuard.runWithWebRecovery(
     () => runFirestorePublishWithRecovery(
       () => ref.set(updates, SetOptions(merge: true)),
@@ -102,6 +115,12 @@ Future<void> _writeUsersDocMergeResilient({
   if (uid.isEmpty) return;
   if (kIsWeb) {
     await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
+    try {
+      await firestoreRestUpdateDoc('users/$uid', setFields: patch);
+      return;
+    } catch (_) {
+      // Segue para o SDK.
+    }
   }
   await FirestoreWebGuard.runWithWebRecovery(
     () => runFirestorePublishWithRecovery(
@@ -4036,7 +4055,7 @@ class _PickMemberForCargoBottomSheetState
                         child: Text(
                           filtered.isEmpty
                               ? 'Nenhum membro no filtro'
-                              : '${filtered.length} membro(s) no filtro ? ${_selectedIds.length} selecionado(s)',
+                              : '${filtered.length} membro(s) no filtro · ${_selectedIds.length} selecionado(s)',
                           style: GoogleFonts.inter(
                             fontSize: 12.5,
                             fontWeight: FontWeight.w600,

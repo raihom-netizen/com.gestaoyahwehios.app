@@ -563,7 +563,7 @@ class _MemberProfilePhotoEditorPageState extends State<MemberProfilePhotoEditorP
                     : const Icon(Icons.cloud_upload_rounded),
                 label: Text(
                   _busy
-                      ? (_phaseLabel.isNotEmpty ? _phaseLabel : 'Salvando?')
+                      ? (_phaseLabel.isNotEmpty ? _phaseLabel : 'Salvando…')
                       : 'Guardar foto',
                   style: const TextStyle(fontWeight: FontWeight.w800),
                 ),

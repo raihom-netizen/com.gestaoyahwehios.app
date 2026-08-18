@@ -209,7 +209,7 @@ class ChurchPanelResilientLoadBanner extends StatelessWidget {
       return ChurchPanelSyncBanner(
         message: (syncMessage != null && syncMessage!.isNotEmpty)
             ? syncMessage!
-            : 'Sincronizando?',
+            : 'Sincronizando…',
       );
     }
     // Erro transitório Web (assert/sync/timeout): NÃO derruba o módulo.

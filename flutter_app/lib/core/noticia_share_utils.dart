@@ -136,6 +136,8 @@ String buildNoticiaInviteShareMessage({
   String? noticiaId,
   String? churchSlug,
   Map<String, dynamic>? churchData,
+  String? postInstagramUrl,
+  String? postVideoUrl,
 }) {
   final cn = churchName.trim().isNotEmpty ? churchName.trim() : 'Nossa igreja';
   final defaultTitle = noticiaKind == 'evento' ? 'Evento' : 'Aviso';
@@ -223,10 +225,39 @@ String buildNoticiaInviteShareMessage({
     buf.writeln('🌐 $site');
   }
 
+  // Links do post no FIM: o WhatsApp pré-visualiza o 1.º URL da mensagem e a
+  // prévia tem de continuar a ser a do aviso/evento, não a do YouTube.
+  final ytLink = _shareHttpLink(postVideoUrl);
+  final igLink = _shareHttpLink(postInstagramUrl);
+  if (ytLink.isNotEmpty || igLink.isNotEmpty) {
+    buf.writeln();
+    if (ytLink.isNotEmpty) {
+      buf.writeln('🎬 *Assistir ao vídeo*');
+      buf.writeln('▶️ $ytLink');
+    }
+    if (igLink.isNotEmpty) {
+      if (ytLink.isNotEmpty) buf.writeln();
+      buf.writeln('📸 *Instagram*');
+      buf.writeln('🔗 $igLink');
+    }
+  }
+
   buf.writeln();
   buf.writeln('🙏 _Gestão YAHWEH_');
 
   return buf.toString().trimRight();
+}
+
+/// Normaliza um link do post para a mensagem (só http(s) utilizável).
+String _shareHttpLink(String? raw) {
+  final t = (raw ?? '').trim();
+  if (t.isEmpty) return '';
+  final withScheme = t.startsWith('http://') || t.startsWith('https://')
+      ? t
+      : 'https://$t';
+  final uri = Uri.tryParse(withScheme);
+  if (uri == null || uri.host.isEmpty) return '';
+  return uri.toString();
 }
 
 const _kWeekdayPtLong = <String>[

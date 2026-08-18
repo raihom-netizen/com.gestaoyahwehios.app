@@ -648,7 +648,7 @@ class _MultiDateMonthBodyState extends State<_MultiDateMonthBody> {
                                       CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      '? ',
+                                      '• ',
                                       style: TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w900,
@@ -674,7 +674,7 @@ class _MultiDateMonthBodyState extends State<_MultiDateMonthBody> {
                                               ),
                                             ),
                                             TextSpan(
-                                              text: ' ? ${f.name}',
+                                              text: ' — ${f.name}',
                                               style: TextStyle(
                                                 fontWeight: f.isOptional
                                                     ? FontWeight.w600

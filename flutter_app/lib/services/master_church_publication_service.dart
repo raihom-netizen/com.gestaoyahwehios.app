@@ -11,9 +11,15 @@ abstract final class MasterChurchPublicationService {
   static DocumentReference<Map<String, dynamic>> _churchRef(String id) =>
       firebaseDefaultFirestore.collection('igrejas').doc(id);
 
+  /// Publicada = está na lista da galeria **ou** tem a flag no doc da igreja.
+  ///
+  /// A galeria (`app_public/marketing_clientes`) é a fonte do que o site mostra;
+  /// igrejas inseridas por script antigo não têm a flag no doc e o botão ficava
+  /// a dizer «Publicar» mesmo já aparecendo no site.
   static Future<bool> isPublished(String churchId) async {
     final id = churchId.trim();
     if (id.isEmpty) return false;
+    if (await isInGallery(id)) return true;
     final snap = await _churchRef(
       id,
     ).get(const GetOptions(source: Source.serverAndCache));
@@ -23,6 +29,28 @@ abstract final class MasterChurchPublicationService {
         : const <String, dynamic>{};
     return marketing['publishedInClientGallery'] == true ||
         data['publicarGaleriaClientes'] == true;
+  }
+
+  /// A igreja consta em `app_public/marketing_clientes.items`?
+  static Future<bool> isInGallery(String churchId) async {
+    final id = churchId.trim();
+    if (id.isEmpty) return false;
+    try {
+      final snap = await MarketingPublicSiteService.marketingClientesDocRef.get(
+        const GetOptions(source: Source.serverAndCache),
+      );
+      final raw = snap.data()?['items'];
+      if (raw is! List) return false;
+      for (final e in raw) {
+        if (e is! Map) continue;
+        final itemId =
+            (e['igrejaTenantId'] ?? e['tenantId'] ?? e['id'] ?? '')
+                .toString()
+                .trim();
+        if (itemId == id) return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   static Future<void> setPublished({

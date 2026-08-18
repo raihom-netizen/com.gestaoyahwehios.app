@@ -436,7 +436,7 @@ abstract final class BankNotificationParser {
       final k = t.toLowerCase();
       if (seen.contains(k)) return;
       seen.add(k);
-      out = out.isEmpty ? t : '$out ? $t';
+      out = out.isEmpty ? t : '$out · $t';
     }
 
     appendPart(memoIdx);
@@ -882,7 +882,7 @@ abstract final class BankNotificationParser {
       }
       final dt = _addCalendarMonths(firstDue, i);
       final label = '$labelBase (${i + 1}/$n)';
-      final snip = '$baseSnippet ? p${i + 1}/$n';
+      final snip = '$baseSnippet · p${i + 1}/$n';
       out.add(
         base.copyWith(
           valor: v,

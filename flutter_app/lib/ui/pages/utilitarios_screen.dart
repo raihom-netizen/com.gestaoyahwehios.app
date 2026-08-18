@@ -354,7 +354,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _pdfToWord() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo PDF ? Word?', () async {
+    await _runBusy('Convertendo PDF → Word…', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['pdf'],
       );
@@ -381,7 +381,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _pdfToJpeg() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo PDF ? JPEG?', () async {
+    await _runBusy('Convertendo PDF → JPEG…', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['pdf'],
       );
@@ -421,7 +421,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _pdfToPng() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo PDF ? PNG?', () async {
+    await _runBusy('Convertendo PDF → PNG…', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['pdf'],
       );
@@ -461,7 +461,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _imagesToPdf() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Imagens ? PDF?', () async {
+    await _runBusy('Imagens → PDF…', () async {
       final picked = await utilitariosPickMultipleFileBytes(
         allowedExtensions: const ['jpg', 'jpeg', 'png', 'webp'],
         preferBytes: true,
@@ -494,7 +494,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _wordToPdf() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo Word ? PDF?', () async {
+    await _runBusy('Convertendo Word → PDF…', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['docx', 'txt', 'rtf'],
       );
@@ -522,7 +522,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _pdfToExcel() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo PDF ? Excel?', () async {
+    await _runBusy('Convertendo PDF → Excel…', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['pdf'],
       );
@@ -551,7 +551,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _excelToPdf() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo Excel ? PDF?', () async {
+    await _runBusy('Convertendo Excel → PDF…', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['xlsx', 'csv'],
       );
@@ -581,7 +581,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
 
   Future<void> _pdfToPowerPoint() async {
     if (!await _ensureLightQuota()) return;
-    await _runBusy('Convertendo PDF ? PowerPoint?', () async {
+    await _runBusy('Convertendo PDF → PowerPoint…', () async {
       final picked = await utilitariosPickSingleFileBytes(
         allowedExtensions: const ['pdf'],
       );
@@ -664,7 +664,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
-                          'Vídeo ? MP4',
+                          'Vídeo → MP4',
                           style: ModernModuleUI.moduleTitleStyle(
                             ctx,
                             fontSize: 18,
@@ -801,7 +801,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                               CrossAxisAlignment.start,
                                           children: [
                                             Text(
-                                              '${level.label} ? ${level.reductionBadge}',
+                                              '${level.label} · ${level.reductionBadge}',
                                               style: TextStyle(
                                                 fontWeight: FontWeight.w800,
                                                 fontSize: 13,
@@ -841,8 +841,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                           icon: const Icon(Icons.movie_creation_rounded),
                           label: Text(
                             compressAlso
-                                ? 'Converter ? ${resolution.label} ? ${compressLevel.label}'
-                                : 'Converter ? ${resolution.label}',
+                                ? 'Converter · ${resolution.label} · ${compressLevel.label}'
+                                : 'Converter · ${resolution.label}',
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -1007,7 +1007,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     final options = await _pickVideoConvertOptions();
     if (options == null || !mounted) return;
 
-    await _runBusy('Convertendo para MP4?', () async {
+    await _runBusy('Convertendo para MP4…', () async {
       final picked = await _pickVideoFile();
       if (picked == null) return;
       final f = picked.file;
@@ -1041,7 +1041,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         compressedBytes: converted.bytes.lengthInBytes,
         title: 'Conversão concluída',
         subtitle:
-            '${options.resolution.label}${options.compressAlso ? ' ? ${options.compressLevel.label}' : ''} ? MP4',
+            '${options.resolution.label}${options.compressAlso ? ' · ${options.compressLevel.label}' : ''} · MP4',
       );
     });
   }
@@ -1053,7 +1053,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Extração de ?udio disponível no app Android e iPhone.',
+            'Extração de áudio disponível no app Android e iPhone.',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -1176,7 +1176,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                                     ),
                                   ),
                                   Text(
-                                    '100% no aparelho ? imagem, PDF e vídeo',
+                                    '100% no aparelho · imagem, PDF e vídeo',
                                     style: ModernModuleUI.moduleSubtitleStyle(
                                       ctx,
                                       fontSize: 12,
@@ -1406,7 +1406,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                           onPressed: () => Navigator.pop(ctx, selected),
                           icon: const Icon(Icons.compress_rounded),
                           label: Text(
-                            'Comprimir ? ${selected.reductionBadge} (${selected.label})',
+                            'Comprimir · ${selected.reductionBadge} (${selected.label})',
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
@@ -1438,7 +1438,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     final level = await _pickCompressLevel();
     if (level == null || !mounted) return;
 
-    await _runBusy('Comprimindo (${level.label})?', () async {
+    await _runBusy('Comprimindo (${level.label})…', () async {
       final files = await utilitariosPickPlatformFiles(
         allowedExtensions: const [
           'jpg',
@@ -1590,7 +1590,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
               const SizedBox(height: 4),
               Text(
                 subtitle ??
-                    '${level.reductionBadge} ? ${level.label} ? ${level.techSummary}',
+                    '${level.reductionBadge} · ${level.label} · ${level.techSummary}',
                 style: ModernModuleUI.moduleSubtitleStyle(ctx),
               ),
               const SizedBox(height: 16),
@@ -1777,8 +1777,8 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         SnackBar(
           content: Text(
             action == 'share'
-                ? 'Arquivo pronto ? escolha WhatsApp, e-mail ou outro app.'
-                : 'Download iniciado ? arquivo no aparelho.',
+                ? 'Arquivo pronto — escolha WhatsApp, e-mail ou outro app.'
+                : 'Download iniciado — arquivo no aparelho.',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -1826,7 +1826,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Um ou vários arquivos ? 100% no aparelho',
+                    'Um ou vários arquivos · 100% no aparelho',
                     style: ModernModuleUI.moduleSubtitleStyle(ctx),
                   ),
                   const SizedBox(height: 14),
@@ -1912,7 +1912,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                   FilledButton.icon(
                     onPressed: () => Navigator.pop(ctx, selected),
                     icon: const Icon(Icons.folder_zip_rounded),
-                    label: Text('Continuar ? ${selected.label}'),
+                    label: Text('Continuar · ${selected.label}'),
                   ),
                   TextButton(
                     onPressed: () => Navigator.pop(ctx),
@@ -1932,7 +1932,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
     final format = await _pickArchiveFormat();
     if (format == null || !mounted) return;
 
-    await _runBusy('Compactando (${format.label})?', () async {
+    await _runBusy('Compactando (${format.label})…', () async {
       final picked = await utilitariosPickMultipleFileBytes(
         allowedExtensions: const [],
         type: FileType.any,
@@ -1958,7 +1958,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         fileName: fileName,
         mimeType: format.mimeType,
         okMessage:
-            '${entries.length} arquivo(s) compactados em ${format.label} ? local.',
+            '${entries.length} arquivo(s) compactados em ${format.label} — local.',
         preferShareFirst: true,
         shareButtonLabel: 'Compartilhar arquivo',
       );
@@ -1996,7 +1996,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       return;
     }
 
-    await _runBusy('Gerando PDF?', () async {
+    await _runBusy('Gerando PDF…', () async {
       final pdf = await UtilitariosLocalService.imagesToPdf(pages);
       await deliver(pdf, pages.length);
     });
@@ -2033,7 +2033,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       return;
     }
 
-    await _runBusy('Gerando PDF?', () async {
+    await _runBusy('Gerando PDF…', () async {
       final pdf = await UtilitariosLocalService.imagesToPdf(pages);
       await deliver(pdf, pages.length);
     });
@@ -2110,69 +2110,69 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         gradient: const [Color(0xFF14B8A6), Color(0xFF0EA5E9)],
         title: 'Foto/Câmera para PDF',
         subtitle:
-            'Câmera do aparelho ? até ${UtilitariosLocalService.kMaxImagesPerPdf} fotos ? PDF rápido',
+            'Câmera do aparelho · até ${UtilitariosLocalService.kMaxImagesPerPdf} fotos · PDF rápido',
         onTap: lightOk ? _openPhotoCameraPdf : null,
       ),
       _ToolTile(
         icon: UtilitariosModuleIcons.documentScanner,
         gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
         title: 'Scanner de Documentos',
-        subtitle: 'Original ? recorte auto/manual ? PDF rápido',
+        subtitle: 'Original · recorte auto/manual · PDF rápido',
         onTap: lightOk ? _openDocumentScanner : null,
       ),
       _ToolTile(
         icon: UtilitariosModuleIcons.pdfWord,
         gradient: const [Color(0xFF2563EB), Color(0xFF7C3AED)],
-        title: 'PDF ? Word',
+        title: 'PDF → Word',
         subtitle: 'DOCX com formatação e tabelas',
         onTap: lightOk ? _pdfToWord : null,
       ),
       _ToolTile(
         icon: UtilitariosModuleIcons.pdfJpeg,
         gradient: const [Color(0xFFEA580C), Color(0xFFF59E0B)],
-        title: 'PDF ? JPEG',
+        title: 'PDF → JPEG',
         subtitle: 'Páginas em imagem',
         onTap: lightOk ? _pdfToJpeg : null,
       ),
       _ToolTile(
         icon: UtilitariosModuleIcons.pdfPng,
         gradient: const [Color(0xFF7C3AED), Color(0xFFA855F7)],
-        title: 'PDF ? PNG',
+        title: 'PDF → PNG',
         subtitle: 'Páginas em PNG',
         onTap: lightOk ? _pdfToPng : null,
       ),
       _ToolTile(
         icon: UtilitariosModuleIcons.jpegPdf,
         gradient: const [Color(0xFFDC2626), Color(0xFFEF4444)],
-        title: 'Imagens ? PDF',
-        subtitle: 'JPEG, PNG ou WebP ? uma ou várias',
+        title: 'Imagens → PDF',
+        subtitle: 'JPEG, PNG ou WebP · uma ou várias',
         onTap: lightOk ? _imagesToPdf : null,
       ),
       _ToolTile(
         icon: UtilitariosModuleIcons.wordPdf,
         gradient: const [Color(0xFF0D9488), Color(0xFF14B8A6)],
-        title: 'Word ? PDF',
+        title: 'Word → PDF',
         subtitle: 'DOCX / TXT / RTF',
         onTap: lightOk ? _wordToPdf : null,
       ),
       _ToolTile(
         icon: UtilitariosModuleIcons.pdfExcel,
         gradient: const [Color(0xFF15803D), Color(0xFF22C55E)],
-        title: 'PDF ? Excel',
+        title: 'PDF → Excel',
         subtitle: 'Planilha com linhas e tabelas',
         onTap: lightOk ? _pdfToExcel : null,
       ),
       _ToolTile(
         icon: UtilitariosModuleIcons.excelPdf,
         gradient: const [Color(0xFF166534), Color(0xFF4ADE80)],
-        title: 'Excel ? PDF',
+        title: 'Excel → PDF',
         subtitle: 'XLSX / CSV em tabela',
         onTap: lightOk ? _excelToPdf : null,
       ),
       _ToolTile(
         icon: UtilitariosModuleIcons.pdfPpt,
         gradient: const [Color(0xFFC2410C), Color(0xFFF97316)],
-        title: 'PDF ? PowerPoint',
+        title: 'PDF → PowerPoint',
         subtitle: '1 slide por página',
         onTap: lightOk ? _pdfToPowerPoint : null,
       ),
@@ -2180,7 +2180,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         icon: UtilitariosModuleIcons.compress,
         gradient: const [Color(0xFF4F46E5), Color(0xFF06B6D4)],
         title: 'Compressor',
-        subtitle: 'Ultra Smart ? Imagem ? PDF ? Word ? MP4',
+        subtitle: 'Ultra Smart · Imagem · PDF · Word · MP4',
         onTap: heavyOk ? _compress : null,
       ),
     ];
@@ -2190,14 +2190,14 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         icon: UtilitariosModuleIcons.videoDownload,
         gradient: const [Color(0xFFE11D48), Color(0xFF7C3AED)],
         title: 'Baixar Vídeo',
-        subtitle: 'TikTok ? YouTube ? IG ? FB ? MP4/MP3',
+        subtitle: 'TikTok · YouTube · IG · FB · MP4/MP3',
         onTap: lightOk ? _openVideoDownloader : null,
       ),
       _ToolTile(
         icon: UtilitariosModuleIcons.videoMp4,
         gradient: const [Color(0xFF7C3AED), Color(0xFF2563EB)],
-        title: 'Vídeo ? MP4',
-        subtitle: 'Full HD ? 4K ? comprimir opcional',
+        title: 'Vídeo → MP4',
+        subtitle: 'Full HD · 4K · comprimir opcional',
         onTap: heavyOk ? _videoToMp4 : null,
       ),
       _ToolTile(
@@ -2214,7 +2214,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         icon: UtilitariosModuleIcons.mergePdf,
         gradient: const [Color(0xFF2563EB), Color(0xFF6366F1)],
         title: 'Juntar PDF',
-        subtitle: 'Vários PDFs ? reordenar páginas',
+        subtitle: 'Vários PDFs · reordenar páginas',
         onTap: lightOk
             ? () => _openPdfTool(UtilitariosPdfToolMode.merge)
             : null,
@@ -2228,13 +2228,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
             ? () => _openPdfTool(UtilitariosPdfToolMode.split)
             : null,
       ),
-      _ToolTile(
-        icon: UtilitariosModuleIcons.editPdf,
-        gradient: const [Color(0xFF059669), Color(0xFF34D399)],
-        title: 'Editor PDF',
-        subtitle: 'Texto, destaque e checks',
-        onTap: lightOk ? () => _openPdfTool(UtilitariosPdfToolMode.edit) : null,
-      ),
+      // Editor PDF removido do módulo (mesma decisão do Controle Total).
     ];
 
     _extraTilesCache = [
@@ -2242,21 +2236,21 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
         icon: UtilitariosModuleIcons.photoTextExtract,
         gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
         title: 'Controletotalapp extração de texto',
-        subtitle: 'OCR rápido ? editar ? Word e PDF',
+        subtitle: 'OCR rápido · editar · Word e PDF',
         onTap: lightOk ? _openPhotoTextExtract : null,
       ),
       _ToolTile(
         icon: UtilitariosModuleIcons.archiveZip,
         gradient: const [Color(0xFF0EA5E9), Color(0xFF6366F1)],
         title: 'Compactar arquivos',
-        subtitle: 'ZIP ? ZIP máximo ? RAR (local)',
+        subtitle: 'ZIP · ZIP máximo · RAR (local)',
         onTap: lightOk ? _compactarArquivos : null,
       ),
       _ToolTile(
         icon: UtilitariosModuleIcons.photoEdit,
         gradient: const [Color(0xFFDB2777), Color(0xFF7C3AED)],
         title: 'Editor de Foto',
-        subtitle: 'Melhorar ? cortar ? borrar ? colagem',
+        subtitle: 'Melhorar · cortar · borrar · colagem',
         onTap: heavyOk ? _openPhotoEditor : null,
       ),
     ];
@@ -2383,7 +2377,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
                         const CircularProgressIndicator(),
                         const SizedBox(height: 12),
                         Text(
-                          _busyLabel ?? 'Processando?',
+                          _busyLabel ?? 'Processando…',
                           textAlign: TextAlign.center,
                           style: ModernModuleUI.moduleTitleStyle(
                             context,
@@ -2435,7 +2429,7 @@ class _UtilitariosScreenState extends State<UtilitariosScreen> {
       }
       return parts.join('\n');
     }
-    return 'Limites no aparelho: ${UtilitariosDailyQuotaService.kLightLimitPerDay} conversões ? '
+    return 'Limites no aparelho: ${UtilitariosDailyQuotaService.kLightLimitPerDay} conversões · '
         '${UtilitariosDailyQuotaService.kHeavyLimitPerDay} compressões. Ao estourar, libera em 24h.';
   }
 }
@@ -2650,7 +2644,7 @@ class _SecurityHeroCard extends StatelessWidget {
               const SizedBox(width: 10),
               const Expanded(
                 child: Text(
-                  'Ferramentas locais ? 100% no aparelho',
+                  'Ferramentas locais · 100% no aparelho',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w900,
@@ -2733,7 +2727,7 @@ class _ToolTile extends StatelessWidget {
                         ),
                         const SizedBox(height: 1),
                         Text(
-                          enabled ? subtitle : 'Limite atingido ? aguarde 24h',
+                          enabled ? subtitle : 'Limite atingido — aguarde 24h',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: ModernModuleUI.moduleSubtitleStyle(context),

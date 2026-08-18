@@ -13,6 +13,7 @@ import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/master_tenant_override_service.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -474,17 +475,14 @@ class _MembersPageState extends State<MembersPage> {
     };
   }
 
-  /// True se o usuário pode transferir membro para outra igreja.
-  /// Só [master] do Painel (rota com `role: master`) ou [AppConstants.isProductMasterAccount] —
-  /// **Não** o papel [adm] da igreja (administrador local), que deve ficar isolado ao tenant.
-  bool get _canTransferMember {
-    final raw = (widget.role ?? '').toString().trim().toLowerCase();
-    if (raw == 'master') return true;
-    return AppConstants.isProductMasterAccount(
-      email: FirebaseAuth.instance.currentUser?.email,
-      cpfDigitsOrRaw: widget.linkedCpf,
-    );
-  }
+  /// True se o utilizador pode transferir membro para outra igreja.
+  ///
+  /// **Só os dois operadores globais** (raihom / isabelle), pelo UID do Auth —
+  /// mesma fonte da troca de igreja. Antes bastava a rota trazer
+  /// `role: master` e um gestor via a lista de todas as igrejas: cada gestor
+  /// tem de ficar isolado no seu tenant.
+  bool get _canTransferMember =>
+      MasterTenantOverrideService.isAllowedUser;
 
   /// Carrega lista de igrejas (tenants) para o painel master (mudar igreja do membro).
   static Future<List<MapEntry<String, String>>> _loadTenantsForMove() async {
@@ -5472,7 +5470,7 @@ class _MembersPageState extends State<MembersPage> {
               ..addAll(updates);
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                ThemeCleanPremium.successSnackBar('Enviando foto de perfil?'),
+                ThemeCleanPremium.successSnackBar('Enviando foto de perfil…'),
               );
             }
             try {
@@ -5925,7 +5923,7 @@ class _MembersPageState extends State<MembersPage> {
         final mergedGestor = Map<String, dynamic>.from(member.data)
           ..addAll(updates);
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Enviando foto de perfil?'),
+          ThemeCleanPremium.successSnackBar('Enviando foto de perfil…'),
         );
         try {
           await _publishMemberProfilePhotoStrict(
@@ -6090,7 +6088,7 @@ class _MembersPageState extends State<MembersPage> {
     if (!context.mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(ThemeCleanPremium.successSnackBar('Excluindo "$name"?'));
+    ).showSnackBar(ThemeCleanPremium.successSnackBar('Excluindo "$name"…'));
 
     try {
       await FirestoreStreamUtils.refreshAuthTokenIfNeeded(force: true);
@@ -7615,7 +7613,10 @@ class _MembersPageState extends State<MembersPage> {
       MaterialPageRoute(
         builder: (_) => InternalNewMemberPage(tenantId: _effectiveTenantId),
       ),
-    ).then((_) => _refreshMembers());
+      // forceServer: o caminho em cache lê o `_panel_cache/members_directory`,
+      // que só a Cloud Function reconstrói — sem isto o cadastro novo demorava
+      // a aparecer na lista.
+    ).then((_) => _refreshMembers(forceServer: true));
   }
 
   Future<String?> _loadTenantSlug() async {
@@ -7678,7 +7679,7 @@ class _MembersPageState extends State<MembersPage> {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Gerando PDF?'),
+            content: Text('Gerando PDF…'),
             behavior: SnackBarBehavior.floating,
             duration: Duration(seconds: 2),
           ),

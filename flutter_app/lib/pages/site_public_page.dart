@@ -584,7 +584,7 @@ class _SitePublicPageState extends State<SitePublicPage>
                       child: FilledButton.icon(
                         onPressed: () => Navigator.pushNamed(context, '/cadastro'),
                         icon: const Icon(Icons.person_add_rounded),
-                        label: const Text('Escolhi meu plano ? Ir para cadastro'),
+                        label: const Text('Escolhi meu plano — Ir para cadastro'),
                         style: FilledButton.styleFrom(
                           backgroundColor: ThemeCleanPremium.primary,
                           padding: const EdgeInsets.symmetric(
@@ -939,7 +939,7 @@ class _YahwehAudienceFooterBar extends StatelessWidget {
           children: [
             ActionChip(
               avatar: const Icon(Icons.waving_hand_rounded, size: 18),
-              label: const Text('Visitantes ? cadastro da igreja'),
+              label: const Text('Visitantes — cadastro da igreja'),
               onPressed: () {
                 unawaited(PublicSiteAnalytics.logMarketingAction(
                     'marketing_footer_chip_cadastro'));
@@ -948,7 +948,7 @@ class _YahwehAudienceFooterBar extends StatelessWidget {
             ),
             ActionChip(
               avatar: const Icon(Icons.login_rounded, size: 18),
-              label: const Text('Membros ? entrar no sistema'),
+              label: const Text('Membros — entrar no sistema'),
               onPressed: () {
                 unawaited(PublicSiteAnalytics.logMarketingAction(
                     'marketing_footer_chip_entrar'));
@@ -1388,7 +1388,7 @@ class _PremiumIncludedFeaturesGrid extends StatelessWidget {
     ),
     (
       icon: Icons.local_shipping_rounded,
-      label: 'Fornecedores e prestadores ? com agenda de compromissos',
+      label: 'Fornecedores e prestadores — com agenda de compromissos',
     ),
     (icon: Icons.verified_rounded, label: 'Emissão de certificados'),
     (icon: Icons.badge_rounded, label: 'Cartão membro moderno'),
@@ -1408,10 +1408,10 @@ class _PremiumIncludedFeaturesGrid extends StatelessWidget {
     (
       icon: Icons.handyman_rounded,
       label:
-          'Utilitários ? PDF ? Word ? PDF ? JPEG/PNG ? Imagens ? PDF ? Word ? PDF ? '
-          'PDF ? Excel ? Excel ? PDF ? PDF ? PowerPoint ? Compressor (imagem/PDF/MP4) ? '
-          'Vídeo ? MP4 ? Extrair ?udio ? Juntar PDF ? Dividir PDF ? Editor PDF ? '
-          'Foto/Câmera ? PDF ? OCR (texto da foto) ? Compactar ZIP ? Editor de Foto',
+          'Utilitários · PDF → Word · PDF → JPEG/PNG · Imagens → PDF · Word → PDF · '
+          'PDF → Excel · Excel → PDF · PDF → PowerPoint · Compressor (imagem/PDF/MP4) · '
+          'Vídeo → MP4 · Extrair áudio · Juntar PDF · Dividir PDF · '
+          'Foto/Câmera → PDF · OCR (texto da foto) · Compactar ZIP · Editor de Foto',
     ),
   ];
 

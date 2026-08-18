@@ -294,7 +294,7 @@ class _MemberPhotoPickSheet extends StatelessWidget {
                 _tile(
                   context,
                   icon: Icons.crop_rounded,
-                  title: 'Galeria ? recortar',
+                  title: 'Galeria · recortar',
                   subtitle: 'Abrir ?Ajustar foto de perfil?',
                   choice: const _PickChoice(
                     source: 'gallery',
@@ -304,7 +304,7 @@ class _MemberPhotoPickSheet extends StatelessWidget {
                 _tile(
                   context,
                   icon: Icons.crop_free_rounded,
-                  title: 'Arquivo ? recortar',
+                  title: 'Arquivo · recortar',
                   subtitle: 'Escolher e ajustar a área',
                   choice: const _PickChoice(
                     source: 'file',
@@ -315,7 +315,7 @@ class _MemberPhotoPickSheet extends StatelessWidget {
                 _tile(
                   context,
                   icon: Icons.crop_rounded,
-                  title: 'Galeria ? recortar',
+                  title: 'Galeria · recortar',
                   subtitle: 'Abrir editor de enquadramento',
                   choice: const _PickChoice(
                     source: 'gallery',

@@ -31,6 +31,7 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
         kFeedPublishQueuedUserMessage;
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
+import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:image_picker/image_picker.dart';
 
 /// Estado das fotos de um bem ? slots fixos `foto01`?`foto05`.
@@ -434,19 +435,24 @@ class PatrimonioItemPhotosEditorState extends State<PatrimonioItemPhotosEditor> 
       )) {
         return;
       }
+      // Via MediaHandlerService: no Windows/Linux o `image_picker` não está
+      // registado e o `pickImage` cru rebentava — o serviço cai no seletor de
+      // ficheiros nativo nessas plataformas.
       final List<XFile> list;
       if (vagas == 1) {
-        final single = await ImagePicker().pickImage(
-          source: ImageSource.gallery,
-          imageQuality: 78,
-          maxWidth: 1600,
-        );
+        final single = await MediaHandlerService.instance
+            .pickAndProcessFromGallery(
+              module: YahwehMediaModule.patrimonio,
+              context: context,
+            );
         list = single != null ? [single] : <XFile>[];
       } else {
-        final picked = await ImagePicker().pickMultiImage(
-          imageQuality: 78,
-          maxWidth: 1600,
-        );
+        final picked = await MediaHandlerService.instance
+            .pickAndProcessMultipleImages(
+              module: YahwehMediaModule.patrimonio,
+              context: context,
+              maxCount: vagas,
+            );
         list = picked.length > vagas ? picked.sublist(0, vagas) : picked;
       }
       if (list.isEmpty || !mounted) return;

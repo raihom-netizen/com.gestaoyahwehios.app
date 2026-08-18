@@ -8,6 +8,8 @@ import 'package:gestao_yahweh/core/firebase_diagnostic_log.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/church_publish_flow_log.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
+import 'package:gestao_yahweh/core/event_noticia_media.dart'
+    show youtubeVideoIdFromUrl;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
@@ -412,26 +414,35 @@ abstract final class ChurchFeedLinearPublishService {
     final aspectRatio = _aspectRatioFromPayload(corePayload);
     final payload = Map<String, dynamic>.from(corePayload);
     final galleryUrls = dedupeImageRefsByStorageIdentity(existingUrls);
+    // Link YouTube/Vimeo já vem no corePayload (editor de aviso/evento). Sem
+    // isto os sentinelas de limpeza apagavam `videoUrl` em toda edição e o
+    // vídeo por link nunca ficava gravado.
+    final externalVideoUrl = _externalVideoUrlFromPayload(corePayload);
     payload.addAll(
       ChurchFeedMediaStorageFields.buildStoragePathOnlyFields(
         photoPaths: allPaths,
         thumbPaths: alignedThumbPaths,
         aspectRatio: aspectRatio,
-        hasVideo: hasVideo,
+        hasVideo: hasVideo || externalVideoUrl.isNotEmpty,
         videoPath: videoStoragePath,
         allowDeleteSentinels: !isNewDoc,
         isEvento: isEvento,
+        hasExternalVideoUrl: externalVideoUrl.isNotEmpty,
       ),
     );
     payload.addAll(
       MuralPostMediaPayload.buildMediaFields(
         allUrls: galleryUrls,
         aspectRatio: aspectRatio,
-        hasVideo: hasVideo,
+        hasVideo: hasVideo || externalVideoUrl.isNotEmpty,
         allowDeleteSentinels: !isNewDoc,
         imageVariants: null,
       ),
     );
+    if (externalVideoUrl.isNotEmpty &&
+        (videoStoragePath ?? '').trim().isEmpty) {
+      _applyExternalVideoDisplayFields(payload, externalVideoUrl);
+    }
     if (alignedThumbUrls.isNotEmpty) {
       final thumbOnly = dedupeImageRefsByStorageIdentity(alignedThumbUrls);
       if (thumbOnly.isNotEmpty) {
@@ -588,6 +599,39 @@ abstract final class ChurchFeedLinearPublishService {
     }
 
     return docId;
+  }
+
+  /// Link YouTube/Vimeo declarado pelo editor (nunca ficheiro do Storage).
+  static String _externalVideoUrlFromPayload(Map<String, dynamic> payload) {
+    for (final key in const ['videoUrl', 'youtubeUrl']) {
+      final raw = payload[key];
+      if (raw is! String) continue;
+      final v = raw.trim();
+      if (v.isEmpty) continue;
+      final low = v.toLowerCase();
+      if (low.contains('youtube.com') ||
+          low.contains('youtu.be') ||
+          low.contains('vimeo.com')) {
+        return v;
+      }
+    }
+    return '';
+  }
+
+  /// Grava o link externo nos campos que painel, site público e partilha leem.
+  static void _applyExternalVideoDisplayFields(
+    Map<String, dynamic> payload,
+    String externalVideoUrl,
+  ) {
+    payload['videoUrl'] = externalVideoUrl;
+    payload['videos'] = [
+      {'videoUrl': externalVideoUrl, 'thumbUrl': ''},
+    ];
+    final ytId = youtubeVideoIdFromUrl(externalVideoUrl);
+    if (ytId != null && ytId.isNotEmpty) {
+      payload['youtubeVideoId'] = ytId;
+      payload['youtubeUrl'] = externalVideoUrl;
+    }
   }
 
   static List<String> _pathsFromRefs(List<String> refs) {

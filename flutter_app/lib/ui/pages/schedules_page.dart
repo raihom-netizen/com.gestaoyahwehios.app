@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_hive_cache.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_single_day_picker_page.dart';
@@ -34,7 +35,7 @@ import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
-    show firestoreRestDeleteDoc;
+    show firestoreRestDeleteDoc, firestoreRestUpdateDoc;
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/image_helper.dart';
@@ -679,7 +680,15 @@ class _SchedulesPageState extends State<SchedulesPage>
         }
       });
     }
-    return r.snapshot;
+    // Escalas já excluídas neste aparelho não voltam por RAM/Hive/cache do SDK.
+    final live = TenantDeletedDocTombstones.filter(
+      r.churchId.trim().isNotEmpty ? r.churchId : ChurchRepository.churchId(tid),
+      TenantModuleKeys.escalas,
+      r.docs,
+      (d) => d.id,
+    );
+    if (live.length == r.docs.length) return r.snapshot;
+    return MergedFirestoreQuerySnapshot(live);
   }
 
   void _refreshEscalasFullInBackground(String churchId) {
@@ -1262,7 +1271,7 @@ class _SchedulesPageState extends State<SchedulesPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Gerando PDF?'),
+            content: Text('Gerando PDF…'),
             duration: Duration(seconds: 2),
           ),
         );
@@ -1401,7 +1410,7 @@ class _SchedulesPageState extends State<SchedulesPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Gerando PDF?'),
+            content: Text('Gerando PDF…'),
             duration: Duration(seconds: 2),
           ),
         );
@@ -1421,7 +1430,7 @@ class _SchedulesPageState extends State<SchedulesPage>
         churchAddress: address,
         churchPhone: phone,
         periodLabel:
-            'Período: $_periodLabelUppercase ? Depart.: ${_reportDeptId.isEmpty ? 'Todos' : _reportDeptId}',
+            'Período: $_periodLabelUppercase · Depart.: ${_reportDeptId.isEmpty ? 'Todos' : _reportDeptId}',
         columnHeaders: columnHeaders,
         rows: rows,
       );
@@ -1543,7 +1552,7 @@ class _SchedulesPageState extends State<SchedulesPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Gerando PDF de trocas?'),
+            content: Text('Gerando PDF de trocas…'),
             duration: Duration(seconds: 2),
           ),
         );
@@ -3168,7 +3177,7 @@ class _SchedulesPageState extends State<SchedulesPage>
                 hasInstances
                   ? 'Nenhum modelo cadastrado.\nAs escalas já geradas estão na aba «Escalas geradas».'
                     : _templatesFetching
-                    ? 'Carregando modelos?'
+                    ? 'Carregando modelos…'
                     : 'Nenhum modelo de escala.',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.inter(
@@ -4129,7 +4138,7 @@ class _SchedulesPageState extends State<SchedulesPage>
                       totalLoaded > 0
                           ? 'Nenhuma escala no filtro atual ($totalLoaded carregada(s)).'
                           : _instancesFetching
-                          ? 'Carregando escalas?'
+                          ? 'Carregando escalas…'
                           : 'Nenhuma escala encontrada.',
                       textAlign: TextAlign.center,
                       style: TextStyle(
@@ -4677,7 +4686,7 @@ class _SchedulesPageState extends State<SchedulesPage>
                     ],
                   ),
                   child: Text(
-                    'ESCALA ? DEPARTAMENTO $deptName ? $_periodLabelUppercase',
+                    'ESCALA · DEPARTAMENTO $deptName · $_periodLabelUppercase',
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
@@ -5944,6 +5953,11 @@ class _SchedulesPageState extends State<SchedulesPage>
       ),
     );
     if (ok != true) return;
+    // Lápide ANTES do delete — nenhum refresh em background «ressuscita» a
+    // escala a partir de RAM/Hive/cache do SDK.
+    TenantDeletedDocTombstones.mark(_churchId, TenantModuleKeys.escalas, [
+      doc.id,
+    ]);
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
@@ -5966,10 +5980,85 @@ class _SchedulesPageState extends State<SchedulesPage>
         ).showSnackBar(ThemeCleanPremium.successSnackBar('Escala excluída.'));
       }
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erro ao excluir: $e')));
+      // Falhou o delete: desfaz a lápide (a escala continua a existir) e
+      // oferece limpar os escalados — escala vazia, sem ninguém convocado.
+      TenantDeletedDocTombstones.unmark(
+        _churchId,
+        TenantModuleKeys.escalas,
+        doc.id,
+      );
+      if (!mounted) return;
+      await _offerClearInstanceAfterDeleteFailure(doc, e);
+    }
+  }
+
+  /// Escala que não aceita exclusão (regra/permissão/erro do SDK): limpar os
+  /// escalados deixa a escala vazia em vez de manter gente convocada à toa.
+  Future<void> _offerClearInstanceAfterDeleteFailure(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    Object error,
+  ) async {
+    final clear = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Não foi possível excluir'),
+        content: Text(
+          '${formatFirebaseErrorForUser(error)}\n\n'
+          'Quer limpar esta escala? Todos os escalados são removidos e a '
+          'escala fica vazia.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Fechar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Limpar escala'),
+          ),
+        ],
+      ),
+    );
+    if (clear != true || !mounted) return;
+    await _clearInstanceMembers(doc);
+  }
+
+  /// Remove todos os escalados do documento (mantém data/departamento/título).
+  Future<void> _clearInstanceMembers(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final patch = <String, dynamic>{
+      'memberCpfs': <String>[],
+      'memberNames': <String>[],
+      'memberUids': <String>[],
+      'escalados': <String>[],
+      'confirmations': <String, dynamic>{},
+      'active': false,
+      // Timestamp local (não sentinela): o mesmo mapa serve ao SDK e ao REST.
+      'updatedAt': Timestamp.now(),
+    };
+    try {
+      try {
+        await FirestoreWebGuard.runWithWebRecovery(
+          () => doc.reference.set(patch, SetOptions(merge: true)),
+          maxAttempts: 4,
+        );
+      } catch (e) {
+        if (!kIsWeb || !_isFirestoreClientBroken(e)) rethrow;
+        await firestoreRestUpdateDoc(doc.reference.path, setFields: patch);
+      }
+      if (!mounted) return;
+      _refreshInstances();
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          'Escala limpa — nenhum membro escalado.',
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao limpar: ${formatFirebaseErrorForUser(e)}')),
+      );
     }
   }
 
@@ -6016,6 +6105,11 @@ class _SchedulesPageState extends State<SchedulesPage>
       ),
     );
     if (ok != true) return;
+    TenantDeletedDocTombstones.mark(
+      _churchId,
+      TenantModuleKeys.escalas,
+      toDelete.map((d) => d.id).toList(),
+    );
     try {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
@@ -6054,10 +6148,21 @@ class _SchedulesPageState extends State<SchedulesPage>
         );
       }
     } catch (e) {
+      for (final d in toDelete) {
+        TenantDeletedDocTombstones.unmark(
+          _churchId,
+          TenantModuleKeys.escalas,
+          d.id,
+        );
+      }
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erro ao excluir em lote: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Erro ao excluir em lote: ${formatFirebaseErrorForUser(e)}',
+            ),
+          ),
+        );
       }
     }
   }

@@ -6,6 +6,7 @@ import 'package:flutter/gestures.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
@@ -1873,7 +1874,15 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
             if (cpf == null || cpf.length != 11 || !mounted) return;
             try {
               await FirebaseAuth.instance.currentUser?.getIdToken(true);
-              final snap = await _col.doc(deptDoc.id).get();
+              // Gateway (REST no web): o `.get()`/`.update()` crus rebentavam
+              // com INTERNAL ASSERTION assim que o SDK web ficava envenenado —
+              // era o «Erro ao vincular líder».
+              final snap = await ChurchFirestoreAccess.getDocument(
+                module: 'departamentos',
+                churchId: _tid,
+                subcollectionName: 'departamentos',
+                docId: deptDoc.id,
+              );
               final data = snap.data() ?? {};
               final cur = List<String>.from(
                 ChurchDepartmentLeaders.cpfsFromDepartmentData(data),
@@ -1885,10 +1894,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                     tenantId: _tid,
                     leaderCpfs: cur,
                   );
-              await _col.doc(deptDoc.id).update({
-                ...leaderPayload,
-                'updatedAt': FieldValue.serverTimestamp(),
-              });
+              await ChurchFirestoreAccess.setDocument(
+                module: 'departamentos',
+                churchId: _tid,
+                subcollectionName: 'departamentos',
+                docId: deptDoc.id,
+                data: leaderPayload,
+              );
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   ThemeCleanPremium.successSnackBar('Líder vinculado.'),
@@ -4105,10 +4117,13 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
             tenantId: widget.tenantId,
             leaderCpfs: next,
           );
-      await widget.deptRef.update({
-        ...leaderPayload,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+      await ChurchFirestoreAccess.setDocument(
+        module: 'departamentos',
+        churchId: widget.tenantId,
+        subcollectionName: 'departamentos',
+        docId: widget.deptRef.id,
+        data: leaderPayload,
+      );
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
@@ -4162,7 +4177,14 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
       );
       final cpf = _cpfDigitsMap(row.data);
       if (cpf.length == 11) {
-        final dSnap = await widget.deptRef.get();
+        // Gateway (REST no web): `.get()` cru rebentava com INTERNAL ASSERTION
+        // e a remoção do membro falhava no meio.
+        final dSnap = await ChurchFirestoreAccess.getDocument(
+          module: 'departamentos',
+          churchId: widget.tenantId,
+          subcollectionName: 'departamentos',
+          docId: widget.deptRef.id,
+        );
         final leaders = ChurchDepartmentLeaders.cpfsFromDepartmentData(
           dSnap.data(),
         );
@@ -4173,10 +4195,13 @@ class _DepartmentHubSheetState extends State<_DepartmentHubSheet> {
                 tenantId: widget.tenantId,
                 leaderCpfs: next,
               );
-          await widget.deptRef.update({
-            ...leaderPayload,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+          await ChurchFirestoreAccess.setDocument(
+            module: 'departamentos',
+            churchId: widget.tenantId,
+            subcollectionName: 'departamentos',
+            docId: widget.deptRef.id,
+            data: leaderPayload,
+          );
         }
       }
       if (context.mounted) {

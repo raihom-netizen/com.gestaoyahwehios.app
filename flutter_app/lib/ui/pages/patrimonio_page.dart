@@ -5610,7 +5610,7 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    '$cat ? $st ? Aquis.: $aqStr',
+                                    '$cat · $st · Aquis.: $aqStr',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey.shade600,

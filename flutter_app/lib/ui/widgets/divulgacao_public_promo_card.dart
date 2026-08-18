@@ -339,7 +339,7 @@ class DivulgacaoPublicPromoCard extends StatelessWidget {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    '${promo.priceLabel} ? +${promo.durationDays} dias de licença após pagamento aprovado',
+                    '${promo.priceLabel} · +${promo.durationDays} dias de licença após pagamento aprovado',
                     style: GoogleFonts.inter(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
@@ -448,7 +448,7 @@ void openPublicPromoMercadoPagoCheckout(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'Pagamento ? Mercado Pago',
+              'Pagamento — Mercado Pago',
               style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
