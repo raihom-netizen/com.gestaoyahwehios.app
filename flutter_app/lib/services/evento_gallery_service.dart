@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -150,7 +151,7 @@ class EventoGalleryService {
           )
         : <Map<String, dynamic>>[];
     list.add(novoVideo);
-    await eventRef.set({'videos': list}, SetOptions(merge: true));
+    await YahwehDocWrite.set(eventRef, {'videos': list});
   }
 
   Future<void> _adicionarFoto(
@@ -196,7 +197,7 @@ class EventoGalleryService {
           )
         : <String>[];
     list.add(downloadUrl);
-    await eventRef.set({photoField: list}, SetOptions(merge: true));
+    await YahwehDocWrite.set(eventRef, {photoField: list});
   }
 
   Future<File> _compressPhotoToFullHd(File arquivo) async {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -100,7 +101,7 @@ Future<void> _writeMembroDocMergeResilient({
   }
   await FirestoreWebGuard.runWithWebRecovery(
     () => runFirestorePublishWithRecovery(
-      () => ref.set(updates, SetOptions(merge: true)),
+      () => YahwehDocWrite.set(ref, updates),
       maxAttempts: 4,
     ),
     maxAttempts: 4,

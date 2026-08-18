@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show SafeCircleAvatarImage;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Comentários de um post — cache-first, sem `watchSafe` (evita INTERNAL ASSERTION web).
 Future<void> showNoticiaCommentsBottomSheet(
@@ -210,7 +211,7 @@ class _NoticiaCommentsSheetState extends State<NoticiaCommentsSheet> {
     if (ok != true || !mounted) return;
     try {
       Future<void> run() async {
-        await widget.commentsRef.doc(item.id).delete();
+        await YahwehDocWrite.delete(widget.commentsRef.doc(item.id));
         await widget.postRef.set(
           {'commentsCount': FieldValue.increment(-1)},
           SetOptions(merge: true),

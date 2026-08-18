@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -178,7 +179,7 @@ class _CombustiveisPageState extends State<CombustiveisPage> {
         'created_at': FieldValue.serverTimestamp(),
       });
     } else {
-      await doc.reference.set(payload, SetOptions(merge: true));
+      await YahwehDocWrite.set(doc.reference as DocumentReference<Map<String, dynamic>>, payload);
       await _atualizarVinculosCombustivel(nomeAntigo: nomeAntigo, nomeNovo: nome);
     }
 
@@ -224,7 +225,7 @@ class _CombustiveisPageState extends State<CombustiveisPage> {
 
     if (confirmar != true) return;
 
-    await doc.reference.delete();
+    await YahwehDocWrite.delete(doc.reference as DocumentReference<Map<String, dynamic>>);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Combustível excluído.')),

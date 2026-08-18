@@ -294,6 +294,10 @@ abstract final class ChurchAvisosService {
     }
   }
 
+  /// Motivo da última falha de upload de vídeo, ou `null` quando correu bem.
+  /// A UI lê isto para avisar sem perder o aviso já publicado.
+  static String? lastVideoFailure;
+
   /// Web: sem disco — os bytes vêm do blob do picker e sobem direto ao Storage,
   /// com a miniatura extraída do 1.º frame (mesmo padrão do módulo Eventos).
   static Future<({String videoPath, String thumbPath})> _uploadAvisoWebVideo({
@@ -502,18 +506,34 @@ abstract final class ChurchAvisosService {
     final docRef = ChurchUiCollections.avisos(cid).doc();
     final postId = docRef.id;
 
+    lastVideoFailure = null;
     var resolvedVideoPath = (videoStoragePath ?? '').trim();
     var resolvedThumbPath = '';
     final localVideo = (videoLocalPath ?? '').trim();
     if (resolvedVideoPath.isEmpty && localVideo.isNotEmpty) {
-      final uploaded = await _uploadAvisoLocalVideo(
-        churchId: cid,
-        postId: postId,
-        localPath: localVideo,
-        onProgress: onUploadProgress,
-      );
-      resolvedVideoPath = uploaded.videoPath;
-      resolvedThumbPath = uploaded.thumbPath;
+      // O vídeo é anexo, não pode vetar o aviso: sem este try/catch, uma falha
+      // de upload (rede, limite de tamanho, blob inválido) rebentava aqui e o
+      // aviso — título, texto, fotos — nunca chegava a ser gravado.
+      try {
+        final uploaded = await _uploadAvisoLocalVideo(
+          churchId: cid,
+          postId: postId,
+          localPath: localVideo,
+          onProgress: onUploadProgress,
+        );
+        resolvedVideoPath = uploaded.videoPath;
+        resolvedThumbPath = uploaded.thumbPath;
+      } catch (videoErr, videoSt) {
+        lastVideoFailure = videoErr is StateError
+            ? videoErr.message
+            : 'Falha ao enviar o vídeo. O aviso foi gravado sem ele.';
+        logFirebasePublishPhase(
+          'aviso_video_upload_error',
+          'postId=$postId',
+          error: videoErr,
+          stack: videoSt,
+        );
+      }
     }
 
     final now = FieldValue.serverTimestamp();
@@ -644,18 +664,34 @@ abstract final class ChurchAvisosService {
       throw StateError('Aviso não identificado para edição.');
     }
 
+    lastVideoFailure = null;
     var resolvedVideoPath = (videoStoragePath ?? '').trim();
     var resolvedThumbPath = '';
     final localVideo = (videoLocalPath ?? '').trim();
     if (resolvedVideoPath.isEmpty && localVideo.isNotEmpty) {
-      final uploaded = await _uploadAvisoLocalVideo(
-        churchId: cid,
-        postId: id,
-        localPath: localVideo,
-        onProgress: onUploadProgress,
-      );
-      resolvedVideoPath = uploaded.videoPath;
-      resolvedThumbPath = uploaded.thumbPath;
+      // O vídeo é anexo, não pode vetar o aviso: sem este try/catch, uma falha
+      // de upload (rede, limite de tamanho, blob inválido) rebentava aqui e o
+      // aviso — título, texto, fotos — nunca chegava a ser gravado.
+      try {
+        final uploaded = await _uploadAvisoLocalVideo(
+          churchId: cid,
+          postId: id,
+          localPath: localVideo,
+          onProgress: onUploadProgress,
+        );
+        resolvedVideoPath = uploaded.videoPath;
+        resolvedThumbPath = uploaded.thumbPath;
+      } catch (videoErr, videoSt) {
+        lastVideoFailure = videoErr is StateError
+            ? videoErr.message
+            : 'Falha ao enviar o vídeo. O aviso foi gravado sem ele.';
+        logFirebasePublishPhase(
+          'aviso_video_upload_error',
+          'postId=$id',
+          error: videoErr,
+          stack: videoSt,
+        );
+      }
     }
 
     final titulo = title.trim();

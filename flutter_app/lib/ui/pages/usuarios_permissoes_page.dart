@@ -1,4 +1,5 @@
 import 'dart:async' show unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -88,7 +89,7 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
   Future<void> _editarPermissoes(String userId, List<String> roles) async {
     final col = _usersCol;
     if (col == null) return;
-    await col.doc(userId).set({'roles': roles}, SetOptions(merge: true));
+    await YahwehDocWrite.set(col.doc(userId), {'roles': roles});
     setState(() {});
   }
 
@@ -96,7 +97,7 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
     final col = _usersCol;
     if (col == null) return;
     final normalized = permissions.map((e) => e.trim().toLowerCase()).where((e) => e.isNotEmpty).toSet().toList();
-    await col.doc(userId).set({'permissions': normalized}, SetOptions(merge: true));
+    await YahwehDocWrite.set(col.doc(userId), {'permissions': normalized});
     setState(() {});
   }
 

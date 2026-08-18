@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -5446,14 +5447,14 @@ class _MembersPageState extends State<MembersPage> {
               .replaceAll(RegExp(r'\D'), '');
           if (cpfKey.length == 11) {
             try {
-              await ChurchUiCollections.usersIndex(
+              await YahwehDocWrite.set(ChurchUiCollections.usersIndex(
                 targetTenantId,
-              ).doc(cpfKey).set({
+              ).doc(cpfKey), {
                 'name': updates['NOME_COMPLETO'],
                 'nome': updates['NOME_COMPLETO'],
                 'email': updates['EMAIL'],
                 'updatedAt': FieldValue.serverTimestamp(),
-              }, SetOptions(merge: true));
+              });
             } catch (_) {}
           }
         }
@@ -5792,7 +5793,7 @@ class _MembersPageState extends State<MembersPage> {
       if (rolesList.isEmpty) rolesList.add('membro');
       if (authUid != null && authUid.isNotEmpty) {
         try {
-          await firebaseDefaultFirestore.collection('users').doc(authUid).set({
+          await YahwehDocWrite.set(firebaseDefaultFirestore.collection('users').doc(authUid), {
             'role': permBaseFinal,
             'roles': rolesList,
             'nome': updates['NOME_COMPLETO'],
@@ -5806,13 +5807,13 @@ class _MembersPageState extends State<MembersPage> {
             'active': updates['STATUS'].toString().toLowerCase() != 'inativo',
             if (isMoveToOtherChurch) 'tenantId': targetTenantId,
             if (isMoveToOtherChurch) 'igrejaId': targetTenantId,
-          }, SetOptions(merge: true));
+          });
         } catch (_) {}
         try {
           final tenantUsersCol = ChurchUiCollections.tenantUsers(
             targetTenantId,
           );
-          await tenantUsersCol.doc(authUid).set({
+          await YahwehDocWrite.set(tenantUsersCol.doc(authUid), {
             'role': permBaseFinal,
             'roles': rolesList,
             'nome': updates['NOME_COMPLETO'],
@@ -5822,7 +5823,7 @@ class _MembersPageState extends State<MembersPage> {
             'cargo': funcaoFinal,
             'FUNCOES': funcoesSelecionadasFinal,
             'CARGO': funcaoFinal,
-          }, SetOptions(merge: true));
+          });
         } catch (_) {}
         try {
           await FirebaseFunctions.instanceFor(region: 'us-central1')
@@ -5850,11 +5851,11 @@ class _MembersPageState extends State<MembersPage> {
         }.difference(newResolved);
         for (final tid in idsToRemove) {
           try {
-            await ChurchUiCollections.membros(tid).doc(member.id).delete();
+            await YahwehDocWrite.delete(ChurchUiCollections.membros(tid).doc(member.id));
           } catch (_) {}
           if (authUid != null && authUid.isNotEmpty) {
             try {
-              await ChurchUiCollections.tenantUsers(tid).doc(authUid).delete();
+              await YahwehDocWrite.delete(ChurchUiCollections.tenantUsers(tid).doc(authUid));
             } catch (_) {}
           }
         }

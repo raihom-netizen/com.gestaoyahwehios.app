@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
+import 'package:gestao_yahweh/services/church_members_load_service.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/church_department_visual_mapper.dart';
@@ -1278,7 +1280,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       }
     }
     if (sameNameBest != null) {
-      await sameNameBest.reference.set(payload, SetOptions(merge: true));
+      await YahwehDocWrite.set(sameNameBest.reference, payload);
       return true;
     }
 
@@ -1287,7 +1289,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     final ref = _col.doc(id);
     final existing = await ref.get();
     if (!existing.exists) {
-      await ref.set({...payload, 'createdAt': Timestamp.now()});
+      await YahwehDocWrite.set(ref, {...payload, 'createdAt': Timestamp.now()}, merge: false);
       return false;
     }
     final exData = existing.data() ?? {};
@@ -1296,7 +1298,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       docId: existing.id,
     ).trim();
     if (normalizeChurchDepartmentNameKey(exName) == norm || exName.isEmpty) {
-      await ref.set(payload, SetOptions(merge: true));
+      await YahwehDocWrite.set(ref, payload);
       return true;
     }
     final copy = Map<String, dynamic>.from(payload);
@@ -1902,6 +1904,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
                 data: leaderPayload,
               );
               if (mounted) {
+                // Recarrega do servidor: sem isto o cartão do departamento
+                // seguia com o doc em cache e o líder não aparecia destacado.
+                _refreshDepartments(forceServer: true);
                 ScaffoldMessenger.of(context).showSnackBar(
                   ThemeCleanPremium.successSnackBar('Líder vinculado.'),
                 );
@@ -2284,13 +2289,13 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
     if (!_canWrite) return;
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      await doc.reference.set({
+      await YahwehDocWrite.set(doc.reference, {
         'active': !archive,
         'ativo': !archive,
         'updatedAt': FieldValue.serverTimestamp(),
         ChurchDepartmentFirestoreFields.ultimaAtualizacao:
             FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
@@ -2518,6 +2523,30 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
         }
       }
     }
+    // Fallback: o cartão pode ainda não ter os membros DESTE departamento
+    // carregados. Procura o líder no directório da igreja (RAM) pelo CPF —
+    // sem isto o líder recém-escolhido não aparecia destacado.
+    if (leaderRow == null && leaderCpfs.isNotEmpty) {
+      final todos = ChurchMembersLoadService.peekRamAny(_tid);
+      if (todos != null) {
+        for (final d in todos) {
+          final data = d.data();
+          final cpf = (data['CPF'] ?? data['cpf'] ?? '')
+              .toString()
+              .replaceAll(RegExp(r'\D'), '');
+          if (cpf.length < 9) continue;
+          final cpfNorm = ChurchDepartmentLeaders.canonicalCpfDigits(cpf);
+          if (cpfNorm.isEmpty || !leaderCpfs.contains(cpfNorm)) continue;
+          leaderRow = ChurchDepartmentMemberRow(
+            memberDocId: d.id,
+            data: Map<String, dynamic>.from(data),
+            memberRef: d.reference,
+          );
+          break;
+        }
+      }
+    }
+
     final displayLeaderName = leaderName.isNotEmpty
         ? leaderName
         : (leaderRow?.displayName ?? '');
@@ -3277,7 +3306,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       if (doc == null) {
         return _persistNewDepartment(payload: payload, iconKey: iconKey);
       }
-      await doc.reference.update(payload);
+      await YahwehDocWrite.update(doc.reference, payload);
       return null;
     }
 
@@ -3323,7 +3352,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
               );
             }
           } else {
-            await doc.reference.update(payload);
+            await YahwehDocWrite.update(doc.reference, payload);
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 ThemeCleanPremium.successSnackBar('Departamento atualizado!'),

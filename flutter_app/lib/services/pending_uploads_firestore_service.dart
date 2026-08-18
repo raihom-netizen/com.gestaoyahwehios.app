@@ -1,4 +1,5 @@
 import 'dart:async' show unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -88,7 +89,7 @@ abstract final class PendingUploadsFirestoreService {
       if (alias != null && alias.isNotEmpty) 'canonicalPathHint': alias,
       ...?meta,
     };
-    await _col(canonicalTenant).doc(id).set(data);
+    await YahwehDocWrite.set(_col(canonicalTenant).doc(id), data, merge: false);
     if (!kIsWeb && localPath != null && localPath.isNotEmpty) {
       unawaited(
         StorageUploadPersistenceService.enqueueFileJob(
@@ -174,7 +175,7 @@ abstract final class PendingUploadsFirestoreService {
       'updatedAt': FieldValue.serverTimestamp(),
     };
     try {
-      await _col(tenantId).doc(uploadId).set(patch, SetOptions(merge: true));
+      await YahwehDocWrite.set(_col(tenantId).doc(uploadId), patch);
     } catch (e) {
       if (kDebugMode) {
         debugPrint('PendingUploads.markProgress $uploadId: $e');
@@ -185,7 +186,7 @@ abstract final class PendingUploadsFirestoreService {
   static Future<void> markCompleted(String tenantId, String uploadId) async {
     if (!FirebaseUploadPolicy.firestorePendingQueueEnabled) return;
     try {
-      await _col(tenantId).doc(uploadId).delete();
+      await YahwehDocWrite.delete(_col(tenantId).doc(uploadId));
     } catch (e) {
       if (kDebugMode) {
         debugPrint('PendingUploads.markCompleted $uploadId: $e');
@@ -197,7 +198,7 @@ abstract final class PendingUploadsFirestoreService {
     if (tenantId.isEmpty || uploadId.isEmpty) return;
     if (!FirebaseUploadPolicy.firestorePendingQueueEnabled) return;
     try {
-      await _col(tenantId).doc(uploadId).delete();
+      await YahwehDocWrite.delete(_col(tenantId).doc(uploadId));
     } catch (e) {
       if (kDebugMode) {
         debugPrint('PendingUploads.cancelJob $uploadId: $e');
@@ -217,7 +218,7 @@ abstract final class PendingUploadsFirestoreService {
       'updatedAt': FieldValue.serverTimestamp(),
     };
     try {
-      await _col(tenantId).doc(uploadId).set(patch, SetOptions(merge: true));
+      await YahwehDocWrite.set(_col(tenantId).doc(uploadId), patch);
     } catch (e) {
       if (kDebugMode) {
         debugPrint('PendingUploads.markFailed $uploadId: $e');

@@ -105,7 +105,7 @@ class GoalDepositService {
       final txRef = TransactionSaveService.txRef(uid).doc();
       transactionId = txRef.id;
       final weekLabel = _weekLabel(weeks);
-      await txRef.set({
+      await YahwehDocWrite.set(txRef, {
         'type': 'income',
         'amount': amount,
         'category': 'Meta',
@@ -124,7 +124,7 @@ class GoalDepositService {
         'recebimentoConfirmado': true,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      }, merge: false);
     }
 
     await _contribRef(goalRef).add({
@@ -210,7 +210,7 @@ class GoalDepositService {
 
     if (txId.isNotEmpty) {
       final weekLabel = is52 ? _weekLabel(newWeeks) : _weekLabel(weeksFromContribData(data));
-      await TransactionSaveService.txRef(uid).doc(txId).update({
+      await YahwehDocWrite.update(TransactionSaveService.txRef(uid).doc(txId), {
         'amount': amount,
         'date': Timestamp.fromDate(effectiveDate),
         'effectiveDate': FinanceLineOpening.effectiveTimestampForWrite(date: effectiveDate),
@@ -362,7 +362,7 @@ class GoalDepositService {
     final txId = (data['transactionId'] ?? '').toString().trim();
 
     if (deleteLinkedTransaction && txId.isNotEmpty && uid != null) {
-      await TransactionSaveService.txRef(uid).doc(txId).delete();
+      await YahwehDocWrite.delete(TransactionSaveService.txRef(uid).doc(txId));
     }
 
     await YahwehDocWrite.delete(contribDoc.reference);

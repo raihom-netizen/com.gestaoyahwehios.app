@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/storage_upload_metadata.dart';
+import 'package:gestao_yahweh/core/constants/yahweh_storage.dart';
 import 'package:gestao_yahweh/services/church_tenant_media_service.dart';
 import 'package:gestao_yahweh/services/upload_storage_task.dart';
 import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
@@ -113,7 +114,12 @@ Future<String> uploadStoragePutFileWithRetry({
       );
       onProgress?.call(1);
       ChurchTenantMediaActivity.recordUpload(storagePath);
-      return await storageDownloadUrlOrNull(snap.ref) ?? '';
+      // Nunca devolver '' com os bytes já no bucket: o chamador trataria como
+      // upload falhado e descartaria a foto/vídeo. URL canónica a partir do
+      // path (objetos de mídia da igreja são de leitura pública).
+      final url = await storageDownloadUrlOrNull(snap.ref);
+      if (url != null && url.isNotEmpty) return url;
+      return YahwehStorage.downloadUrlForObjectPath(storagePath);
     } catch (e) {
       lastError = e;
       final canceled = e.toString().toLowerCase().contains('cancel');

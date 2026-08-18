@@ -2,6 +2,7 @@
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/receitas_recorrentes_geracao_service.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Id determin├¡stico do lan├ºamento gerado por despesa fixa + compet├¬ncia.
 String idLancamentoDespesaFixa(String despesaFixaId, String competencia) =>
@@ -118,7 +119,7 @@ Future<int> gerarDespesasFixasPendentes(String tenantId) async {
           final fn = (m['fornecedorNome'] ?? '').toString().trim();
           if (fn.isNotEmpty) base['fornecedorNome'] = fn;
         }
-        await ref.set(base);
+        await YahwehDocWrite.set(ref, base, merge: false);
         criados++;
       }
       cursor = DateTime(cursor.year, cursor.month + 1, 1);

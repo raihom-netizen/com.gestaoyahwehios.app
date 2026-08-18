@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -537,7 +538,7 @@ class _CadastrarGestorDialogState extends State<_CadastrarGestorDialog> {
             Timestamp.fromDate(_dataNascimento!);
       }
       await FirestoreWebGuard.runWithWebRecovery(
-        () => ref.set(update, SetOptions(merge: true)),
+        () => YahwehDocWrite.set(ref, update),
       );
       if (!mounted) return;
       Navigator.pop(context, true);

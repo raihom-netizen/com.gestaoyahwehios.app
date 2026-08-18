@@ -1,5 +1,6 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/finance_transaction_status_resolver.dart';
@@ -289,7 +290,7 @@ abstract final class FinanceCalendarBridge {
   /// Confirma pagamento/recebimento de um lançamento (status → 'paid').
   static Future<bool> confirmTransaction(String uid, String docId) async {
     try {
-      await _txCol(uid).doc(docId).update({
+      await YahwehDocWrite.update(_txCol(uid).doc(docId), {
         'status': 'paid',
         'paidAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -312,7 +313,7 @@ abstract final class FinanceCalendarBridge {
     try {
       final snap = await _txCol(uid).doc(docId).get();
       final txData = snap.data() ?? {};
-      await _txCol(uid).doc(docId).delete();
+      await YahwehDocWrite.delete(_txCol(uid).doc(docId));
       await _markFixedMonthExcluded(uid, txData);
       // Garante paridade Agenda ↔ Financeiro na hora.
       FinanceMonthCache.clearUid(uid);

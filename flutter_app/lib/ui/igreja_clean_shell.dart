@@ -963,8 +963,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     final destino = (alvo ?? _forceCanonicalTenantId(widget.tenantId)).trim();
     final canonical = ChurchPanelTenant.resolve(destino);
 
-    // 1) Reapontar o contexto global — é dele que saem nome da igreja,
-    //    caminhos e o churchId que cada módulo usa nas consultas.
+    // Sessão da igreja anterior TEM de morrer: nome no cabeçalho, doc da
+    // igreja e caches de módulo. Sem isto o painel trocava de ID mas seguia
+    // mostrando os dados da igreja de origem.
+    ChurchContextService.clear();
     if (canonical.isNotEmpty) {
       ChurchContextService.bindPanelIdImmediate(
         seed: destino,
@@ -973,9 +975,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       );
     }
 
-    // 2) Derrubar o doc da igreja e TODOS os módulos já montados: sem isto o
-    //    cabeçalho continuava com o nome da igreja antiga e os módulos
-    //    mostravam os dados que já estavam em memória.
     setState(() {
       _operationalTenantId = canonical.isEmpty ? null : canonical;
       _lastGoodTenantDoc = null;
@@ -987,7 +986,6 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _tenantResolveComplete = false;
     });
 
-    // 3) Recarregar o doc da igreja destino e liberar os módulos.
     unawaited(
       _warmTenantDocFromLocalCacheFirst().whenComplete(() {
         if (!mounted) return;

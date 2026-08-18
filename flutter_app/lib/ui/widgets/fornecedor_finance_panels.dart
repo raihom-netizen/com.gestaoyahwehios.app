@@ -1,4 +1,5 @@
 import 'dart:async' show unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -1804,10 +1805,10 @@ class _FornecedorLancamentosGridSheetState
     try {
       if (isEntrada) {
         final atual = data['recebimentoConfirmado'] != false;
-        await doc.reference.update({'recebimentoConfirmado': !atual});
+        await YahwehDocWrite.update(doc.reference, {'recebimentoConfirmado': !atual});
       } else {
         final atual = data['pagamentoConfirmado'] != false;
-        await doc.reference.update({'pagamentoConfirmado': !atual});
+        await YahwehDocWrite.update(doc.reference, {'pagamentoConfirmado': !atual});
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

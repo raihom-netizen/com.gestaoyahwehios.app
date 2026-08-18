@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/services/church_functions_service.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -40,6 +41,54 @@ abstract final class AdminFeedFirestoreBridge {
     return msg.contains('INTERNAL ASSERTION') ||
         msg.contains('WatchChangeAggregator') ||
         msg.contains('PersistentListenStream');
+  }
+
+  /// Converte um payload de publicação (com `FieldValue` cru) num [RestWrite].
+  ///
+  /// `FieldValue.delete()` tem de sair para `deleteFields`: o encoder REST
+  /// converte QUALQUER `FieldValue` em timestamp, e um delete viraria uma data.
+  static RestWrite _restWriteFor(String docPath, Map<String, dynamic> data) {
+    final setFields = <String, dynamic>{};
+    final serverTs = <String>[];
+    final deletes = <String>[];
+    for (final e in data.entries) {
+      final v = e.value;
+      if (v is FieldValue) {
+        if (v == FieldValue.delete() ||
+            v.toString().toLowerCase().contains('delete')) {
+          deletes.add(e.key);
+        } else if (v == FieldValue.serverTimestamp()) {
+          serverTs.add(e.key);
+        }
+        // Outros sentinels (increment/array*) não ocorrem em publicação —
+        // descartar é melhor do que gravar lixo.
+        continue;
+      }
+      setFields[e.key] = v;
+    }
+    return RestWrite.update(
+      docPath,
+      setFields: setFields,
+      serverTimestamp: serverTs,
+      deleteFields: deletes,
+    );
+  }
+
+  /// Grava por REST (`:commit`). Devolve `true` quando o documento ficou gravado.
+  ///
+  /// É a cura do assert interno do SDK web: o canal REST não usa o cliente
+  /// Firestore, por isso funciona mesmo com o SDK envenenado. Sem isto a
+  /// publicação só tinha SDK → Cloud Function, e quando ambos falhavam o post
+  /// era perdido em silêncio (evento com vídeo já no Storage e sem documento).
+  static Future<bool> _restUpsert(String docPath, Map<String, dynamic> data) async {
+    try {
+      await firestoreRestCommit([_restWriteFor(docPath, data)]);
+      debugPrint('AdminFeedFirestoreBridge: REST OK $docPath');
+      return true;
+    } catch (restError) {
+      debugPrint('AdminFeedFirestoreBridge: REST falhou $docPath: $restError');
+      return false;
+    }
   }
 
   static dynamic encodeValue(dynamic value) {
@@ -119,6 +168,7 @@ abstract final class AdminFeedFirestoreBridge {
         );
         return;
       } catch (directError) {
+        if (await _restUpsert('igrejas/${churchId.trim()}', data)) return;
         if (!_shouldFallbackToCf(directError)) {
           debugPrint(
             'AdminFeedFirestoreBridge: direct church root falhou: $directError',
@@ -177,6 +227,20 @@ abstract final class AdminFeedFirestoreBridge {
         onProgress?.call(0.94);
         return;
       } catch (directError) {
+        // REST primeiro — não depende do cliente Firestore, por isso resolve
+        // exatamente o caso em que o SDK web está inutilizável.
+        final restPath = <String>[
+          'igrejas',
+          churchId.trim(),
+          collection,
+          docId,
+          if ((subCollection ?? '').isNotEmpty) subCollection!,
+          if ((subDocId ?? '').isNotEmpty) subDocId!,
+        ].join('/');
+        if (await _restUpsert(restPath, data)) {
+          onProgress?.call(0.94);
+          return;
+        }
         if (!_shouldFallbackToCf(directError)) {
           debugPrint(
             'AdminFeedFirestoreBridge: direct falhou ($collection/$docId): $directError',

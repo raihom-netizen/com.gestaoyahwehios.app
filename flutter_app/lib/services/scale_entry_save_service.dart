@@ -1,6 +1,7 @@
 ﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 
 import 'package:gestao_yahweh/utils/connectivity_offline.dart';
@@ -104,16 +105,16 @@ class ScaleEntrySaveService {
     for (final item in slice) {
       try {
         final op = item.isUpdate
-            ? item.ref.update(item.data)
-            : item.ref.set(item.data);
+            ? YahwehDocWrite.update(item.ref, item.data)
+            : YahwehDocWrite.set(item.ref, item.data, merge: false);
         await op.timeout(localWait);
       } on TimeoutException {
         unawaited(
-          item.isUpdate ? item.ref.update(item.data) : item.ref.set(item.data),
+          item.isUpdate ? YahwehDocWrite.update(item.ref, item.data) : YahwehDocWrite.set(item.ref, item.data, merge: false),
         );
       } catch (_) {
         unawaited(
-          item.isUpdate ? item.ref.update(item.data) : item.ref.set(item.data),
+          item.isUpdate ? YahwehDocWrite.update(item.ref, item.data) : YahwehDocWrite.set(item.ref, item.data, merge: false),
         );
       }
     }

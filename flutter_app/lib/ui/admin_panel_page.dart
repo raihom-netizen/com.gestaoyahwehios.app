@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'admin_multi_admin_page.dart';
 import 'admin_suporte_page.dart';
@@ -2015,7 +2016,7 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
       } else if (_plano == 'free' && _dataTeste != null) {
         data['trialEndsAt'] = Timestamp.fromDate(_dataTeste!);
       }
-      await ref.set(data);
+      await YahwehDocWrite.set(ref, data, merge: false);
       if (!mounted) return;
       Navigator.pop(context, true);
       ScaffoldMessenger.of(context).showSnackBar(

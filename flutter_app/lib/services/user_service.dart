@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/utils/admin_user_search.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 class UserService {
   final FirebaseFirestore _db = firebaseDefaultFirestore;
@@ -32,7 +33,7 @@ class UserService {
         'status': 'active',
       };
 
-      await ref.set(data);
+      await YahwehDocWrite.set(ref, data, merge: false);
       return data;
     }
 
@@ -41,12 +42,12 @@ class UserService {
     if (data['trialStart'] == null || data['trialEnd'] == null) {
       final now = DateTime.now();
       final trialEnd = now.add(const Duration(days: 30));
-      await ref.set({
+      await YahwehDocWrite.set(ref, {
         'trialStart': Timestamp.fromDate(now),
         'trialEnd': Timestamp.fromDate(trialEnd),
         'plan': data['plan'] ?? 'trial',
         'status': data['status'] ?? 'active',
-      }, SetOptions(merge: true));
+      });
 
       final refreshed = await ref.get();
       return refreshed.data() ?? {};
@@ -56,9 +57,9 @@ class UserService {
   }
 
   Future<void> markOnboardingDone(String uid) async {
-    await _db.collection('users').doc(uid).set({
+    await YahwehDocWrite.set(_db.collection('users').doc(uid), {
       'onboardingCompleted': true,
       'onboardingAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 }

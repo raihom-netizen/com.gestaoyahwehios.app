@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -1804,13 +1805,11 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
     }
 
     try {
-      await doc.reference.update(
-        EscalaMemberPayload.buildConfirmationUpdates(
+      await YahwehDocWrite.update(doc.reference, Map<String, dynamic>.from(EscalaMemberPayload.buildConfirmationUpdates(
           member: member,
           status: status,
           motivo: motivo,
-        ),
-      );
+        )),);
     } on FirebaseException catch (e) {
       if (!mounted) return;
       setState(() {

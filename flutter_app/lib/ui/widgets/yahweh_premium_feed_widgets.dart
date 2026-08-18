@@ -24,6 +24,7 @@ export 'package:gestao_yahweh/core/noticia_share_utils.dart'
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaDisplayVideoThumbnailUrl,
+        eventNoticiaDocHasPlayableVideo,
         eventNoticiaExternalVideoUrl,
         eventNoticiaHostedVideoPlayUrl,
         eventNoticiaPhotoUrls,
@@ -421,6 +422,8 @@ Future<void> shareChurchNoticiaForOgPreview({
     churchData: data.isNotEmpty ? data : null,
     postInstagramUrl: (data['instagramUrl'] ?? '').toString(),
     postVideoUrl: eventNoticiaExternalVideoUrl(data),
+    photoCount: eventNoticiaPhotoUrls(postFirestore ?? data).length,
+    hasVideo: eventNoticiaDocHasPlayableVideo(postFirestore ?? data),
   );
 
   if (postFirestore != null) {

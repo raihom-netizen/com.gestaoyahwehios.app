@@ -38,6 +38,18 @@ class ChurchSchedulesLoadResult {
       MergedFirestoreQuerySnapshot(docs);
 
   bool get isEmpty => docs.isEmpty;
+
+  /// Leitura que veio mesmo do servidor — não de RAM/Hive nem de falha.
+  ///
+  /// Uma lista VAZIA só pode apagar o cache e a lista do ecrã quando é
+  /// autoritativa; se não, uma falha de rede limparia os modelos do painel.
+  bool get isAuthoritative =>
+      (softError ?? '').trim().isEmpty &&
+      const {
+        'direct_list',
+        'firestore_mem',
+        'fallback_filter',
+      }.contains(readSource);
 }
 
 /// Carga canónica — `igrejas/{churchId}/escalas` e `escala_templates`.
@@ -868,7 +880,16 @@ abstract final class ChurchSchedulesLoadService {
       _templateSortKey(a.data()).compareTo(_templateSortKey(b.data()));
 
   static Future<void> persistEscalas(ChurchSchedulesLoadResult result) async {
-    if (result.docs.isEmpty || result.collection != ChurchDataPaths.escalas) {
+    if (result.collection != ChurchDataPaths.escalas) return;
+    if (result.docs.isEmpty) {
+      if (!result.isAuthoritative) return;
+      invalidateRam(result.churchId);
+      try {
+        await TenantModuleHiveCache.clearModule(
+          result.churchId,
+          TenantModuleKeys.escalas,
+        );
+      } catch (_) {}
       return;
     }
     final key = cacheKeyEscalas(
@@ -886,8 +907,19 @@ abstract final class ChurchSchedulesLoadService {
   }
 
   static Future<void> persistTemplates(ChurchSchedulesLoadResult result) async {
-    if (result.docs.isEmpty ||
-        result.collection != ChurchDataPaths.escalaTemplates) {
+    if (result.collection != ChurchDataPaths.escalaTemplates) return;
+    if (result.docs.isEmpty) {
+      // Sem esta limpeza o último modelo apagado ficava PARA SEMPRE no Hive:
+      // o servidor devolvia vazio, o vazio não era gravado, e o próximo
+      // arranque ressuscitava o modelo excluído.
+      if (!result.isAuthoritative) return;
+      invalidateRam(result.churchId);
+      try {
+        await TenantModuleHiveCache.clearModule(
+          result.churchId,
+          kTemplatesHiveModule,
+        );
+      } catch (_) {}
       return;
     }
     final key = cacheKeyTemplates(

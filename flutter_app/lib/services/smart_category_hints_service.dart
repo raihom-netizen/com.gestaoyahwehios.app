@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'bank_notification_parser.dart';
@@ -294,12 +295,12 @@ abstract final class SmartCategoryHintsService {
     final cat = category.trim();
     if (frag.length < 3 || cat.length < 2) return;
 
-    await _ref(uid).set({
+    await YahwehDocWrite.set(_ref(uid), {
       'learned': FieldValue.arrayUnion([
         {'fragment': frag.length > 80 ? frag.substring(0, 80) : frag, 'category': cat},
       ]),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
     invalidateHintsCache(uid);
   }
 }

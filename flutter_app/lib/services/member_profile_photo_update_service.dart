@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -742,7 +743,7 @@ class MemberProfilePhotoUpdateService {
       data: patch,
       isNewDoc: false,
       directWrite: () => runFirestorePublishWithRecovery(
-        () => docRef.set(patch, SetOptions(merge: true)),
+        () => YahwehDocWrite.set(docRef, patch),
         maxAttempts: 4,
         criticalWrite: true,
       ),
@@ -798,7 +799,7 @@ class MemberProfilePhotoUpdateService {
     unawaited(() async {
       if (authUid.isNotEmpty) {
         try {
-          await firebaseDefaultFirestore.collection('users').doc(authUid).set({
+          await YahwehDocWrite.set(firebaseDefaultFirestore.collection('users').doc(authUid), {
             'fotoUrl': FieldValue.delete(),
             'photoUrl': FieldValue.delete(),
             'fotoThumbUrl': FieldValue.delete(),
@@ -808,7 +809,7 @@ class MemberProfilePhotoUpdateService {
             'fotoPath': FieldValue.delete(),
             'fotoThumbPath': FieldValue.delete(),
             'fotoUrlCacheRevision': revision,
-          }, SetOptions(merge: true));
+          });
         } catch (e, st) {
           YahwehFlowLog.error('MEMBROS', e, st);
         }

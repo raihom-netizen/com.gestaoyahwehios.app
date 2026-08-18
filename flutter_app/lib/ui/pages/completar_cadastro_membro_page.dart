@@ -1,4 +1,5 @@
 import 'dart:async' show unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -257,7 +258,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
               newEmailTrim.toLowerCase() &&
           newEmailTrim.contains('@');
 
-      await memberRef.set({
+      await YahwehDocWrite.set(memberRef, {
         'alias': alias.isEmpty ? tid : alias,
         'slug': slug.isEmpty ? tid : slug,
         'tenantId': widget.tenantId,
@@ -280,7 +281,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
         'FILIACAO_MAE': _filiacaoMaeCtrl.text.trim(),
         'FILIACAO': _buildFiliacaoLegado(_filiacaoPaiCtrl.text.trim(), _filiacaoMaeCtrl.text.trim()),
         'ATUALIZADO_EM': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
 
       var authRecreatedAfterEmail = false;
       if (uid != null && emailChangedForAuth) {
@@ -336,7 +337,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
       }
 
       if (uid != null && !authRecreatedAfterEmail) {
-        await firebaseDefaultFirestore.collection('users').doc(uid).update({
+        await YahwehDocWrite.update(firebaseDefaultFirestore.collection('users').doc(uid), {
           'mustCompleteRegistration': false,
           'name': _nameCtrl.text.trim(),
           'nome': _nameCtrl.text.trim(),

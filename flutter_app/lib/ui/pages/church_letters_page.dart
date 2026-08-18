@@ -1,4 +1,5 @@
 import 'dart:async' show Timer, unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -1418,12 +1419,12 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       }
       final ref = ChurchUiCollections.config(churchId).doc('cartas');
       await FirestoreWebGuard.runWithWebRecovery(
-        () => ref.set({
+        () => YahwehDocWrite.set(ref, {
           'modeloApresentacao': _tplApresentacaoCtrl.text,
           'modeloTransferencia': _tplTransferCtrl.text,
           'modeloAgradecimento': _tplAgradecimentoCtrl.text,
           'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true)),
+        }),
         maxAttempts: 4,
       );
       if (mounted && showSnackOnSuccess) {
@@ -1836,7 +1837,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
     );
     if (ok != true) return;
     try {
-      await doc.reference.delete();
+      await YahwehDocWrite.delete(doc.reference);
       if (mounted) {
         setState(() => _historicoStreamGen++);
         ScaffoldMessenger.of(

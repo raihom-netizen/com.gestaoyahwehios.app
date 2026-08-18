@@ -3,6 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Categorias de receita padrão para igrejas (seed único na primeira abertura).
 const kCategoriasReceitaPadraoIgreja = <String>[
@@ -82,7 +83,7 @@ abstract final class FinanceChurchBootstrapService {
 
       for (final preset in _kContasPadraoIgreja) {
         await FirestoreWebGuard.runWithWebRecovery(
-          () => col.doc(preset.docId).set({
+          () => YahwehDocWrite.set(col.doc(preset.docId), {
             'nome': preset.nome,
             'bancoCodigo': '',
             'bancoNome': '',
@@ -94,7 +95,7 @@ abstract final class FinanceChurchBootstrapService {
             'seedPreset': preset.seedPreset,
             'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true)),
+          }),
           maxAttempts: 4,
         );
       }

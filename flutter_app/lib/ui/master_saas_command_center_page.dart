@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -273,14 +274,14 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
           .where((s) => s.isNotEmpty)
           .toList();
       final op = ChurchPanelTenantGateway.churchId(tenantId.trim());
-      await ChurchUiCollections.churchDoc(op).set({
+      await YahwehDocWrite.set(ChurchUiCollections.churchDoc(op), {
         'saas': {
           'authorizedDomains': list,
           'integrationNotes': notesCtrl.text.trim(),
           'mapsApiKey': mapsKeyCtrl.text.trim(),
           'updatedAt': FieldValue.serverTimestamp(),
         },
-      }, SetOptions(merge: true));
+      });
       await _audit('saas_white_label_update', 'tenant=$tenantId domains=${list.length}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -295,10 +296,10 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
 
   Future<void> _setSaasTier(String tenantId, String tier) async {
     final op = ChurchPanelTenantGateway.churchId(tenantId.trim());
-    await ChurchUiCollections.churchDoc(op).set({
+    await YahwehDocWrite.set(ChurchUiCollections.churchDoc(op), {
       'saasTier': tier,
       'saas': {'tier': tier, 'updatedAt': FieldValue.serverTimestamp()},
-    }, SetOptions(merge: true));
+    });
     await _audit('saas_tier_change', 'tenant=$tenantId tier=$tier');
     if (mounted) setState(() {});
   }

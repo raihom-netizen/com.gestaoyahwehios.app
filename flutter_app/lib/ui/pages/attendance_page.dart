@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -733,7 +734,7 @@ class _AttendancePageState extends State<AttendancePage> {
 
     await FirebaseAuth.instance.currentUser?.getIdToken(true);
     if (editing) {
-      await doc.reference.update(payload);
+      await YahwehDocWrite.update(doc.reference, payload);
     } else {
       payload['createdAt'] = FieldValue.serverTimestamp();
       await _cultos.add(payload);
@@ -837,7 +838,7 @@ class _AttendancePageState extends State<AttendancePage> {
     TenantDeletedDocTombstones.mark(tenantId, 'cultos', [docId]);
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      await doc.reference.delete();
+      await YahwehDocWrite.delete(doc.reference);
     } catch (_) {
       TenantDeletedDocTombstones.unmark(tenantId, 'cultos', docId);
       rethrow;

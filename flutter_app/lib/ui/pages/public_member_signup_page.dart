@@ -1,4 +1,5 @@
 import 'dart:async' show Timer, unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -1424,7 +1425,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       } else if (_editModeAfterSubmit) {
         final updateData = Map<String, dynamic>.from(data);
         updateData.remove('CRIADO_EM');
-        await ref.update(updateData);
+        await YahwehDocWrite.update(ref, updateData);
       } else {
         final codigoMembro = await MemberCodigoService.allocateNext(_tenantId!);
         data.addAll(MemberCodigoService.fieldsForFirestore(codigoMembro));
@@ -1435,10 +1436,10 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
             docId: ref.id,
             data: data,
             isNewDoc: true,
-            directWrite: () => ref.set(data),
+            directWrite: () => YahwehDocWrite.set(ref, data, merge: false),
           );
         } else {
-          await ref.set(data);
+          await YahwehDocWrite.set(ref, data, merge: false);
         }
         if (_tenantId != null && _tenantId!.trim().isNotEmpty) {
           unawaited(

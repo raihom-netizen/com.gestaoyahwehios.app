@@ -1,6 +1,7 @@
 ﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:gestao_yahweh/models/scale_entry.dart';
 import 'package:gestao_yahweh/utils/agenda_delivery_reset.dart';
@@ -335,7 +336,7 @@ class ExpressCompromissoAgendaSync {
       );
     }
     try {
-      await _reminders(userDocId).doc(reminderId).delete();
+      await YahwehDocWrite.delete(_reminders(userDocId).doc(reminderId));
     } catch (_) {}
     await AgendaScaleMirrorService.delete(
       userDocId: userDocId,

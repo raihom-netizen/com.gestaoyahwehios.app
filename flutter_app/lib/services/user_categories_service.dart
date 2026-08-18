@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/constants/default_categories.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Categorias de receita/despesa do Financeiro: padrão + customizadas **por
 /// igreja** (`igrejas/{churchId}/config/finance_categorias`), compartilhadas
@@ -152,11 +153,11 @@ class UserCategoriesService {
     if (list.any((c) => c.toLowerCase() == can.toLowerCase())) return;
     list.add(can);
     list.sort((a, b) => _sortKeyPt(a).compareTo(_sortKeyPt(b)));
-    await _ref(uid).set({
+    await YahwehDocWrite.set(_ref(uid), {
       ...data,
       key: list,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   /// Traz de volta um nome padrão oculto.
@@ -172,11 +173,11 @@ class UserCategoriesService {
         .where((c) => c.toLowerCase() != can.toLowerCase())
         .toList();
     if (out.length == list.length) return;
-    await _ref(uid).set({
+    await YahwehDocWrite.set(_ref(uid), {
       ...data,
       key: out,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   List<String> _listFrom(dynamic v) {
@@ -218,11 +219,11 @@ class UserCategoriesService {
       'updatedAt': FieldValue.serverTimestamp(),
     };
     if (snap.exists) {
-      await _ref(uid).update(payload);
+      await YahwehDocWrite.update(_ref(uid), payload);
     } else {
       final otherKey = isIncome ? 'expense' : 'income';
       payload[otherKey] = [];
-      await _ref(uid).set(payload);
+      await YahwehDocWrite.set(_ref(uid), payload, merge: false);
     }
   }
 
@@ -244,11 +245,11 @@ class UserCategoriesService {
         .toList();
     if (updated.length == current.length) return;
 
-    await _ref(uid).set({
+    await YahwehDocWrite.set(_ref(uid), {
       ...data,
       key: updated,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   /// Renomeia categoria customizada. Padrão do app: use [hideDefault] + [addCustom].
@@ -280,10 +281,10 @@ class UserCategoriesService {
         .map((c) => c.toLowerCase() == o.toLowerCase() ? t : c)
         .toList();
     next.sort((a, b) => _sortKeyPt(a).compareTo(_sortKeyPt(b)));
-    await _ref(uid).set({
+    await YahwehDocWrite.set(_ref(uid), {
       ...data,
       key: next,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 }

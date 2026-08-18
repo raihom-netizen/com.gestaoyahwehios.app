@@ -6,6 +6,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:gestao_yahweh/ui/widgets/home_start_module_picker.dart';
 import 'app_session_cache.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Campo em `users/{uid}/settings/planning` — início da semana no calendário.
 const String kCalendarWeekStartsOnSundayField = 'calendarWeekStartsOnSunday';
@@ -241,10 +242,10 @@ class ScalesCalendarWeekStartPrefs {
   }) async {
     try {
       await FirestoreSessionGuard.runWithAuthRetry(() async {
-        await homePlanningRef(uid).set({
+        await YahwehDocWrite.set(homePlanningRef(uid), {
           kCalendarWeekStartsOnSundayField: startsOnSunday,
           'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        });
       });
     } catch (e, st) {
       debugPrint('ScalesCalendarWeekStartPrefs.save: $e\n$st');

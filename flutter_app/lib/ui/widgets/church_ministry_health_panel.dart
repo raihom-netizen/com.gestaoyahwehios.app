@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -2490,7 +2491,7 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
     if (kIsWeb) {
       await firestoreRestDeleteDoc(doc.reference.path);
     } else {
-      await doc.reference.delete();
+      await YahwehDocWrite.delete(doc.reference);
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2517,7 +2518,7 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
         setFields: {field: !atual, 'updatedAt': FieldValue.serverTimestamp()},
       );
     } else {
-      await doc.reference.update({field: !atual});
+      await YahwehDocWrite.update(doc.reference, {field: !atual});
     }
     await _afterMutation();
   }

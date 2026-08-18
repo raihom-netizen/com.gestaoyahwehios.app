@@ -1,6 +1,7 @@
 ﻿import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:flutter/material.dart' hide showDatePicker;
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
@@ -704,7 +705,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
           deleteFields: deleteKeys,
         );
       } else {
-        await txRef.update(updateData);
+        await YahwehDocWrite.update(txRef, updateData);
       }
 
       final goalId = (current['goalId'] ?? '').toString().trim();

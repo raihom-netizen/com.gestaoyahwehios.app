@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/church_publish_state.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show firebaseStorageObjectPathFromHttpUrl;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Verificação obrigatória pós-gravação de avisos — evita falso sucesso.
 abstract final class AvisosPublishVerificationService {
@@ -51,7 +52,7 @@ abstract final class AvisosPublishVerificationService {
   static Future<void> ensureDraft(
     DocumentReference<Map<String, dynamic>> docRef,
   ) async {
-    await docRef.set(ChurchPublishState.draftPatch(), SetOptions(merge: true));
+    await YahwehDocWrite.set(docRef, ChurchPublishState.draftPatch());
   }
 
   /// Garante path `igrejas/{igrejaId}/avisos/{docId}` — proíbe coleções legadas.

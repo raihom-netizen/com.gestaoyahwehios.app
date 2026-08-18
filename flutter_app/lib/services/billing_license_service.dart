@@ -1,5 +1,6 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -50,7 +51,7 @@ class BillingLicenseService {
         final dt = existing.toDate();
         if (dt.isAfter(DateTime.now())) base = dt;
       }
-      await ref.update({
+      await YahwehDocWrite.update(ref, {
         'licenseExpiresAt': Timestamp.fromDate(base.add(Duration(days: dias))),
         'status': 'ativa',
         'updatedAt': _tsNow(),
@@ -66,7 +67,7 @@ class BillingLicenseService {
     }
     await _runLicenseWrite(() async {
       final op = await ChurchOperationalPaths.resolveCached(igrejaId);
-      await ChurchOperationalPaths.churchDoc(op).update({
+      await YahwehDocWrite.update(ChurchOperationalPaths.churchDoc(op), {
         'plano': plan,
         'status': 'ativa',
         'updatedAt': _tsNow(),
@@ -79,7 +80,7 @@ class BillingLicenseService {
   Future<void> removerIgreja(String igrejaId) async {
     await _runLicenseWrite(() async {
       final op = await ChurchOperationalPaths.resolveCached(igrejaId);
-      await ChurchOperationalPaths.churchDoc(op).update({
+      await YahwehDocWrite.update(ChurchOperationalPaths.churchDoc(op), {
         'status': 'inativa',
         'updatedAt': _tsNow(),
         'removedByAdminAt': _tsNow(),
@@ -96,7 +97,7 @@ class BillingLicenseService {
   Future<void> reativarIgreja(String igrejaId) async {
     await _runLicenseWrite(() async {
       final op = await ChurchOperationalPaths.resolveCached(igrejaId);
-      await ChurchOperationalPaths.churchDoc(op).update({
+      await YahwehDocWrite.update(ChurchOperationalPaths.churchDoc(op), {
         'status': 'ativa',
         'updatedAt': _tsNow(),
         'removedByAdminAt': FieldValue.delete(),
@@ -149,18 +150,18 @@ class BillingLicenseService {
           date.add(const Duration(days: AppConstants.subscriptionGraceDays)),
         );
       }
-      await ref.set(patch, SetOptions(merge: true));
+      await YahwehDocWrite.set(ref, patch);
     });
   }
 
   Future<void> removerTenant(String tenantId) async {
     await _runLicenseWrite(() async {
       final op = await ChurchOperationalPaths.resolveCached(tenantId);
-      await ChurchOperationalPaths.churchDoc(op).set({
+      await YahwehDocWrite.set(ChurchOperationalPaths.churchDoc(op), {
         'status': 'inativa',
         'updatedAt': _tsNow(),
         'removedByAdminAt': _tsNow(),
-      }, SetOptions(merge: true));
+      });
     });
     try {
       await removerIgreja(tenantId);
@@ -170,11 +171,11 @@ class BillingLicenseService {
   Future<void> reativarTenant(String tenantId) async {
     await _runLicenseWrite(() async {
       final op = await ChurchOperationalPaths.resolveCached(tenantId);
-      await ChurchOperationalPaths.churchDoc(op).set({
+      await YahwehDocWrite.set(ChurchOperationalPaths.churchDoc(op), {
         'status': 'ativa',
         'updatedAt': _tsNow(),
         'removedByAdminAt': FieldValue.delete(),
-      }, SetOptions(merge: true));
+      });
     });
     try {
       await reativarIgreja(tenantId);
@@ -184,7 +185,7 @@ class BillingLicenseService {
   Future<void> excluirTenant(String tenantId) async {
     await _runLicenseWrite(() async {
       final op = await ChurchOperationalPaths.resolveCached(tenantId);
-      await ChurchOperationalPaths.churchDoc(op).delete();
+      await YahwehDocWrite.delete(ChurchOperationalPaths.churchDoc(op));
     });
   }
 
@@ -281,10 +282,10 @@ class BillingLicenseService {
           .limit(8)
           .get();
       for (final doc in snap.docs) {
-        await doc.reference.set({
+        await YahwehDocWrite.set(doc.reference, {
           'adminBlocked': blocked,
           'updatedAt': _tsNow(),
-        }, SetOptions(merge: true));
+        });
       }
     } catch (_) {}
   }
@@ -300,7 +301,7 @@ class BillingLicenseService {
           .limit(8)
           .get();
       for (final doc in snap.docs) {
-        await doc.reference.set({
+        await YahwehDocWrite.set(doc.reference, {
           'status': 'ACTIVE',
           'status_assinatura': 'active',
           'planId': 'free',
@@ -308,7 +309,7 @@ class BillingLicenseService {
           'isFree': true,
           'adminBlocked': adminBlocked,
           'updatedAt': _tsNow(),
-        }, SetOptions(merge: true));
+        });
       }
     } catch (_) {}
   }
@@ -348,7 +349,7 @@ class BillingLicenseService {
         });
       } else {
         for (final doc in snap.docs) {
-          await doc.reference.set(payload, SetOptions(merge: true));
+          await YahwehDocWrite.set(doc.reference, payload);
         }
       }
     } catch (_) {}
@@ -439,7 +440,7 @@ class BillingLicenseService {
     }
 
     await _runLicenseWrite(() async {
-      await ref.delete();
+      await YahwehDocWrite.delete(ref);
     });
 
     try {
@@ -467,7 +468,7 @@ class BillingLicenseService {
       }
       final novaData = base.add(Duration(days: dias));
       final ts = Timestamp.fromDate(novaData);
-      await ref.set({
+      await YahwehDocWrite.set(ref, {
         'licenseExpiresAt': ts,
         'expiresAt': ts,
         'data_vencimento': ts,
@@ -478,7 +479,7 @@ class BillingLicenseService {
         ),
         'status': 'ativa',
         'updatedAt': _tsNow(),
-      }, SetOptions(merge: true));
+      });
     });
   }
 
@@ -486,7 +487,7 @@ class BillingLicenseService {
 
   Future<void> removerUsuario(String uid) async {
     await _runLicenseWrite(() async {
-      await _db.collection('usuarios').doc(uid).update({
+      await YahwehDocWrite.update(_db.collection('usuarios').doc(uid), {
         'updatedAt': _tsNow(),
         'removedByAdminAt': _tsNow(),
       });
@@ -495,7 +496,7 @@ class BillingLicenseService {
 
   Future<void> reativarUsuario(String uid) async {
     await _runLicenseWrite(() async {
-      await _db.collection('usuarios').doc(uid).update({
+      await YahwehDocWrite.update(_db.collection('usuarios').doc(uid), {
         'updatedAt': _tsNow(),
         'removedByAdminAt': FieldValue.delete(),
       });

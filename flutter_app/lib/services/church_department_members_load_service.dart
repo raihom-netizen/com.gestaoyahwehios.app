@@ -115,13 +115,23 @@ abstract final class ChurchDepartmentMembersLoadService {
     return ids.contains(did);
   }
 
+  /// IDs de departamento da ficha do membro — **sem repetir**.
+  ///
+  /// Toda ficha guarda a MESMA lista em `DEPARTAMENTOS` e em
+  /// `departamentosIds` (compatibilidade). Este gerador concatenava as duas e
+  /// devolvia cada id DUAS vezes; como `_groupRowsByDepartment` faz um `add`
+  /// por id devolvido, cada membro entrava duplicado no departamento — era a
+  /// duplicação vista no hub (Maelly 2×, Maria Laura 2×, Paulo 2×…).
   static Iterable<String> departmentIdsFromMemberData(Map<String, dynamic> data) sync* {
+    final vistos = <String>{};
     for (final raw in [
       ...(data['DEPARTAMENTOS'] as List? ?? const []),
       ...(data['departamentosIds'] as List? ?? const []),
     ]) {
       final s = raw.toString().trim();
-      if (s.isNotEmpty) yield s;
+      if (s.isEmpty) continue;
+      if (!vistos.add(s)) continue;
+      yield s;
     }
   }
 

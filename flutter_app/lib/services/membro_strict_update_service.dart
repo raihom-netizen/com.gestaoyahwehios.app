@@ -138,14 +138,14 @@ abstract final class MembroStrictUpdateService {
     if (!before.exists) return;
 
     await runFirestorePublishWithRecovery(
-      () => docRef.delete(),
+      () => YahwehDocWrite.delete(docRef),
     );
 
     for (var attempt = 0; attempt < 4; attempt++) {
       final after = await docRef.get(const GetOptions(source: Source.server));
       if (!after.exists) return;
       await Future<void>.delayed(Duration(milliseconds: 120 + attempt * 160));
-      await runFirestorePublishWithRecovery(() => docRef.delete());
+      await runFirestorePublishWithRecovery(() => YahwehDocWrite.delete(docRef));
     }
     throw StateError(
       '$kDeleteVerifyFailedMessage (${docRef.path} ainda existe)',
@@ -311,7 +311,7 @@ abstract final class MembroStrictUpdateService {
     for (final uid in userIds) {
       try {
         await runFirestorePublishWithRecovery(
-          () => db.collection('users').doc(uid).delete(),
+          () => YahwehDocWrite.delete(db.collection('users').doc(uid)),
         );
       } catch (_) {}
       try {
@@ -323,7 +323,7 @@ abstract final class MembroStrictUpdateService {
       } catch (_) {}
       try {
         await runFirestorePublishWithRecovery(
-          () => ChurchUiCollections.tenantUsers(churchId).doc(uid).delete(),
+          () => YahwehDocWrite.delete(ChurchUiCollections.tenantUsers(churchId).doc(uid)),
         );
       } catch (_) {}
       try {
@@ -341,7 +341,7 @@ abstract final class MembroStrictUpdateService {
     if (cpf.length == 11) {
       try {
         await runFirestorePublishWithRecovery(
-          () => ChurchUiCollections.usersIndex(churchId).doc(cpf).delete(),
+          () => YahwehDocWrite.delete(ChurchUiCollections.usersIndex(churchId).doc(cpf)),
         );
       } catch (_) {}
     }
@@ -410,7 +410,7 @@ abstract final class MembroStrictUpdateService {
         if (existing.exists) {
           await YahwehDocWrite.update(docRef, payload);
         } else {
-          await docRef.set(payload, SetOptions(merge: true));
+          await YahwehDocWrite.set(docRef, payload);
         }
       },
     );

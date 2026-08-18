@@ -3,6 +3,7 @@ import 'package:gestao_yahweh/core/yahweh_church_profile_engine.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_statistics_snapshot_service.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Contadores agregados — evita `collection('membros').get().length`.
 ///
@@ -179,6 +180,6 @@ abstract final class ChurchAggregatedCountersService {
     if (departmentsDelta != 0) {
       patch['departmentsCount'] = FieldValue.increment(departmentsDelta);
     }
-    await ChurchOperationalPaths.churchDoc(id).set(patch, SetOptions(merge: true));
+    await YahwehDocWrite.set(ChurchOperationalPaths.churchDoc(id), patch);
   }
 }

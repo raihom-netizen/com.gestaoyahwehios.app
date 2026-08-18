@@ -24,6 +24,14 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 abstract final class EventoPublishService {
   EventoPublishService._();
 
+  /// Motivo da última falha de upload de vídeo, ou `null` quando correu bem.
+  ///
+  /// O vídeo NUNCA pode vetar a publicação: um evento com vídeo e sem fotos era
+  /// descartado por inteiro (título, data, local) quando o upload falhava — foi
+  /// o que apagou 7 de 7 eventos com vídeo nos logs. Agora o evento é sempre
+  /// gravado e a falha do vídeo fica aqui para a UI avisar o utilizador.
+  static String? lastVideoFailure;
+
   static String resolveChurchId(String tenantHint) =>
       ChurchRepository.churchId(tenantHint.trim());
 
@@ -70,10 +78,8 @@ abstract final class EventoPublishService {
     String? agendaColorHex,
     void Function(double progress)? onUploadProgress,
   }) async {
+    lastVideoFailure = null;
     final churchId = ChurchPublishContext.churchIdForPublish(tenantId);
-    final hasNewPhotos =
-        (newImagesBytes?.isNotEmpty ?? false) ||
-        (newImagePaths?.isNotEmpty ?? false);
     final localVideo = (localVideoPath ?? '').trim();
     final wantsVideoUpload = hasVideo && localVideo.isNotEmpty;
     // Pré-upload de fotos em paralelo com o vídeo só quando já há bytes prontos
@@ -116,11 +122,10 @@ abstract final class EventoPublishService {
             {'videoUrl': uploaded.videoUrl, 'thumbUrl': uploaded.thumbUrl},
           ];
           ChurchPublishFlowLog.uploadOk('evento video ${docRef.id}');
-        } else if (!hasNewPhotos && existingUrls.isEmpty) {
-          // Sem fotos e vídeo falhou: não há como publicar o evento.
-          throw StateError('Não foi possível enviar o vídeo do evento.');
         } else {
-          // Há fotos: publica como evento somente fotos (não aborta).
+          // Upload devolveu vazio: publica o evento à mesma (só texto/fotos).
+          lastVideoFailure =
+              'O vídeo não pôde ser enviado. O evento foi publicado sem ele.';
           ChurchPublishFlowLog.logCatch(
             StateError('video_upload_empty_fallback'),
             StackTrace.current,
@@ -128,14 +133,26 @@ abstract final class EventoPublishService {
           );
         }
       } catch (videoErr, videoSt) {
-        if (!hasNewPhotos && existingUrls.isEmpty) {
-          rethrow;
-        }
-        // Fotos existem: continua publicando sem o vídeo.
+        // Continua publicando sem o vídeo — com ou sem fotos. Perder o evento
+        // inteiro por causa do anexo era pior do que publicar sem ele.
+        lastVideoFailure = videoErr is StateError
+            ? videoErr.message
+            : 'Falha ao enviar o vídeo. O evento foi publicado sem ele.';
         ChurchPublishFlowLog.logCatch(
           videoErr,
           videoSt,
           label: 'evento_video_fallback_photo_only',
+        );
+        unawaited(
+          EventosPublishVerificationService.logPublishPhase(
+            phase: 'video_error',
+            igrejaId: churchId,
+            uid: '',
+            titulo: (corePayload['title'] ?? corePayload['titulo'] ?? '')
+                .toString(),
+            eventoId: docRef.id,
+            erro: videoErr,
+          ),
         );
       }
     }

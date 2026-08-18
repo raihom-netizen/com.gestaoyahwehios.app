@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Escritas Firestore simples (padrão Controle Total): merge + timestamps do servidor.
 abstract final class FirestoreSimpleWrite {
@@ -30,7 +31,7 @@ abstract final class FirestoreSimpleWrite {
     DocumentReference<Map<String, dynamic>> ref,
     Map<String, dynamic> data,
   ) async {
-    await ref.update(withServerTimestamps(data));
+    await YahwehDocWrite.update(ref, withServerTimestamps(data));
   }
 
   static Future<void> add(

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -44,9 +45,9 @@ abstract final class FornecedorCompromissoPublishService {
       directWrite: () => runFirestorePublishWithRecovery(
         () async {
           if (isNew) {
-            await docRef.set(data);
+            await YahwehDocWrite.set(docRef, data, merge: false);
           } else {
-            await docRef.update(payload);
+            await YahwehDocWrite.update(docRef, payload);
           }
         },
       ),
@@ -113,7 +114,7 @@ abstract final class FornecedorCompromissoPublishService {
         isNewDoc: false,
         useUpdate: true,
         directWrite: () => runFirestorePublishWithRecovery(
-          () => docRef.update(patch),
+          () => YahwehDocWrite.update(docRef, patch),
         ),
       );
       onProgress?.call(1.0);
@@ -226,7 +227,7 @@ abstract final class FornecedorCompromissoPublishService {
       data: clearPatch,
       isNewDoc: false,
       directWrite: () => runFirestorePublishWithRecovery(
-        () => docRef.set(clearPatch, SetOptions(merge: true)),
+        () => YahwehDocWrite.set(docRef, clearPatch),
         maxAttempts: 4,
         criticalWrite: true,
       ),

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -127,7 +128,7 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
     final op = ChurchRepository.churchId(widget.tenantId.trim());
     final ref =         ChurchUiCollections.escalas(op)
         .doc(scheduleDocId);
-    await ref.update({
+    await YahwehDocWrite.update(ref, {
       'confirmations.$cpfDigits': 'confirmado',
       'unavailabilityReasons.$cpfDigits': FieldValue.delete(),
     });
@@ -147,7 +148,7 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
     if (reason.trim().isNotEmpty) {
       payload['unavailabilityReasons.$cpfDigits'] = reason.trim();
     }
-    await ref.update(payload);
+    await YahwehDocWrite.update(ref, payload);
   }
 
   static String _photoUrlFromData(Map<String, dynamic> data) => imageUrlFromMap(data);

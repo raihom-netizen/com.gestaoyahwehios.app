@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -205,10 +206,10 @@ class _VeiculosPageState extends State<VeiculosPage> {
         );
         return;
       }
-      await FrotaFirestorePaths.veiculos().doc(placaId).set({
+      await YahwehDocWrite.set(FrotaFirestorePaths.veiculos().doc(placaId), {
         ...payload,
         'created_at': FieldValue.serverTimestamp(),
-      });
+      }, merge: false);
       await _atualizarVinculosVeiculo(
         placaAntiga: '',
         placaNova: placa,
@@ -235,7 +236,7 @@ class _VeiculosPageState extends State<VeiculosPage> {
         batch.delete(doc.reference);
         await batch.commit();
       } else {
-        await doc.reference.set(payload, SetOptions(merge: true));
+        await YahwehDocWrite.set(doc.reference as DocumentReference<Map<String, dynamic>>, payload);
       }
 
       await _atualizarVinculosVeiculo(
@@ -302,7 +303,7 @@ class _VeiculosPageState extends State<VeiculosPage> {
 
     if (confirmar != true) return;
 
-    await doc.reference.delete();
+    await YahwehDocWrite.delete(doc.reference as DocumentReference<Map<String, dynamic>>);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Veículo excluído.')),

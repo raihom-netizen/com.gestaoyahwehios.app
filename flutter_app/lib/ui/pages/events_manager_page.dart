@@ -1,4 +1,5 @@
 import 'dart:async' show Completer, TimeoutException, Timer, unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:convert';
 import 'dart:io' show File;
 import 'dart:math';
@@ -146,6 +147,7 @@ import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
 import 'package:gestao_yahweh/ui/widgets/premium_storage_video/premium_html_video_platform.dart'
     show buildPremiumHtmlVideo;
 import 'package:gestao_yahweh/ui/widgets/church_youtube/church_youtube_player_shell.dart';
+import 'package:gestao_yahweh/ui/widgets/church_post_media_carousel.dart';
 import 'package:gestao_yahweh/utils/youtube_url_helper.dart';
 import 'package:gestao_yahweh/ui/widgets/noticia_comments_bottom_sheet.dart';
 import 'package:gestao_yahweh/core/church_shell_nav_config.dart';
@@ -862,7 +864,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     _EventTemplatesRamCache.removeIds(tid, [docId]);
     _fixosTabKey.currentState?._removeTemplateLocally(docId);
     try {
-      await doc.reference.delete();
+      await YahwehDocWrite.delete(doc.reference);
       // Painel/site público servem cache próprio (RAM/disco) — sem isso o
       // evento fixo excluído continuava aparecendo até o TTL vencer.
       unawaited(PanelProgramacaoLoader.clear(tid));
@@ -2064,9 +2066,9 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     if (doc == null) {
       payload['createdAt'] = now;
       payload['createdByUid'] = firebaseDefaultAuth.currentUser?.uid ?? '';
-      await _templates.doc(stableTemplateId).set(payload);
+      await YahwehDocWrite.set(_templates.doc(stableTemplateId), payload, merge: false);
     } else {
-      await doc.reference.set(payload, SetOptions(merge: true));
+      await YahwehDocWrite.set(doc.reference, payload);
     }
     // Invalida cache da lista para a capa nova aparecer.
     _EventTemplatesRamCache.clear(churchId);
@@ -6066,6 +6068,8 @@ class _EventoPostState extends State<_EventoPost>
       churchSlug: links.resolvedSlug,
       postInstagramUrl: (data['instagramUrl'] ?? '').toString(),
       postVideoUrl: eventNoticiaExternalVideoUrl(data),
+      photoCount: eventNoticiaPhotoUrls(data).length,
+      hasVideo: eventNoticiaDocHasPlayableVideo(data),
     );
     if (!mounted) return;
     await showChurchNoticiaShareSheet(
@@ -6217,6 +6221,11 @@ class _EventoPostState extends State<_EventoPost>
       }
     }
     final hasVideoRow = useHostedPlayer || externalLaunchUrl.isNotEmpty;
+    final cardMediaItems = buildChurchPostMedia(
+      imageUrls: allImages,
+      hostedVideoUrl: useHostedPlayer ? hostedVideoUrl : externalLaunchUrl,
+      videoThumbUrl: displayVideoThumb,
+    );
 
     DateTime? eventDt;
     try {
@@ -6491,230 +6500,24 @@ class _EventoPostState extends State<_EventoPost>
                     },
                   ),
                 ),
-              if (hasImages)
-                GestureDetector(
-                  onDoubleTap: widget.selectionMode ? null : _onDoubleTap,
-                  onTap: !widget.selectionMode
-                      ? () => _openFullScreen(allImages)
-                      : null,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    clipBehavior: Clip.hardEdge,
-                    children: [
-                      if (allImages.length == 1)
-                        LayoutBuilder(
-                          builder: (context, c) {
-                            final w = c.maxWidth.isFinite && c.maxWidth > 0
-                                ? c.maxWidth
-                                : 400.0;
-                            final ar = postFeedCarouselAspectRatioForIndex(
-                              data,
-                              0,
-                              allImages.length,
-                            );
-                            final h = w / ar;
-                            final dpr = MediaQuery.devicePixelRatioOf(context);
-                            final memW = (w * dpr).round().clamp(64, 2048);
-                            final memH = (h * dpr).round().clamp(64, 2048);
-                            return AspectRatio(
-                              aspectRatio: ar,
-                              child: _buildEventFeedPhotoSlide(
-                                data: data,
-                                imageUrl: allImages[0],
-                                w: w,
-                                h: h,
-                                memW: memW,
-                                memH: memH,
-                                errorWidget: () => _eventImageErrorWithOverlay(
-                                  title: title,
-                                  dateStr: eventDateStr,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      if (allImages.length > 1)
-                        LayoutBuilder(
-                          builder: (context, c) {
-                            final w = c.maxWidth.isFinite && c.maxWidth > 0
-                                ? c.maxWidth
-                                : 400.0;
-                            final ar = postFeedCarouselAspectRatioForIndex(
-                              data,
-                              _carouselIndex,
-                              allImages.length,
-                            );
-                            final h = w / ar;
-                            return AspectRatio(
-                              aspectRatio: ar,
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  PageView.builder(
-                                    physics: const BouncingScrollPhysics(
-                                      parent: AlwaysScrollableScrollPhysics(),
-                                    ),
-                                    padEnds: false,
-                                    itemCount: allImages.length,
-                                    onPageChanged: (p) =>
-                                        setState(() => _carouselIndex = p),
-                                    itemBuilder: (_, idx) {
-                                      final dpr = MediaQuery.devicePixelRatioOf(
-                                        context,
-                                      );
-                                      final memW = (w * dpr).round().clamp(
-                                        64,
-                                        2048,
-                                      );
-                                      final memH = (h * dpr).round().clamp(
-                                        64,
-                                        2048,
-                                      );
-                                      return _buildEventFeedPhotoSlide(
-                                        data: data,
-                                        imageUrl: allImages[idx],
-                                        w: w,
-                                        h: h,
-                                        memW: memW,
-                                        memH: memH,
-                                        errorWidget: () =>
-                                            _eventImageErrorWithOverlay(
-                                              title: title,
-                                              dateStr: eventDateStr,
-                                            ),
-                                      );
-                                    },
-                                  ),
-                                  Positioned(
-                                    bottom: 44,
-                                    child: IgnorePointer(
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 6,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black45,
-                                          borderRadius: BorderRadius.circular(
-                                            20,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          'Arraste para ver ${allImages.length} fotos',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      if ((title.isNotEmpty || eventDateStr.isNotEmpty) &&
-                          !widget.selectionMode)
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          child: IgnorePointer(
-                            child: _EventMediaOverlayBar(
-                              title: title,
-                              dateStr: eventDateStr,
-                            ),
-                          ),
-                        ),
-                      AnimatedOpacity(
-                        opacity: _showHeart ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 200),
-                        child: const Icon(
-                          Icons.thumb_up_rounded,
-                          color: Colors.white,
-                          size: 80,
-                          shadows: [
-                            Shadow(blurRadius: 20, color: Colors.black38),
-                          ],
-                        ),
-                      ),
-                      if (allImages.length > 1)
-                        Positioned(
-                          bottom: 10,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: List.generate(
-                              allImages.length,
-                              (idx) => Container(
-                                width: idx == _carouselIndex ? 8 : 6,
-                                height: idx == _carouselIndex ? 8 : 6,
-                                margin: const EdgeInsets.symmetric(
-                                  horizontal: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: idx == _carouselIndex
-                                      ? ThemeCleanPremium.primary
-                                      : Colors.white60,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      if (!widget.selectionMode)
-                        Positioned(
-                          bottom: 10,
-                          right: 10,
-                          child: Material(
-                            color: Colors.black45,
-                            borderRadius: BorderRadius.circular(20),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: const [
-                                  Icon(
-                                    Icons.zoom_in_rounded,
-                                    color: Colors.white,
-                                    size: 16,
-                                  ),
-                                  SizedBox(width: 4),
-                                  Text(
-                                    'Ampliar',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              if (hasVideoRow)
+              // Fotos e vídeo no MESMO carrossel. Antes as fotos vinham num
+              // bloco e o vídeo noutro por baixo: quem via o card não percebia
+              // que havia vídeo, nem quantas fotos existiam.
+              if (cardMediaItems.isNotEmpty)
                 Padding(
-                  padding: EdgeInsets.only(
-                    top: hasImages ? 8 : 0,
-                    left: 4,
-                    right: 4,
-                  ),
-                  child: _EventVideoBlock(
-                    title: title,
-                    dateStr: eventDateStr,
-                    hostedVideoUrl: useHostedPlayer ? hostedVideoUrl : '',
-                    externalLaunchUrl: externalLaunchUrl,
-                    thumbUrl: displayVideoThumb,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: GestureDetector(
+                    onDoubleTap: widget.selectionMode ? null : _onDoubleTap,
+                    child: ChurchPostMediaCarousel(
+                      items: cardMediaItems,
+                      accent: ThemeCleanPremium.primary,
+                      borderRadius: ThemeCleanPremium.radiusLg,
+                      aspectRatio: 4 / 5,
+                      title: title,
+                    ),
                   ),
                 ),
+
               if (!hasImages &&
                   !hasVideoRow &&
                   (title.isNotEmpty || eventDateStr.isNotEmpty))
@@ -8349,7 +8152,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           patch['publishState'] = MuralFastPublishService.stateDraft;
           patch['publishError'] = FieldValue.delete();
         }
-        await _eventDocRef.set(patch, SetOptions(merge: true));
+        await YahwehDocWrite.set(_eventDocRef, patch);
       });
     } catch (_) {}
   }
@@ -10145,7 +9948,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           data: patch,
           isNewDoc: false,
           directWrite: () => runFirestorePublishWithRecovery(
-            () => _eventDocRef.set(patch, SetOptions(merge: true)),
+            () => YahwehDocWrite.set(_eventDocRef, patch),
             maxAttempts: 4,
             criticalWrite: true,
           ),
@@ -10739,6 +10542,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         if (!publishDone.isCompleted) publishDone.complete(true);
         EventosPublishVerificationService.clearLastError();
         _clearPendingEventPhotosAfterPublish();
+        // O evento já está gravado; se só o vídeo falhou, avisa sem o perder.
+        final videoFailure = EventoPublishService.lastVideoFailure;
+        if (videoFailure != null && videoFailure.isNotEmpty && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(videoFailure),
+              backgroundColor: Colors.orange.shade800,
+              duration: const Duration(seconds: 6),
+            ),
+          );
+        }
         unawaited(IosPublishMemory.releaseAfterHeavyWork());
       } catch (e, st) {
         if (!publishDone.isCompleted) publishDone.complete(false);
@@ -15400,9 +15214,9 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
     try {
       final ref = _selected.eventRef;
       if (all) {
-        await ref.update({_arrayField: <String>[]});
+        await YahwehDocWrite.update(ref, {_arrayField: <String>[]});
       } else {
-        await ref.update({_arrayField: FieldValue.arrayRemove(uidsToRemove)});
+        await YahwehDocWrite.update(ref, {_arrayField: FieldValue.arrayRemove(uidsToRemove)});
       }
       if (!mounted) return;
       setState(() {

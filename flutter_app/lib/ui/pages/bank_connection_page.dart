@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fa;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/ui/widgets/fast_text_field.dart';
 
 import 'package:gestao_yahweh/constants/pluggy_sync_schedule.dart';
@@ -139,7 +140,7 @@ class _BankConnectionScreenState extends State<BankConnectionScreen> {
           .doc(firestoreUserDocIdForAppShell(widget.uid))
           .collection('bank_connections')
           .doc();
-      await ref.set({
+      await YahwehDocWrite.set(ref, {
         'provider': 'pluggy',
         'bankName': bank.name,
         'institutionId': bank.id,
@@ -147,7 +148,7 @@ class _BankConnectionScreenState extends State<BankConnectionScreen> {
         'itemId': itemId,
         'lastSync': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
-      });
+      }, merge: false);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
@@ -142,10 +143,10 @@ class FinancialTipsAdminPage extends StatelessWidget {
                         if (v == 'edit') {
                           _openEditor(context, d.id, data);
                         } else if (v == 'toggle') {
-                          await d.reference.update({'ativo': !ativo});
+                          await YahwehDocWrite.update(d.reference, {'ativo': !ativo});
                         } else if (v == 'delete') {
                           final ok = await _confirmDelete(context, titulo);
-                          if (ok) await d.reference.delete();
+                          if (ok) await YahwehDocWrite.delete(d.reference);
                         }
                       },
                       itemBuilder: (_) => [
@@ -314,7 +315,7 @@ class _TipEditorSheetState extends State<_TipEditorSheet> {
       if (widget.docId == null) {
         await widget.col.add(payload);
       } else {
-        await widget.col.doc(widget.docId).set(payload, SetOptions(merge: true));
+        await YahwehDocWrite.set(widget.col.doc(widget.docId), payload);
       }
       if (mounted) Navigator.pop(context);
     } catch (e) {

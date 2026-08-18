@@ -138,6 +138,12 @@ String buildNoticiaInviteShareMessage({
   Map<String, dynamic>? churchData,
   String? postInstagramUrl,
   String? postVideoUrl,
+
+  /// Quantidade de fotos publicadas — vira `📸 5 fotos` na mensagem.
+  int photoCount = 0,
+
+  /// Há vídeo na publicação — vira `🎬 1 vídeo`.
+  bool hasVideo = false,
 }) {
   final cn = churchName.trim().isNotEmpty ? churchName.trim() : 'Nossa igreja';
   final defaultTitle = noticiaKind == 'evento' ? 'Evento' : 'Aviso';
@@ -193,6 +199,17 @@ String buildNoticiaInviteShareMessage({
   if (cleanText.isNotEmpty) {
     buf.writeln();
     buf.writeln('📝 $cleanText');
+  }
+
+  // Quem recebe vê logo que vem mídia junto — antes a mensagem não dizia
+  // nada e as fotos/vídeo chegavam como anexos «soltos».
+  final mediaBits = <String>[
+    if (photoCount == 1) '📸 1 foto' else if (photoCount > 1) '📸 $photoCount fotos',
+    if (hasVideo) '🎬 1 vídeo',
+  ];
+  if (mediaBits.isNotEmpty) {
+    buf.writeln();
+    buf.writeln('${mediaBits.join('  ·  ')} em anexo');
   }
 
   final locBlock = _formatShareLocationBlock(

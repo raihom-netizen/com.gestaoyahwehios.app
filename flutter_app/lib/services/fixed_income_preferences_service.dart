@@ -1,6 +1,7 @@
 ﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/constants/app_business_rules.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -65,7 +66,7 @@ class FixedIncomePreferencesService {
     if (pendingMonthsAhead != null) {
       data[_pendingMonthsAheadKey] = pendingMonthsAhead.clamp(0, 12);
     }
-    await _settingsRef(uid).set(data, SetOptions(merge: true));
+    await YahwehDocWrite.set(_settingsRef(uid), data);
   }
 
   Map<String, dynamic> _mapFrom(Map<String, dynamic>? d) => {

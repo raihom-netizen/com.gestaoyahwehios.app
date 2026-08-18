@@ -115,7 +115,7 @@ async function sendNovoAvisoMuralPush(tenantId, postId, d) {
     const body = clip(rawBody, 140) || title;
     await sendGyTopicPush(tenantId, "aviso", (churchId) => (0, notificationBranding_1.buildGyTopicMessage)({
         topic: topicPushNovo(churchId, "aviso"),
-        title: "📢 Novo aviso",
+        title: "📢 Novo aviso: " + title,
         body,
         data: {
             type: "novo_aviso",
@@ -127,7 +127,7 @@ async function sendNovoAvisoMuralPush(tenantId, postId, d) {
     }));
     await recordTenantNotification(tenantId, {
         type: "novo_aviso",
-        title: "Novo aviso",
+        title: "Novo aviso: " + title,
         body,
         postId,
     });
@@ -238,7 +238,7 @@ async function sendNovoEventoNoticiaPush(tenantId, postId, d) {
     const body = clip(`${title}${extra}`, 180);
     await sendGyTopicPush(tenantId, "evento", (churchId) => (0, notificationBranding_1.buildGyTopicMessage)({
         topic: topicPushNovo(churchId, "evento"),
-        title: "📅 Novo evento",
+        title: "📅 Novo evento: " + title,
         body,
         data: {
             type: "novo_evento",
@@ -251,7 +251,7 @@ async function sendNovoEventoNoticiaPush(tenantId, postId, d) {
     }));
     await recordTenantNotification(tenantId, {
         type: "novo_evento",
-        title: "Novo evento",
+        title: "Novo evento: " + title,
         body,
         postId,
     });

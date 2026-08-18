@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/ui/widgets/finance_transaction_edit_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_transfer_bottom_sheet.dart';
 import 'package:gestao_yahweh/ui/pages/finance_page.dart' show FinanceInsightSheet, FinanceInsightScope;
 import 'package:gestao_yahweh/ui/widgets/finance_account_category_sheet.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Abre o mesmo painel de conta do módulo Financeiro (gráficos, edição, comprovantes).
 abstract final class FinanceAccountCategorySheetLauncher {
@@ -345,7 +346,7 @@ abstract final class FinanceAccountCategorySheetLauncher {
         financeAccounts: financeAccounts,
         initialFinanceAccountId: rawAid.isEmpty ? null : rawAid,
         orphanAccountId: rawAid,
-        canAttachReceipt: profile.temAcessoPremium,
+        canAttachReceipt: true, // comprovante não é premium
         amountPreview: (preData['amount'] as num?)?.toDouble(),
         categoryPreview: (preData['category'] ?? '').toString(),
         descriptionPreview: (preData['description'] ?? '').toString(),
@@ -424,7 +425,7 @@ abstract final class FinanceAccountCategorySheetLauncher {
         bytes: bytes,
         mimeType: mime,
       );
-      await _txCol(uid).doc(docId).update({
+      await YahwehDocWrite.update(_txCol(uid).doc(docId), {
         'hasReceipt': true,
         'updatedAt': FieldValue.serverTimestamp(),
       });

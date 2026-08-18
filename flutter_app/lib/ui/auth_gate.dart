@@ -1,10 +1,12 @@
 ﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/master_tenant_override_service.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/license_access_policy.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -912,7 +914,7 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
             }
           }
           if (active && userDoc.exists) {
-            db.collection('users').doc(user.uid).update({'ativo': true}).catchError((_) {});
+            YahwehDocWrite.update(db.collection('users').doc(user.uid), {'ativo': true}).catchError((_) {});
           }
         } catch (_) {
           if (cached != null) {
@@ -1638,6 +1640,8 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
   @override
   void initState() {
     super.initState();
+    // Operador global trocou de igreja: reconstruir o painel inteiro.
+    MasterTenantOverrideService.current.addListener(_onMasterTenantSwitched);
     AuthProfileCacheService.instance.addListener(_onAuthProfileCacheUpdated);
     WidgetsBinding.instance.addObserver(this);
     unawaited(PersistentAuthSessionService.currentPersistedUser());
@@ -1755,8 +1759,13 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
     });
   }
 
+  void _onMasterTenantSwitched() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    MasterTenantOverrideService.current.removeListener(_onMasterTenantSwitched);
     AuthProfileCacheService.instance.removeListener(_onAuthProfileCacheUpdated);
     WidgetsBinding.instance.removeObserver(this);
     _emergencyBootstrapTimer?.cancel();
@@ -1897,8 +1906,14 @@ class _AuthGateProfileLoaderState extends State<_AuthGateProfileLoader>
         ),
       );
     }
+    // Operador global (raihom/isabelle): a igreja escolhida entra na KEY do
+    // shell. Ao trocar, o Flutter desmonta e remonta o painel inteiro — todos
+    // os módulos nascem já apontados para a base escolhida, sem sobrar estado
+    // da igreja anterior (era o "troquei mas continua mostrando a antiga").
+    final masterTenant = MasterTenantOverrideService.tenantId ?? '';
     final dashboard = IgrejaCleanShell(
-      tenantId: igrejaId,
+      key: ValueKey('shell_${igrejaId}_$masterTenant'),
+      tenantId: masterTenant.isNotEmpty ? masterTenant : igrejaId,
       cpf: cpf,
       role: roleTxt,
       trialExpired: expired,

@@ -37,6 +37,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         postFeedCarouselAspectRatioForIndex;
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
+import 'package:gestao_yahweh/ui/widgets/church_post_media_carousel.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show
         FreshFirebaseStorageImage,
@@ -5725,92 +5726,38 @@ class _ChurchTenantFallback extends StatelessWidget {
                                 p,
                                 docIdHint: d.id,
                               )) {
+                                // TODAS as fotos e o vídeo no mesmo carrossel.
+                                // O site mostrava só a primeira foto e um texto
+                                // «+ N foto(s) no app da igreja» — o visitante
+                                // nunca via o resto da mídia publicada.
                                 final hint = sanitizeImageUrl(
                                   eventNoticiaFeedCoverHintUrl(p),
                                 );
-                                final u0 = photos.isNotEmpty
-                                    ? sanitizeImageUrl(photos.first)
-                                    : hint;
-                                final path0 = eventNoticiaPhotoStoragePathAt(
-                                  p,
-                                  0,
-                                  docIdHint: d.id,
-                                  churchIdHint: igrejaId,
-                                );
-                                media.add(
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 10),
-                                    child: ChurchPublicConstrainedMedia(
-                                      child: LayoutBuilder(
-                                        builder: (ctx, c) {
-                                          final w = c.maxWidth;
-                                          final h = c.maxHeight;
-                                          return LazyViewportBuilder(
-                                            visibilityKey:
-                                                'church-pub-${d.id}-evt-photo',
-                                            placeholder: SizedBox.expand(
-                                              child:
-                                                  YahwehPremiumFeedShimmer.mediaCover(),
-                                            ),
-                                            builder: () => StableStorageImage(
-                                              storagePath: path0,
-                                              imageUrl: isValidImageUrl(u0)
-                                                  ? u0
-                                                  : null,
-                                              width: w,
-                                              height: h,
-                                              fit: BoxFit.contain,
-                                              memCacheWidth: 900,
-                                              memCacheHeight: 900,
-                                              skipFreshDisplayUrl: false,
-                                              errorWidget: Container(
-                                                color: const Color(0xFFEEF2FF),
-                                                alignment: Alignment.center,
-                                                child: Icon(
-                                                  Icons
-                                                      .image_not_supported_rounded,
-                                                  size: 48,
-                                                  color: Colors.indigo.shade200,
-                                                ),
-                                              ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ),
+                                final refs = photos.isNotEmpty
+                                    ? photos
+                                    : (hint.isNotEmpty
+                                          ? <String>[hint]
+                                          : const <String>[]);
+                                final items = buildChurchPostMedia(
+                                  imageUrls: refs,
+                                  hostedVideoUrl:
+                                      (vidFile != null && vidFile.isNotEmpty)
+                                      ? vidFile
+                                      : (extVid ?? ''),
+                                  videoThumbUrl: sanitizeImageUrl(
+                                    eventNoticiaDisplayVideoThumbnailUrl(p) ??
+                                        '',
                                   ),
                                 );
-                                if (photos.length > 1) {
-                                  media.add(
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 6),
-                                      child: Text(
-                                        '+ ${photos.length - 1} foto(s) no app da igreja',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey.shade600,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                }
-                                if (hasVideo) {
+                                if (items.isNotEmpty) {
                                   media.add(
                                     Padding(
                                       padding: const EdgeInsets.only(top: 10),
-                                      child: FilledButton.icon(
-                                        onPressed: openEventoVideo,
-                                        icon: const Icon(
-                                          Icons.play_circle_filled_rounded,
-                                        ),
-                                        label: const Text(
-                                          'Assistir vídeo do evento',
-                                        ),
-                                        style: FilledButton.styleFrom(
-                                          backgroundColor: const Color(
-                                            0xFFDC2626,
-                                          ),
+                                      child: ChurchPublicConstrainedMedia(
+                                        child: ChurchPostMediaCarousel(
+                                          items: items,
+                                          aspectRatio: 4 / 5,
+                                          title: title,
                                         ),
                                       ),
                                     ),
@@ -6072,62 +6019,38 @@ class _ChurchTenantFallback extends StatelessWidget {
                                   ),
                                 );
                               }
-                              // Avisos: mesma cobertura de capa que o mural (fotoUrl, gs://, path) + path derivado de URL expirada.
-                              if (eventNoticiaPostHasFeedCoverRow(p)) {
-                                final hint = sanitizeImageUrl(
-                                  eventNoticiaFeedCoverHintUrl(p),
-                                );
-                                final path0 = eventNoticiaPhotoStoragePathAt(
-                                  p,
-                                  0,
-                                );
+                              // Avisos: TODAS as fotos + o vídeo no mesmo
+                              // carrossel. Antes o site publicava só a imagem
+                              // de capa e o vídeo do aviso não aparecia de todo.
+                              final avisoPhotos = eventNoticiaPhotoUrls(p);
+                              final avisoHint = sanitizeImageUrl(
+                                eventNoticiaFeedCoverHintUrl(p),
+                              );
+                              final avisoVid = eventNoticiaHostedVideoPlayUrl(p);
+                              final avisoExtVid = eventNoticiaExternalVideoUrl(p);
+                              final avisoItems = buildChurchPostMedia(
+                                imageUrls: avisoPhotos.isNotEmpty
+                                    ? avisoPhotos
+                                    : (avisoHint.isNotEmpty
+                                          ? <String>[avisoHint]
+                                          : const <String>[]),
+                                hostedVideoUrl:
+                                    (avisoVid != null && avisoVid.isNotEmpty)
+                                    ? avisoVid
+                                    : (avisoExtVid ?? ''),
+                                videoThumbUrl: sanitizeImageUrl(
+                                  eventNoticiaDisplayVideoThumbnailUrl(p) ?? '',
+                                ),
+                              );
+                              if (avisoItems.isNotEmpty) {
                                 media.add(
                                   Padding(
                                     padding: const EdgeInsets.only(top: 10),
                                     child: ChurchPublicConstrainedMedia(
-                                      child: LayoutBuilder(
-                                        builder: (ctx, c) {
-                                          final dpr =
-                                              MediaQuery.devicePixelRatioOf(
-                                                ctx,
-                                              ).clamp(1.0, 3.0);
-                                          final mw = (c.maxWidth * dpr)
-                                              .round()
-                                              .clamp(400, 1400);
-                                          final mh = (c.maxHeight * dpr)
-                                              .round()
-                                              .clamp(400, 1400);
-                                          return LazyViewportBuilder(
-                                            visibilityKey:
-                                                'church-pub-${d.id}-aviso-cover',
-                                            placeholder: SizedBox.expand(
-                                              child:
-                                                  YahwehPremiumFeedShimmer.mediaCover(),
-                                            ),
-                                            builder: () => StableStorageImage(
-                                              storagePath: path0,
-                                              imageUrl: hint.isNotEmpty
-                                                  ? hint
-                                                  : null,
-                                              width: c.maxWidth,
-                                              height: c.maxHeight,
-                                              fit: BoxFit.contain,
-                                              memCacheWidth: mw,
-                                              memCacheHeight: mh,
-                                              skipFreshDisplayUrl: false,
-                                              errorWidget: Container(
-                                                color: const Color(0xFFEEF2FF),
-                                                alignment: Alignment.center,
-                                                child: Icon(
-                                                  Icons
-                                                      .image_not_supported_rounded,
-                                                  size: 48,
-                                                  color: Colors.indigo.shade200,
-                                                ),
-                                              ),
-                                            ),
-                                          );
-                                        },
+                                      child: ChurchPostMediaCarousel(
+                                        items: avisoItems,
+                                        aspectRatio: 4 / 5,
+                                        title: title,
                                       ),
                                     ),
                                   ),

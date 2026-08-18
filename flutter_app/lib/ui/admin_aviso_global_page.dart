@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -147,7 +148,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
     setState(() => _saving = true);
     try {
       await FirestoreWebGuard.runWithWebRecovery(
-        () => _ref.set({
+        () => YahwehDocWrite.set(_ref, {
         'message': msg,
         'title': _titleCtrl.text.trim().isEmpty
             ? FieldValue.delete()
@@ -175,7 +176,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         'active': _active,
         'updatedAt': FieldValue.serverTimestamp(),
         'revision': FieldValue.increment(1),
-      }, SetOptions(merge: true)),
+      }),
       );
       final snap = await FirestoreReadResilience.getDocument(
         _ref,
@@ -247,7 +248,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
     if (confirm != true || !mounted) return;
     setState(() => _saving = true);
     try {
-      await _ref.set({
+      await YahwehDocWrite.set(_ref, {
         'active': false,
         'message': FieldValue.delete(),
         'title': FieldValue.delete(),
@@ -261,7 +262,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         'validUntil': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
         'revision': FieldValue.increment(1),
-      }, SetOptions(merge: true));
+      });
       final snap = await FirestoreReadResilience.getDocument(
         _ref,
         cacheKey: 'config_global_announcement',
@@ -336,11 +337,11 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
     if (date == null || !mounted) return;
     setState(() => _saving = true);
     try {
-      await _ref.set({
+      await YahwehDocWrite.set(_ref, {
         'validUntil': Timestamp.fromDate(date),
         'updatedAt': FieldValue.serverTimestamp(),
         'revision': FieldValue.increment(1),
-      }, SetOptions(merge: true));
+      });
       final snap = await FirestoreReadResilience.getDocument(
         _ref,
         cacheKey: 'config_global_announcement',
@@ -398,7 +399,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
     );
     if (ok != true || !mounted) return;
     try {
-      await _audit.doc(docId).delete();
+      await YahwehDocWrite.delete(_audit.doc(docId));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Registro removido do histórico.'),

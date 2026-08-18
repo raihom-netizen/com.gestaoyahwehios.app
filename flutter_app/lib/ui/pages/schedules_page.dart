@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -522,6 +523,12 @@ class _SchedulesPageState extends State<SchedulesPage>
   late final Future<String> _effectiveTidFuture;
   late Future<List<_DeptItem>> _deptsFuture;
   late Future<QuerySnapshot<Map<String, dynamic>>> _templatesFuture;
+
+  /// A última leitura de modelos veio mesmo do servidor?
+  ///
+  /// Só uma leitura autoritativa pode esvaziar a lista: antes o `setState`
+  /// ignorava resultados vazios e o modelo apagado nunca saía do ecrã.
+  bool _templatesReadAuthoritative = false;
   late Future<QuerySnapshot<Map<String, dynamic>>> _instancesFuture;
   late Future<DocumentSnapshot<Map<String, dynamic>>> _tenantFuture;
   String _filterDeptId = '';
@@ -634,6 +641,7 @@ class _SchedulesPageState extends State<SchedulesPage>
       forceServer: forceServer,
       forceRefresh: forceRefresh,
     ).timeout(queryCap);
+    _templatesReadAuthoritative = r.isAuthoritative;
     unawaited(ChurchSchedulesLoadService.persistTemplates(r));
     if (mounted) {
       setState(() {
@@ -1220,7 +1228,11 @@ class _SchedulesPageState extends State<SchedulesPage>
         }
         if (!mounted) return;
         setState(() {
-          if (snap.docs.isNotEmpty) _templatesDocs = snap.docs;
+          // Vazio do servidor TEM de limpar a lista — era aqui que o modelo
+          // excluído continuava no ecrã depois de apagado no Firestore.
+          if (snap.docs.isNotEmpty || _templatesReadAuthoritative) {
+            _templatesDocs = snap.docs;
+          }
           _templatesFetching = false;
           _templatesFuture = Future.value(
             MergedFirestoreQuerySnapshot(_templatesDocs),
@@ -1833,7 +1845,7 @@ class _SchedulesPageState extends State<SchedulesPage>
 
     if (!aprovar) {
       try {
-        await troca.reference.update({
+        await YahwehDocWrite.update(troca.reference, {
           'status': 'recusada',
           'resolvedAt': FieldValue.serverTimestamp(),
         });
@@ -1926,14 +1938,14 @@ class _SchedulesPageState extends State<SchedulesPage>
       final remappedConf = _remapScheduleCpfKeyedMap(oldConf, newCpfs);
       final remappedUnav = _remapScheduleCpfKeyedMap(oldUnav, newCpfs);
 
-      await escRef.update({
+      await YahwehDocWrite.update(escRef, {
         'memberCpfs': newCpfs,
         'memberNames': newNames,
         'confirmations': remappedConf,
         'unavailabilityReasons': remappedUnav,
         'updatedAt': Timestamp.now(),
       });
-      await troca.reference.update({
+      await YahwehDocWrite.update(troca.reference, {
         'status': 'aprovada',
         'resolvedAt': FieldValue.serverTimestamp(),
       });
@@ -3341,7 +3353,7 @@ class _SchedulesPageState extends State<SchedulesPage>
 
   /// Exclui um MODELO de escala.
   ///
-  /// Antes era `reference.delete()` cru: no web o SDK envenenado (INTERNAL
+  /// Antes era `YahwehDocWrite.delete(reference)` cru: no web o SDK envenenado (INTERNAL
   /// ASSERTION) fazia a chamada falhar em silêncio — o diálogo fechava e o
   /// modelo continuava lá. Agora: lápide + REST de recurso + erro visível.
   Future<void> _deleteTemplate(
@@ -3358,7 +3370,7 @@ class _SchedulesPageState extends State<SchedulesPage>
       }
       try {
         await FirestoreWebGuard.runWithWebRecovery(
-          () => doc.reference.delete(),
+          () => YahwehDocWrite.delete(doc.reference),
           maxAttempts: 4,
         );
       } catch (e) {
@@ -6021,7 +6033,7 @@ class _SchedulesPageState extends State<SchedulesPage>
       }
       try {
         await FirestoreWebGuard.runWithWebRecovery(
-          () => doc.reference.delete(),
+          () => YahwehDocWrite.delete(doc.reference),
           maxAttempts: 4,
         );
       } catch (e) {
@@ -6097,7 +6109,7 @@ class _SchedulesPageState extends State<SchedulesPage>
     try {
       try {
         await FirestoreWebGuard.runWithWebRecovery(
-          () => doc.reference.set(patch, SetOptions(merge: true)),
+          () => YahwehDocWrite.set(doc.reference, patch),
           maxAttempts: 4,
         );
       } catch (e) {
@@ -6538,7 +6550,7 @@ class _SchedulesPageState extends State<SchedulesPage>
       'unavailabilityReasons.$currentCpf': FieldValue.delete(),
     };
     try {
-      await doc.reference.update(updates);
+      await YahwehDocWrite.update(doc.reference, updates);
       if (mounted) {
         _refreshInstances();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -6610,7 +6622,7 @@ class _SchedulesPageState extends State<SchedulesPage>
       'unavailabilityReasons': unavailabilityReasons,
     };
     try {
-      await doc.reference.update(updates);
+      await YahwehDocWrite.update(doc.reference, updates);
       if (mounted) {
         _refreshInstances();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -7362,12 +7374,10 @@ class _SchedulesPageState extends State<SchedulesPage>
                                                           );
                                                         }
                                                         try {
-                                                          await docRef.update(
-                                                            EscalaMemberPayload.buildConfirmationUpdates(
+                                                          await YahwehDocWrite.update(docRef, Map<String, dynamic>.from(EscalaMemberPayload.buildConfirmationUpdates(
                                                               member: member,
                                                               status: newStatus,
-                                                            ),
-                                                          );
+                                                            )),);
                                                         } catch (e) {
                                                           dataHolder.value =
                                                               prev;
@@ -8612,10 +8622,10 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
         try {
           await firestoreRestSetDoc(ref.path, payload);
         } catch (_) {
-          await ref.set(payload);
+          await YahwehDocWrite.set(ref, payload, merge: false);
         }
       } else {
-        await ref.set(payload);
+        await YahwehDocWrite.set(ref, payload, merge: false);
       }
     } else {
       final ref = widget.doc!.reference;
@@ -8623,10 +8633,10 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
         try {
           await firestoreRestUpdateDoc(ref.path, setFields: payload);
         } catch (_) {
-          await ref.update(payload);
+          await YahwehDocWrite.update(ref, payload);
         }
       } else {
-        await ref.update(payload);
+        await YahwehDocWrite.update(ref, payload);
       }
     }
 
@@ -9364,7 +9374,7 @@ class _GeneratedInstanceEditPageState
         t.minute,
       );
 
-      await widget.doc.reference.update({
+      await YahwehDocWrite.update(widget.doc.reference, {
         'title': _titleCtrl.text.trim(),
         'time': _timeCtrl.text.trim(),
         'date': Timestamp.fromDate(combined),

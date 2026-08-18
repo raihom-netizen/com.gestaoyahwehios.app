@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/services/panel_dashboard_snapshot_service.dart';
 import 'package:gestao_yahweh/services/panel_statistics_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Contadores leves do painel — `_panel_cache/statistics_summary` (preferido),
 /// depois `dashboard_stats/summary` ou `dashboard/home`.
@@ -161,7 +162,7 @@ abstract final class ChurchTenantDashboardDocService {
       final path = docRef.path;
       ChurchTenantWriteLog.firestoreUpdateStart(path, module: 'dashboard');
       try {
-        await docRef.set(patch, SetOptions(merge: true));
+        await YahwehDocWrite.set(docRef, patch);
         ChurchTenantWriteLog.firestoreUpdateOk(path, module: 'dashboard');
       } catch (e, st) {
         ChurchTenantWriteLog.firestoreUpdateFail(path, e, stack: st, module: 'dashboard');

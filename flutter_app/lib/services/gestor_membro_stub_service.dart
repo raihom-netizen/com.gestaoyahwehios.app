@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -55,11 +56,11 @@ class GestorMembroStubService {
         patch['authUid'] = user.uid;
       }
       if (patch.length == 1) return;
-      await ref.set(patch, SetOptions(merge: true));
+      await YahwehDocWrite.set(ref, patch);
       return;
     }
 
-    await ref.set(<String, dynamic>{
+    await YahwehDocWrite.set(ref, <String, dynamic>{
       'MEMBER_ID': user.uid,
       'tenantId': tenantId,
       'authUid': user.uid,
@@ -77,7 +78,7 @@ class GestorMembroStubService {
       'CRIADO_EM': FieldValue.serverTimestamp(),
       'alias': tenantId,
       'slug': tenantId,
-    }, SetOptions(merge: true));
+    });
   }
 }
 

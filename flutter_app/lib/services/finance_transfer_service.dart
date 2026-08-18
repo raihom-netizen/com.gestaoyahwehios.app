@@ -1,6 +1,7 @@
 ﻿import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:gestao_yahweh/constants/currency_formats.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -101,7 +102,7 @@ class FinanceTransferService {
       mimeType: mime,
       fileName: name,
     );
-    await ChurchUiCollections.financeiro(fsUid).doc(txId).update({
+    await YahwehDocWrite.update(ChurchUiCollections.financeiro(fsUid).doc(txId), {
       ...FinanceComprovantePublishService.comprovanteFieldsPatch(
         url: result.url,
         storagePath: result.storagePath,

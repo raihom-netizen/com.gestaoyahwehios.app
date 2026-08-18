@@ -1,5 +1,6 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:typed_data';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart' hide showDatePicker;
@@ -496,7 +497,7 @@ Future<void> commitFinanceConfirmPayment({
   } else {
     updateData['financeAccountId'] = aid;
   }
-  await txRef.update(updateData);
+  await YahwehDocWrite.update(txRef, updateData);
   if (result.receiptBytes != null &&
       result.receiptName.isNotEmpty &&
       result.receiptMime != null &&
@@ -997,7 +998,7 @@ Future<int> processDueFaturaScheduledPayments({
     if (due.isAfter(todayEnd)) continue;
     final paidFrom = (d['paidFromFinanceAccountId'] ?? '').toString().trim();
     final confTs = Timestamp.fromDate(due);
-    await doc.reference.update({
+    await YahwehDocWrite.update(doc.reference, {
       'status': 'paid',
       'paidAt': confTs,
       'effectiveDate': confTs,

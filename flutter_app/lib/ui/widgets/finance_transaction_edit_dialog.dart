@@ -34,6 +34,7 @@ import 'finance_pending_receipt_preview.dart';
 import 'finance_premium_ui.dart';
 import 'finance_transfer_bottom_sheet.dart';
 import 'goal_deposit_ui.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 typedef FinanceTxEditOnSaved = void Function(
   String docId,
@@ -193,7 +194,7 @@ Future<bool> showFinanceTransactionEditDialog({
         final hasExistingReceipt =
             receiptLink.isNotEmpty && !removeReceipt && newReceiptBytes == null;
         final hasNewReceipt = newReceiptBytes != null;
-        final showComprovante = profile.temAcessoPremium;
+        final showComprovante = true; // comprovante não é premium
         final orphan = selectedFinanceAccountId != null &&
             selectedFinanceAccountId!.isNotEmpty &&
             !financeAccounts.any((a) => a.id == selectedFinanceAccountId);
@@ -1075,24 +1076,25 @@ Future<bool> showFinanceTransactionEditDialog({
     updateData['calendarColorHex'] = FieldValue.delete();
   }
 
-  if (profile.temAcessoPremium) {
-    if (removeReceipt) {
-      updateData['receipt'] = FieldValue.delete();
-      updateData['hasReceipt'] = false;
-    } else if (newReceiptBytes != null &&
-        newReceiptBytes!.isNotEmpty &&
-        newReceiptName.isNotEmpty &&
-        newReceiptMime != null) {
-      await FinanceReceiptUploadService.attachToTransaction(
-        uid: uid,
-        txDocId: docId,
-        bytes: newReceiptBytes!,
-        filename: newReceiptName,
-        mimeType: newReceiptMime!,
-        context: context,
-      );
-      updateData['hasReceipt'] = true;
-    }
+  // Comprovante NÃO é recurso premium: a igreja em plano FREE anexava, via a
+  // miniatura e o olho, salvava — e o ficheiro era descartado em silêncio
+  // porque este bloco estava dentro de `if (profile.temAcessoPremium)`.
+  if (removeReceipt) {
+    updateData['receipt'] = FieldValue.delete();
+    updateData['hasReceipt'] = false;
+  } else if (newReceiptBytes != null &&
+      newReceiptBytes!.isNotEmpty &&
+      newReceiptName.isNotEmpty &&
+      newReceiptMime != null) {
+    await FinanceReceiptUploadService.attachToTransaction(
+      uid: uid,
+      txDocId: docId,
+      bytes: newReceiptBytes!,
+      filename: newReceiptName,
+      mimeType: newReceiptMime!,
+      context: context,
+    );
+    updateData['hasReceipt'] = true;
   }
 
   try {
@@ -1100,7 +1102,7 @@ Future<bool> showFinanceTransactionEditDialog({
     // `users/{uid}/transactions` (caminho legado inexistente), então a
     // edição (incluindo anexar comprovante) sempre lançava "not-found" aqui,
     // mesmo já tendo subido o arquivo para o Storage/doc real antes.
-    await TransactionSaveService.txRef(fsUid).doc(docId).update(updateData);
+    await YahwehDocWrite.update(TransactionSaveService.txRef(fsUid).doc(docId), updateData);
     final goalId = (current['goalId'] ?? '').toString().trim();
     if (goalId.isNotEmpty && type == 'income') {
       unawaited(

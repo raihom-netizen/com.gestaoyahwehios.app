@@ -1,5 +1,6 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:gestao_yahweh/constants/app_business_rules.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -190,7 +191,7 @@ class FixedIncomeService {
         data['calendarColorHex'] = FieldValue.delete();
       }
     }
-    await _fixedRef(uid).doc(id).update(data);
+    await YahwehDocWrite.update(_fixedRef(uid).doc(id), data);
     if (addToCalendar != null || calendarColorHex != null) {
       await _updateFuturePendingCalendarFlags(
         uid,
@@ -346,7 +347,7 @@ class FixedIncomeService {
   /// (Agenda/calendário + Financeiro). Recebidos permanecem.
   Future<int> delete(String uid, String id) async {
     final removed = await _deletePendingEntriesForFixed(uid, id);
-    await _fixedRef(uid).doc(id).delete();
+    await YahwehDocWrite.delete(_fixedRef(uid).doc(id));
     FinanceMonthCache.clearUid(uid);
     FinanceTransactionsHub.notifyMutated(uid: uid);
     return removed;

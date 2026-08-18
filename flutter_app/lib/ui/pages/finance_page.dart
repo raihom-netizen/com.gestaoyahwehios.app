@@ -367,6 +367,36 @@ class _FinanceScreenState extends State<FinanceScreen> {
     }
   }
 
+  /// Limpa o cache local do Firestore e recarrega do servidor.
+  ///
+  /// Escape para dado morto que ficou preso em cache: o documento ja nao
+  /// existe no servidor, mas a copia local continua a aparecer na lista.
+  /// Portado do Controle Total, onde era o unico metodo que faltava aqui.
+  Future<void> _onClearCacheAndRetry() async {
+    if (!mounted) return;
+    if (kIsWeb) {
+      FirestoreWebGuard.hardReloadWebApp(reason: 'finance_clear_cache');
+      return;
+    }
+    setState(() {
+      _mainPeriodLoadError = null;
+    });
+    try {
+      await FirebaseFirestore.instance.terminate();
+    } catch (_) {}
+    try {
+      await FirebaseFirestore.instance.clearPersistence();
+    } catch (_) {}
+    await _onRetryLoadTransactions();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Cache local limpo. Buscando do servidor...'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
   void _scheduleFinanceSessionBootstrap() {
     _financeSessionBootstrapTimer?.cancel();
     _financeSessionBootstrapTimer = Timer(
@@ -3066,7 +3096,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
             builder: (_) => NovoLancamentoPage(
               uid: widget.uid.trim(),
               initialType: type,
-              canAttachReceipt: widget.profile.temAcessoPremium,
+              canAttachReceipt: true, // comprovante não é premium
               hasActiveLicense: widget.profile.hasActiveLicense,
             ),
             fullscreenDialog: true,
@@ -3241,7 +3271,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
         financeAccounts: financeAccounts,
         initialFinanceAccountId: rawAid.isEmpty ? null : rawAid,
         orphanAccountId: rawAid,
-        canAttachReceipt: widget.profile.temAcessoPremium,
+        canAttachReceipt: true, // comprovante não é premium
         amountPreview: (preData['amount'] as num?)?.toDouble(),
         categoryPreview: (preData['category'] ?? '').toString(),
         descriptionPreview: (preData['description'] ?? '').toString(),
@@ -7605,6 +7635,13 @@ class _FinanceScreenState extends State<FinanceScreen> {
                                         onPressed: _onRetryLoadTransactions,
                                         icon: Icon(Icons.refresh_rounded),
                                         label: Text('Tentar novamente'),
+                                      ),
+                                      OutlinedButton.icon(
+                                        onPressed: _onClearCacheAndRetry,
+                                        icon: Icon(
+                                          Icons.cleaning_services_rounded,
+                                        ),
+                                        label: Text('Limpar cache e tentar'),
                                       ),
                                       // Cura definitiva quando a assertion
                                       // do SDK trava o cliente: clique do

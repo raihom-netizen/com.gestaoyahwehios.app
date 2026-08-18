@@ -1219,7 +1219,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           }
         }
         if (exists.exists) return null;
-        await ref.set({
+        await YahwehDocWrite.set(ref, {
           'nome': e.value,
           'tipoPessoa': 'pf',
           'status': 'ativo',
@@ -1229,7 +1229,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
               'Cadastro restaurado automaticamente (referenciado no Financeiro).',
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
-        });
+        }, merge: false);
         return e.key;
       }
 
@@ -1386,7 +1386,7 @@ class _FornecedoresPageState extends State<FornecedoresPage>
     );
     try {
       await FirestoreWebGuard.runWithWebRecovery(
-        () => _col.doc(docId).delete(),
+        () => YahwehDocWrite.delete(_col.doc(docId)),
         maxAttempts: 4,
       );
     } catch (e) {
@@ -4584,7 +4584,7 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
           docRef: ref,
           data: payload,
           isNewDoc: isNew,
-          directWrite: () => ref.set(payload, SetOptions(merge: true)),
+          directWrite: () => YahwehDocWrite.set(ref, payload),
         );
       } else {
         payload['createdAt'] = FieldValue.serverTimestamp();
@@ -4593,7 +4593,7 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
           docRef: ref,
           data: payload,
           isNewDoc: true,
-          directWrite: () => ref.set(payload),
+          directWrite: () => YahwehDocWrite.set(ref, payload, merge: false),
         );
       }
 
@@ -5340,7 +5340,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage>
         bytes: bytes,
         filename: 'recibo_fornecedor.pdf',
       );
-      await _financeCol.doc(financeDocId).update({
+      await YahwehDocWrite.update(_financeCol.doc(financeDocId), {
         'reciboEmitidoAt': FieldValue.serverTimestamp(),
       });
     } catch (e, st) {
@@ -5675,7 +5675,7 @@ class _CadastroTab extends StatelessWidget {
                       await FirestoreWebGuard.prepareForCriticalWrite();
                     }
                     await FirestoreWebGuard.runWithWebRecovery(
-                      () => fornecedorRef.delete(),
+                      () => YahwehDocWrite.delete(fornecedorRef),
                       maxAttempts: 4,
                     );
                     unawaited(

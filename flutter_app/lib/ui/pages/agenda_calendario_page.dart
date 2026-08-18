@@ -100,7 +100,11 @@ class _AgendaItem {
 ///
 /// Antes o "Ver detalhes" mostrava uma linha só («Evento · data hora») e o
 /// gestor não via descrição, local, responsável nem quem está escalado.
-Future<void> _showAgendaItemDetails(BuildContext context, _AgendaItem item) async {
+Future<void> _showAgendaItemDetails(
+  BuildContext context,
+  _AgendaItem item, {
+  VoidCallback? onEdit,
+}) async {
   final d = item.data;
 
   String pick(List<String> keys) {
@@ -254,10 +258,47 @@ Future<void> _showAgendaItemDetails(BuildContext context, _AgendaItem item) asyn
           onPressed: () => Navigator.pop(ctx),
           child: const Text('Fechar'),
         ),
+        // Tocar no compromisso passou a abrir esta ficha em vez do editor —
+        // sem este botão o gestor perdia o atalho para editar.
+        if (onEdit != null)
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              onEdit();
+            },
+            icon: const Icon(Icons.edit_rounded, size: 18),
+            label: const Text('Editar'),
+          ),
       ],
     ),
   );
 }
+
+/// Etiqueta compacta dos cards da agenda (preview por tipo).
+Widget _agendaKindChip(String text, Color color, {IconData? icon}) => Container(
+  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+  decoration: BoxDecoration(
+    color: color.withValues(alpha: 0.10),
+    borderRadius: BorderRadius.circular(999),
+  ),
+  child: Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      if (icon != null) ...[
+        Icon(icon, size: 12, color: color),
+        const SizedBox(width: 3),
+      ],
+      Text(
+        text,
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w800,
+          color: color,
+        ),
+      ),
+    ],
+  ),
+);
 
 class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
   late DateTime _visibleMonth;
@@ -789,62 +830,179 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
     final timeLabel = item.allDay
         ? 'Dia todo'
         : DateFormat('HH:mm').format(item.when);
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: _canEdit ? () => _openAddEditForm(item: item) : null,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 7),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 5,
-              height: 42,
-              decoration: BoxDecoration(
-                color: item.kind.color,
-                borderRadius: BorderRadius.circular(4),
-              ),
+    final location = (item.data['location'] ?? item.data['local'] ?? '')
+        .toString()
+        .trim();
+    final color = item.kind.color;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        elevation: 0,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          // Abre a FICHA, não o editor: antes o toque ia direto para o
+          // formulário e só funcionava para quem tinha permissão — um membro
+          // comum não conseguia ver detalhe nenhum do compromisso.
+          onTap: () => _showAgendaItemDetails(
+            context,
+            item,
+            onEdit: _canEdit ? () => _openAddEditForm(item: item) : null,
+          ),
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE8EDF5)),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.045),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
             ),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: item.kind.color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(item.kind.icon, color: item.kind.color, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    item.title,
-                    style: const TextStyle(
-                      fontSize: 14.5,
-                      fontWeight: FontWeight.w800,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Faixa de cor por tipo: culto azul, evento laranja, reunião roxo.
+                Container(
+                  width: 6,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [color, color.withValues(alpha: 0.55)],
+                    ),
+                    borderRadius: const BorderRadius.horizontal(
+                      left: Radius.circular(16),
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${item.kind.label} ? $timeLabel',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: item.kind.color,
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(13),
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                color.withValues(alpha: 0.95),
+                                color.withValues(alpha: 0.70),
+                              ],
+                            ),
+                          ),
+                          child: Icon(
+                            item.kind.icon,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.w800,
+                                  height: 1.2,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  _agendaChip(item.kind.label, color),
+                                  _agendaChip(
+                                    timeLabel,
+                                    const Color(0xFF475569),
+                                    icon: Icons.schedule_rounded,
+                                  ),
+                                ],
+                              ),
+                              if (location.isNotEmpty) ...[
+                                const SizedBox(height: 5),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.place_rounded,
+                                      size: 13,
+                                      color: Color(0xFF94A3B8),
+                                    ),
+                                    const SizedBox(width: 3),
+                                    Expanded(
+                                      child: Text(
+                                        location,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Color(0xFF64748B),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const Icon(
+                          Icons.chevron_right_rounded,
+                          color: Color(0xFFB6C2D2),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            if (_canEdit)
-              const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
-          ],
+          ),
         ),
       ),
     );
   }
+
+  /// Etiqueta compacta usada nos cards da agenda.
+  Widget _agendaChip(String text, Color color, {IconData? icon}) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (icon != null) ...[
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 3),
+        ],
+        Text(
+          text,
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+            color: color,
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _counters() {
     final month = _monthItems();
@@ -1093,104 +1251,163 @@ class _AgendaKindPreviewPage extends StatelessWidget {
                     (item.data['location'] ?? item.data['local'] ?? '')
                         .toString()
                         .trim();
-                return InkWell(
+                final color = item.kind.color;
+                return Material(
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(18),
-                  onTap: () => showModalBottomSheet<void>(
-                    context: context,
-                    builder: (_) => SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              item.title,
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Text('${item.kind.label} · $date · $time'),
-                            if (location.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              Text('Local: $location'),
-                            ],
-                            const SizedBox(height: 16),
-                            FilledButton.icon(
-                              onPressed: () => Navigator.of(context).pop(),
-                              icon: const Icon(Icons.arrow_back_rounded),
-                              label: const Text('Retornar à lista'),
-                            ),
-                          ],
-                        ),
-                      ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(18),
+                    // O toque abria uma ficha pobre (tipo, data e hora numa
+                    // linha) enquanto o menu de acoes abria a completa.
+                    // Agora os dois caminhos abrem a mesma ficha.
+                    onTap: () => _showAgendaItemDetails(
+                      context,
+                      item,
+                      onEdit: canEdit(item) ? () => onEdit(item) : null,
                     ),
-                  ),
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: item.kind.color.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(
-                        color: item.kind.color.withValues(alpha: 0.30),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 24,
-                          backgroundColor: item.kind.color,
-                          child: Icon(item.kind.icon, color: Colors.white),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                item.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                '${item.kind.label} · $date · $time',
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: item.kind.color,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              if (location.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                Text(
-                                  location,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF64748B),
-                                  ),
-                                ),
-                              ],
-                            ],
+                    child: Ink(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: const Color(0xFFE8EDF5)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(
+                              0xFF0F172A,
+                            ).withValues(alpha: 0.05),
+                            blurRadius: 14,
+                            offset: const Offset(0, 5),
                           ),
-                        ),
-                        AgendaPreviewActions(
-                          onDetails: () => _showAgendaItemDetails(context, item),
-                          canEdit: canEdit(item),
-                          onEdit: () => onEdit(item),
-                          onDelete: () => onDelete(item),
-                        ),
-                      ],
+                        ],
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Container(
+                            width: 6,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [color, color.withValues(alpha: 0.55)],
+                              ),
+                              borderRadius: const BorderRadius.horizontal(
+                                left: Radius.circular(18),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(14, 14, 6, 14),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 46,
+                                    height: 46,
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(14),
+                                      gradient: LinearGradient(
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                        colors: [
+                                          color.withValues(alpha: 0.95),
+                                          color.withValues(alpha: 0.70),
+                                        ],
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      item.kind.icon,
+                                      color: Colors.white,
+                                      size: 23,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          item.title,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w800,
+                                            height: 1.2,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 6),
+                                        Wrap(
+                                          spacing: 6,
+                                          runSpacing: 4,
+                                          crossAxisAlignment:
+                                              WrapCrossAlignment.center,
+                                          children: [
+                                            _agendaKindChip(
+                                              item.kind.label,
+                                              color,
+                                            ),
+                                            _agendaKindChip(
+                                              date,
+                                              const Color(0xFF475569),
+                                              icon:
+                                                  Icons.calendar_today_rounded,
+                                            ),
+                                            _agendaKindChip(
+                                              time,
+                                              const Color(0xFF475569),
+                                              icon: Icons.schedule_rounded,
+                                            ),
+                                          ],
+                                        ),
+                                        if (location.isNotEmpty) ...[
+                                          const SizedBox(height: 5),
+                                          Row(
+                                            children: [
+                                              const Icon(
+                                                Icons.place_rounded,
+                                                size: 13,
+                                                color: Color(0xFF94A3B8),
+                                              ),
+                                              const SizedBox(width: 3),
+                                              Expanded(
+                                                child: Text(
+                                                  location,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    color: Color(0xFF64748B),
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                  AgendaPreviewActions(
+                                    onDetails: () => _showAgendaItemDetails(
+                                      context,
+                                      item,
+                                      onEdit: canEdit(item)
+                                          ? () => onEdit(item)
+                                          : null,
+                                    ),
+                                    canEdit: canEdit(item),
+                                    onEdit: () => onEdit(item),
+                                    onDelete: () => onDelete(item),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 );

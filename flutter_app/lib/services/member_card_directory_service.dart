@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -440,11 +441,11 @@ abstract final class MemberCardDirectoryService {
     List<MemberCardSignatory> list,
   ) async {
     try {
-      await _signatoryCacheRef(churchId).set({
+      await YahwehDocWrite.set(_signatoryCacheRef(churchId), {
         'items': list.map((e) => e.toFirestoreIndexEntry()).toList(),
         'updatedAt': FieldValue.serverTimestamp(),
         'source': 'client',
-      }, SetOptions(merge: true));
+      });
     } catch (_) {}
   }
 }

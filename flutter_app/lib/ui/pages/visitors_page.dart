@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -4036,7 +4037,7 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
     }
     await FirestoreWebGuard.runWithWebRecovery(
       () => runFirestorePublishWithRecovery(
-        () => _visitorDoc.update(data),
+        () => YahwehDocWrite.update(_visitorDoc, data),
         maxAttempts: 4,
       ),
       maxAttempts: 4,

@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'finance_comprovante_publish_service.dart';
 import 'transaction_save_service.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Fila local de uploads (ex.: ofício de audiência) quando não há rede.
 class PendingStorageUploadService {
@@ -227,7 +228,7 @@ class PendingStorageUploadService {
       mimeType: mime,
       fileName: fileName,
     );
-    await TransactionSaveService.txRef(userDocId).doc(txId).update({
+    await YahwehDocWrite.update(TransactionSaveService.txRef(userDocId).doc(txId), {
       ...FinanceComprovantePublishService.comprovanteFieldsPatch(
         url: result.url,
         storagePath: result.storagePath,

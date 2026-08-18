@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -638,7 +639,7 @@ abstract final class ChurchAgendaLoadService {
     try {
       await FirestoreWebGuard.runWithWebRecovery(
         () => runFirestorePublishWithRecovery(
-          () => ref.update(payload),
+          () => YahwehDocWrite.update(ref, payload),
           maxAttempts: 4,
         ),
         maxAttempts: 4,
@@ -661,7 +662,7 @@ abstract final class ChurchAgendaLoadService {
     try {
       await FirestoreWebGuard.runWithWebRecovery(
         () => runFirestorePublishWithRecovery(
-          () => ref.set(payload),
+          () => YahwehDocWrite.set(ref, payload, merge: false),
           maxAttempts: 4,
         ),
         maxAttempts: 4,
@@ -693,7 +694,7 @@ abstract final class ChurchAgendaLoadService {
     try {
       await FirestoreWebGuard.runWithWebRecovery(
         () => runFirestorePublishWithRecovery(
-          () => ref.delete(),
+          () => YahwehDocWrite.delete(ref),
           maxAttempts: 4,
         ),
         maxAttempts: 4,

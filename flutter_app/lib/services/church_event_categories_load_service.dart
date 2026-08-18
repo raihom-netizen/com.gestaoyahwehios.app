@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Resultado — categorias `igrejas/{churchId}/event_categories`.
 class ChurchEventCategoriesLoadResult {
@@ -273,7 +274,7 @@ abstract final class ChurchEventCategoriesLoadService {
       'createdAt': FieldValue.serverTimestamp(),
     });
 
-    await _writeFast(() => ref.set(payload));
+    await _writeFast(() => YahwehDocWrite.set(ref, payload, merge: false));
     unawaited(refreshRamFromCache(churchId));
     unawaited(_persistHive(churchId, peekRam(churchId) ?? const []));
     return ref.id;
@@ -289,7 +290,7 @@ abstract final class ChurchEventCategoriesLoadService {
     if (churchId.isEmpty || id.isEmpty) return;
 
     await _writeFast(
-      () => ChurchUiCollections.eventCategories(churchId).doc(id).delete(),
+      () => YahwehDocWrite.delete(ChurchUiCollections.eventCategories(churchId).doc(id)),
     );
     removeFromRam(churchId, id);
     unawaited(refreshRamFromCache(churchId));

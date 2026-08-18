@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firebase_paths.dart';
@@ -134,7 +135,7 @@ class CertificadoDigitalService {
     try {
       final mRef = await _membroRefForUid(tid, uid);
       if (mRef != null) {
-        await mRef.set(payload, SetOptions(merge: true));
+        await YahwehDocWrite.set(mRef, payload);
       }
     } catch (e, st) {
       debugPrint('CertificadoDigitalService.membros mirror: $e\n$st');
@@ -155,7 +156,7 @@ class CertificadoDigitalService {
     try {
       userData = (await userRef.get()).data();
     } catch (_) {}
-    await userRef.set(deletes, SetOptions(merge: true));
+    await YahwehDocWrite.set(userRef, deletes);
     final tid = (userData?['certificadoDigitalTenantId'] ??
             userData?['tenantId'] ??
             userData?['igrejaId'] ??
@@ -166,7 +167,7 @@ class CertificadoDigitalService {
     try {
       final mRef = await _membroRefForUid(tid, uid);
       if (mRef != null) {
-        await mRef.set(deletes, SetOptions(merge: true));
+        await YahwehDocWrite.set(mRef, deletes);
       }
     } catch (e, st) {
       debugPrint('CertificadoDigitalService.membros remove: $e\n$st');

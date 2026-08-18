@@ -63,12 +63,16 @@ async function notifyGestoresNewMember(params) {
     if (!tenantId || !membroId)
         return;
     const publicSignup = isPublicMemberSignup(params.data);
+    // Nome NO TÍTULO: no celular e na lista do painel só o título aparece.
+    const temNome = nome !== 'Novo membro';
+    const tituloBase = publicSignup ? 'Novo cadastro (site)' : 'Novo membro';
+    const titulo = temNome ? tituloBase + ': ' + nome : tituloBase;
     const body = publicSignup
         ? `${nome} cadastrou-se pelo site público. Toque para ver ou aprovar.`
         : `${nome} foi cadastrado(a) na igreja. Toque para ver a ficha.`;
     await (0, pushNovoConteudo_1.sendGyTopicPush)(tenantId, "gestores", (churchId) => (0, notificationBranding_1.buildGyTopicMessage)({
         topic: (0, pushNovoConteudo_1.topicPushNovo)(churchId, "gestores"),
-        title: publicSignup ? "⚡ Novo cadastro (site)" : "👤 Novo membro",
+        title: (publicSignup ? "⚡ " : "👤 ") + titulo,
         body,
         data: {
             type: "new_member",
@@ -83,7 +87,7 @@ async function notifyGestoresNewMember(params) {
     try {
         await getDb().collection("igrejas").doc(tenantId).collection("notificacoes").add({
             type: "novo_membro",
-            title: publicSignup ? "Novo cadastro (site)" : "Novo membro",
+            title: titulo,
             body,
             memberId: membroId,
             memberName: nome,

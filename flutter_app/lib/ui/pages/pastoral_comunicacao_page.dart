@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -1665,14 +1666,14 @@ class _DevocionalTabState extends State<_DevocionalTab> {
   Future<void> _save() async {
     setState(() => _saving = true);
     try {
-      await _cfgRef.set({
+      await YahwehDocWrite.set(_cfgRef, {
         'devocionalEnabled': _enabled,
         'devocionalTitulo': _tituloCtrl.text.trim().isEmpty ? 'Bom dia' : _tituloCtrl.text.trim(),
         'devocionalTexto': _textoCtrl.text.trim(),
         'devocionalReferencia': _refCtrl.text.trim(),
         'devocionalHora': _hora,
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar('Devocional salvo. O Cloud Function envia no horário configurado.'),

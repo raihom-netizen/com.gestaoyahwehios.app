@@ -22,6 +22,7 @@ import 'package:gestao_yahweh/services/finance_comprovante_update_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Exclusão com auditoria
@@ -50,7 +51,7 @@ Future<void> excluirLancamentoFinanceiroComAuditoria(
     await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
   }
   await FirestoreWebGuard.runWithWebRecovery(
-    () => doc.reference.delete(),
+    () => YahwehDocWrite.delete(doc.reference),
     maxAttempts: 2,
   );
   unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
@@ -435,7 +436,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                               presetFornecedorNome ?? '';
                         }
                         if (isEdit) {
-                          await existingDoc.reference.update(payload);
+                          await YahwehDocWrite.update(existingDoc.reference, payload);
                         } else {
                           payload['createdAt'] = FieldValue.serverTimestamp();
                           payload['churchId'] = effectiveTenantId;

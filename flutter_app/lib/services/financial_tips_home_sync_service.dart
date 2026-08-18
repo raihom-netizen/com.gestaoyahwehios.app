@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Configuração publicada no Início dos usuários (admin → «Sincronizar»).
 class FinancialTipsHomeConfig {
@@ -102,13 +103,13 @@ class FinancialTipsHomeSyncService {
     weekdayTipIds.forEach((day, id) {
       if (id.trim().isNotEmpty) weekdayPayload['$day'] = id.trim();
     });
-    await _db.doc(docPath).set({
+    await YahwehDocWrite.set(_db.doc(docPath), {
       'homeTipIds': homeTipIds,
       'favoriteTipIds': favoriteTipIds,
       'rotationOrder': rotationOrder,
       'weekdayTipIds': weekdayPayload,
       'syncedAt': FieldValue.serverTimestamp(),
       'syncedByEmail': syncedByEmail.trim(),
-    }, SetOptions(merge: true));
+    });
   }
 }

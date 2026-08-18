@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/ui/widgets/foto_patrimonio_widget.dart';
@@ -1086,7 +1087,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
   ) async {
     final data = doc.data();
     final itemId = doc.id;
-    await _col.doc(itemId).delete();
+    await YahwehDocWrite.delete(_col.doc(itemId));
     ChurchCanonicalMediaDeleteService.schedulePatrimonioItemDeleted(
       tenantId: _effectiveTenantId,
       itemId: itemId,
@@ -1648,7 +1649,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               final userName =
                   firebaseDefaultAuth.currentUser?.displayName ?? 'Usuário';
 
-              await _col.doc(doc.id).update({
+              await YahwehDocWrite.update(_col.doc(doc.id), {
                 'responsavel': novoResp,
                 'localizacao': novoLocal,
                 'atualizadoEm': FieldValue.serverTimestamp(),
@@ -6958,7 +6959,7 @@ class _InventarioTabState extends State<_InventarioTab> {
   ) async {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final nome = firebaseDefaultAuth.currentUser?.displayName ?? 'Usuário';
-    await doc.reference.update({
+    await YahwehDocWrite.update(doc.reference, {
       'ultimaConferencia': FieldValue.serverTimestamp(),
       'conferidoPor': nome,
       'conferidoPorUid': uid,

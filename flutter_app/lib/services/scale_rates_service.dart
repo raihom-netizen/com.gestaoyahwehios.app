@@ -7,6 +7,7 @@ import 'scale_rates_cache_notifier.dart';
 import 'clt_labor_config_service.dart';
 import 'scale_rates_period_service.dart';
 import 'user_scale_rates_period_service.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Valores de hora extra (diurno/noturno por dia): padrão AC4 GO, editável no admin e pelo usuário.
 /// Use [getEffectiveRates] na Calculadora e inclusão de plantão (respeita `hoursSource`).
@@ -216,7 +217,7 @@ class ScaleRatesService {
   Future<void> setGlobalRates(ScaleRates rates) async {
     final map = rates.toMap();
     map['updatedAt'] = FieldValue.serverTimestamp();
-    await _globalRatesDoc.set(map, SetOptions(merge: true));
+    await YahwehDocWrite.set(_globalRatesDoc, map);
     invalidateMemory();
   }
 
@@ -228,7 +229,7 @@ class ScaleRatesService {
     if (uid.isEmpty) return;
     final map = rates.toMap();
     map['updatedAt'] = FieldValue.serverTimestamp();
-    await _userRatesDoc(uid).set(map, SetOptions(merge: true));
+    await YahwehDocWrite.set(_userRatesDoc(uid), map);
     invalidateMemory(uid);
   }
 }

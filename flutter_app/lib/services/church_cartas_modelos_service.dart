@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Modelos de cartas — `igrejas/{churchId}/cartas_modelos` (máx. 100).
 abstract final class ChurchCartasModelosService {
@@ -247,7 +248,7 @@ abstract final class ChurchCartasModelosService {
         ? modelosCol(churchId).doc(docId.trim())
         : modelosCol(churchId).doc();
     await FirestoreWebGuard.runWithWebRecovery(
-      () => ref.set(data, SetOptions(merge: true)),
+      () => YahwehDocWrite.set(ref, data),
       maxAttempts: 4,
     );
     return ref.id;

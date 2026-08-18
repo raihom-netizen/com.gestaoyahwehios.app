@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
@@ -141,7 +142,7 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
         cacheKey: 'master_usuario_email_$email',
       );
       if (snap.docs.isNotEmpty) {
-        await snap.docs.first.reference.update({'papel': 'admin'});
+        await YahwehDocWrite.update(snap.docs.first.reference, {'papel': 'admin'});
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar('Usuário $email agora tem papel admin em usuarios/.'),
@@ -201,7 +202,7 @@ class _AdminMultiAdminPageState extends State<AdminMultiAdminPage> {
         cacheKey: 'master_usuario_email_$email',
       );
       if (snap.docs.isNotEmpty) {
-        await snap.docs.first.reference.update({'papel': 'usuario'});
+        await YahwehDocWrite.update(snap.docs.first.reference, {'papel': 'usuario'});
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar('Poderes removidos de $email'),

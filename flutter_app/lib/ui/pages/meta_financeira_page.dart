@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/ui/widgets/brl_amount_text_field.dart';
 import 'package:gestao_yahweh/utils/keyboard_form_scaffold.dart';
 import 'package:gestao_yahweh/utils/home_shell_layout.dart';
 import 'package:gestao_yahweh/ui/widgets/goal_finance_account_field.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Categorias de metas (estrutura base Premium).
 final List<GoalCategory> kGoalCategories = GoalCategory.values.toList();
@@ -345,7 +346,7 @@ class _MetaFinanceiraScreenState extends State<MetaFinanceiraScreen> {
         return;
       }
       try {
-        await goalDoc.reference.update({
+        await YahwehDocWrite.update(goalDoc.reference, {
           'title': title,
           'targetAmount': target,
           'dueDate': dueDate != null ? Timestamp.fromDate(dueDate!) : null,
@@ -411,7 +412,7 @@ class _MetaFinanceiraScreenState extends State<MetaFinanceiraScreen> {
     );
     if (confirm != true) return;
     try {
-      await goalDoc.reference.delete();
+      await YahwehDocWrite.delete(goalDoc.reference);
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Meta excluída.')));

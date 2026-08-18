@@ -1,6 +1,7 @@
 ﻿import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
@@ -58,10 +59,10 @@ class FinanceAdvancedSettingsService {
 
   Future<void> setStripHideZeroBalances(String uid, bool value) async {
     if (uid.isEmpty) return;
-    await _doc(uid).set({
+    await YahwehDocWrite.set(_doc(uid), {
       _keyStripHideZero: value,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   Future<String?> getDefaultFinanceAccountId(String uid) async {
@@ -102,15 +103,15 @@ class FinanceAdvancedSettingsService {
   Future<void> setDefaultFinanceAccountId(String uid, String? accountId) async {
     if (uid.isEmpty) return;
     if (accountId == null || accountId.trim().isEmpty) {
-      await _doc(uid).set({
+      await YahwehDocWrite.set(_doc(uid), {
         keyDefaultFinanceAccountId: FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
     } else {
-      await _doc(uid).set({
+      await YahwehDocWrite.set(_doc(uid), {
         keyDefaultFinanceAccountId: accountId.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
     }
   }
 
@@ -131,10 +132,10 @@ class FinanceAdvancedSettingsService {
 
   Future<void> setVaultAccountId(String uid, String accountId) async {
     if (uid.isEmpty || accountId.trim().isEmpty) return;
-    await _doc(uid).set({
+    await YahwehDocWrite.set(_doc(uid), {
       keyVaultAccountId: accountId.trim(),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 }
 

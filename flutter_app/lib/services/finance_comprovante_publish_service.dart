@@ -1,4 +1,5 @@
 import 'dart:async' show TimeoutException, unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -327,7 +328,7 @@ abstract final class FinanceComprovantePublishService {
           data: data,
           isNewDoc: false,
           directWrite: () => runFirestorePublishWithRecovery(
-            () => docRef.set(data, SetOptions(merge: true)),
+            () => YahwehDocWrite.set(docRef, data),
             maxAttempts: 4,
             criticalWrite: true,
           ),
@@ -335,7 +336,7 @@ abstract final class FinanceComprovantePublishService {
         return;
       }
       await runFirestorePublishWithRecovery(
-        () => docRef.set(data, SetOptions(merge: true)),
+        () => YahwehDocWrite.set(docRef, data),
       );
     }
 

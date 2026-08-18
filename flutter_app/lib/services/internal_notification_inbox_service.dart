@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
@@ -47,7 +48,7 @@ abstract final class InternalNotificationInboxService {
 
   static Future<void> markRead(DocumentReference<Map<String, dynamic>> ref) async {
     try {
-      await ref.update({'read': true, 'readAt': FieldValue.serverTimestamp()});
+      await YahwehDocWrite.update(ref, {'read': true, 'readAt': FieldValue.serverTimestamp()});
     } catch (_) {}
   }
 

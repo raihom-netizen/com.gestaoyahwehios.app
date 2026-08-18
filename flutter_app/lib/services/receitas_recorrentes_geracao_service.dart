@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 
@@ -109,7 +110,7 @@ Future<int> gerarReceitasRecorrentesPendentes(String tenantId) async {
             base['memberTelefone'] = memberTelefone;
           }
         }
-        await ref.set(base);
+        await YahwehDocWrite.set(ref, base, merge: false);
         criados++;
       }
       cursor = DateTime(cursor.year, cursor.month + 1, 1);

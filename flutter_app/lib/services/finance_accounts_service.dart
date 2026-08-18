@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fa;
@@ -160,7 +161,7 @@ class FinanceAccountsService {
       return existing.id;
     }
     final ref = _col(uid).doc();
-    await ref.set({
+    await YahwehDocWrite.set(ref, {
       ...FinanceAccount(
         id: ref.id,
         presetId: FinanceAccount.kVaultPresetId,
@@ -169,7 +170,7 @@ class FinanceAccountsService {
         sortOrder: -1000000,
       ).toMap(),
       'createdAt': FieldValue.serverTimestamp(),
-    });
+    }, merge: false);
     await prefs.setVaultAccountId(uid, ref.id);
     return ref.id;
   }
@@ -186,7 +187,7 @@ class FinanceAccountsService {
     final ref = _col(uid).doc();
     final sc = _normalizeStatementClosingDay(statementClosingDay, productType: pt);
     final cc = _normalizeCardColorId(cardColorId);
-    await ref.set({
+    await YahwehDocWrite.set(ref, {
       ...FinanceAccount(
         id: ref.id,
         presetId: presetId,
@@ -197,7 +198,7 @@ class FinanceAccountsService {
         cardColorId: cc,
       ).toMap(),
       'createdAt': FieldValue.serverTimestamp(),
-    });
+    }, merge: false);
     return ref.id;
   }
 
@@ -257,7 +258,7 @@ class FinanceAccountsService {
     } else {
       data['cardColorId'] = FieldValue.delete();
     }
-    await _col(uid).doc(accountId).update(data);
+    await YahwehDocWrite.update(_col(uid).doc(accountId), data);
   }
 
   /// Remove a conta e todos os lançamentos vinculados (inclui transferências relacionadas).
@@ -272,7 +273,7 @@ class FinanceAccountsService {
     }
     final linkedIds = await _collectLinkedTransactionIds(uid, accountId);
     await _deleteTransactionsByIds(uid, linkedIds);
-    await _col(uid).doc(accountId).delete();
+    await YahwehDocWrite.delete(_col(uid).doc(accountId));
     await FinanceAdvancedSettingsService().clearDefaultFinanceAccountIfMatches(uid, accountId);
     FinanceTransactionsHub.notifyMutated(uid: uid.trim());
     return linkedIds.length;
@@ -443,6 +444,6 @@ class FinanceAccountsService {
       data['nickname'] = trimmed;
       data['nome'] = trimmed;
     }
-    await _col(uid).doc(accountId).update(data);
+    await YahwehDocWrite.update(_col(uid).doc(accountId), data);
   }
 }

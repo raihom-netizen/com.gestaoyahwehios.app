@@ -20,6 +20,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/ui/widgets/master_plan_usage_card.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_360_metrics.dart';
 import 'package:gestao_yahweh/ui/pages/master_module_detail_page.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Ficha Super Premium da igreja (ações, saúde, timeline, notas internas).
 class MasterChurchDetailSheet extends StatefulWidget {
@@ -248,12 +249,12 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
         await BillingLicenseService().setTenantFreeMaster(widget.tenantId);
       } else {
         final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
-        await ChurchUiCollections.churchDoc(op).set({
+        await YahwehDocWrite.set(ChurchUiCollections.churchDoc(op), {
           'license': {
             'isFree': false,
             'updatedAt': FieldValue.serverTimestamp(),
           },
-        }, SetOptions(merge: true));
+        });
       }
       await _audit('master_set_free', 'free=$free');
       if (mounted) {
@@ -279,10 +280,10 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
     setState(() => _busy = true);
     try {
       final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
-      await ChurchUiCollections.churchDoc(op).set({
+      await YahwehDocWrite.set(ChurchUiCollections.churchDoc(op), {
         'masterNotes': _notesCtrl.text.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
       await _audit('master_notes', 'len=${_notesCtrl.text.length}');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

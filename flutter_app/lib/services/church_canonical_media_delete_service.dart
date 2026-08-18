@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart'
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/patrimonio_photo_fields.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Exclusão canónica de mídia — Firestore primeiro (UI instantânea), Storage em background.
 abstract final class ChurchCanonicalMediaDeleteService {
@@ -255,7 +256,7 @@ abstract final class ChurchCanonicalMediaDeleteService {
         urls,
         paths,
       );
-      unawaited(docRef.set(patch, SetOptions(merge: true)));
+      unawaited(YahwehDocWrite.set(docRef, patch));
     }
 
     unawaited(

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Modos de alerta (alinhados a [ChurchChatNotificationPrefs]).
 const Set<String> _kChatAlertModes = {'sound', 'vibrate', 'silent'};
@@ -311,10 +312,10 @@ class ChurchChatMemberPrefs {
       }
     }
 
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'starredMessageIdsByThread': next,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
 
     if (value) {
       unawaited(
@@ -356,12 +357,12 @@ class ChurchChatMemberPrefs {
         return false;
       }
     }
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'favoriteThreadIds': value
           ? FieldValue.arrayUnion([threadId])
           : FieldValue.arrayRemove([threadId]),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
     return true;
   }
 
@@ -371,12 +372,12 @@ class ChurchChatMemberPrefs {
     required bool value,
   }) async {
     final uid = firebaseDefaultAuth.currentUser!.uid;
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'mutedThreadIds': value
           ? FieldValue.arrayUnion([threadId])
           : FieldValue.arrayRemove([threadId]),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   static Future<void> setBlockedPeer({
@@ -385,12 +386,12 @@ class ChurchChatMemberPrefs {
     required bool value,
   }) async {
     final uid = firebaseDefaultAuth.currentUser!.uid;
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'blockedPeerUids': value
           ? FieldValue.arrayUnion([peerUid])
           : FieldValue.arrayRemove([peerUid]),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   /// Oculta ou repõe uma conversa direta na lista (não apaga mensagens nem o thread).
@@ -409,12 +410,12 @@ class ChurchChatMemberPrefs {
         return false;
       }
     }
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'hiddenDmThreadIds': hide
           ? FieldValue.arrayUnion([tid])
           : FieldValue.arrayRemove([tid]),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
     return true;
   }
 
@@ -443,10 +444,10 @@ class ChurchChatMemberPrefs {
       hitLimit = true;
     }
 
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'hiddenDmThreadIds': FieldValue.arrayUnion(toAdd),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
     return (hidden: toAdd.length, hitLimit: hitLimit);
   }
 
@@ -485,12 +486,12 @@ class ChurchChatMemberPrefs {
         return false;
       }
     }
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'pinnedThreadIds': value
           ? FieldValue.arrayUnion([tid])
           : FieldValue.arrayRemove([tid]),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
     return true;
   }
 
@@ -509,13 +510,13 @@ class ChurchChatMemberPrefs {
         return false;
       }
     }
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'archivedThreadIds': value
           ? FieldValue.arrayUnion([tid])
           : FieldValue.arrayRemove([tid]),
       if (value) 'pinnedThreadIds': FieldValue.arrayRemove([tid]),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
     return true;
   }
 
@@ -525,16 +526,16 @@ class ChurchChatMemberPrefs {
   }) async {
     final uid = firebaseDefaultAuth.currentUser!.uid;
     if (mode == null) {
-      await docRef(tenantId, uid).set({
+      await YahwehDocWrite.set(docRef(tenantId, uid), {
         'dmNotificationStyle': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
       return;
     }
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'dmNotificationStyle': _normalizeChatAlertMode(mode),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   static Future<void> setGroupNotificationStyle({
@@ -543,16 +544,16 @@ class ChurchChatMemberPrefs {
   }) async {
     final uid = firebaseDefaultAuth.currentUser!.uid;
     if (mode == null) {
-      await docRef(tenantId, uid).set({
+      await YahwehDocWrite.set(docRef(tenantId, uid), {
         'groupNotificationStyle': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
       return;
     }
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'groupNotificationStyle': _normalizeChatAlertMode(mode),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   /// `mode == null` remove a entrada. `false` se o mapa já está no limite.
@@ -572,10 +573,10 @@ class ChurchChatMemberPrefs {
       }
       map[threadId] = _normalizeChatAlertMode(mode);
     }
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'threadNotifModes': map,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
     return true;
   }
 
@@ -598,10 +599,10 @@ class ChurchChatMemberPrefs {
       }
       map[id] = _normalizeChatAlertMode(mode);
     }
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'departmentAlertModes': map,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
     return true;
   }
 
@@ -624,10 +625,10 @@ class ChurchChatMemberPrefs {
       }
       map[pid] = _normalizeChatAlertMode(mode);
     }
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'dmPeerAlertModes': map,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
     return true;
   }
 
@@ -642,19 +643,19 @@ class ChurchChatMemberPrefs {
         .where((e) => e.isNotEmpty)
         .take(maxDepartmentGroupOrderIds)
         .toList();
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'departmentGroupOrderIds': cleaned,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   /// Volta à ordenação alfabética na aba Grupos.
   static Future<void> clearDepartmentGroupOrder(String tenantId) async {
     final uid = firebaseDefaultAuth.currentUser!.uid;
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'departmentGroupOrderIds': FieldValue.delete(),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   /// Zera o contador de não lidas de uma conversa quando o utilizador a abre.
@@ -666,10 +667,10 @@ class ChurchChatMemberPrefs {
     if (uid == null || uid.isEmpty) return;
     final tid = threadId.trim();
     if (tid.isEmpty) return;
-    await docRef(tenantId, uid).set({
+    await YahwehDocWrite.set(docRef(tenantId, uid), {
       'unreadCounts.$tid': FieldValue.delete(),
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   /// DM: não enviar se bloqueou o interlocutor.

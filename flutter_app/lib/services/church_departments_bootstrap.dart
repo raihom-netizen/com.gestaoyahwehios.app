@@ -1,4 +1,5 @@
 import 'dart:math' show min;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -176,7 +177,7 @@ class ChurchDepartmentsBootstrap {
       final c2 = preset['c2'] as int;
       final visualKey = (preset['iconKey'] ?? preset['key'] ?? 'pastoral').toString();
       final desc = (preset['description'] ?? '').toString();
-      await col.doc(key).set(<String, dynamic>{
+      await YahwehDocWrite.set(col.doc(key), <String, dynamic>{
         'name': label,
         'description': desc,
         'iconKey': visualKey,
@@ -198,7 +199,7 @@ class ChurchDepartmentsBootstrap {
         'updatedAt': now,
         'active': true,
         'isDefaultPreset': true,
-      });
+      }, merge: false);
       return true;
     } catch (e) {
       debugPrint('ChurchDepartmentsBootstrap.ensurePresetDocumentByKey: $e');

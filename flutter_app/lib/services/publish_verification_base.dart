@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:gestao_yahweh/services/church_storage_metadata_verify.dart';
 import 'package:gestao_yahweh/core/church_publish_state.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Base compartilhada por todos os `*PublishVerificationService`.
 abstract class PublishVerificationBase {
@@ -44,7 +45,7 @@ abstract class PublishVerificationBase {
     required Future<void> Function() verifyStep,
     Future<void> Function(Object error)? onFailure,
   }) async {
-    await docRef.set(ChurchPublishState.draftPatch(), SetOptions(merge: true));
+    await YahwehDocWrite.set(docRef, ChurchPublishState.draftPatch());
     try {
       await docRef.set(
         ChurchPublishState.uploadingPatch(),

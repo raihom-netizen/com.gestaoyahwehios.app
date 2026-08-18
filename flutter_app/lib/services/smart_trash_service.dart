@@ -6,6 +6,7 @@ import 'package:gestao_yahweh/core/offline/sync_task.dart';
 import 'package:gestao_yahweh/core/offline/tenant_offline_write.dart';
 import 'package:gestao_yahweh/services/tenant_audit_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Lixeira inteligente — 30 dias antes de exclusão definitiva.
 abstract final class SmartTrashService {
@@ -34,7 +35,7 @@ abstract final class SmartTrashService {
     if (TenantOfflineWrite.shouldQueueForHive) {
       await _enqueueTrash(ref: ref, tenantId: tenantId, module: module);
       try {
-        await ref.delete();
+        await YahwehDocWrite.delete(ref);
       } catch (_) {}
       return;
     }
@@ -76,7 +77,7 @@ abstract final class SmartTrashService {
       'dispositivo': TenantAuditService.deviceLabel(),
     });
 
-    await ref.delete();
+    await YahwehDocWrite.delete(ref);
 
     await TenantAuditService.logDelete(
       tenantId: tenantId,
@@ -120,7 +121,7 @@ abstract final class SmartTrashService {
 
     final original = firebaseDefaultFirestore.doc(originalPath);
     await original.set(Map<String, dynamic>.from(docData));
-    await trashRef.delete();
+    await YahwehDocWrite.delete(trashRef);
   }
 
   /// Purga entradas expiradas (cliente admin; CF pode fazer em batch).
@@ -134,7 +135,7 @@ abstract final class SmartTrashService {
         .get();
     var n = 0;
     for (final d in q.docs) {
-      await d.reference.delete();
+      await YahwehDocWrite.delete(d.reference);
       n++;
     }
     return n;

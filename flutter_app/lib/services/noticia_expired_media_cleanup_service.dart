@@ -1,5 +1,6 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart';
@@ -88,7 +89,7 @@ class NoticiaExpiredMediaCleanupService {
         if (q.docs.isEmpty) break;
         for (final d in q.docs) {
           try {
-            await d.reference.delete();
+            await YahwehDocWrite.delete(d.reference);
           } catch (_) {}
         }
       }
@@ -108,7 +109,7 @@ class NoticiaExpiredMediaCleanupService {
 
     await _deleteSubcollections(doc.reference);
     try {
-      await doc.reference.delete();
+      await YahwehDocWrite.delete(doc.reference);
     } catch (e) {
       debugPrint('NoticiaExpiredMediaCleanupService.delete doc ${doc.id}: $e');
     }

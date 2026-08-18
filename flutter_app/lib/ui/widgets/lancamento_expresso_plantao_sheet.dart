@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -614,7 +615,7 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
       base['paid'] = false;
       base.remove('autoViradaMes');
       base.remove('autoViradaSourceId');
-      await newDoc.set(base);
+      await YahwehDocWrite.set(newDoc, base, merge: false);
       if (!mounted) return;
       widget.onSalvar();
       Navigator.of(context).maybePop();
@@ -1012,12 +1013,12 @@ class _LancamentoExpressoBodyState extends State<_LancamentoExpressoBody> {
     final bySource =
         await _scalesRef.where('autoViradaSourceId', isEqualTo: sourceId).get();
     for (final doc in bySource.docs) {
-      await _scalesRef.doc(doc.id).delete();
+      await YahwehDocWrite.delete(_scalesRef.doc(doc.id));
     }
     final note = _autoViradaNote(sourceId);
     final legacy = await _scalesRef.where('notes', isEqualTo: note).get();
     for (final doc in legacy.docs) {
-      await _scalesRef.doc(doc.id).delete();
+      await YahwehDocWrite.delete(_scalesRef.doc(doc.id));
     }
   }
 

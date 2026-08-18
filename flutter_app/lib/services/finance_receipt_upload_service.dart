@@ -8,6 +8,7 @@ import 'package:gestao_yahweh/utils/connectivity_offline.dart';
 import 'finance_comprovante_publish_service.dart';
 import 'pending_storage_upload_service.dart';
 import 'transaction_save_service.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Comprovante financeiro: upload imediato ou fila local (offline) — sync silencioso ao voltar rede.
 class FinanceReceiptUploadService {
@@ -51,7 +52,7 @@ class FinanceReceiptUploadService {
           mimeType: mimeType,
           fileName: filename,
         );
-        await col.doc(txDocId).update({
+        await YahwehDocWrite.update(col.doc(txDocId), {
           ...FinanceComprovantePublishService.comprovanteFieldsPatch(
             url: result.url,
             storagePath: result.storagePath,
@@ -86,7 +87,7 @@ class FinanceReceiptUploadService {
       fileName: filename,
       mime: mimeType,
     );
-    await col.doc(txDocId).update({
+    await YahwehDocWrite.update(col.doc(txDocId), {
       'hasReceipt': true,
       'receiptPendingUpload': true,
       'updatedAt': FieldValue.serverTimestamp(),

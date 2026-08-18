@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
+import 'package:gestao_yahweh/core/constants/yahweh_storage.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_image_process.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_direct_firebase.dart';
@@ -76,10 +77,14 @@ abstract final class EcoFireStorageUpload {
           EcoFireFlow.log('STORAGE OK $storagePath');
           return url;
         }
-        // Fallback: construir URL a partir do path (formato canónico).
-        // SafeNetworkImage / CachedNetworkImage resolvem depois.
-        EcoFireFlow.log('STORAGE OK path-only $storagePath');
-        return '';
+        // Fallback: construir a URL canónica `?alt=media` a partir do path.
+        // Devolver '' aqui era perda de dados silenciosa: os bytes estavam no
+        // bucket, mas o chamador gravava `videoUrl: ''` e o lote de fotos
+        // descartava o slot (`if (fullUrl.isNotEmpty)`) — foto/vídeo enviados
+        // e invisíveis. Os objetos destes paths são de leitura pública
+        // (`allow read: if true`), por isso a URL sem token resolve.
+        EcoFireFlow.log('STORAGE OK path-url $storagePath');
+        return YahwehStorage.downloadUrlForObjectPath(storagePath);
       } catch (e) {
         lastError = e;
         EcoFireFlow.log('STORAGE retry $attempt: $e');

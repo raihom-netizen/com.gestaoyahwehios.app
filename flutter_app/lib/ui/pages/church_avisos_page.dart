@@ -22,11 +22,8 @@ import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/church_avisos_carousel.dart';
-import 'package:gestao_yahweh/ui/widgets/church_chewie_video.dart'
-    show showChurchHostedVideoTheater;
-import 'package:gestao_yahweh/ui/widgets/church_instagram_photo_gallery.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
-import 'package:gestao_yahweh/ui/widgets/church_youtube/church_youtube_player_shell.dart';
+import 'package:gestao_yahweh/ui/widgets/church_post_media_carousel.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
@@ -1127,6 +1124,40 @@ class _AvisoStaggeredAppearState extends State<_AvisoStaggeredAppear>
   }
 }
 
+/// Capa do card na lista: 1.ª foto ou, quando o aviso só tem vídeo, a
+/// miniatura do vídeo — antes esses avisos mostravam o ícone de megafone e
+/// pareciam não ter mídia nenhuma.
+String avisoCoverRefFor(ChurchAvisoItem item) {
+  final refs = item.mediaRefs();
+  if (refs.isNotEmpty) return refs.first;
+  if (item.imageUrls.isNotEmpty) return item.imageUrls.first;
+  return sanitizeImageUrl(
+    eventNoticiaDisplayVideoThumbnailUrl(item.rawData) ?? '',
+  );
+}
+
+/// Mídia do aviso para o carrossel — fotos + vídeo, na mesma ordem do detalhe.
+List<ChurchPostMediaItem> avisoMediaItemsFor(ChurchAvisoItem item) {
+  final refs = item.mediaRefs();
+  return buildChurchPostMedia(
+    imageUrls: refs.isNotEmpty ? refs : item.imageUrls,
+    hostedVideoUrl: YoutubeUrlHelper.isValidYoutubeUrl(item.videoUrl)
+        ? ''
+        : item.videoUrl.trim(),
+    videoThumbUrl: sanitizeImageUrl(
+      eventNoticiaDisplayVideoThumbnailUrl(item.rawData) ?? '',
+    ),
+    youtubeVideoId: item.youtubeVideoId,
+  );
+}
+
+/// `5 fotos · 1 vídeo` — o selo do card contava só fotos e o membro não sabia
+/// que havia vídeo antes de abrir.
+String avisoMediaLabelFor(ChurchAvisoItem item) {
+  final label = churchPostMediaCountLabel(avisoMediaItemsFor(item));
+  return label.isEmpty ? 'sem mídia' : label;
+}
+
 _AvisoTone _resolveAvisoTone(ChurchAvisoItem item) {
   if (item.permanent) {
     return const _AvisoTone(
@@ -1250,13 +1281,11 @@ class _AvisoGridCardState extends State<_AvisoGridCard> {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        if (widget.item.hasImages)
+                        if (avisoCoverRefFor(widget.item).isNotEmpty)
                           ColoredBox(
                             color: tone.soft,
                             child: SafeNetworkImage(
-                              imageUrl: (widget.item.mediaRefs().isNotEmpty
-                                  ? widget.item.mediaRefs().first
-                                  : widget.item.imageUrls.first),
+                              imageUrl: avisoCoverRefFor(widget.item),
                               fit: BoxFit.contain,
                               width: double.infinity,
                               height: double.infinity,
@@ -1385,7 +1414,7 @@ class _AvisoGridCardState extends State<_AvisoGridCard> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                '${(widget.item.mediaRefs().isNotEmpty ? widget.item.mediaRefs().length : widget.item.imageUrls.length)} foto(s)',
+                                avisoMediaLabelFor(widget.item),
                                 style: TextStyle(
                                   fontSize: 10,
                                   color: tone.secondary,
@@ -1508,11 +1537,9 @@ class _AvisoListCardState extends State<_AvisoListCard> {
                       aspectRatio: 16 / 10,
                       child: ColoredBox(
                         color: tone.soft,
-                        child: widget.item.hasImages
+                        child: avisoCoverRefFor(widget.item).isNotEmpty
                             ? SafeNetworkImage(
-                                imageUrl: (widget.item.mediaRefs().isNotEmpty
-                                    ? widget.item.mediaRefs().first
-                                    : widget.item.imageUrls.first),
+                                imageUrl: avisoCoverRefFor(widget.item),
                                 fit: BoxFit.contain,
                                 width: double.infinity,
                                 height: double.infinity,
@@ -1575,7 +1602,7 @@ class _AvisoListCardState extends State<_AvisoListCard> {
                                 _miniTag(
                                   icon: Icons.photo_library_outlined,
                                   text:
-                                      '${(widget.item.mediaRefs().isNotEmpty ? widget.item.mediaRefs().length : widget.item.imageUrls.length)} foto(s)',
+                                      avisoMediaLabelFor(widget.item),
                                   color: tone.secondary,
                                 ),
                                 _miniTag(
@@ -1743,6 +1770,12 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
     final avisoVideoThumbUrl = sanitizeImageUrl(
       eventNoticiaDisplayVideoThumbnailUrl(item.rawData) ?? '',
     );
+    final avisoMediaItems = buildChurchPostMedia(
+      imageUrls: item.imageUrls,
+      hostedVideoUrl: hostedVideo,
+      videoThumbUrl: avisoVideoThumbUrl,
+      youtubeVideoId: ytId,
+    );
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.sizeOf(context).height * 0.92,
@@ -1816,10 +1849,12 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
                         item.permanent ? 'Permanente' : 'Com vencimento',
                         tone.primary,
                       ),
-                      if (item.imageUrls.isNotEmpty)
+                      if (avisoMediaItems.isNotEmpty)
                         _viewerTag(
-                          Icons.photo_library_rounded,
-                          '${item.imageUrls.length} foto(s)',
+                          avisoMediaItems.any((m) => m.isVideo)
+                              ? Icons.perm_media_rounded
+                              : Icons.photo_library_rounded,
+                          churchPostMediaCountLabel(avisoMediaItems),
                           tone.secondary,
                         ),
                       if (item.hasVideo)
@@ -1844,67 +1879,17 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
                     ),
                   ],
                   const SizedBox(height: 14),
-                  if (ytId.isNotEmpty) ...[
-                    ChurchYoutubePlayerShell(
-                      youtubeVideoId: ytId,
-                      borderRadius: 16,
-                    ),
-                    const SizedBox(height: 12),
-                  ] else if (hostedVideo.isNotEmpty) ...[
-                    AspectRatio(
-                      aspectRatio: 16 / 9,
-                      child: Material(
-                        color: const Color(0xFF0F172A),
-                        borderRadius: BorderRadius.circular(16),
-                        clipBehavior: Clip.antiAlias,
-                        child: InkWell(
-                          onTap: () => unawaited(
-                            showChurchHostedVideoTheater(
-                              context,
-                              videoUrl: hostedVideo,
-                              title: item.title,
-                            ),
-                          ),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              if (avisoVideoThumbUrl.isNotEmpty)
-                                SafeNetworkImage(
-                                  imageUrl: avisoVideoThumbUrl,
-                                  fit: BoxFit.cover,
-                                ),
-                              Container(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      Colors.black.withValues(alpha: 0.05),
-                                      Colors.black.withValues(alpha: 0.35),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const Center(
-                                child: Icon(
-                                  Icons.play_circle_rounded,
-                                  size: 64,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  if (item.imageUrls.isNotEmpty)
-                    ChurchInstagramPhotoGallery(
-                      imageUrls: item.imageUrls,
+                  // Fotos e vídeo num único carrossel: antes o vídeo ficava
+                  // num bloco à parte por cima da galeria e o membro não
+                  // percebia que havia mais mídia por baixo.
+                  if (avisoMediaItems.isNotEmpty)
+                    ChurchPostMediaCarousel(
+                      items: avisoMediaItems,
                       accent: tone.primary,
                       aspectRatio: 4 / 5,
+                      title: item.title,
                     ),
+
                   if (item.instagramUrl.isNotEmpty || ytId.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     Wrap(
@@ -2386,6 +2371,17 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
         },
       );
       if (!publishDone.isCompleted) publishDone.complete(true);
+      // Aviso já gravado; se só o vídeo falhou, avisa sem o perder.
+      final videoFailure = ChurchAvisosService.lastVideoFailure;
+      if (videoFailure != null && videoFailure.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(videoFailure),
+            backgroundColor: Colors.orange.shade800,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
     } catch (e, st) {
       if (EcoFireResilientPublish.isQueuedSuccess(e)) {
         if (mounted) {

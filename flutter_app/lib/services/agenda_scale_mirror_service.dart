@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'agenda_reminder_delete_helper.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 enum AgendaMirrorType { compromisso, audiencia, plantao }
 
@@ -29,7 +30,7 @@ abstract final class AgendaScaleMirrorService {
   }) async {
     if (userDocId.isEmpty || agendaId.isEmpty) return;
     final ref = _scales(userDocId).doc(_scaleDocId(agendaId));
-    await ref.set({
+    await YahwehDocWrite.set(ref, {
       'type': type.name,
       'title': label,
       'date': Timestamp.fromDate(DateTime(date.year, date.month, date.day)),
@@ -45,7 +46,7 @@ abstract final class AgendaScaleMirrorService {
       'source': _scaleDocId(agendaId),
       'createdByLancamentoExpresso': createdByLancamentoExpresso,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
   }
 
   static Future<void> delete({

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -201,7 +202,7 @@ class _EditarPlanoDialogState extends State<_EditarPlanoDialog> {
   Future<void> _salvar() async {
     final ref =
         firebaseDefaultFirestore.collection('planos').doc(widget.plano['id']);
-    await ref.update({
+    await YahwehDocWrite.update(ref, {
       'nome': _nome.text.trim(),
       'preco': double.tryParse(_preco.text.trim()) ?? 0,
       'periodo': _periodo.text.trim(),

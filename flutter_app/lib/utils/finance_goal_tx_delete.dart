@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/services/finance_month_cache.dart';
 import 'package:gestao_yahweh/services/goal_deposit_service.dart';
 import 'package:gestao_yahweh/ui/widgets/goal_deposit_ui.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Confirma exclusão de lançamento — aviso Meta / semanas (padrão integrado).
 Future<bool> confirmFinanceTransactionDelete({
@@ -72,7 +73,7 @@ Future<void> deleteFinanceTransactionWithMetaSync({
     txId: docId,
     txData: txData,
   );
-  await txCol.doc(docId).delete();
+  await YahwehDocWrite.delete(txCol.doc(docId));
   await _markFixedMonthExcludedIfNeeded(uid, txData);
 }
 
@@ -148,7 +149,7 @@ Future<void> deleteFinanceTransactionRecord({
         txId: pairDoc.id,
         txData: pairData,
       );
-      await pairDoc.reference.delete();
+      await YahwehDocWrite.delete(pairDoc.reference);
       await _markFixedMonthExcludedIfNeeded(uid, pairData);
     }
     FinanceMonthCache.clearUid(uid);

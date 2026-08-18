@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -203,7 +204,7 @@ class _FuncoesPermissoesPageState extends State<FuncoesPermissoesPage> {
         order = (data['order'] is int) ? data['order'] as int : ((data['order'] as num?)?.toInt() ?? 50);
       }
 
-      await col.doc(key).set({
+      await YahwehDocWrite.set(col.doc(key), {
         'key': key,
         'label': label,
         'descricao': descCtrl.text.trim(),
@@ -212,7 +213,7 @@ class _FuncoesPermissoesPageState extends State<FuncoesPermissoesPage> {
         'enabled': enabled,
         'updatedAt': FieldValue.serverTimestamp(),
         if (!isEdit) 'createdAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -258,7 +259,7 @@ class _FuncoesPermissoesPageState extends State<FuncoesPermissoesPage> {
     if (ok != true) return;
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
-      await doc.reference.delete();
+      await YahwehDocWrite.delete(doc.reference);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.successSnackBar('Função removida.'));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(ThemeCleanPremium.feedbackSnackBar('Erro: $e'));

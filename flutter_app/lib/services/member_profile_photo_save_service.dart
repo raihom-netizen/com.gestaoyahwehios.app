@@ -1,4 +1,5 @@
 import 'dart:async' show TimeoutException, unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -251,7 +252,7 @@ abstract final class MemberProfilePhotoSaveService {
         data: updates,
         isNewDoc: false,
         directWrite: () => runFirestorePublishWithRecovery(
-          () => docRef.set(updates, SetOptions(merge: true)),
+          () => YahwehDocWrite.set(docRef, updates),
         ),
       );
 

@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/services/publication_engine.dart';
 import 'package:gestao_yahweh/utils/admin_feed_firestore_bridge.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Fachada fina — **toda** publicação mural/feed delega a [PublicationEngine].
 ///
@@ -89,7 +90,7 @@ abstract final class FeedMediaPublishService {
         data: patch,
         isNewDoc: true,
         directWrite: () => runFirestorePublishWithRecovery(
-          () => docRef.set(patch),
+          () => YahwehDocWrite.set(docRef, patch, merge: false),
           maxAttempts: 4,
           criticalWrite: true,
         ),
@@ -100,7 +101,7 @@ abstract final class FeedMediaPublishService {
         data: patch,
         isNewDoc: false,
         directWrite: () => runFirestorePublishWithRecovery(
-          () => docRef.set(patch, SetOptions(merge: true)),
+          () => YahwehDocWrite.set(docRef, patch),
           maxAttempts: 4,
           criticalWrite: true,
         ),

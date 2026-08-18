@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 class MasterChurch360Metrics extends StatefulWidget {
   const MasterChurch360Metrics({
@@ -257,11 +258,11 @@ abstract final class MasterPlanAlertPersistence {
       'updatedAt': now,
     };
     await Future.wait([
-      churchRef.set(payload, SetOptions(merge: true)),
-      masterRef.set({
+      YahwehDocWrite.set(churchRef, payload),
+      YahwehDocWrite.set(masterRef, {
         ...payload,
         'audience': 'master',
-      }, SetOptions(merge: true)),
+      }),
     ]);
   }
 

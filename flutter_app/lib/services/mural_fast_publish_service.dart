@@ -1,4 +1,5 @@
 import 'dart:async' show TimeoutException, unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -234,10 +235,10 @@ abstract final class MuralFastPublishService {
   }) async {
     await ensureFirebaseCore(requireAuth: true);
     try {
-      await docRef.set({
+      await YahwehDocWrite.set(docRef, {
         'publishState': EntityPublishStatus.uploading,
         'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      });
     } catch (e, st) {
       YahwehFlowLog.error('AVISOS', e, st);
       rethrow;

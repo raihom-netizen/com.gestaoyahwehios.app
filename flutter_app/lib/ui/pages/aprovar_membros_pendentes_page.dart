@@ -1,4 +1,5 @@
 import 'dart:async' show TimeoutException, Timer, unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -332,7 +333,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     try {
       await runFirestorePublishWithRecovery(
         () => FirestoreWebGuard.runWithWebRecovery(
-          () => _membersCol.doc(id).delete(),
+          () => YahwehDocWrite.delete(_membersCol.doc(id)),
         ),
         criticalWrite: true,
       );

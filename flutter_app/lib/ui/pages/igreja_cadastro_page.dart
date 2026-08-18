@@ -2,6 +2,7 @@
 // (Funções legadas do bloco gestor/meta mantidas até remoção total.)
 
 import 'dart:async' show StreamSubscription, TimeoutException, unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -1533,7 +1534,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       payload['CRIADO_EM'] = FieldValue.serverTimestamp();
     }
     await FirestoreWebGuard.runWithWebRecovery(
-      () => ref.set(payload, SetOptions(merge: true)),
+      () => YahwehDocWrite.set(ref, payload),
     );
 
     if (pendingGestorPhotoBytes != null && pendingGestorPhotoBytes.isNotEmpty) {

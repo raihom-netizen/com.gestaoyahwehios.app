@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -621,7 +622,7 @@ abstract final class PatrimonioPublishService {
       data: payload,
       isNewDoc: false,
       directWrite: () => runFirestorePublishWithRecovery(
-        () => docRef.set(payload, SetOptions(merge: true)),
+        () => YahwehDocWrite.set(docRef, payload),
       ),
     );
   }

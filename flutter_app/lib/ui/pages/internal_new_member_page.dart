@@ -1,4 +1,5 @@
 import 'dart:async' show Timer, unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart'
@@ -610,7 +611,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         docRef: ref,
         data: data,
         isNewDoc: true,
-        directWrite: () => ref.set(data),
+        directWrite: () => YahwehDocWrite.set(ref, data, merge: false),
       );
       if (photoUploadFailed && photoBytes != null && photoBytes.isNotEmpty) {
         MemberProfilePhotoUpdateService.scheduleBackgroundPhotoUpload(

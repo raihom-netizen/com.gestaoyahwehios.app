@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
 import 'goal_deposit_service.dart';
 import 'logs_service.dart';
 import 'smart_category_hints_service.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Serviço financeiro para lançamentos especiais (ex.: colagem de SMS).
 ///
@@ -58,7 +59,7 @@ abstract final class FinanceService {
               txId: pairDoc.id,
               txData: pairDoc.data(),
             );
-            await pairDoc.reference.delete();
+            await YahwehDocWrite.delete(pairDoc.reference);
           }
         } else {
           await GoalDepositService.unlinkBeforeTransactionDelete(
@@ -66,7 +67,7 @@ abstract final class FinanceService {
             txId: id,
             txData: data,
           );
-          await col.doc(id).delete();
+          await YahwehDocWrite.delete(col.doc(id));
         }
       }
       FinanceTransactionsHub.notifyMutated(uid: uid);

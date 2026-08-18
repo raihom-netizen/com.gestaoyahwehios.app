@@ -1,5 +1,6 @@
 ﻿import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/services/home_start_module_cache.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/constants/shell_module_indices.dart';
@@ -116,11 +117,11 @@ const List<HomeStartModulePickerOption> kHomeStartModulePickerOptions = [
 /// Grava preferência de tela inicial (Firestore + cache local).
 Future<void> saveHomeStartModulePreference(String uid, int moduleIndex) async {
   if (!kHomeDefaultStartModuleLabels.containsKey(moduleIndex)) return;
-  await homePlanningRef(uid).set({
+  await YahwehDocWrite.set(homePlanningRef(uid), {
     kHomeDefaultStartModuleField: moduleIndex,
     kHomeDefaultStartModuleSchemaField: kHomeDefaultStartModuleSchemaCurrent,
     'updatedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
+  });
   await HomeStartModuleCache.save(uid, moduleIndex);
 }
 

@@ -1,4 +1,5 @@
 import 'dart:async' show Timer, unawaited;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb, listEquals;
@@ -7256,7 +7257,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
     try {
       final op = ChurchRepository.churchId(widget.tenantId.trim());
       unawaited(
-        ChurchUiCollections.config(op).doc('certificados').set({
+        YahwehDocWrite.set(ChurchUiCollections.config(op).doc('certificados'), {
           'defaultSignatoryMemberIds': _selectedSignatoryIds,
           'defaultSignaturesCount': _selectedSignatoryIds.length,
           'certSignatorySlots': [
@@ -7281,7 +7282,7 @@ class _CertEditorPageState extends State<_CertEditorPage> {
           'defaultVisualTemplateId': _visualTemplateId,
           'includeInstitutionalPastorSignature':
               _includeInstitutionalPastorSignature,
-        }, SetOptions(merge: true)).catchError((Object e, StackTrace st) {
+        }).catchError((Object e, StackTrace st) {
           debugPrint('CertEditor save cert config: $e\n$st');
         }),
       );

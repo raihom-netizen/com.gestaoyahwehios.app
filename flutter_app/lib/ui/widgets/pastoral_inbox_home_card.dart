@@ -1,4 +1,5 @@
 import 'dart:async' show StreamSubscription;
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -489,7 +490,7 @@ class _PastoralInboxTileState extends State<_PastoralInboxTile>
         'readAt': FieldValue.serverTimestamp(),
       };
       if (includeReply && r.isNotEmpty) payload['reply'] = r;
-      await leituraRef.set(payload, SetOptions(merge: true));
+      await YahwehDocWrite.set(leituraRef, payload);
       if (!mounted) return;
       // Some do painel na hora (o listener do Firestore pode atrasar offline).
       widget.onAcknowledged();

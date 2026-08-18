@@ -13,6 +13,7 @@ import 'agenda_reminder_delete_helper.dart';
 import 'agenda_scale_mirror_service.dart';
 
 import 'express_compromisso_agenda_sync.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 /// Compromisso particular com repetição anual (aniversário, casamento, data fixa
 
@@ -404,7 +405,7 @@ class YearlyCommitmentRepeatService {
       scaleDocId: ExpressCompromissoAgendaSync.scaleDocId(reminderId),
     );
     try {
-      await _reminders(userDocId).doc(reminderId).delete();
+      await YahwehDocWrite.delete(_reminders(userDocId).doc(reminderId));
     } catch (_) {}
     await AgendaScaleMirrorService.delete(
       userDocId: userDocId,
@@ -497,7 +498,7 @@ class YearlyCommitmentRepeatService {
       contatoWhatsApp: contatoWhatsApp,
     );
 
-    await ref.set(template);
+    await YahwehDocWrite.set(ref, template, merge: false);
 
     await syncInstancesFromTemplate(
       userDocId: userDocId,
@@ -716,10 +717,10 @@ class YearlyCommitmentRepeatService {
 
     if (templateId != null && year != null) {
       try {
-        await _reminders(userDocId).doc(templateId).set({
+        await YahwehDocWrite.set(_reminders(userDocId).doc(templateId), {
           'yearlyRepeatExcludedYears': FieldValue.arrayUnion([year]),
           'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        });
       } catch (_) {}
     }
 
@@ -806,9 +807,9 @@ class YearlyCommitmentRepeatService {
 
       if (y != null && y >= now.year) {
         try {
-          await _reminders(userDocId).doc(id).set({
+          await YahwehDocWrite.set(_reminders(userDocId).doc(id), {
             'agendaNotifResyncAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+          });
         } catch (_) {}
       }
     }
@@ -826,11 +827,11 @@ class YearlyCommitmentRepeatService {
   }) async {
     if (userDocId.isEmpty || templateId.isEmpty) return {};
 
-    await _reminders(userDocId).doc(templateId).set({
+    await YahwehDocWrite.set(_reminders(userDocId).doc(templateId), {
       'isYearlyRepeatTemplate': true,
       'repeatYearly': true,
       'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
 
     final month = (templateData['yearlyRepeatMonth'] as num?)?.toInt() ??
         (templateData['date'] as Timestamp?)?.toDate().month ??
@@ -1027,7 +1028,7 @@ class YearlyCommitmentRepeatService {
 
     payload['agendaLoginDaySyncAt'] = FieldValue.serverTimestamp();
 
-    await instRef.set(payload, SetOptions(merge: true));
+    await YahwehDocWrite.set(instRef, payload);
 
     await AgendaScaleMirrorService.upsert(
       userDocId: userDocId,
@@ -1154,7 +1155,7 @@ class YearlyCommitmentRepeatService {
     }
 
     try {
-      await _reminders(userDocId).doc(templateId).delete();
+      await YahwehDocWrite.delete(_reminders(userDocId).doc(templateId));
     } catch (_) {}
 
     unawaited(AgendaNotificationRescheduleHelper.afterItemChanged(
