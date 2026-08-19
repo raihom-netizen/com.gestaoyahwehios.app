@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/services/church_functions_service.dart';
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
@@ -152,7 +153,7 @@ abstract final class AdminFeedFirestoreBridge {
     required Future<void> Function() directWrite,
     bool merge = true,
   }) async {
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       try {
         await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
         await runFirestorePublishWithRecovery(
@@ -208,7 +209,7 @@ abstract final class AdminFeedFirestoreBridge {
     bool useUpdate = false,
     void Function(double progress)? onProgress,
   }) async {
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       // Não reiniciar a barra em 0.80 (rewind visual + hang «A gravar… 82%»).
       onProgress?.call(0.90);
       try {

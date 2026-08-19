@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 
 import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
@@ -97,7 +98,7 @@ abstract final class YahwehDocWrite {
     Map<String, dynamic> data, {
     bool merge = true,
   }) async {
-    if (kIsWeb && !_hasRawFieldValue(data)) {
+    if (YahwehRestFirst.prefer && !_hasRawFieldValue(data)) {
       try {
         await firestoreRestCommit([_restWrite(ref.path, data)]);
         return;
@@ -116,7 +117,7 @@ abstract final class YahwehDocWrite {
     DocumentReference<Map<String, dynamic>> ref,
     Map<String, dynamic> data,
   ) async {
-    if (kIsWeb && !_hasRawFieldValue(data)) {
+    if (YahwehRestFirst.prefer && !_hasRawFieldValue(data)) {
       try {
         await firestoreRestCommit([_restWrite(ref.path, data)]);
         return;
@@ -132,7 +133,7 @@ abstract final class YahwehDocWrite {
   static Future<void> delete(
     DocumentReference<Map<String, dynamic>> ref,
   ) async {
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       try {
         await firestoreRestDeleteDoc(ref.path);
         return;

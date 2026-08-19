@@ -1,7 +1,8 @@
 import 'dart:async' show Completer, TimeoutException, unawaited;
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart'
+    show debugPrint, defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
@@ -20,8 +21,24 @@ class FirestoreWebGuard {
   /// (`.snapshots()`). Com `webExperimentalForceLongPolling: true`, os `get()`
   /// usam **RestConnection (REST)** ? que NÃO passa pelo agregador ? não há a
   /// assertion. Portanto, na web lemos por `get()` (poll leve) e evitamos os
-  /// listeners ao vivo (que caem no agregador bugado). Mobile: sempre live.
-  static bool get disableLiveSnapshotsOnWeb => kIsWeb;
+  /// listeners ao vivo (que caem no agregador bugado).
+  ///
+  /// **Desktop nativo entra na mesma regra, por outro motivo.** Ali o Firestore
+  /// e o SDK C++ e cada listener ao vivo traz o seu punhado de threads. O
+  /// projeto tem ~40 `.snapshots()`; na web estao todos desligados (por isso a
+  /// web funciona), mas no Windows ficavam todos ligados. Medido: 32 threads a
+  /// 0,7s que viravam **303 em 5s**, CPU ~0 e a janela nunca pintava — o app
+  /// abria na tela branca com «Nao esta respondendo». Nao era warmup, nao era
+  /// FCM e nao era ffmpeg (as tres hipoteses foram testadas e descartadas).
+  ///
+  /// Mobile continua com listeners ao vivo: o SDK Java/ObjC aguenta.
+  ///
+  /// O nome mantem-se por compatibilidade com os 10 ficheiros que ja o usam.
+  static bool get disableLiveSnapshotsOnWeb =>
+      kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.linux ||
+      defaultTargetPlatform == TargetPlatform.macOS;
 
   /// Web: limita leituras Firestore em voo (alvos do watch stream) para evitar
   /// dezenas de alvos paralelos ? `INTERNAL ASSERTION FAILED: Unexpected state`

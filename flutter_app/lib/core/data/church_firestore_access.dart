@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
@@ -78,7 +79,7 @@ abstract final class ChurchFirestoreAccess {
     // SDK ? imune ? INTERNAL ASSERTION que envenenava o cliente e fazia os
     // módulos "perderem os dados"). Curando aqui — o gateway único — todos os
     // módulos que usam listOnce ficam curados de uma vez.
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       try {
         final docs = await firestoreRestCollect(
           collectionPath: path,
@@ -195,7 +196,7 @@ abstract final class ChurchFirestoreAccess {
     await _prepareRead();
     final path = '${collectionPath(id, subcollectionName)}/$docId';
     // Web: doc único por REST (imune à assertion). Em falha, cai no SDK (cache).
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       try {
         return await firestoreRestGetDocSnap(path)
             .timeout(ChurchPanelReadTimeouts.queryCap);
@@ -223,7 +224,7 @@ abstract final class ChurchFirestoreAccess {
     await _prepareRead();
     // Web: doc raiz da igreja por REST (cura o Cadastro da Igreja/Sites que
     // "às vezes não busca do banco"). Em falha, cai no SDK.
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       try {
         return await firestoreRestGetDocSnap(ChurchDataPaths.churchRoot(id))
             .timeout(ChurchPanelReadTimeouts.churchDocCap);
@@ -259,7 +260,7 @@ abstract final class ChurchFirestoreAccess {
       ),
     ) as Map<String, dynamic>;
     // Web: grava por REST (imune à assertion — evita "salvou mas não persistiu").
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       if (merge) {
         await firestoreRestUpdateDoc(ref.path, setFields: payload);
       } else {
@@ -292,7 +293,7 @@ abstract final class ChurchFirestoreAccess {
       ),
     ) as Map<String, dynamic>;
     // Web: cria por REST com id gerado no cliente (imune à assertion).
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       final ref = col.doc();
       await firestoreRestSetDoc(ref.path, payload);
       return;
@@ -316,7 +317,7 @@ abstract final class ChurchFirestoreAccess {
     }
     final ref = collectionRef(churchId, subcollectionName).doc(docId);
     // Web: exclui por REST (imune à assertion).
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       await firestoreRestDeleteDoc(ref.path);
       return;
     }
@@ -342,7 +343,7 @@ abstract final class ChurchFirestoreAccess {
     final id = churchId.trim();
     final query = collectionRef(id, subcollectionName).limit(limit);
     Stream<QuerySnapshot<Map<String, dynamic>>> stream;
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       // Web: polling leve via one-shot ? evita snapshots() no painel (assert SDK).
       stream = _webPollingStream(
         watchKey: watchKey,
