@@ -14,6 +14,27 @@ class YahwehStorage {
     return 'gestaoyahweh-21e23.firebasestorage.app';
   }
 
+  /// URL pública imediata para mídia da igreja, sem ida à rede.
+  ///
+  /// Tudo sob `igrejas/` é de leitura pública nas regras do Storage
+  /// (`allow read: if true`), por isso a URL `?alt=media` funciona **sem
+  /// token** — verificado em produção (HTTP 200).
+  ///
+  /// Existe para matar a espera pelo `getDownloadURL` depois do upload: os
+  /// bytes já estão no bucket e essa chamada custava até 5 s por ficheiro num
+  /// caminho e até 16 s no outro (8 s × 2 tentativas). Num evento com 5 fotos
+  /// e 1 vídeo dava quase um minuto e meio de espera à toa — era esta a
+  /// lentidão sentida ao publicar avisos, eventos, comprovantes, património,
+  /// logo da igreja e foto de perfil.
+  static String? publicChurchMediaUrlOrNull(String storagePath) {
+    final p = storagePath.trim().replaceAll('\\', '/').replaceFirst(
+      RegExp(r'^/+'),
+      '',
+    );
+    if (!p.startsWith('igrejas/')) return null;
+    return downloadUrlForObjectPath(p);
+  }
+
   /// URL HTTP de download direto (`?alt=media`) para um **caminho de objeto** no bucket.
   /// Útil para vídeos/imagens públicas (regras `read: if true`) — padrão usado no hero do EcoFire.
   static String downloadUrlForObjectPath(String storagePath) {

@@ -68,8 +68,15 @@ abstract final class EcoFireStorageUpload {
         // (hang histórico ~82–90% «Enviando logo…» / avisos). Timeout curto;
         // path-only basta para Firestore (SafeNetworkImage resolve depois).
         onProgress?.call(1.0);
-        // Bytes confirmados no bucket — URL é best-effort (3s).
-        // Se falhar, devolve path canónico; a UI resolve depois (SafeNetworkImage).
+        // Mídia da igreja: URL montada na hora, SEM ida à rede. Esperar pelo
+        // `getDownloadURL` aqui custava até 5 s por ficheiro com os bytes já
+        // gravados — multiplicado por foto/vídeo, era a lentidão ao publicar.
+        final imediata = YahwehStorage.publicChurchMediaUrlOrNull(storagePath);
+        if (imediata != null && imediata.isNotEmpty) {
+          EcoFireFlow.log('STORAGE OK $storagePath');
+          return imediata;
+        }
+        // Fora de `igrejas/` (institucional) mantém o caminho antigo.
         final url = await storageDownloadUrlOrNull(
           snap.ref,
         ).timeout(const Duration(seconds: 5), onTimeout: () => null);

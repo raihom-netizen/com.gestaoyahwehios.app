@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode, kIsWeb;
+import 'package:gestao_yahweh/core/yahweh_desktop_mode.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/firestore_app_config.dart';
@@ -35,7 +36,10 @@ abstract final class OfflineFirstCoordinator {
       if (kDebugMode) debugPrint('OfflineFirstCoordinator.init: $e\n$st');
     }
     _bindSilentSync();
-    if (AppConnectivityService.instance.isOnline) {
+    // Desktop nativo: sem flush no arranque (ver [YahwehDesktopMode]). As
+    // filas continuam a ser drenadas ao publicar e ao voltar a ficar online.
+    if (AppConnectivityService.instance.isOnline &&
+        YahwehDesktopMode.allowColdStartFlush) {
       unawaited(_flushSilently(reason: 'cold_start'));
     }
   }

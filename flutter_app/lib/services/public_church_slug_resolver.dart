@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -176,7 +177,14 @@ abstract final class PublicChurchSlugResolver {
         if (!snap.exists || snap.data() == null) continue;
         final d = snap.data()!;
         final cid = (d['churchId'] ?? '').toString().trim();
-        if (cid.isNotEmpty) return (churchId: cid, index: d);
+        if (cid.isNotEmpty) {
+          // Fonte autoritativa: este id É um documento de igreja, mesmo que
+          // não siga o padrão `igreja_*` (há tenants como
+          // `igreta_batista_nacional_alianca`). Sem registar, o resolvedor
+          // de tenant rejeitava-o e a página pública não montava.
+          ChurchTenantOverride.registerKnown(cid);
+          return (churchId: cid, index: d);
+        }
       } catch (_) {}
     }
     return null;

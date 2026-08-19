@@ -1,6 +1,7 @@
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -36,7 +37,7 @@ class TenantResolverService {
   static bool _looksLikeChurchDocId(String value) {
     final v = value.trim();
     if (v.isEmpty) return false;
-    return RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(v);
+    return ChurchTenantOverride.isChurchDocId(v);
   }
 
   static String? _extractChurchIdFromPathLikeSeed(String raw) {

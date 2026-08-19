@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -48,8 +49,12 @@ abstract final class ChurchContext {
   /// `resolveChurchId` descartava a dica e caia no `currentChurchId` — a
   /// igreja do proprio utilizador —, e a troca nunca saia do lugar.
   ///
-  /// Fica em `core` (e nao no servico) para nao criar ciclo de imports.
-  static String? explicitTenantOverride;
+  /// Delegado a [ChurchTenantOverride], que e partilhado por todos os modulos
+  /// (nove ficheiros duplicavam o teste de id canonico).
+  static String? get explicitTenantOverride => ChurchTenantOverride.explicit;
+
+  static set explicitTenantOverride(String? v) =>
+      ChurchTenantOverride.explicit = v;
 
   /// Resolve churchId: tenant escolhido → sessão bound → mapa BPC/slug → hint.
   ///
@@ -64,7 +69,7 @@ abstract final class ChurchContext {
       if (forced.isNotEmpty && hint == forced) return hint;
       final mapped = TenantResolverService.mapLegacySeedToCanonical(hint);
       if (mapped != null && mapped.isNotEmpty) return mapped;
-      if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(hint)) return hint;
+      if (ChurchTenantOverride.isChurchDocId(hint)) return hint;
     }
 
     // Com igreja escolhida, ela manda — nunca a sessao da igreja de origem.

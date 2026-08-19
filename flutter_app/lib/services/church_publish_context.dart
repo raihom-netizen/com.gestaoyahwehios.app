@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
@@ -10,7 +11,7 @@ abstract final class ChurchPublishContext {
         if (raw.isNotEmpty) {
             final mapped = TenantResolverService.mapLegacySeedToCanonical(raw);
             if (mapped != null && mapped.isNotEmpty) return mapped;
-            if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(raw)) return raw;
+            if (ChurchTenantOverride.isChurchDocId(raw)) return raw;
         }
 
         final ctx = ChurchRepository.currentChurchId?.trim() ?? '';

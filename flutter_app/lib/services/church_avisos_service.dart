@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
@@ -245,7 +246,7 @@ abstract final class ChurchAvisosService {
     if (raw.isEmpty) return '';
     final mapped = TenantResolverService.mapLegacySeedToCanonical(raw);
     if (mapped != null && mapped.isNotEmpty) return mapped;
-    if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(raw)) return raw;
+    if (ChurchTenantOverride.isChurchDocId(raw)) return raw;
     return ChurchRepository.churchId(raw);
   }
 

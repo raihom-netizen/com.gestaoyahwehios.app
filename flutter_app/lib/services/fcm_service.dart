@@ -81,6 +81,18 @@ class FcmService {
     );
     if (tid.isEmpty) return;
 
+    // Desktop nativo (Windows/Linux/macOS): `firebase_messaging` NAO tem
+    // implementacao. Cada chamada lancava MissingPluginException e os
+    // `listen` de onMessage/onMessageOpenedApp ficavam sem plataforma por
+    // baixo — o processo morria com fast-fail (0xc0000409) poucos segundos
+    // depois do arranque. Nao ha push em desktop, entao nao ha o que perder.
+    if (!kIsWeb &&
+        (defaultTargetPlatform == TargetPlatform.windows ||
+            defaultTargetPlatform == TargetPlatform.linux ||
+            defaultTargetPlatform == TargetPlatform.macOS)) {
+      return;
+    }
+
     if (!forceRefresh &&
         _configured &&
         _lastUid == uid &&

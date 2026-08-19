@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:gestao_yahweh/core/yahweh_desktop_mode.dart';
 import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
@@ -102,6 +103,10 @@ class ChurchTenantOfflineWarmupService {
   }
 
   Future<void> _runWarmup(String tenantIdRaw, {bool light = false}) async {
+    // Desktop nativo: nenhum warmup. Ver [YahwehDesktopMode] — a rajada de
+    // ~20 consultas no arranque afogava a camada nativa em threads e a janela
+    // nunca chegava a pintar.
+    if (!YahwehDesktopMode.allowStartupWarmup) return;
     if (_warmupRunning) return;
     _setWarmupRunning(true);
     try {
@@ -197,8 +202,28 @@ class ChurchTenantOfflineWarmupService {
         ]);
       }
 
-      // Web = mobile: paralelo (semáforo FirestoreWebGuard limita concorrência).
-      await Future.wait(tasks);
+      // Web e mobile: paralelo — o semaforo do FirestoreWebGuard segura a web,
+      // e o mobile aguenta a rajada.
+      //
+      // Desktop nativo NAO tem esse semaforo e o Firestore e o SDK C++: as ~21
+      // consultas do warmup disparavam juntas e cada uma criava threads. Medido
+      // no Windows: +35 threads em 5s (75 -> 110), memoria de 249 para 356 MB e
+      // o processo caia logo a seguir. Em lotes pequenos a rajada desaparece.
+      final desktop = !kIsWeb &&
+          (defaultTargetPlatform == TargetPlatform.windows ||
+              defaultTargetPlatform == TargetPlatform.linux ||
+              defaultTargetPlatform == TargetPlatform.macOS);
+      if (desktop) {
+        const lote = 3;
+        for (var i = 0; i < tasks.length; i += lote) {
+          final fim = (i + lote) > tasks.length ? tasks.length : i + lote;
+          await Future.wait(tasks.sublist(i, fim));
+          // Devolve a vez a thread de plataforma entre lotes.
+          await Future<void>.delayed(const Duration(milliseconds: 120));
+        }
+      } else {
+        await Future.wait(tasks);
+      }
       // Não disparar full prefetch aqui — já coberto por scheduleCriticalPrefetch.
     } finally {
       _setWarmupRunning(false);

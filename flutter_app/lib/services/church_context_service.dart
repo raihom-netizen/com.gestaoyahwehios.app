@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 
+import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'package:gestao_yahweh/core/data/church_tenant_fields.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/tenant/church_profile_loader.dart';
@@ -120,9 +121,9 @@ abstract final class ChurchContextService {
     if (hint.isNotEmpty) {
       final mapped = TenantResolverService.mapLegacySeedToCanonical(hint);
       if (mapped != null && mapped.isNotEmpty) return mapped;
-      if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(hint)) return hint;
+      if (ChurchTenantOverride.isChurchDocId(hint)) return hint;
       final canon = _canonicalizePanelId(hint);
-      if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(canon)) return canon;
+      if (ChurchTenantOverride.isChurchDocId(canon)) return canon;
     }
     final ctx = currentChurchId?.trim() ?? '';
     if (ctx.isNotEmpty) return _canonicalizePanelId(ctx);

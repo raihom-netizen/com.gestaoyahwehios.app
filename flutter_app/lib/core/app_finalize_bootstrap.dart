@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kDebugMode, debugPrint, kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint, kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:gestao_yahweh/core/ecofire/ecofire_flow.dart';
 import 'package:gestao_yahweh/core/firebase_auth_token_guard.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -16,6 +16,13 @@ import 'package:gestao_yahweh/services/yahweh_media_upload_pipeline.dart';
 /// Pilares de finalização: estabilidade (Firebase + sessão), velocidade (reenvio de filas).
 abstract final class AppFinalizeBootstrap {
   AppFinalizeBootstrap._();
+
+  /// Desktop **nativo** — nao confundir com largura de janela.
+  static bool get _desktopNativo =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.linux ||
+          defaultTargetPlatform == TargetPlatform.macOS);
 
   static bool _resumeBusy = false;
   static bool _queuesBound = false;
@@ -118,6 +125,14 @@ abstract final class AppFinalizeBootstrap {
       await ChurchAutoSessionService.ensureAutoPainelFlagForPersistedSession();
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
+      } else if (_desktopNativo) {
+        // Windows/Linux/macOS: Firebase e Firestore sao SDK **C++** e estas
+        // chamadas passam pela thread de plataforma. A rajada aqui rebentava o
+        // processo com ACCESS_VIOLATION (0xc0000005) sempre no mesmo offset,
+        // logo apos «bootstrap START» — o app fechava sozinho no arranque. Ja
+        // ha o mesmo cuidado no warmup (ver
+        // church_tenant_offline_warmup_service), que so faz o light no desktop.
+        // O essencial (core + token) ja foi feito acima; o resto e reforco.
       } else {
         await _bindQueuesAfterFirebaseCore(manualRecovery: true);
         await FirebaseBootstrapService.ensureStorageAlwaysLinked(
@@ -125,7 +140,9 @@ abstract final class AppFinalizeBootstrap {
           maxAttempts: 3,
         ).catchError((_) {});
       }
-      await OfflineFirstCoordinator.onAppResumed();
+      if (!_desktopNativo) {
+        await OfflineFirstCoordinator.onAppResumed();
+      }
     } catch (e, st) {
       YahwehFlowLog.error('BOOT', e, st);
       if (kDebugMode) {

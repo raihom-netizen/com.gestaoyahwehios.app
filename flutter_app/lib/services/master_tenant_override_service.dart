@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
+import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
     show firestoreRestCollect;
 
@@ -117,6 +118,14 @@ abstract final class MasterTenantOverrideService {
       return '';
     }
 
+    // Toda igreja listada aqui é um documento real — regista para o resolvedor
+    // aceitar ids fora do padrão `igreja_*`.
+    void registar(Iterable<MasterSwitchableChurch> lista) {
+      for (final c in lista) {
+        ChurchTenantOverride.registerKnown(c.id);
+      }
+    }
+
     if (kIsWeb) {
       try {
         final docs = await firestoreRestCollect(collectionPath: 'igrejas');
@@ -129,6 +138,7 @@ abstract final class MasterTenantOverrideService {
             ),
         ];
         if (out.isNotEmpty) {
+          registar(out);
           out.sort(
             (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
           );
@@ -150,6 +160,7 @@ abstract final class MasterTenantOverrideService {
             logoRef: logoOf(d.data()),
           ),
       ];
+      registar(out);
       out.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       return out;
     } catch (_) {

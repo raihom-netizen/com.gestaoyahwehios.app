@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:math';
 
@@ -233,7 +234,7 @@ class _MembersPageState extends State<MembersPage> {
     final seed = _forceCanonicalTenantId(widget.tenantId);
     final mapped = TenantResolverService.mapLegacySeedToCanonical(seed);
     if (mapped != null && mapped.isNotEmpty) return mapped;
-    if (RegExp(r'^igreja_[a-z0-9_]+$').hasMatch(seed)) return seed;
+    if (ChurchTenantOverride.isChurchDocId(seed)) return seed;
     final id = ChurchRepository.churchId(seed);
     return id.isNotEmpty ? id : seed.trim();
   }

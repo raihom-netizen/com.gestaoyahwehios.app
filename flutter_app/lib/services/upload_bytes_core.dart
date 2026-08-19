@@ -114,9 +114,11 @@ Future<String> uploadStoragePutFileWithRetry({
       );
       onProgress?.call(1);
       ChurchTenantMediaActivity.recordUpload(storagePath);
-      // Nunca devolver '' com os bytes já no bucket: o chamador trataria como
-      // upload falhado e descartaria a foto/vídeo. URL canónica a partir do
-      // path (objetos de mídia da igreja são de leitura pública).
+      // Mídia da igreja: URL montada na hora. Este ramo nem timeout externo
+      // tinha — `storageDownloadUrlWithRetry` são 8 s × 2 tentativas, ou seja
+      // até ~16 s de espera por ficheiro com os bytes já no bucket.
+      final imediata = YahwehStorage.publicChurchMediaUrlOrNull(storagePath);
+      if (imediata != null && imediata.isNotEmpty) return imediata;
       final url = await storageDownloadUrlOrNull(snap.ref);
       if (url != null && url.isNotEmpty) return url;
       return YahwehStorage.downloadUrlForObjectPath(storagePath);
