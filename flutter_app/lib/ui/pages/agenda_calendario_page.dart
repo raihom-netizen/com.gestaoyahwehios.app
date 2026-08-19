@@ -862,7 +862,11 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
                 ),
               ],
             ),
-            child: Row(
+            // IntrinsicHeight e obrigatorio: sem ele, `stretch` dentro de um
+            // ListView (altura ilimitada) faz a linha tentar ocupar altura
+            // infinita e o «Resumo do dia» estica sem fim.
+            child: IntrinsicHeight(
+              child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 // Faixa de cor por tipo: culto azul, evento laranja, reunião roxo.
@@ -971,6 +975,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
                   ),
                 ),
               ],
+              ),
             ),
           ),
         ),
@@ -1279,7 +1284,10 @@ class _AgendaKindPreviewPage extends StatelessWidget {
                           ),
                         ],
                       ),
-                      child: Row(
+                      // Mesmo motivo do card do dia: sem IntrinsicHeight o
+                      // `stretch` estica sem limite dentro da lista.
+                      child: IntrinsicHeight(
+                        child: Row(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Container(
@@ -1407,6 +1415,7 @@ class _AgendaKindPreviewPage extends StatelessWidget {
                             ),
                           ),
                         ],
+                        ),
                       ),
                     ),
                   ),
