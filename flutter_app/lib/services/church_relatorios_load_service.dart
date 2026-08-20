@@ -34,6 +34,15 @@ abstract final class ChurchRelatoriosLoadService {
 
   static const Duration _ramTtl = Duration(minutes: 15);
 
+  /// Lançamentos já normalizados, por igreja+limite.
+  ///
+  /// O filtro do relatório (mês, tipo, categoria, conta, status) é todo no
+  /// cliente, mas cada toque refazia a chamada à Cloud Function. As linhas do
+  /// período não mudam entre filtros — só o recorte muda.
+  static final Map<
+      String,
+      ({List<Map<String, dynamic>> rows, DateTime at})> _financeRam = {};
+
   static String _churchId(String hint) => ChurchRepository.churchId(hint.trim());
 
   static FirebaseFunctions get _functions =>
@@ -56,6 +65,7 @@ abstract final class ChurchRelatoriosLoadService {
   /// igreja e continuava a servir o que ja estava em memoria.
   static void purgarNaTrocaDeIgreja() {
     _membrosRam.clear();
+    _financeRam.clear();
     _eventosRam.clear();
   }
 
@@ -63,6 +73,7 @@ abstract final class ChurchRelatoriosLoadService {
     final id = _churchId(churchIdHint);
     if (id.isEmpty) return;
     _membrosRam.remove(id);
+    _financeRam.removeWhere((k, _) => k.startsWith('$id|'));
     ChurchCertificadosLoadService.invalidate(id);
   }
 
@@ -272,6 +283,15 @@ abstract final class ChurchRelatoriosLoadService {
     final churchId = _churchId(churchIdHint);
     if (churchId.isEmpty) return const [];
 
+    final ramKey = '$churchId|$limit';
+    if (!forceRefresh) {
+      final hit = _financeRam[ramKey];
+      if (hit != null &&
+          DateTime.now().difference(hit.at) <= _ramTtl) {
+        return _recortarPorPeriodo(hit.rows, inicio, fim);
+      }
+    }
+
     return _withRecovery(() async {
       try {
         final callable = _functions.httpsCallable(
@@ -285,7 +305,7 @@ abstract final class ChurchRelatoriosLoadService {
         });
         final list = res.data['finance'];
         if (list is List && list.isNotEmpty) {
-          return list
+          final todas = list
               .map((e) {
                 final bruto = Map<String, dynamic>.from(e as Map);
                 return normalizeFinanceRowMap(
@@ -293,15 +313,9 @@ abstract final class ChurchRelatoriosLoadService {
                   (bruto['id'] ?? '').toString(),
                 );
               })
-              .where((row) {
-                final dt = _financeDate(row);
-                if (dt == null) return true;
-                return !dt.isBefore(inicio) &&
-                    !dt.isAfter(
-                      DateTime(fim.year, fim.month, fim.day, 23, 59, 59, 999),
-                    );
-              })
               .toList(growable: false);
+          _financeRam[ramKey] = (rows: todas, at: DateTime.now());
+          return _recortarPorPeriodo(todas, inicio, fim);
         }
       } catch (e, st) {
         debugPrint('ChurchRelatoriosLoadService cloud finance: $e\n$st');
@@ -312,18 +326,25 @@ abstract final class ChurchRelatoriosLoadService {
         limit: limit,
         forceRefresh: forceRefresh,
       );
-      return result.docs
-          .map(_normalizeFinanceRow)
-          .where((row) {
-            final dt = _financeDate(row);
-            if (dt == null) return true;
-            return !dt.isBefore(inicio) &&
-                !dt.isAfter(
-                  DateTime(fim.year, fim.month, fim.day, 23, 59, 59, 999),
-                );
-          })
-          .toList(growable: false);
+      final todas =
+          result.docs.map(_normalizeFinanceRow).toList(growable: false);
+      _financeRam[ramKey] = (rows: todas, at: DateTime.now());
+      return _recortarPorPeriodo(todas, inicio, fim);
     });
+  }
+
+  /// Recorta as linhas já carregadas ao período pedido — sem ir à rede.
+  static List<Map<String, dynamic>> _recortarPorPeriodo(
+    List<Map<String, dynamic>> rows,
+    DateTime inicio,
+    DateTime fim,
+  ) {
+    final fimDia = DateTime(fim.year, fim.month, fim.day, 23, 59, 59, 999);
+    return rows.where((row) {
+      final dt = _financeDate(row);
+      if (dt == null) return true;
+      return !dt.isBefore(inicio) && !dt.isAfter(fimDia);
+    }).toList(growable: false);
   }
 
   static DateTime? _financeDate(Map<String, dynamic> m) {
