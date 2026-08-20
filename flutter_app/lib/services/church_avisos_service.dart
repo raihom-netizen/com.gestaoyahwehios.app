@@ -27,6 +27,8 @@ import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
+import 'package:gestao_yahweh/services/church_video_preupload.dart';
+import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show eventNoticiaDocHasPhotoMedia, eventNoticiaHostedVideoPlayUrl;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
@@ -365,6 +367,78 @@ abstract final class ChurchAvisosService {
     );
   }
 
+  /// Reserva o id do aviso antes de publicar — o vídeo passa a ter um path
+  /// definitivo já no editor, e por isso pode subir enquanto se escreve.
+  static String reserveNewPostId(String churchIdHint) {
+    final cid = churchId(churchIdHint);
+    if (cid.isEmpty) return '';
+    return ChurchUiCollections.avisos(cid).doc().id;
+  }
+
+  /// Identidade do destino do vídeo do aviso (igreja + post).
+  static String avisoVideoPreuploadTag({
+    required String churchId,
+    required String postId,
+  }) => 'aviso|$churchId|$postId|0';
+
+  /// Começa a enviar o vídeo **assim que ele é anexado** no editor, para o
+  /// path definitivo do aviso.
+  ///
+  /// Antes o envio só arrancava no «Publicar»: todo o encode + rede era espera
+  /// visível. Agora corre enquanto o utilizador escreve título e texto, e a
+  /// publicação apenas recolhe o resultado.
+  static void startVideoPreupload({
+    required String churchIdHint,
+    required String postId,
+    required String localPath,
+  }) {
+    final cid = churchId(churchIdHint);
+    final pid = postId.trim();
+    final path = localPath.trim();
+    if (cid.isEmpty || pid.isEmpty || path.isEmpty) return;
+    ChurchVideoPreupload.start(
+      localPath: path,
+      tag: avisoVideoPreuploadTag(churchId: cid, postId: pid),
+      run: (onProgress) => _uploadAvisoLocalVideo(
+        churchId: cid,
+        postId: pid,
+        localPath: path,
+        onProgress: onProgress,
+      ),
+      onAbandonedCleanup: () =>
+          FirebaseStorageCleanupService.deleteManyByUrlPathOrGs([
+            ChurchStorageLayout.avisoHostedVideoMp4Path(cid, pid, 0),
+            ChurchStorageLayout.avisoHostedVideoThumbPath(cid, pid, 0),
+          ]),
+    );
+  }
+
+  /// Descarta o envio antecipado (vídeo removido / editor fechado sem publicar).
+  static void cancelVideoPreupload(String localPath) =>
+      ChurchVideoPreupload.abandon(localPath);
+
+  /// Envio do vídeo na publicação: aproveita o pré-envio quando existe.
+  static Future<({String videoPath, String thumbPath})> _uploadAvisoVideo({
+    required String churchId,
+    required String postId,
+    required String localPath,
+    void Function(double progress)? onProgress,
+  }) async {
+    final claimed = await ChurchVideoPreupload
+        .claim<({String videoPath, String thumbPath})>(
+          localPath: localPath,
+          tag: avisoVideoPreuploadTag(churchId: churchId, postId: postId),
+          onProgress: onProgress,
+        );
+    if (claimed != null && claimed.videoPath.isNotEmpty) return claimed;
+    return _uploadAvisoLocalVideo(
+      churchId: churchId,
+      postId: postId,
+      localPath: localPath,
+      onProgress: onProgress,
+    );
+  }
+
   static Future<({String videoPath, String thumbPath})> _uploadAvisoLocalVideo({
     required String churchId,
     required String postId,
@@ -474,6 +548,10 @@ abstract final class ChurchAvisosService {
     bool publicSite = true,
     String? videoStoragePath,
     String? videoLocalPath,
+
+    /// Id já reservado pelo editor — permite que o vídeo comece a subir para o
+    /// path definitivo antes de «Publicar».
+    String? postIdHint,
     String role = '',
     List<String>? permissions,
     void Function(double progress)? onUploadProgress,
@@ -504,7 +582,10 @@ abstract final class ChurchAvisosService {
     await _ensurePublishReady();
 
     final user = FirebaseAuth.instance.currentUser;
-    final docRef = ChurchUiCollections.avisos(cid).doc();
+    final reservedId = (postIdHint ?? '').trim();
+    final docRef = reservedId.isNotEmpty
+        ? ChurchUiCollections.avisos(cid).doc(reservedId)
+        : ChurchUiCollections.avisos(cid).doc();
     final postId = docRef.id;
 
     lastVideoFailure = null;
@@ -516,7 +597,7 @@ abstract final class ChurchAvisosService {
       // de upload (rede, limite de tamanho, blob inválido) rebentava aqui e o
       // aviso — título, texto, fotos — nunca chegava a ser gravado.
       try {
-        final uploaded = await _uploadAvisoLocalVideo(
+        final uploaded = await _uploadAvisoVideo(
           churchId: cid,
           postId: postId,
           localPath: localVideo,
@@ -674,7 +755,7 @@ abstract final class ChurchAvisosService {
       // de upload (rede, limite de tamanho, blob inválido) rebentava aqui e o
       // aviso — título, texto, fotos — nunca chegava a ser gravado.
       try {
-        final uploaded = await _uploadAvisoLocalVideo(
+        final uploaded = await _uploadAvisoVideo(
           churchId: cid,
           postId: id,
           localPath: localVideo,

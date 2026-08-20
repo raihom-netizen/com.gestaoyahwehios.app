@@ -23,12 +23,16 @@ const int kMediaVideoHardMaxBytes = 120 * 1024 * 1024; // 120MB (padrão)
 
 /// Chat Igreja — vídeo até 200 MB (spec WhatsApp-like).
 const int kMediaChatVideoHardMaxBytes = 200 * 1024 * 1024;
-const Duration kMediaVideoMaxDuration = Duration(
-  seconds: 60,
-); // legado / outros módulos
 
-/// Chat igreja — vídeo até 90 s (estilo WhatsApp).
-const Duration kMediaChatVideoMaxDuration = Duration(seconds: 90);
+/// Feed da igreja (Avisos + Eventos) — vídeo até **2 minutos**.
+/// Fonte única: quem precisa da duração máxima lê daqui (nunca 90 hardcoded).
+const Duration kMediaFeedVideoMaxDuration = Duration(seconds: 120);
+
+const Duration kMediaVideoMaxDuration =
+    kMediaFeedVideoMaxDuration; // legado / outros módulos
+
+/// Chat igreja — alinhado ao feed (2 min).
+const Duration kMediaChatVideoMaxDuration = kMediaFeedVideoMaxDuration;
 
 /// Uploads de mídia no chat em paralelo.
 /// Dois preservam banda para o envio aberto pelo utilizador e evitam que o
@@ -64,8 +68,8 @@ const int kStorageRulesMaxChatVideoBytes = 200 * 1024 * 1024;
 /// Património — até 4 fotos por bem (móvel, equipamento, veículo, etc.).
 const int kMaxPatrimonioPhotosPerItem = 5;
 
-/// Eventos (editor + galeria) — vídeo até 90 s.
-const int kMediaEventVideoMaxSeconds = 90;
+/// Eventos (editor + galeria) — vídeo até 2 min.
+const int kMediaEventVideoMaxSeconds = 120;
 
 /// Eventos — teto de 100 MB após compressão (spec produção).
 const int kMediaEventVideoHardMaxBytes = 100 * 1024 * 1024;
@@ -107,15 +111,29 @@ int get mediaEventVideoHardMaxBytesEffective => kMediaEventVideoHardMaxBytes;
 
 int get mediaChatVideoHardMaxBytesEffective => kMediaChatVideoHardMaxBytes;
 
-Duration get mediaVideoMaxDurationEffective => kMediaChatVideoMaxDuration;
+Duration get mediaVideoMaxDurationEffective => kMediaFeedVideoMaxDuration;
 
+/// Bruto aceite **antes** de transcodificar (2 min de 1080p/4K pesa centenas
+/// de MB). O teto de 100 MB continua a valer para o ficheiro que sai do encoder.
+const int kMediaEventVideoRawMaxBytes = 400 * 1024 * 1024;
+
+/// Teto de tempo para o encode no aparelho; ao estourar, envia o original
+/// (se couber) em vez de deixar o utilizador à espera para sempre.
+const Duration kMediaVideoTranscodeTimeout = Duration(minutes: 4);
+
+/// Abaixo disto o ficheiro já é leve: enviar o original é mais rápido do que
+/// transcodificar. Acima, o encode por hardware (~5–10× tempo real) custa
+/// muito menos do que subir o bruto em 4G — era este limiar alto (80/40 MB)
+/// que fazia «montar um evento com vídeo» demorar minutos.
 int get mediaVideoSkipTranscodeMaxBytes =>
-    kMediaTurboMobilePreset ? (80 * 1024 * 1024) : (40 * 1024 * 1024);
+    kMediaTurboMobilePreset ? (10 * 1024 * 1024) : (16 * 1024 * 1024);
 
 /// Uploads em lote (avisos/eventos): paralelo limitado (turbo mobile = mais rápido em Wi‑Fi/4G).
 int get mediaFeedUploadMaxConcurrent {
   if (kIsWeb) return 4;
-  return 2;
+  // 3 no telemóvel: as fotos já saem do picker com ~700 KB, e o vídeo — que era
+  // quem disputava a banda — agora sobe antes, enquanto se preenche o formulário.
+  return 3;
 }
 
 /// Lado máximo e qualidade padrão para fotos antes do Firebase Storage

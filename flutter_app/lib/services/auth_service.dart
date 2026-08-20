@@ -1,5 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/auth_profile_cache_service.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
@@ -23,13 +23,62 @@ abstract final class AuthService {
     return u != null && !u.isAnonymous;
   }
 
+  /// Persistência efetivamente aceite pelo browser nesta sessão.
+  ///
+  /// `null` até [configurePersistentSession] correr.
+  static Persistence? persistenciaAtiva;
+
   /// Web: sessão sobrevive a fechar aba / reiniciar browser + Firestore online.
+  ///
+  /// **Com degrau.** `Persistence.LOCAL` guarda a sessão no IndexedDB, e há
+  /// browsers/estados em que o IndexedDB simplesmente não está disponível:
+  /// janela anónima, armazenamento cheio, ou a base a fechar durante a troca
+  /// de service worker de um deploy. Antes a falha era engolida por um
+  /// `catch (_) {}` e o Auth ficava num estado meio-configurado — o login
+  /// seguinte rebentava com «Error: Database is closing/hidden», sem saída
+  /// nenhuma para o utilizador.
+  ///
+  /// Agora desce um degrau de cada vez: LOCAL → SESSION → NONE. Perde-se
+  /// persistência entre sessões, mas **entra-se sempre**.
   static Future<void> configurePersistentSession() async {
     if (!kIsWeb) return;
-    try {
-      await firebaseDefaultAuth.setPersistence(Persistence.LOCAL);
-    } catch (_) {}
+    for (final modo in const [
+      Persistence.LOCAL,
+      Persistence.SESSION,
+      Persistence.NONE,
+    ]) {
+      try {
+        await firebaseDefaultAuth.setPersistence(modo);
+        persistenciaAtiva = modo;
+        break;
+      } catch (e) {
+        debugPrint('configurePersistentSession: $modo indisponivel ($e)');
+      }
+    }
     await FirestoreWebGuard.ensureWebDatabaseConnected(refreshAuth: true);
+  }
+
+  /// `true` quando o erro veio do IndexedDB do browser, não das credenciais.
+  static bool ehFalhaDeArmazenamentoLocal(Object error) {
+    final m = error.toString().toLowerCase();
+    return m.contains('database is closing') ||
+        m.contains('database is hidden') ||
+        m.contains('indexeddb') ||
+        m.contains('idbdatabase');
+  }
+
+  /// Baixa a persistência um degrau e diz se vale a pena repetir a operação.
+  static Future<bool> degradarPersistenciaEReTentar() async {
+    if (!kIsWeb) return false;
+    for (final modo in const [Persistence.SESSION, Persistence.NONE]) {
+      if (persistenciaAtiva == modo) continue;
+      try {
+        await firebaseDefaultAuth.setPersistence(modo);
+        persistenciaAtiva = modo;
+        return true;
+      } catch (_) {}
+    }
+    return false;
   }
 
   /// Rota inicial quando há sessão (mobile nativo).

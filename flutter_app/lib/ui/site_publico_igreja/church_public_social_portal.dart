@@ -194,18 +194,22 @@ class ChurchPublicPortalNavSliver extends StatelessWidget {
                     children: [
                       _NavChip(
                         label: 'Início',
+                        icon: Icons.home_rounded,
                         onTap: onInicio,
                       ),
                       _NavChip(
                         label: 'Avisos',
+                        icon: Icons.campaign_rounded,
                         onTap: onAvisos,
                       ),
                       _NavChip(
                         label: 'Eventos',
+                        icon: Icons.event_rounded,
                         onTap: onDestaques,
                       ),
                       _NavChip(
                         label: 'Cultos',
+                        icon: Icons.auto_awesome_rounded,
                         onTap: onEventos,
                       ),
                     ],
@@ -325,9 +329,14 @@ class _NavChip extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
+  /// Ícone da secção — a barra era só texto e lia-se como uma lista de
+  /// palavras; com o ícone fica alinhada com as pastilhas do hero.
+  final IconData? icon;
+
   const _NavChip({
     required this.label,
     required this.onTap,
+    this.icon,
   });
 
   @override
@@ -372,23 +381,35 @@ class _NavChip extends StatelessWidget {
               ],
             ),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-              child: Text(
-                label,
-                style: GoogleFonts.inter(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13.5,
-                  color: Colors.white,
-                  letterSpacing: -0.35,
-                  height: 1.1,
-                  shadows: [
-                    Shadow(
-                      color: Colors.black.withValues(alpha: 0.18),
-                      blurRadius: 6,
-                      offset: const Offset(0, 1),
-                    ),
+              padding: EdgeInsets.symmetric(
+                horizontal: icon == null ? 18 : 15,
+                vertical: 12,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: 16, color: Colors.white),
+                    const SizedBox(width: 7),
                   ],
-                ),
+                  Text(
+                    label,
+                    style: GoogleFonts.inter(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13.5,
+                      color: Colors.white,
+                      letterSpacing: -0.35,
+                      height: 1.1,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black.withValues(alpha: 0.18),
+                          blurRadius: 6,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

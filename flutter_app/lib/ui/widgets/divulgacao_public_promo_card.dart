@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -157,7 +158,7 @@ class PublicDivulgacaoPromo {
   /// tela) e provocar `INTERNAL ASSERTION FAILED` no SDK JS.
   static Stream<PublicDivulgacaoPromo?> watchFeatured() {
     final col = FirebaseFirestore.instance.collection('promotions').limit(50);
-    if (!kIsWeb) {
+    if (!YahwehRestFirst.prefer) {
       return col.snapshots().map(_bestFromSnapshot);
     }
     late final StreamController<PublicDivulgacaoPromo?> controller;

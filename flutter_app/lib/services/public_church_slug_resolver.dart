@@ -35,6 +35,14 @@ abstract final class PublicChurchSlugResolver {
   PublicChurchSlugResolver._();
 
   static final Map<String, _RamEntry> _ram = {};
+
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
+  /// igreja e continuava a servir o que ja estava em memoria.
+  static void purgarNaTrocaDeIgreja() {
+    _ram.clear();
+  }
   static const Duration _ramTtl = Duration(minutes: 20);
 
   /// Normaliza entradas vindas de URL/path (`/igreja/{slug}`, URL completa,

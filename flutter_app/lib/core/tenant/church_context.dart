@@ -61,19 +61,41 @@ abstract final class ChurchContext {
   /// **Sempre** aplica [TenantResolverService.mapLegacySeedToCanonical] — mesmo
   /// quando a sessão ficou bound a um slug legado
   /// (`o-brasil-cristo-jardim-goiano`).
+  /// Resolve um id de igreja **ignorando** a escolha do operador global.
+  ///
+  /// É para o site público e o cadastro público, onde o tenant vem do slug da
+  /// URL e não pode ser trocado por aquilo que o operador tem aberto no painel.
+  static String resolveExactChurchId(String churchId) {
+    final t = churchId.trim();
+    if (t.isEmpty) return '';
+    final mapped = TenantResolverService.mapLegacySeedToCanonical(t);
+    if (mapped != null && mapped.isNotEmpty) return mapped;
+    return t;
+  }
+
+  /// Resolve o churchId do **painel**.
+  ///
+  /// A igreja escolhida no seletor «Trocar de igreja» ganha de qualquer dica.
+  ///
+  /// Antes era ao contrário: uma dica válida ganhava e o override só servia de
+  /// recurso. Isso ainda podia funcionar enquanto ids fora do padrão
+  /// `igreja_*` eram rejeitados — mas depois de [ChurchKnownTenantsStore]
+  /// passar a reconhecer **todos** os ids reais, qualquer dica guardada antes
+  /// da troca (a igreja de origem, tipicamente `widget.tenantId` capturado na
+  /// construção do módulo) passou a ganhar sempre. Resultado: o cabeçalho
+  /// mudava, o resto do painel continuava na igreja antiga.
+  ///
+  /// Quem precisa mesmo de outro tenant usa [resolveExactChurchId].
   static String resolveChurchId([String? shellHint]) {
-    final hint = shellHint?.trim() ?? '';
     final forced = explicitTenantOverride?.trim() ?? '';
+    if (forced.isNotEmpty) return forced;
+
+    final hint = shellHint?.trim() ?? '';
     if (hint.isNotEmpty) {
-      // Dica igual ao tenant escolhido: vale como esta, seja qual for o id.
-      if (forced.isNotEmpty && hint == forced) return hint;
       final mapped = TenantResolverService.mapLegacySeedToCanonical(hint);
       if (mapped != null && mapped.isNotEmpty) return mapped;
       if (ChurchTenantOverride.isChurchDocId(hint)) return hint;
     }
-
-    // Com igreja escolhida, ela manda — nunca a sessao da igreja de origem.
-    if (forced.isNotEmpty) return forced;
 
     final ctx = currentChurchId;
     if (ctx != null && ctx.isNotEmpty) return _canonicalize(ctx);

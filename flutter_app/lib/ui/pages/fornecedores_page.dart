@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/ui/widgets/color_palette_tabs_dialog.dart';
 import 'dart:async' show Timer, unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -751,6 +752,33 @@ Future<void> showFornecedorCompromissoEditor(
                                     : null,
                               ),
                             ),
+                          // Paleta completa — a mesma do Financeiro e do
+                          // Controle Total. As bolinhas acima são o atalho
+                          // rápido; quem quiser outra cor abre daqui.
+                          InkWell(
+                            onTap: () async {
+                              final hex = await mostrarSeletorDeCores(
+                                context,
+                                titulo: 'Cor no calendário',
+                                selecionadaHex:
+                                    '#${pickColor.toARGB32().toRadixString(16).padLeft(8, '0').substring(2)}',
+                              );
+                              if (hex == null) return;
+                              final limpo = hex.replaceFirst('#', '');
+                              final v = int.tryParse('FF$limpo', radix: 16);
+                              if (v != null) setSheet(() => pickColor = Color(v));
+                            },
+                            borderRadius: BorderRadius.circular(99),
+                            child: CircleAvatar(
+                              backgroundColor: const Color(0xFFEEF2FF),
+                              radius: 18,
+                              child: const Icon(
+                                Icons.palette_rounded,
+                                size: 18,
+                                color: Color(0xFF4F46E5),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     ],

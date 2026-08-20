@@ -472,14 +472,117 @@ class _AgendaResponsiblePickerState extends State<AgendaResponsiblePicker> {
 }
 
 /// Folha de escolha — todos os membros à vista, com filtros de perfil.
+/// Escolha de **vários** membros na mesma tela dos «Responsáveis».
+///
+/// É o caso da folha: marcar dez membros e lançar a despesa de cada um sem
+/// repetir o formulário dez vezes. Dentro da folha há «Selecionar todos», que
+/// marca **o resultado da pesquisa atual** — filtrar por «Músicos» e marcar
+/// todos de uma vez, por exemplo.
+///
+/// Devolve lista vazia se o utilizador fechar sem escolher.
+Future<List<MembroEscolhido>> escolherMembrosNaGrelha(
+  BuildContext context, {
+  required String tenantId,
+  Set<String> selecionadosIds = const {},
+}) async {
+  final membros = await _carregarMembrosParaGrelha(tenantId);
+  if (!context.mounted || membros.isEmpty) return const [];
+
+  final ids = await showModalBottomSheet<Set<String>>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _ResponsibleSearchSheet(
+      members: membros,
+      initialSelected: <String>{...selecionadosIds},
+    ),
+  );
+  if (ids == null || ids.isEmpty) return const [];
+  final porId = {for (final m in membros) (m['id'] ?? '').toString(): m};
+  return [
+    for (final id in ids)
+      if (porId[id] != null) (id: id, nome: _memberName(porId[id]!)),
+  ];
+}
+
+/// Leitura única dos membros para as grelhas de escolha.
+Future<List<Map<String, dynamic>>> _carregarMembrosParaGrelha(
+  String tenantId,
+) async {
+  try {
+    final snap = await ChurchFirestoreAccess.listOnce(
+      module: 'membro_picker',
+      churchId: tenantId,
+      subcollectionName: 'membros',
+      limit: 500,
+    ).timeout(const Duration(seconds: 15));
+    return snap.docs.map((doc) {
+          final data = Map<String, dynamic>.from(doc.data());
+          data['id'] = doc.id;
+          return data;
+        }).toList()
+      ..sort(
+        (a, b) =>
+            _memberName(a).toLowerCase().compareTo(_memberName(b).toLowerCase()),
+      );
+  } catch (e) {
+    debugPrint('_carregarMembrosParaGrelha: $e');
+    return const [];
+  }
+}
+
+/// Membro escolhido na grelha.
+typedef MembroEscolhido = ({String id, String nome});
+
+/// Escolha de **um** membro na mesma tela dos «Responsáveis»: grelha com foto,
+/// nome completo, cargo/idade e os filtros Todos / Homens / Mulheres /
+/// Crianças / Idosos.
+///
+/// Existe para o certificado de casamento (noivo e noiva) não ter um seletor
+/// próprio, pior, só com texto. Devolve `null` se o utilizador fechar sem
+/// escolher — nesse caso quem chamou mantém o nome escrito à mão.
+Future<MembroEscolhido?> escolherMembroNaGrelha(
+  BuildContext context, {
+  required String tenantId,
+  String? selecionadoId,
+}) async {
+  final membros = await _carregarMembrosParaGrelha(tenantId);
+  if (!context.mounted || membros.isEmpty) return null;
+
+  final ids = await showModalBottomSheet<Set<String>>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _ResponsibleSearchSheet(
+      members: membros,
+      initialSelected: <String>{
+        if ((selecionadoId ?? '').trim().isNotEmpty) selecionadoId!.trim(),
+      },
+      escolhaUnica: true,
+    ),
+  );
+  final id = (ids == null || ids.isEmpty) ? '' : ids.first;
+  if (id.isEmpty) return null;
+  for (final m in membros) {
+    if ((m['id'] ?? '').toString() == id) {
+      return (id: id, nome: _memberName(m));
+    }
+  }
+  return null;
+}
+
 class _ResponsibleSearchSheet extends StatefulWidget {
   const _ResponsibleSearchSheet({
     required this.members,
     required this.initialSelected,
+    this.escolhaUnica = false,
   });
 
   final List<Map<String, dynamic>> members;
   final Set<String> initialSelected;
+
+  /// `true` no certificado de casamento: tocar num membro escolhe e fecha.
+  final bool escolhaUnica;
 
   @override
   State<_ResponsibleSearchSheet> createState() =>
@@ -511,6 +614,26 @@ class _ResponsibleSearchSheetState extends State<_ResponsibleSearchSheet> {
 
   int _countFor(_PerfilFiltro f) =>
       widget.members.where(f.matches).length;
+
+  /// Marca (ou desmarca) **tudo o que a pesquisa atual mostra**.
+  ///
+  /// Com filtro «Músicos» ou uma busca por nome, marca só esses — não a
+  /// igreja inteira. É o que serve para lançar folha por departamento.
+  void _alternarTodosDaPesquisa() {
+    final visiveis = _results
+        .map((m) => (m['id'] ?? '').toString())
+        .where((id) => id.isNotEmpty)
+        .toList();
+    if (visiveis.isEmpty) return;
+    final todosMarcados = visiveis.every(_selected.contains);
+    setState(() {
+      if (todosMarcados) {
+        _selected.removeAll(visiveis);
+      } else {
+        _selected.addAll(visiveis);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -646,6 +769,48 @@ class _ResponsibleSearchSheetState extends State<_ResponsibleSearchSheet> {
                 },
               ),
             ),
+            // «Selecionar todos» age sobre o RESULTADO DA PESQUISA, nao sobre a
+            // igreja toda — filtrar e marcar em bloco e o que serve para folha.
+            if (!widget.escolhaUnica && results.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 2, 14, 0),
+                child: Row(
+                  children: [
+                    TextButton.icon(
+                      onPressed: _alternarTodosDaPesquisa,
+                      icon: Icon(
+                        results
+                                .map((m) => (m['id'] ?? '').toString())
+                                .every(_selected.contains)
+                            ? Icons.remove_done_rounded
+                            : Icons.done_all_rounded,
+                        size: 18,
+                      ),
+                      label: Text(
+                        results
+                                .map((m) => (m['id'] ?? '').toString())
+                                .every(_selected.contains)
+                            ? 'Desmarcar os ${results.length}'
+                            : 'Selecionar todos (${results.length})',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    if (_selected.isNotEmpty)
+                      Text(
+                        '${_selected.length} marcado(s)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             const SizedBox(height: 10),
             Expanded(
               child: results.isEmpty
@@ -677,13 +842,22 @@ class _ResponsibleSearchSheetState extends State<_ResponsibleSearchSheet> {
                           borderRadius: BorderRadius.circular(14),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(14),
-                            onTap: () => setState(() {
-                              if (picked) {
-                                _selected.remove(id);
-                              } else {
-                                _selected.add(id);
+                            onTap: () {
+                              // Escolha unica (certificado de casamento):
+                              // tocar escolhe e fecha, sem passar pelo
+                              // "Concluir".
+                              if (widget.escolhaUnica) {
+                                Navigator.pop(context, <String>{id});
+                                return;
                               }
-                            }),
+                              setState(() {
+                                if (picked) {
+                                  _selected.remove(id);
+                                } else {
+                                  _selected.add(id);
+                                }
+                              });
+                            },
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 10,

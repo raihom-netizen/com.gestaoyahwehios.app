@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/core/firebase_user_facing_error.dart'
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_feed_linear_publish_service.dart';
 import 'package:gestao_yahweh/services/church_publish_context.dart';
+import 'package:gestao_yahweh/services/church_video_preupload.dart';
 import 'package:gestao_yahweh/services/evento_media_upload.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/video_handler_service.dart';
@@ -21,6 +22,13 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 /// Publicação de evento — pipeline **linear**: bootstrap → fotos/vídeo → Storage → Firestore → agenda → feed/site.
 ///
 /// Proibido: `publishState`, stub Firestore antes do Storage, write-first.
+/// Identidade do destino do vídeo de evento (igreja + post + slot).
+String eventVideoPreuploadTag({
+  required String churchId,
+  required String postId,
+  int slot = 0,
+}) => 'evento|$churchId|$postId|$slot';
+
 abstract final class EventoPublishService {
   EventoPublishService._();
 
@@ -34,6 +42,14 @@ abstract final class EventoPublishService {
 
   static String resolveChurchId(String tenantHint) =>
       ChurchRepository.churchId(tenantHint.trim());
+
+  /// Identidade do destino do vídeo — o editor e a publicação têm de gerar
+  /// exatamente a mesma, senão o envio antecipado não é aproveitado.
+  static String eventVideoPreuploadTagFor({
+    required String churchId,
+    required String postId,
+    int slot = 0,
+  }) => eventVideoPreuploadTag(churchId: churchId, postId: postId, slot: slot);
 
   static DocumentReference<Map<String, dynamic>> docRef({
     required String churchId,
@@ -101,15 +117,27 @@ abstract final class EventoPublishService {
       if (!wantsVideoUpload) return;
       ChurchPublishFlowLog.uploadStart('evento video ${docRef.id}');
       try {
-        final uploaded = await VideoHandlerService.instance
-            .compressAndUploadFromPath(
+        void reportVideo(double p) =>
+            onUploadProgress?.call(0.14 + p.clamp(0.0, 1.0) * 0.24);
+        // O editor manda o vídeo assim que ele é anexado (enquanto o
+        // utilizador ainda preenche título/data/local). Se já terminou, isto
+        // devolve na hora e a publicação não espera pela rede.
+        final uploaded =
+            await ChurchVideoPreupload.claim<VideoUploadResult>(
+              localPath: localVideo,
+              tag: eventVideoPreuploadTag(
+                churchId: churchId,
+                postId: docRef.id,
+                slot: 0,
+              ),
+              onProgress: onUploadProgress == null ? null : reportVideo,
+            ) ??
+            await VideoHandlerService.instance.compressAndUploadFromPath(
               localPath: localVideo,
               tenantId: churchId,
               eventPostDocId: docRef.id,
               videoSlotIndex: 0,
-              onUploadProgress: onUploadProgress == null
-                  ? null
-                  : (p) => onUploadProgress(0.14 + p.clamp(0.0, 1.0) * 0.24),
+              onUploadProgress: onUploadProgress == null ? null : reportVideo,
             );
         if (uploaded != null) {
           resolvedVideoPath = uploaded.videoStoragePath;

@@ -54,13 +54,22 @@ abstract final class ChurchUnifiedPhotoUpload {
       );
     }
 
-    // Patrimônio — mesmo teto JPEG do editor (rápido, sem reencode duplo).
+    // Patrimônio — **uma** compressão, não duas.
+    //
+    // O par `prepareImageBytes` + `compressPatrimonioPhotoForUpload` fazia
+    // dois decodes/encodes completos numa foto de telemóvel de 3–8 MB (o
+    // primeiro nem sequer entregava JPEG dentro do teto, por isso o segundo
+    // corria sempre). `compressPatrimonioPhotoForUpload` já sabe sair cedo
+    // quando a foto está leve, já corre em isolate e já tem os fallbacks de
+    // web e de canal nativo — chega ele sozinho.
     if (m == ChurchPhotoModules.patrimonio) {
-      final base = await ChurchInstantUploadPipeline.prepareImageBytes(
-        raw,
-        localPath: localPath,
-        postType: 'patrimonio',
-      );
+      final base = raw.isNotEmpty
+          ? raw
+          : await ChurchInstantUploadPipeline.prepareImageBytes(
+              raw,
+              localPath: localPath,
+              postType: 'patrimonio',
+            );
       return ImageHelper.compressPatrimonioPhotoForUpload(base);
     }
 
@@ -104,10 +113,7 @@ abstract final class ChurchUnifiedPhotoUpload {
         localPath: localPath,
         postType: m,
       );
-      return ImageHelper.compressImageUnderMaxBytes(
-        base,
-        maxBytes: 800 * 1024,
-      );
+      return ImageHelper.compressImageUnderMaxBytes(base, maxBytes: 800 * 1024);
     }
 
     return ChurchInstantUploadPipeline.prepareImageBytes(

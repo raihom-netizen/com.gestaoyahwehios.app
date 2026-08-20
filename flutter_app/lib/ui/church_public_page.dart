@@ -1,3 +1,5 @@
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
+import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'dart:async' show Stream, StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,6 +14,7 @@ import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/church_panel_tenant_gateway.dart';
+import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'package:gestao_yahweh/services/public_church_site_bootstrap.dart';
 import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
 import 'package:gestao_yahweh/services/panel_public_site_snapshot_service.dart';
@@ -222,7 +225,7 @@ _churchPublicMergedPublicacoesStream(String igrejaId, {int limit = 20}) {
     // Só documentos com publicSite == true: o Firestore exige que a query não possa
     // devolver posts privados (publicSite == false); senão visitante sem login leva
     // permission-denied em listas sem filtro ? mesmo que o app filtre depois no cliente.
-    final base = ChurchUiCollections.churchDoc(igrejaId);
+    final base = ChurchUiCollections.churchDocExact(igrejaId);
     final sub1 = base
         .collection(ChurchTenantPostsCollections.eventos)
         .where('publicSite', isEqualTo: true)
@@ -1693,17 +1696,17 @@ Future<_PublicSocialProofStats> _loadPublicSocialProofStats(
     }
   } catch (_) {}
   try {
-    final op = ChurchPanelTenantGateway.churchId(igrejaId.trim());
+    final op = _publicChurchDocId(igrejaId);
     final from = Timestamp.fromDate(
       DateTime.now().subtract(const Duration(days: 30)),
     );
-    final postsNoticias = await ChurchUiCollections.churchDoc(op)
+    final postsNoticias = await ChurchUiCollections.churchDocExact(op)
         .collection(ChurchTenantPostsCollections.eventos)
         .where('publicSite', isEqualTo: true)
         .where('createdAt', isGreaterThanOrEqualTo: from)
         .count()
         .get();
-    final postsAvisos = await ChurchUiCollections.churchDoc(op)
+    final postsAvisos = await ChurchUiCollections.churchDocExact(op)
         .collection(ChurchTenantPostsCollections.avisos)
         .where('publicSite', isEqualTo: true)
         .where('createdAt', isGreaterThanOrEqualTo: from)
@@ -1764,6 +1767,20 @@ Future<void> _churchPublicOpenNoticiaVideoFromMap(
 }
 
 /// Igreja resolvida por `slug` (query) ou pelo id do documento (= segmento da URL).
+/// Id da igreja no site público.
+///
+/// O id vem do índice `public_church_slugs` (fonte autoritativa) e é usado tal
+/// como está. Passá-lo pelo resolvedor do painel deixava a sessão — ou a igreja
+/// que o operador global está a visitar — sobrepor-se ao slug da URL.
+String _publicChurchDocId(String raw) {
+  final t = raw.trim();
+  if (t.isEmpty) return '';
+  // Resolvedor EXATO: `ChurchPanelTenantGateway.churchId` passa pelo
+  // resolvedor do painel e devolvia a igreja que o operador global tem
+  // aberta — o site publico da igreja X mostrava dados da igreja Y.
+  return ChurchContext.resolveExactChurchId(t);
+}
+
 class _ChurchPublicTenantResolved {
   final String id;
   final Map<String, dynamic> data;
@@ -2229,6 +2246,31 @@ class _ChurchPublicPageInner extends StatelessWidget {
               );
             }
 
+            // Atalho «Como chegar» do hero — mesma resolução do botão do
+            // cartão de contacto (link do Maps, coordenadas ou endereço).
+            final temComoChegar =
+                linkGoogleMaps.isNotEmpty ||
+                (latitude != null && longitude != null) ||
+                endereco.trim().isNotEmpty;
+            void abrirComoChegar() {
+              logChurchPublic('hero_chip_como_chegar');
+              _launchExternal(
+                context,
+                linkGoogleMaps.isNotEmpty
+                    ? (Uri.tryParse(linkGoogleMaps) ??
+                          _mapsUri(
+                            endereco,
+                            latitude: latitude,
+                            longitude: longitude,
+                          ))
+                    : _mapsUri(
+                        endereco,
+                        latitude: latitude,
+                        longitude: longitude,
+                      ),
+              );
+            }
+
             return _ChurchPublicOpenAnalyticsBinder(
               slug: slugClean,
               tenantId: igrejaId,
@@ -2334,6 +2376,12 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                     child: ChurchPublicWelcomeStrip(
                                       churchName: nome,
                                       accentColor: accent,
+                                      onAvisos: onScrollAvisos,
+                                      onEventos: onScrollDestaques,
+                                      onCultos: onScrollEventos,
+                                      onComoChegar: temComoChegar
+                                          ? abrirComoChegar
+                                          : null,
                                     ),
                                   ),
                                 ),
@@ -2573,25 +2621,55 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                                         const EdgeInsets.all(
                                                           18,
                                                         ),
+                                                    // Mesma superfície dos
+                                                    // cartões de secção
+                                                    // (lavado de cor + sombra
+                                                    // em duas camadas).
                                                     decoration: BoxDecoration(
-                                                      color: Colors.white,
                                                       borderRadius:
                                                           BorderRadius.circular(
-                                                            16,
+                                                            24,
                                                           ),
-                                                      boxShadow: const [
-                                                        BoxShadow(
+                                                      gradient: LinearGradient(
+                                                        begin: Alignment
+                                                            .topCenter,
+                                                        end: Alignment
+                                                            .bottomCenter,
+                                                        colors: [
+                                                          Colors.white,
+                                                          Color.lerp(
+                                                            Colors.white,
+                                                            accent,
+                                                            0.05,
+                                                          )!,
+                                                        ],
+                                                      ),
+                                                      boxShadow: [
+                                                        const BoxShadow(
                                                           color: Color(
-                                                            0x12000000,
+                                                            0x0F0F172A,
                                                           ),
-                                                          blurRadius: 16,
-                                                          offset: Offset(0, 8),
+                                                          blurRadius: 10,
+                                                          offset: Offset(0, 3),
+                                                        ),
+                                                        BoxShadow(
+                                                          color: accent
+                                                              .withValues(
+                                                                alpha: 0.10,
+                                                              ),
+                                                          blurRadius: 44,
+                                                          offset: const Offset(
+                                                            0,
+                                                            20,
+                                                          ),
+                                                          spreadRadius: -6,
                                                         ),
                                                       ],
                                                       border: Border.all(
-                                                        color: const Color(
-                                                          0xFFE5E7EB,
-                                                        ),
+                                                        color: accent
+                                                            .withValues(
+                                                              alpha: 0.14,
+                                                            ),
                                                       ),
                                                     ),
                                                     child: Row(
@@ -2749,6 +2827,7 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                           const SizedBox(height: 28),
                                           _SectionCard(
                                             title: 'Baixar aplicativo',
+                                            kicker: 'Aplicativo',
                                             icon: Icons.get_app_rounded,
                                             accentColor: const Color(
                                               0xFF6366F1,
@@ -3061,12 +3140,12 @@ class _PublicNoticiaDeepLinkOpenerState
   Future<void> _open(String key) async {
     try {
       if (!mounted) return;
-      var snap = await ChurchUiCollections.churchDoc(widget.igrejaId)
+      var snap = await ChurchUiCollections.churchDocExact(widget.igrejaId)
           .collection(ChurchTenantPostsCollections.avisos)
           .doc(widget.openNoticiaId)
           .get();
       if (!snap.exists) {
-        snap = await ChurchUiCollections.churchDoc(widget.igrejaId)
+        snap = await ChurchUiCollections.churchDocExact(widget.igrejaId)
             .collection(ChurchTenantPostsCollections.eventos)
             .doc(widget.openNoticiaId)
             .get();
@@ -3270,66 +3349,37 @@ class _PublicTopBarSlim extends StatelessWidget {
 }
 
 /// Card de seção com título e ícone (horários, mural, app). [accentColor] deixa a seção mais viva.
+/// Cartão de secção do site público.
+///
+/// Passou a delegar em [ChurchPublicPremiumSection] para o site inteiro falar
+/// a mesma língua visual: antes cada bloco tinha o seu próprio branco chapado
+/// com risco cinzento, e as secções «Programаção» / «Avisos» já usavam o
+/// cartão premium — ficavam dois estilos na mesma página.
 class _SectionCard extends StatelessWidget {
   final String title;
   final IconData icon;
   final Widget child;
   final Color? accentColor;
 
+  /// Rótulo curto por cima do título («PROGRAMAÇÃO», «APLICATIVO»…).
+  final String? kicker;
+
   const _SectionCard({
     required this.title,
     required this.icon,
     required this.child,
     this.accentColor,
+    this.kicker,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = accentColor ?? ThemeCleanPremium.primary;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-        border: Border.all(color: color.withValues(alpha: 0.12), width: 1),
-        boxShadow: [
-          ...ThemeCleanPremium.softUiCardShadow,
-          BoxShadow(
-            color: color.withValues(alpha: 0.05),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, size: 22, color: color),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: color,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          child,
-        ],
-      ),
+    return ChurchPublicPremiumSection(
+      kicker: kicker ?? 'Igreja',
+      title: title,
+      icon: icon,
+      accentColor: accentColor ?? ThemeCleanPremium.primary,
+      child: child,
     );
   }
 }
@@ -3543,6 +3593,7 @@ class _HorariosCultoSection extends StatelessWidget {
     if (horariosIniciais.isNotEmpty) {
       return _SectionCard(
         title: 'Horários de culto',
+        kicker: 'Programação',
         icon: Icons.schedule_rounded,
         accentColor: const Color(0xFF059669),
         child: Text(
@@ -3557,10 +3608,11 @@ class _HorariosCultoSection extends StatelessWidget {
     }
     return _SectionCard(
       title: 'Horários de culto',
+      kicker: 'Programação',
       icon: Icons.schedule_rounded,
       accentColor: const Color(0xFF059669),
       child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        future: ChurchUiCollections.churchDoc(
+        future: ChurchUiCollections.churchDocExact(
           igrejaId,
         ).get(const GetOptions(source: Source.serverAndCache)),
         builder: (context, tenantSnap) {
@@ -3582,7 +3634,7 @@ class _HorariosCultoSection extends StatelessWidget {
           }
           return FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
             future: PanelProgramacaoLoader.queryCacheFirst(
-              ChurchUiCollections.churchDoc(igrejaId)
+              ChurchUiCollections.churchDocExact(igrejaId)
                   .collection('event_templates')
                   .where('active', isEqualTo: true)
                   .limit(50),
@@ -3979,8 +4031,8 @@ Future<List<Map<String, dynamic>>> _fetchPublicProgramacao(
   try {
     final now = DateTime.now();
     final end = now.add(Duration(days: days));
-    final op = ChurchPanelTenantGateway.churchId(igrejaId.trim());
-    final noticiasRef = ChurchUiCollections.eventos(op);
+    final op = _publicChurchDocId(igrejaId);
+    final noticiasRef = ChurchUiCollections.eventosExact(op);
     final eventosSnap = await PanelProgramacaoLoader.queryCacheFirst(
       noticiasRef
           .where('type', isEqualTo: 'evento')
@@ -4020,7 +4072,7 @@ Future<List<Map<String, dynamic>>> _fetchPublicProgramacao(
       });
     }
     final tplSnap = await PanelProgramacaoLoader.queryCacheFirst(
-      ChurchUiCollections.churchDoc(
+      ChurchUiCollections.churchDocExact(
         igrejaId,
       ).collection('event_templates').where('active', isEqualTo: true),
       cacheKey: 'public_${op}_event_templates_active',
@@ -5142,9 +5194,11 @@ class _ChurchTenantFallback extends StatelessWidget {
         slugClean,
       ).timeout(const Duration(seconds: 14));
       if (resolved != null && resolved.churchId.isNotEmpty) {
-        final doc = await ChurchUiCollections.churchDoc(
-          resolved.churchId,
-        ).get();
+        // Gateway REST: o `.get()` cru do SDK e o que fazia o site publico
+        // abrir sem os dados da igreja quando o cliente web estava envenenado.
+        final doc = await ChurchFirestoreAccess.getChurchRoot(
+          churchId: resolved.churchId,
+        );
         if (doc.exists) return doc;
       }
     } catch (_) {}
@@ -5431,6 +5485,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                       const SizedBox(height: 24),
                       _SectionCard(
                         title: 'Baixar aplicativo',
+                        kicker: 'Aplicativo',
                         icon: Icons.get_app_rounded,
                         accentColor: const Color(0xFF6366F1),
                         child: Column(
@@ -6307,21 +6362,51 @@ class _ProofChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = ThemeCleanPremium.primary;
+    // Pastilha moderna: preenchimento suave em vez de contorno cinzento, e o
+    // ícone dentro do seu próprio disco — mesma linguagem dos cartões.
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.fromLTRB(6, 6, 14, 6),
       decoration: BoxDecoration(
-        color: Colors.white,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.lerp(Colors.white, accent, 0.10)!,
+            Color.lerp(Colors.white, accent, 0.04)!,
+          ],
+        ),
+        border: Border.all(color: accent.withValues(alpha: 0.16)),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withValues(alpha: 0.10),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+            spreadRadius: -3,
+          ),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: ThemeCleanPremium.primary),
-          const SizedBox(width: 6),
+          Container(
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: accent.withValues(alpha: 0.14),
+            ),
+            child: Icon(icon, size: 15, color: accent),
+          ),
+          const SizedBox(width: 9),
           Text(
             text,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF0F172A),
+            ),
           ),
         ],
       ),

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -84,7 +85,7 @@ abstract final class YahwehChurchProfileEngine {
 
     yield await fetchChurchProfile(churchIdHint: churchId);
 
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       yield* Stream.periodic(const Duration(seconds: 30)).asyncMap((_) async {
         try {
           return await fetchChurchProfile(

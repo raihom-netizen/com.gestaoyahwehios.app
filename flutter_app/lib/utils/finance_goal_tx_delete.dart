@@ -1,4 +1,6 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:gestao_yahweh/utils/finance_line_opening.dart';
+import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -74,6 +76,13 @@ Future<void> deleteFinanceTransactionWithMetaSync({
     txData: txData,
   );
   await YahwehDocWrite.delete(txCol.doc(docId));
+  FinanceTransactionsHub.marcarApagado(docId);
+  // Recalculo automatico do saldo (inclusive o de abertura dos meses
+  // seguintes, quando o lancamento apagado e anterior ao periodo aberto).
+  FinanceTransactionsHub.notifyMutated(
+    uid: uid,
+    effectiveDate: FinanceLineOpening.effectiveDateTimeFromMap(txData),
+  );
   await _markFixedMonthExcludedIfNeeded(uid, txData);
 }
 
@@ -150,6 +159,7 @@ Future<void> deleteFinanceTransactionRecord({
         txData: pairData,
       );
       await YahwehDocWrite.delete(pairDoc.reference);
+      FinanceTransactionsHub.marcarApagado(pairDoc.id);
       await _markFixedMonthExcludedIfNeeded(uid, pairData);
     }
     FinanceMonthCache.clearUid(uid);

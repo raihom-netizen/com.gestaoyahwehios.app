@@ -36,6 +36,24 @@ class ChurchPatrimonioLoadResult {
 
   bool get isEmpty => docs.isEmpty;
   bool get hasHardError => softError != null && softError!.trim().isNotEmpty;
+
+  /// Leitura que veio mesmo do servidor — não de RAM/Hive nem de falha.
+  ///
+  /// Uma lista VAZIA só pode limpar o ecrã quando é autoritativa; se não, uma
+  /// falha de rede apagaria os bens do painel. Sem esta distinção, o inverso
+  /// também acontecia: o servidor dizia «0 bens» e a lista continuava a
+  /// mostrar o cache — apagar o último bem, ou trocar de igreja, nunca
+  /// esvaziava o ecrã.
+  bool get isAuthoritative =>
+      (softError ?? '').trim().isEmpty &&
+      const {
+        'server',
+        'firestore_full',
+        'firestore_mem',
+        'direct_plain',
+        'direct_list',
+        'repository_cache_first',
+      }.contains(readSource);
 }
 
 /// Carga canónica — Firestore `igrejas/{id}/patrimonio`.

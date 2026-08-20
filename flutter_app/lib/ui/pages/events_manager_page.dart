@@ -105,6 +105,9 @@ import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
 import 'package:gestao_yahweh/ui/widgets/painel_programacao_event_leading.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
+import 'package:gestao_yahweh/services/church_publish_context.dart';
+import 'package:gestao_yahweh/services/church_video_preupload.dart';
+import 'package:gestao_yahweh/services/video_handler_service.dart';
 import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
     show
         bytesLookLikeWebp,
@@ -8454,6 +8457,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   /// Novo evento: mesmo id desde o init, para vídeos ficarem em paths estáveis `…/eventos/videos/{id}_v0.mp4`.
   late final DocumentReference<Map<String, dynamic>> _eventDocRef;
 
+  /// O vídeo já foi entregue à publicação: o editor fecha antes de o publish
+  /// terminar, por isso o `dispose` não pode apagar o envio antecipado.
+  bool _videoHandedOffToPublish = false;
+
   /// Endereço da igreja (com lat/lng) vs. endereço manual por CEP.
   bool _useChurchLocation = false;
   String? _churchAddressText;
@@ -9112,6 +9119,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   @override
   void dispose() {
+    if (!_videoHandedOffToPublish) {
+      // Editor fechado sem publicar: o vídeo enviado à frente vira lixo no
+      // bucket se ficar lá — descartar apaga-o quando o envio terminar.
+      for (final v in _eventVideos) {
+        final local = (v['localPath'] ?? '').toString().trim();
+        if (local.isNotEmpty) ChurchVideoPreupload.abandon(local);
+      }
+    }
     _addressPreviewTick.dispose();
     _title.dispose();
     _bodyDescription.dispose();
@@ -9462,6 +9477,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Future<void> _removeEventVideoAt(int index) async {
     if (index < 0 || index >= _eventVideos.length) return;
     final v = _eventVideos[index];
+    // Envio antecipado em curso para este ficheiro: descartar antes de apagar,
+    // senão ele terminava e repunha o objeto no Storage.
+    final pendingLocal = (v['localPath'] ?? '').toString().trim();
+    if (pendingLocal.isNotEmpty) ChurchVideoPreupload.abandon(pendingLocal);
     final videoUrl = (v['videoUrl'] ?? '').toString();
     final thumbUrl = (v['thumbUrl'] ?? '').toString();
     final slot = _hostedVideoStorageSlotFromUrl(videoUrl);
@@ -9478,6 +9497,46 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       ]);
     }
     if (mounted) setState(() => _eventVideos.removeAt(index));
+  }
+
+  /// Começa a enviar o vídeo **assim que ele é anexado**, para o path
+  /// definitivo do post (o id do evento existe desde o init do editor).
+  ///
+  /// O utilizador ainda vai preencher título, data e local: essa janela pagava
+  /// zero antes e agora cobre o encode + a rede. Ao publicar,
+  /// [EventoPublishService] reclama este envio — quando já terminou, a barra
+  /// «A publicar mídia…» passa direto.
+  void _startEventVideoPreupload(String localPath, Uint8List? thumbBytes) {
+    if (localPath.trim().isEmpty) return;
+    final churchId = ChurchPublishContext.churchIdForPublish(_editorTenantId);
+    final postId = _eventDocRef.id;
+    ChurchVideoPreupload.start(
+      localPath: localPath,
+      tag: eventVideoPreuploadTag(churchId: churchId, postId: postId),
+      run: (onProgress) => VideoHandlerService.instance
+          .compressAndUploadFromPath(
+            localPath: localPath,
+            tenantId: churchId,
+            eventPostDocId: postId,
+            videoSlotIndex: 0,
+            onUploadProgress: onProgress,
+            precomputedThumbBytes: thumbBytes,
+          ),
+      onAbandonedCleanup: () =>
+          FirebaseStorageCleanupService.deleteEventHostedVideoSlotFiles(
+            tenantId: churchId,
+            postDocId: postId,
+            videoSlot: 0,
+          ),
+    );
+  }
+
+  /// Igual a [_pendingLocalVideoPath], mas marca que a publicação assumiu o
+  /// vídeo — a partir daqui o `dispose` não pode descartá-lo.
+  String? _takePendingLocalVideoPathForPublish() {
+    final path = _pendingLocalVideoPath();
+    if (path != null && path.isNotEmpty) _videoHandedOffToPublish = true;
+    return path;
   }
 
   Future<void> _pickEventVideoLocal() async {
@@ -9510,7 +9569,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (xfile == null) return;
       final durationSec = await getVideoDurationSeconds(xfile);
       if (durationSec != null && durationSec > kMediaEventVideoMaxSeconds) {
-        throw StateError('Vídeo excede o limite de 90 segundos.');
+        throw StateError(
+          'Vídeo excede o limite de $_maxVideoSeconds segundos.',
+        );
       }
       if (kIsWeb) {
         // O picker web ignora maxDuration/tamanho — avisa no anexo, não no publish.
@@ -9559,6 +9620,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         }
       } catch (_) {}
       if (!mounted) return;
+      final isFirstVideo = _eventVideos.isEmpty;
       setState(() {
         _eventVideos.add({
           'localPath': localPath,
@@ -9566,9 +9628,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             'thumbBytes': thumbBytes,
         });
       });
+      // Só o 1.º vídeo é o que a publicação envia (slot 0).
+      if (isFirstVideo) _startEventVideoPreupload(localPath, thumbBytes);
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'Vídeo anexado (máx. ${_maxVideoSeconds}s) — envio ao publicar.',
+          isFirstVideo
+              ? 'Vídeo anexado (máx. ${_maxVideoSeconds}s) — já a enviar em segundo plano.'
+              : 'Vídeo anexado (máx. ${_maxVideoSeconds}s) — envio ao publicar.',
         ),
       );
     } catch (e) {
@@ -9659,7 +9725,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Fotos: recorte + JPEG (1920 px ? 85%). Vídeo: até $_maxVideoSeconds s, máx. 15 MB no celular.',
+                    'Fotos: recorte + JPEG (1920 px ? 85%). Vídeo: até $_maxVideoSeconds s — comprimido e enviado logo ao anexar.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12.5,
@@ -9780,7 +9846,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                           ? 'Aguarde o envio em andamento…'
                           : videosFull
                           ? 'Máx. $_maxVideosPerEvent vídeos por evento'
-                          : 'Até $_maxVideoSeconds s — MP4 leve envia direto; senão 720p HD',
+                          : 'Até $_maxVideoSeconds s — comprime e envia em segundo plano',
                       style: TextStyle(
                         fontSize: 12,
                         color: (_uploadingVideo || videosFull)
@@ -9991,7 +10057,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       aspectRatio: aspectRatio,
       isNewDoc: isNewDoc,
     );
-    _dropVideoUrlIfNotPublishable(payload, _pendingLocalVideoPath());
+    final localVideoForPublish = _takePendingLocalVideoPathForPublish();
+    _dropVideoUrlIfNotPublishable(payload, localVideoForPublish);
     await EventoCreatePublishService.publish(
       docRef: docRef,
       tenantId: publishTenantId,
@@ -10003,7 +10070,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       newImagesBytes: pending.bytes,
       newImagePaths: null,
       videoStoragePath: videoPathForPublish,
-      localVideoPath: _pendingLocalVideoPath(),
+      localVideoPath: localVideoForPublish,
       publicSite: _publicSite,
       eventStartAt: eventStart,
       location: _localSalvo(),
@@ -10257,7 +10324,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final ctx = await _prepareEventoPublishContext();
       final firstDocRef = ctx.docRef;
       final publishTenantId = ctx.igrejaId;
-      final localVideoPath = _pendingLocalVideoPath();
+      final localVideoPath = _takePendingLocalVideoPathForPublish();
       final hasVideo = _eventHasHostedVideoForPublish(publishTenantId);
       final videoPathForPublish = _videoStoragePathForPublish(publishTenantId);
 
@@ -10469,7 +10536,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       final videoPathForPublish = _videoStoragePathForPublish(publishTenantId);
       final hasVideo = _eventHasHostedVideoForPublish(publishTenantId);
-      final localVideoPath = _pendingLocalVideoPath();
+      final localVideoPath = _takePendingLocalVideoPathForPublish();
       final (eventStart, _) = _computeStartEndForSave();
       final payload = _buildEventCorePayload(
         allUrls: existingUrls,
@@ -10708,7 +10775,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           images: draftPhotos,
         );
       }
-      final localVideo = _pendingLocalVideoPath();
+      final localVideo = _takePendingLocalVideoPathForPublish();
       final hasLocalVideo = localVideo != null && localVideo.isNotEmpty;
       if (hasLocalVideo) {
         await MuralPublishOutboxService.registerJob(

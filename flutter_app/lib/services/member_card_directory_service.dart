@@ -87,6 +87,14 @@ abstract final class MemberCardDirectoryService {
   static final Map<String, Future<List<MemberCardListEntry>>> _membersInflight =
       {};
 
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
+  /// igreja e continuava a servir o que ja estava em memoria.
+  static void purgarNaTrocaDeIgreja() {
+    _membersInflight.clear();
+  }
+
   static DocumentReference<Map<String, dynamic>> _signatoryCacheRef(
     String churchId,
   ) =>

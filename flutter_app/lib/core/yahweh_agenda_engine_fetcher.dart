@@ -1,7 +1,7 @@
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/agenda_firestore_fields.dart';
 import 'package:gestao_yahweh/core/church_module_firestore_list_read.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
@@ -108,7 +108,7 @@ abstract final class YahwehAgendaEngineFetcher {
 
     yield await loadOnce();
 
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       yield* Stream.periodic(const Duration(seconds: 180))
           .asyncMap((_) => loadOnce());
       return;

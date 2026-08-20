@@ -11,7 +11,6 @@ import 'package:gestao_yahweh/services/church_brand_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_panel_local_cache.dart';
-import 'package:gestao_yahweh/services/church_unified_photo_upload.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/utils/church_logo_png_encode.dart';
@@ -25,8 +24,12 @@ abstract final class ChurchLogoUpdateService {
 
   static const Duration kLogoPublishTimeout = Duration(seconds: 75);
 
-  /// Maior lado — alinhado ao CT (~1600px), não 4K (lento / trava upload).
-  static const int kLogoMaxSidePx = 1600;
+  /// Maior lado da logo publicada — **Full HD (1920 px)**.
+  ///
+  /// Sobe de 1600 para 1920 sem custo: o encode passou a ser um único passe
+  /// (ver [encodeChurchLogoInIsolate]) em vez dos três que havia antes, por
+  /// isso a logo fica maior E o envio fica mais rápido.
+  static const int kLogoMaxSidePx = 1920;
 
   static String resolveChurchId(String hint) =>
       ChurchRepository.churchId(hint.trim());
@@ -72,14 +75,14 @@ abstract final class ChurchLogoUpdateService {
   }) async {
     onProgress?.call(0.04);
     await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
-    // Prepare unificado antes do PNG institucional (evita fotos 10+ MB).
-    final prepared = await ChurchUnifiedPhotoUpload.prepareBytes(
+    // **Um único** passe de imagem (decode → resize Full HD → encode).
+    //
+    // Antes eram três: `prepareBytes` comprimia para JPEG, um segundo passe
+    // espremia para caber em 800 KB e o terceiro recodificava tudo em PNG.
+    // Resultado: três decodes, transparência perdida logo no primeiro e um PNG
+    // final maior do que o JPEG de origem — lento e pior ao mesmo tempo.
+    final logo = await encodeChurchLogoInIsolate(
       rawBytes,
-      module: ChurchPhotoModules.logo,
-    );
-    onProgress?.call(0.08);
-    final png = await encodeChurchLogoAsPngInIsolate(
-      prepared,
       maxSide: kLogoMaxSidePx,
     );
     onProgress?.call(0.15);
@@ -88,7 +91,8 @@ abstract final class ChurchLogoUpdateService {
     // Auth + Storage prontos — evita permission-denied / travar em 94% no Firestore.
     final uploaded = await ChurchCentralStorageUpload.uploadChurchLogo(
       churchId: cid,
-      pngBytes: png,
+      pngBytes: logo.bytes,
+      mimeType: logo.mimeType,
       onProgress: (p) => onProgress?.call(0.15 + p.clamp(0.0, 1.0) * 0.77),
       skipEnsureReady: true,
     );
@@ -147,7 +151,7 @@ abstract final class ChurchLogoUpdateService {
     return ChurchLogoPublishResult(
       downloadUrl: displayUrl,
       storagePath: identityPath,
-      pngBytes: png,
+      pngBytes: logo.bytes,
       cacheRevision: cacheRevision,
     );
   }

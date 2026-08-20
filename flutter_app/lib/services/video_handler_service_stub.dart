@@ -27,6 +27,7 @@ class VideoHandlerService implements IVideoHandlerService {
     required String mime,
     void Function(double uploadProgress01)? onUploadProgress,
     int? maxRawPickBytes,
+    Uint8List? precomputedThumbBytes,
   }) async {
     final hardLimitBytes = mediaVideoHardMaxBytesEffective;
     final pickLimit = maxRawPickBytes ?? hardLimitBytes;
@@ -68,7 +69,10 @@ class VideoHandlerService implements IVideoHandlerService {
       contentType: mime,
       onProgress: onUploadProgress,
     );
-    final thumbBytesFuture = kIsWeb
+    final thumbBytesFuture =
+        (precomputedThumbBytes != null && precomputedThumbBytes.isNotEmpty)
+        ? Future<Uint8List?>.value(precomputedThumbBytes)
+        : kIsWeb
         ? captureVideoFirstFrameJpeg(bytes, mimeType: mime)
         : Future<Uint8List?>.value(null);
     final done = await Future.wait<Object?>([videoFuture, thumbBytesFuture]);
@@ -102,6 +106,7 @@ class VideoHandlerService implements IVideoHandlerService {
     Duration maxDuration = kMediaVideoMaxDuration,
     void Function(double uploadProgress01)? onUploadProgress,
     int? maxRawPickBytes,
+    Uint8List? precomputedThumbBytes,
   }) async {
     await ensureFirebaseInitialized();
     final effectiveMaxDuration =
@@ -123,6 +128,7 @@ class VideoHandlerService implements IVideoHandlerService {
       mime: xfile.mimeType ?? 'video/mp4',
       onUploadProgress: onUploadProgress,
       maxRawPickBytes: maxRawPickBytes,
+      precomputedThumbBytes: precomputedThumbBytes,
     );
   }
 
@@ -134,6 +140,7 @@ class VideoHandlerService implements IVideoHandlerService {
     required int videoSlotIndex,
     void Function(double uploadProgress01)? onUploadProgress,
     int? maxRawPickBytes,
+    Uint8List? precomputedThumbBytes,
   }) async {
     if (localPath.isEmpty) return null;
     final bytes = await XFile(localPath).readAsBytes();
@@ -145,6 +152,7 @@ class VideoHandlerService implements IVideoHandlerService {
       mime: 'video/mp4',
       onUploadProgress: onUploadProgress,
       maxRawPickBytes: maxRawPickBytes,
+      precomputedThumbBytes: precomputedThumbBytes,
     );
   }
 }

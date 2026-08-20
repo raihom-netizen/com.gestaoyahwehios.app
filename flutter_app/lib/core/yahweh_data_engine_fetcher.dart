@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -294,7 +295,7 @@ abstract final class YahwehDataEngineFetcher {
       debugPrint('YahwehDataEngineFetcher.watch cache: $e');
     }
 
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       while (true) {
         try {
           yield await _fetchOnce(
@@ -381,7 +382,7 @@ abstract final class YahwehDataEngineFetcher {
       debugPrint('YahwehDataEngineFetcher.finance cache: $e');
     }
 
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       while (true) {
         try {
           yield await readFinanceSummary(churchIdHint: churchId);
@@ -459,7 +460,7 @@ abstract final class YahwehDataEngineFetcher {
       debugPrint('YahwehDataEngineFetcher.mp_config: $e');
     }
 
-    if (kIsWeb) {
+    if (YahwehRestFirst.prefer) {
       while (true) {
         try {
           yield await readMercadoPagoConfig(

@@ -92,8 +92,6 @@ import 'package:gestao_yahweh/ui/widgets/finance_credit_card_fatura_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_fatura_em_aberto_hub.dart';
 import 'package:gestao_yahweh/utils/finance_account_balance_utils.dart';
 import 'package:gestao_yahweh/utils/pdf_financeiro_super_extrato.dart';
-import 'package:gestao_yahweh/ui/widgets/controle_total_finance_clone_widgets.dart';
-import 'package:gestao_yahweh/ui/widgets/report_finance_charts_panel.dart';
 
 class FinanceScreen extends StatefulWidget {
   final String uid;
@@ -516,6 +514,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
       for (final d in incoming) {
         if (_mainPeriodDocMatchesCurrentFilters(d)) byId[d.id] = d;
       }
+      // Fora os que ja foram apagados nesta sessao: o Financeiro na web le por
+      // `get` com poll (ate 3 min), por isso um documento apagado continuava a
+      // vir na leitura seguinte e a linha parecia nao sumir.
+      byId.removeWhere((id, _) => FinanceTransactionsHub.foiApagado(id));
       _mainPeriodDocs = byId.values.toList();
       _mainPeriodDocs = FinanceFaturaTransactionSort.sortedDocs(
         _mainPeriodDocs,
@@ -934,7 +936,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
       stream: _pendingExpensesStream,
       initialData: _lastPendingTransactionsSnap,
       builder: (context, snap) {
-        final docs = snap.data?.docs ?? const [];
+        final docs = (snap.data?.docs ?? const [])
+            .where((d) => !FinanceTransactionsHub.foiApagado(d.id))
+            .toList();
         final faturaByCard = FinanceAccountBalanceUtils.faturaAbertaByCardId(
           docs,
           creditCardIds: _creditCardAccountIds,
@@ -4538,11 +4542,6 @@ class _FinanceScreenState extends State<FinanceScreen> {
             }
             double total = 0;
             final list = <Map<String, dynamic>>[];
-            final today = DateTime(
-              DateTime.now().year,
-              DateTime.now().month,
-              DateTime.now().day,
-            );
             for (final doc in snap.data?.docs ?? []) {
               final d = Map<String, dynamic>.from(doc.data());
               final pendingStatus =
@@ -4568,17 +4567,24 @@ class _FinanceScreenState extends State<FinanceScreen> {
               )) {
                 continue;
               }
-              if (!showInPending &&
-                  (d['fixedIncomeId'] ?? '').toString().isNotEmpty) {
+              final ehProjecaoFixa =
+                  (d['fixedIncomeId'] ?? '').toString().trim().isNotEmpty;
+              if (!showInPending && ehProjecaoFixa) {
                 continue;
               }
               final dateTs = d['date'];
               if (dateTs is Timestamp) {
                 final dt = dateTs.toDate();
-                if (dt.isBefore(today)) {
-                  continue;
-                }
-                if (!dt.isBefore(exclusiveEnd)) {
+                // VENCIDO CONTINUA PENDENTE. Descartá-lo fazia o lançamento
+                // desaparecer do cartão e da lista no dia seguinte ao
+                // vencimento — justamente o que mais precisa de aparecer.
+                //
+                // E a janela `monthsAhead` é preferência das **fixas**
+                // (a folha chama-se «Despesas fixas»/«Receitas fixas»): aplicada
+                // a tudo, escondia parcelas já gravadas no Firestore com data
+                // mais à frente. Era por isto que 12 pendentes reais
+                // apareciam como «R$ 0,00 · 0 lançamento(s) em aberto».
+                if (ehProjecaoFixa && !dt.isBefore(exclusiveEnd)) {
                   continue;
                 }
               }
@@ -4714,11 +4720,6 @@ class _FinanceScreenState extends State<FinanceScreen> {
             }
             double total = 0;
             final list = <Map<String, dynamic>>[];
-            final today = DateTime(
-              DateTime.now().year,
-              DateTime.now().month,
-              DateTime.now().day,
-            );
             for (final doc in snap.data?.docs ?? []) {
               final d = Map<String, dynamic>.from(doc.data());
               final pendingStatus =
@@ -4744,17 +4745,24 @@ class _FinanceScreenState extends State<FinanceScreen> {
               )) {
                 continue;
               }
-              if (!showInPending &&
-                  (d['fixedExpenseId'] ?? '').toString().isNotEmpty) {
+              final ehProjecaoFixa =
+                  (d['fixedExpenseId'] ?? '').toString().trim().isNotEmpty;
+              if (!showInPending && ehProjecaoFixa) {
                 continue;
               }
               final dateTs = d['date'];
               if (dateTs is Timestamp) {
                 final dt = dateTs.toDate();
-                if (dt.isBefore(today)) {
-                  continue;
-                }
-                if (!dt.isBefore(exclusiveEnd)) {
+                // VENCIDO CONTINUA PENDENTE. Descartá-lo fazia o lançamento
+                // desaparecer do cartão e da lista no dia seguinte ao
+                // vencimento — justamente o que mais precisa de aparecer.
+                //
+                // E a janela `monthsAhead` é preferência das **fixas**
+                // (a folha chama-se «Despesas fixas»/«Receitas fixas»): aplicada
+                // a tudo, escondia parcelas já gravadas no Firestore com data
+                // mais à frente. Era por isto que 12 pendentes reais
+                // apareciam como «R$ 0,00 · 0 lançamento(s) em aberto».
+                if (ehProjecaoFixa && !dt.isBefore(exclusiveEnd)) {
                   continue;
                 }
               }
@@ -6511,29 +6519,113 @@ class _FinanceScreenState extends State<FinanceScreen> {
     );
   }
 
+  /// «Resumo do período» — mesmo bloco do Controle Total: cabeçalho com
+  /// exportação em PDF, card largo de Saldo de abertura e a linha
+  /// Receitas / Despesas / Saldo (acum.).
+  ///
+  /// Antes daqui saia um card único em gradiente escuro
+  /// ([ControleTotalFinanceDashboardCard]) — era a única divergencia visual
+  /// real entre os dois Financeiros.
   Widget _buildFinanceMainKpiSection({
     required double saldoAbertura,
     required double totalIncome,
     required double totalExpense,
     required double saldoAcumulado,
   }) {
-    final mes = DateFormat('MMM./yyyy', 'pt_BR').format(_from).toLowerCase();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: ControleTotalFinanceDashboardCard(
-        monthLabel: mes,
-        saldoAbertura: CurrencyFormats.formatBRL(saldoAbertura),
-        receitas: CurrencyFormats.formatBRL(totalIncome),
-        despesas: CurrencyFormats.formatBRL(totalExpense),
-        saldo: CurrencyFormats.formatBRL(saldoAcumulado),
-        onTapSaldoAbertura: () => _showLancamentosFromCard('all'),
-        onTapReceitas: () => _showLancamentosFromCard('income'),
-        onTapDespesas: () => _showLancamentosFromCard('expense'),
-        onTapSaldo: () => _showLancamentosFromCard('all'),
-        onTapSaldoContas: () => _openAllAccountsCategoryBreakdown(context),
-        onExportPdf: widget.profile.hasActiveLicense
-            ? () => unawaited(_openFinancialReportsPremiumSheet())
-            : () => mostrarAvisoSeLicencaInativa(context, widget.profile),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Resumo do período',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                    color: context.appTextPrimary,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'Exportar PDF (padrão premium)',
+                onPressed: widget.profile.hasActiveLicense
+                    ? () => unawaited(_openFinancialReportsPremiumSheet())
+                    : () =>
+                          mostrarAvisoSeLicencaInativa(context, widget.profile),
+                icon: const Icon(Icons.picture_as_pdf_rounded, size: 22),
+                style: IconButton.styleFrom(
+                  foregroundColor: _kPdfActionOrange,
+                  backgroundColor: _kPdfActionOrange.withValues(alpha: 0.12),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: _FinanceKpiCard(
+              title: 'Saldo de abertura',
+              value: CurrencyFormats.formatBRL(saldoAbertura),
+              color: saldoAbertura >= 0
+                  ? AppColors.saldoPositive
+                  : AppColors.saldoNegative,
+              icon: Icons.account_balance_rounded,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _FinanceKpiCard(
+                  title: 'Receitas',
+                  value: CurrencyFormats.formatBRL(totalIncome),
+                  color: AppColors.financeReceita,
+                  icon: Icons.arrow_downward,
+                  onTap: () => _openFinanceInsightSheet(
+                    scope: FinanceInsightScope.income,
+                    initialFrom: _from,
+                    initialTo: _to,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _FinanceKpiCard(
+                  title: 'Despesas',
+                  value: CurrencyFormats.formatBRL(totalExpense),
+                  color: AppColors.financeDespesa,
+                  icon: Icons.arrow_upward,
+                  onTap: () => _openFinanceInsightSheet(
+                    scope: FinanceInsightScope.expense,
+                    initialFrom: _from,
+                    initialTo: _to,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _FinanceKpiCard(
+                  title: 'Saldo (acum.)',
+                  value: CurrencyFormats.formatBRL(saldoAcumulado),
+                  color: saldoAcumulado >= 0
+                      ? AppColors.saldoPositive
+                      : AppColors.saldoNegative,
+                  icon: Icons.account_balance_wallet,
+                  onTap: () => _openFinanceInsightSheet(
+                    scope: FinanceInsightScope.balance,
+                    initialFrom: _from,
+                    initialTo: _to,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -6541,89 +6633,6 @@ class _FinanceScreenState extends State<FinanceScreen> {
   /// Tocar num card do topo (Receitas/Despesas/Saldo) filtra a **grade de
   /// lançamentos** por tipo e rola a tela até ela — respeitando os filtros de
   /// período/conta já ativos. Os gráficos continuam inline logo abaixo dos cards.
-  void _showLancamentosFromCard(String gridType) {
-    if (_gridListTypeFilter != gridType) {
-      setState(() => _gridListTypeFilter = gridType);
-    }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final ctx = _lancamentosGridKey.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(
-          ctx,
-          duration: const Duration(milliseconds: 420),
-          curve: Curves.easeOutCubic,
-          alignment: 0.02,
-        );
-      }
-    });
-  }
-
-  /// Gráficos do período (evolução receitas x despesas + totais/categoria) — reaproveita os
-  /// widgets premium de [report_finance_charts_panel.dart] (mesmo estilo visual "Clean Premium"
-  /// usado no Relatório Financeiro), agregando localmente a partir de [docs] já carregados
-  /// (sem novas consultas ao Firestore). Segue a mesma política de "pago + data efetiva" usada
-  /// nos cartões de resumo, para os números baterem com [totalIncome]/[totalExpense].
-  Widget _buildFinanceChartsSection({
-    required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-    required double totalIncome,
-    required double totalExpense,
-  }) {
-    final rs = DateTime(_from.year, _from.month, _from.day);
-    final re = DateTime(_to.year, _to.month, _to.day, 23, 59, 59);
-    final incomeList = <Map<String, dynamic>>[];
-    final expenseList = <Map<String, dynamic>>[];
-    final seen = <String>{};
-    for (final doc in docs) {
-      if (!seen.add(doc.id)) continue;
-      final d = _txDataForMainPeriodDoc(doc);
-      if ((d['status'] ?? 'paid').toString() != 'paid') continue;
-      final effective = FinanceLineOpening.effectiveDateTimeFromMap(d);
-      if (effective == null ||
-          effective.isBefore(rs) ||
-          effective.isAfter(re)) {
-        continue;
-      }
-      final amount = _financeAmountToDouble(d['amount']).abs();
-      final cat = (d['category'] ?? '').toString().trim();
-      final row = <String, dynamic>{
-        'date': Timestamp.fromDate(effective),
-        'amount': amount,
-        'category': cat.isEmpty ? 'Sem categoria' : cat,
-      };
-      if ((d['type'] ?? 'expense').toString() == 'income') {
-        incomeList.add(row);
-      } else {
-        expenseList.add(row);
-      }
-    }
-    if (incomeList.isEmpty && expenseList.isEmpty) {
-      return const SizedBox.shrink();
-    }
-    final evolucao = computeReportFinanceEvolucao(
-      incomeList: incomeList,
-      expenseList: expenseList,
-      rangeStart: _from,
-      rangeEnd: _to,
-    );
-    final gastosPorCategoria = computeReportGastosPorCategoria(expenseList);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ReportFinanceEvolucaoLineChart(data: evolucao),
-          const SizedBox(height: 16),
-          ReportFinanceBiCharts(
-            totalReceitas: totalIncome,
-            totalDespesas: totalExpense,
-            gastosPorCategoria: gastosPorCategoria,
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildGridListTypeBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
@@ -8071,11 +8080,6 @@ class _FinanceScreenState extends State<FinanceScreen> {
                                   totalIncome: totalIncome,
                                   totalExpense: totalExpense,
                                   saldoAcumulado: saldoAcumulado,
-                                ),
-                                _buildFinanceChartsSection(
-                                  docs: docs,
-                                  totalIncome: totalIncome,
-                                  totalExpense: totalExpense,
                                 ),
                                 FinanceSmartTipsCompactBar(
                                   onVejaMais: () => unawaited(
@@ -11691,7 +11695,8 @@ class _FinanceKpiCard extends StatelessWidget {
     required this.value,
     required this.color,
     required this.icon,
-  }) : onTap = null;
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {

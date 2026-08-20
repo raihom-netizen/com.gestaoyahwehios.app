@@ -33,8 +33,28 @@ abstract final class ChurchTenantOverride {
   /// da igreja não montava.
   static final Set<String> _conhecidos = <String>{};
 
+  /// Chamado sempre que um id novo entra em [_conhecidos].
+  ///
+  /// Existe para o registo sobreviver ao arranque a frio: quem tem acesso a
+  /// `SharedPreferences` (`ChurchKnownTenantsStore`) liga-se aqui e persiste.
+  /// Sem isso, no primeiro arranque depois de fechar a app o id
+  /// `igreta_batista_nacional_alianca` voltava a ser rejeitado até alguém abrir
+  /// o seletor de igrejas — e os módulos liam a igreja errada nesse intervalo.
+  static void Function(String id)? onKnownRegistered;
+
+  /// Ids reais já registados (só leitura).
+  static Set<String> get known => Set<String>.unmodifiable(_conhecidos);
+
   /// Regista um id vindo de fonte autoritativa do Firestore.
   static void registerKnown(String? id) {
+    final t = (id ?? '').trim();
+    if (t.isEmpty) return;
+    if (!_conhecidos.add(t)) return;
+    onKnownRegistered?.call(t);
+  }
+
+  /// Regista sem notificar (usado ao repor o que já estava persistido).
+  static void registerKnownSilently(String? id) {
     final t = (id ?? '').trim();
     if (t.isEmpty) return;
     _conhecidos.add(t);

@@ -52,6 +52,15 @@ String friendlyMessage(Object error, {String? context}) {
     return 'A janela do Google foi bloqueada ou fechada. Permita pop-ups para este site e tente de novo.';
   }
   if (msg.length > 120) {
+  // Armazenamento local do browser indisponível (janela anónima, disco cheio,
+  // ou a base a fechar durante a troca de service worker num deploy). O Auth
+  // devolve «Error: Database is closing/hidden», que não diz nada a ninguém.
+  if (msg.contains('database is closing') ||
+      msg.contains('database is hidden') ||
+      msg.contains('indexeddb')) {
+    return 'O navegador bloqueou o armazenamento local. Recarregue a página '
+        '(Ctrl+Shift+R). Se estiver numa janela anónima, use uma janela normal.';
+  }
     return 'Algo deu errado. Tente novamente ou entre em contato com o suporte.';
   }
   return msg;

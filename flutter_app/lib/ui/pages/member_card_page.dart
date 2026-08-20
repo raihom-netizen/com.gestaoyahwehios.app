@@ -39,7 +39,7 @@ import 'package:gestao_yahweh/ui/widgets/member_department_multi_filter_field.da
 import 'package:gestao_yahweh/ui/widgets/member_display_name_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_member_profile_photo.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
-    show churchTenantLogoUrl, sanitizeImageUrl;
+    show churchTenantLogoUrl, preloadNetworkImages, sanitizeImageUrl;
 import 'package:gestao_yahweh/ui/widgets/church_wisdom_module_widgets.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
@@ -1045,6 +1045,15 @@ class _MemberCardPageState extends State<MemberCardPage>
         _cardPayload = finalPayload;
         _loadingCard = false;
         if (finalPayload != null) {
+          // Aquece a logo da igreja assim que os dados chegam, em vez de a ir
+          // buscar só quando o cartão pinta — era isso que deixava o brasão a
+          // rodar o spinner com o resto do cartão já montado.
+          final logoWarm = sanitizeImageUrl(
+            churchTenantLogoUrl(finalPayload.tenant),
+          );
+          if (logoWarm.isNotEmpty && mounted) {
+            unawaited(preloadNetworkImages(context, [logoWarm], maxItems: 1));
+          }
           final photo = sanitizeImageUrl(
             (finalPayload.member['fotoUrl'] ??
                     finalPayload.member['photoUrl'] ??
@@ -1195,8 +1204,7 @@ class _MemberCardPageState extends State<MemberCardPage>
         memberIds: ids,
         signatory: signatory,
         operatorUid: currentUser?.uid,
-        operatorNome:
-            (currentUser?.displayName?.trim().isNotEmpty ?? false)
+        operatorNome: (currentUser?.displayName?.trim().isNotEmpty ?? false)
             ? currentUser!.displayName!.trim()
             : currentUser?.email,
         operatorRole: widget.role,
@@ -2132,44 +2140,70 @@ class _MemberCardPageState extends State<MemberCardPage>
             memberPhotoRef!,
             payload.member,
           );
+    // Cartão inteiro visível sem rolar — celular, web, iOS e Android.
+    //
+    // O cartão tem largura lógica fixa (380) e altura ditada pelo conteúdo, o
+    // que o fazia passar da tela num telemóvel. `scaleDown` encolhe-o só
+    // quando não cabe; em ecrã grande fica no tamanho natural. A escala fica
+    // ACIMA do [Screenshot], por isso a exportação em PNG/PDF continua a sair
+    // na resolução original.
+    final alturaLivre = (MediaQuery.sizeOf(context).height - 300).clamp(
+      360.0,
+      1100.0,
+    );
     return SingleChildScrollView(
       padding: ThemeCleanPremium.pagePadding(context),
       child: Column(
         children: [
-          Screenshot(
-            controller: _shotCtrl,
-            child: MemberCardCnhDigital(
-              data: view,
-              maxWidth: MemberCardCnhLayout.captureLogicalWidth,
-              logoSlot: StableChurchLogo(
-                tenantId: payload.igrejaDocId,
-                imageUrl: logoUrl,
-                width: 56,
-                height: 56,
-              ),
-              photoSlot: SafeMemberProfilePhoto(
-                imageUrl: memberPhotoUrl,
-                tenantId: payload.igrejaDocId,
-                memberId: payload.memberId,
-                authUid:
-                    (payload.member['authUid'] ??
-                            payload.member['firebaseUid'] ??
-                            '')
-                        .toString()
-                        .trim()
-                        .isEmpty
-                    ? null
-                    : (payload.member['authUid'] ??
-                              payload.member['firebaseUid'])
-                          .toString()
-                          .trim(),
-                memberFirestoreHint: payload.member,
-                width: 88,
-                height: 88,
-                imageCacheRevision: memberPhotoDisplayCacheRevision(
-                  payload.member,
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: alturaLivre),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.topCenter,
+              child: SizedBox(
+                width: MemberCardCnhLayout.captureLogicalWidth,
+                child: Screenshot(
+                  controller: _shotCtrl,
+                  child: MemberCardCnhDigital(
+                    data: view,
+                    maxWidth: MemberCardCnhLayout.captureLogicalWidth,
+                    // 320 px (e decode a 640) em vez de 56: o mesmo widget
+                    // serve o brasão do topo e a marca-d'água grande ao
+                    // centro. A 56 px era ampliado ~5× e saía borrado.
+                    logoSlot: StableChurchLogo(
+                      tenantId: payload.igrejaDocId,
+                      imageUrl: logoUrl,
+                      width: 320,
+                      height: 320,
+                      memCacheWidth: 640,
+                      memCacheHeight: 640,
+                    ),
+                    photoSlot: SafeMemberProfilePhoto(
+                      imageUrl: memberPhotoUrl,
+                      tenantId: payload.igrejaDocId,
+                      memberId: payload.memberId,
+                      authUid:
+                          (payload.member['authUid'] ??
+                                  payload.member['firebaseUid'] ??
+                                  '')
+                              .toString()
+                              .trim()
+                              .isEmpty
+                          ? null
+                          : (payload.member['authUid'] ??
+                                    payload.member['firebaseUid'])
+                                .toString()
+                                .trim(),
+                      memberFirestoreHint: payload.member,
+                      width: 88,
+                      height: 88,
+                      imageCacheRevision: memberPhotoDisplayCacheRevision(
+                        payload.member,
+                      ),
+                      preferListThumbnail: false,
+                    ),
+                  ),
                 ),
-                preferListThumbnail: false,
               ),
             ),
           ),

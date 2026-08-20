@@ -233,7 +233,10 @@ class _DespesasFixasScreenState extends State<DespesasFixasScreen> {
           totalParcelas.clamp(1, AppBusinessRules.maxFixedFlowInstallments);
       parcelaInicial = parcelaInicial.clamp(1, totalParcelas);
     }
-    bool addToCalendar = existing != null && existing['addToCalendar'] != false;
+    // Desligado por defeito, e ao editar so fica ligado se foi gravado
+    // explicitamente `true` (com `!= false`, o campo ausente ligava).
+    bool addToCalendar =
+        existing != null && existing['addToCalendar'] == true;
     String? calendarColorHex = existing?['calendarColorHex']?.toString();
     final isEdit = existing != null;
     final id = existing?['id']?.toString();

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -89,8 +90,14 @@ abstract final class PanelPublicSiteSnapshotService {
   PanelPublicSiteSnapshotService._();
 
   static DocumentReference<Map<String, dynamic>> ref(String tenantId) {
-    final id = ChurchRepository.churchId(tenantId.trim());
-    return ChurchRepository.churchDoc(id.isNotEmpty ? id : tenantId.trim())
+    // Exato de proposito: todos os chamadores passam um id ja resolvido (o
+    // painel) ou o id do slug da URL (site publico). Passar pelo resolvedor do
+    // painel fazia o site publico ler o cache da igreja que o master abriu.
+    final t = tenantId.trim();
+    final id = t.isEmpty
+        ? ChurchRepository.churchId('')
+        : ChurchContext.resolveExactChurchId(t);
+    return ChurchRepository.churchDoc(id.isNotEmpty ? id : t)
         .collection('_panel_cache')
         .doc('public_site');
   }

@@ -244,6 +244,9 @@ abstract final class MediaService {
         quality: quality,
         deleteOrigin: false,
         includeAudio: true,
+        // Fixar 30 fps: telemóveis gravam a 60 fps por defeito e isso é o
+        // dobro do ficheiro (e do tempo de envio) sem ganho visível no feed.
+        frameRate: 30,
       );
     } catch (_) {
       return null;
@@ -294,26 +297,41 @@ abstract final class MediaService {
 
     final lower = inputPath.toLowerCase();
     final byteLen = await file.length();
-    if (byteLen > mediaVideoHardMaxBytesEffective) {
-      final limitMb = (mediaVideoHardMaxBytesEffective / (1024 * 1024)).round();
-      throw StateError(
-        'Vídeo muito grande. Reduza para até ${limitMb}MB ou grave mais curto.',
-      );
-    }
+    final hardMax = mediaVideoHardMaxBytesEffective;
 
     final skipTranscode = !forceTranscode &&
         byteLen <= mediaVideoSkipTranscodeMaxBytes &&
         (lower.endsWith('.mp4') || lower.endsWith('.m4v'));
 
+    // O bruto de 2 min em 1080p/4K passa fácil dos 100 MB: o teto só pode ser
+    // aplicado ao ficheiro que sai do encoder, senão vídeos publicáveis eram
+    // rejeitados sem sequer tentar comprimir.
+    if (byteLen > (skipTranscode ? hardMax : kMediaEventVideoRawMaxBytes)) {
+      final limitMb =
+          ((skipTranscode ? hardMax : kMediaEventVideoRawMaxBytes) /
+                  (1024 * 1024))
+              .round();
+      throw StateError(
+        'Vídeo muito grande. Reduza para até ${limitMb}MB ou grave mais curto.',
+      );
+    }
+
     onCompressProgress?.call(0.05);
     File resolved = file;
     if (!skipTranscode) {
       final info = await compressVideo(file)
-          .timeout(const Duration(minutes: 2), onTimeout: () => null);
+          .timeout(kMediaVideoTranscodeTimeout, onTimeout: () => null);
       onCompressProgress?.call(0.75);
       if (info?.file != null && info!.file!.existsSync()) {
         resolved = info.file!;
       }
+    }
+    if (await resolved.length() > hardMax) {
+      final limitMb = (hardMax / (1024 * 1024)).round();
+      throw StateError(
+        'Mesmo comprimido o vídeo passa de ${limitMb}MB. Grave mais curto '
+        'ou em qualidade menor.',
+      );
     }
 
     File? thumbFile;

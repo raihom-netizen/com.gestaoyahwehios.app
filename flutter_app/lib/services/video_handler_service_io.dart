@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
@@ -36,6 +37,7 @@ class VideoHandlerService implements IVideoHandlerService {
     Duration maxDuration = kMediaVideoMaxDuration,
     void Function(double uploadProgress01)? onUploadProgress,
     int? maxRawPickBytes,
+    Uint8List? precomputedThumbBytes,
   }) async {
     final effectiveMaxDuration =
         maxDuration < mediaVideoMaxDurationEffective
@@ -48,7 +50,9 @@ class VideoHandlerService implements IVideoHandlerService {
     if (xfile == null) return null;
     final durationSec = await getVideoDurationSeconds(xfile);
     if (durationSec != null && durationSec > kMediaEventVideoMaxSeconds) {
-      throw StateError('Vídeo excede o limite de 90 segundos.');
+      throw StateError(
+        'Vídeo excede o limite de $kMediaEventVideoMaxSeconds segundos.',
+      );
     }
     final localPath = await FeedEditorMediaService.persistVideoXFileToTemp(
       xfile,
@@ -66,6 +70,7 @@ class VideoHandlerService implements IVideoHandlerService {
       videoSlotIndex: videoSlotIndex,
       onUploadProgress: onUploadProgress,
       maxRawPickBytes: maxRawPickBytes,
+      precomputedThumbBytes: precomputedThumbBytes,
     );
   }
 
@@ -77,6 +82,7 @@ class VideoHandlerService implements IVideoHandlerService {
     required int videoSlotIndex,
     void Function(double uploadProgress01)? onUploadProgress,
     int? maxRawPickBytes,
+    Uint8List? precomputedThumbBytes,
   }) async {
     final path = localPath;
     if (path.isEmpty || !File(path).existsSync()) return null;
@@ -88,38 +94,63 @@ class VideoHandlerService implements IVideoHandlerService {
 
     try {
       final lower = path.toLowerCase();
-      final byteLen = await File(path).length();
+      final original = File(path);
+      final byteLen = await original.length();
       final hardLimitBytes = mediaEventVideoHardMaxBytesEffective;
-      final pickLimit = maxRawPickBytes ?? hardLimitBytes;
-      if (byteLen > pickLimit) {
-        if (byteLen > kMediaEventVideoHardMaxBytes) {
-          throw StateError('Vídeo excede o limite permitido.');
-        }
+      // O bruto pode ser grande (2 min de 1080p/4K): quem manda é o ficheiro
+      // que sai do encoder. Rejeitar aqui pelo teto pós-compressão barrava
+      // vídeos perfeitamente publicáveis.
+      final rawLimit = maxRawPickBytes ?? kMediaEventVideoRawMaxBytes;
+      if (byteLen > rawLimit) {
         final sizeMb = (byteLen / (1024 * 1024)).toStringAsFixed(1);
-        final limitMb = (pickLimit / (1024 * 1024)).round();
+        final limitMb = (rawLimit / (1024 * 1024)).round();
         throw StateError(
-          'O vídeo pesa ${sizeMb}MB. Para manter a velocidade igual à Web, '
-          'selecione vídeos de até ${limitMb}MB ou grave em qualidade menor.',
+          'O vídeo pesa ${sizeMb}MB — acima de ${limitMb}MB. '
+          'Grave em qualidade menor ou use o campo de link (YouTube / Vimeo).',
         );
       }
-      final useOriginal = _isIosNative
-          ? byteLen <= hardLimitBytes &&
-              (lower.endsWith('.mp4') ||
-                  lower.endsWith('.m4v') ||
-                  lower.endsWith('.mov'))
-          : byteLen <= mediaVideoSkipTranscodeMaxBytes &&
-              (lower.endsWith('.mp4') || lower.endsWith('.m4v'));
 
-      late final File compressed;
-      if (useOriginal) {
-        compressed = File(path);
-      } else if (_isIosNative) {
-        // iOS: evita transcode pesado no aparelho — CF gera thumb depois.
-        compressed = File(path);
-      } else {
-        final mediaInfo = await MediaService.compressVideo(File(path));
-        if (mediaInfo == null || mediaInfo.file == null) return null;
-        compressed = mediaInfo.file!;
+      // Só o que já é leve sobe como está. Acima disso o encode por hardware
+      // (MediaCodec no Android, AVAssetExportSession no iOS) é muito mais
+      // barato do que arrastar o bruto por 4G — inclusive no iOS, que antes
+      // nunca transcodificava e por isso subia ficheiros de dezenas de MB.
+      final alreadyLight =
+          byteLen <= mediaVideoSkipTranscodeMaxBytes &&
+          (lower.endsWith('.mp4') ||
+              lower.endsWith('.m4v') ||
+              (_isIosNative && lower.endsWith('.mov')));
+
+      File compressed = original;
+      if (!alreadyLight) {
+        File? encoded;
+        try {
+          final mediaInfo = await MediaService.compressVideo(original)
+              .timeout(kMediaVideoTranscodeTimeout, onTimeout: () => null);
+          final f = mediaInfo?.file;
+          if (f != null && f.existsSync() && await f.length() > 0) {
+            encoded = f;
+          }
+        } catch (_) {
+          encoded = null;
+        }
+        if (encoded != null && await encoded.length() < byteLen) {
+          compressed = encoded;
+        } else if (byteLen > hardLimitBytes) {
+          // Encode falhou/estourou o tempo e o bruto não cabe no Storage.
+          final sizeMb = (byteLen / (1024 * 1024)).toStringAsFixed(1);
+          final limitMb = (hardLimitBytes / (1024 * 1024)).round();
+          throw StateError(
+            'Não foi possível comprimir o vídeo (${sizeMb}MB) e o limite de '
+            'envio é ${limitMb}MB. Grave mais curto ou em qualidade menor.',
+          );
+        }
+      }
+      if (await compressed.length() > hardLimitBytes) {
+        final limitMb = (hardLimitBytes / (1024 * 1024)).round();
+        throw StateError(
+          'Mesmo comprimido o vídeo passa de ${limitMb}MB. '
+          'Grave mais curto ou use o campo de link (YouTube / Vimeo).',
+        );
       }
 
       final slot = videoSlotIndex.clamp(0, 1);
@@ -153,17 +184,22 @@ class VideoHandlerService implements IVideoHandlerService {
       // somava tempo de espera sem necessidade.
       Future<String> uploadThumb() async {
         try {
-          final thumbFile = await MediaService.getVideoThumbnail(compressed)
-              .timeout(const Duration(seconds: 20), onTimeout: () => null);
-          if (thumbFile != null && thumbFile.existsSync()) {
-            final thumbBytes = await thumbFile.readAsBytes();
-            if (thumbBytes.isNotEmpty) {
-              return await EcoFireStorageUpload.putData(
-                storagePath: thumbPath,
-                bytes: thumbBytes,
-                mimeType: 'image/jpeg',
-              );
+          // O editor já extraiu a miniatura ao anexar — gerar de novo era
+          // repetir um decode de vídeo (segundos) por nada.
+          var thumbBytes = precomputedThumbBytes;
+          if (thumbBytes == null || thumbBytes.isEmpty) {
+            final thumbFile = await MediaService.getVideoThumbnail(compressed)
+                .timeout(const Duration(seconds: 20), onTimeout: () => null);
+            if (thumbFile != null && thumbFile.existsSync()) {
+              thumbBytes = await thumbFile.readAsBytes();
             }
+          }
+          if (thumbBytes != null && thumbBytes.isNotEmpty) {
+            return await EcoFireStorageUpload.putData(
+              storagePath: thumbPath,
+              bytes: thumbBytes,
+              mimeType: 'image/jpeg',
+            );
           }
         } catch (_) {}
         return '';

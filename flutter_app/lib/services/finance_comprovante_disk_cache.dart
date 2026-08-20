@@ -15,6 +15,14 @@ abstract final class FinanceComprovanteDiskCache {
 
   static final Map<String, _RamHit> _ram = {};
 
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
+  /// igreja e continuava a servir o que ja estava em memoria.
+  static void purgarNaTrocaDeIgreja() {
+    _ram.clear();
+  }
+
   static String keyFor({required String storagePath, String url = ''}) {
     final raw = storagePath.trim().isNotEmpty
         ? storagePath.trim()

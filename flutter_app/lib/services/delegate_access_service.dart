@@ -1,5 +1,6 @@
 ﻿import 'dart:async';
 
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -303,7 +304,7 @@ class DelegateAccessService {
       final ref = FirebaseFirestore.instance
           .collection('delegate_email_index')
           .doc(emailDocKey(email));
-      if (!kIsWeb) {
+      if (!YahwehRestFirst.prefer) {
         _indexListener = ref.snapshots().listen(
           (snap) {
             unawaited(_onDelegateIndexSnapshot(snap, user));

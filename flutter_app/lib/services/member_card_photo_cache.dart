@@ -5,6 +5,14 @@ abstract final class MemberCardPhotoCache {
   MemberCardPhotoCache._();
 
   static final Map<String, _Entry> _ram = {};
+
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
+  /// igreja e continuava a servir o que ja estava em memoria.
+  static void purgarNaTrocaDeIgreja() {
+    _ram.clear();
+  }
   static const _ttl = Duration(minutes: 20);
 
   static String _key(String tenantId, String memberId) =>

@@ -12,6 +12,31 @@ abstract final class FinanceTransactionsHub {
 
   static final ValueNotifier<int> revision = ValueNotifier<int>(0);
 
+  /// Ids já apagados do Firestore nesta sessão.
+  ///
+  /// A exclusão remove o documento na hora, mas as listas do Financeiro na web
+  /// não são listeners ao vivo — são `get` com poll (até 3 min). Sem isto, a
+  /// linha continuava no ecrã depois de apagada e parecia que «não removeu».
+  /// Quem pinta lista de lançamentos filtra por [foiApagado].
+  static final Set<String> _apagados = <String>{};
+
+  /// Marca um lançamento como apagado e acorda quem está a mostrar listas.
+  static void marcarApagado(String docId) {
+    final id = docId.trim();
+    if (id.isEmpty) return;
+    _apagados.add(id);
+    revision.value += 1;
+  }
+
+  static bool foiApagado(String? docId) {
+    final id = (docId ?? '').trim();
+    return id.isNotEmpty && _apagados.contains(id);
+  }
+
+  /// Limpa o registo (ex.: ao trocar de igreja) — os ids não se repetem, mas
+  /// não vale a pena manter o conjunto a crescer para sempre.
+  static void limparApagados() => _apagados.clear();
+
   static Timer? _debounce;
   static int _burstCount = 0;
   static String? _pendingUid;

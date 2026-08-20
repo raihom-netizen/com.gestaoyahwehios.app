@@ -20,6 +20,8 @@ import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/services/video_duration.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/church_avisos_carousel.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -509,7 +511,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
           controller: _searchCtrl,
           decoration: InputDecoration(
             hintText:
-                'Buscar aviso (texto)â€¦',
+                'Buscar aviso (texto)…',
             prefixIcon: const Icon(Icons.search_rounded),
             filled: true,
             fillColor: Colors.white,
@@ -618,8 +620,8 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
               FilterChip(
                 label: Text(
                   _sortDateAsc
-                      ? 'Data â†‘'
-                      : 'Data â†“',
+                      ? 'Data ↑'
+                      : 'Data ↓',
                 ),
                 selected: true,
                 onSelected: (_) => setState(() => _sortDateAsc = !_sortDateAsc),
@@ -2026,11 +2028,30 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   bool _clearVideo = false;
   bool _publishing = false;
 
+  /// Id do aviso reservado no editor: dá ao vídeo um path definitivo antes de
+  /// publicar, e é isso que permite enviá-lo já ao anexar.
+  String _reservedPostId = '';
+
+  /// O vídeo já foi entregue à publicação — o editor fecha antes de o envio
+  /// terminar, por isso o `dispose` não pode descartá-lo.
+  bool _videoHandedOffToPublish = false;
+
+  String get _videoPostId => _isEdit
+      ? (widget.initialItem?.id ?? '')
+      : _reservedPostId;
+
   bool get _isEdit => widget.initialItem != null;
 
   @override
   void initState() {
     super.initState();
+    if (widget.initialItem == null) {
+      try {
+        _reservedPostId = ChurchAvisosService.reserveNewPostId(widget.tenantId);
+      } catch (_) {
+        _reservedPostId = '';
+      }
+    }
     final item = widget.initialItem;
     if (item == null) return;
     _titleCtrl.text = item.title;
@@ -2052,6 +2073,12 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
 
   @override
   void dispose() {
+    final pending = _localVideoPath;
+    if (!_videoHandedOffToPublish && pending != null && pending.isNotEmpty) {
+      // Editor fechado sem publicar: o vídeo enviado à frente seria lixo no
+      // bucket — descartar apaga-o quando o envio terminar.
+      ChurchAvisosService.cancelVideoPreupload(pending);
+    }
     _titleCtrl.dispose();
     _bodyCtrl.dispose();
     _youtubeCtrl.dispose();
@@ -2063,22 +2090,39 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     final xfile = await MediaHandlerService.instance.pickVideoFromGallery(
       context: context,
       module: YahwehMediaModule.avisos,
-      maxDuration: const Duration(seconds: 90),
-      maxSizeMb: 80,
+      maxDuration: mediaEventVideoMaxDurationEffective,
+      maxSizeMb: (mediaEventVideoHardMaxBytesEffective / (1024 * 1024)).round(),
     );
     if (!mounted || xfile == null) return;
+    // No Android/iOS o `maxDuration` do picker só vale para a câmara — na
+    // galeria é ignorado. Sem esta verificação o limite de 2 min não existia.
+    final durationSec = await getVideoDurationSeconds(xfile);
+    if (!mounted) return;
+    if (durationSec != null && durationSec > kMediaEventVideoMaxSeconds) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Vídeo de ${durationSec}s — o limite é '
+            '$kMediaEventVideoMaxSeconds s (2 min). Corte o vídeo ou cole o '
+            'link do YouTube.',
+          ),
+        ),
+      );
+      return;
+    }
     if (kIsWeb) {
       // O picker web ignora maxDuration/maxSizeMb — valida aqui para o aviso
       // não falhar só no publish.
-      const maxBytes = 80 * 1024 * 1024;
+      final maxBytes = mediaEventVideoHardMaxBytesEffective;
       final size = await xfile.length();
       if (!mounted) return;
       if (size > maxBytes) {
+        final limitMb = (maxBytes / (1024 * 1024)).round();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
               'Vídeo muito grande (${(size / (1024 * 1024)).toStringAsFixed(1)}MB). '
-              'Máximo: 80MB — ou cole o link do YouTube.',
+              'Máximo: ${limitMb}MB — ou cole o link do YouTube.',
             ),
           ),
         );
@@ -2104,16 +2148,32 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
       }
       return;
     }
+    final previous = _localVideoPath;
+    if (previous != null && previous.isNotEmpty && previous != localPath) {
+      ChurchAvisosService.cancelVideoPreupload(previous);
+    }
     setState(() {
       _localVideoPath = localPath;
       _clearVideo = false;
       _existingVideoUrl = null;
       _youtubeCtrl.clear();
     });
+    // Envio arranca aqui, não no «Publicar»: o tempo que o utilizador leva a
+    // escrever título e texto passa a ser tempo de rede aproveitado.
+    final postId = _videoPostId;
+    if (postId.isNotEmpty) {
+      ChurchAvisosService.startVideoPreupload(
+        churchIdHint: widget.tenantId,
+        postId: postId,
+        localPath: localPath,
+      );
+    }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'Vídeo anexado — envio ao publicar (máx. 90s).',
+          postId.isNotEmpty
+              ? 'Vídeo anexado (máx. ${kMediaEventVideoMaxSeconds}s) — já a enviar em segundo plano.'
+              : 'Vídeo anexado — envio ao publicar (máx. ${kMediaEventVideoMaxSeconds}s).',
         ),
       );
     }
@@ -2332,6 +2392,9 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
         action: (reportProgress) async {
           final yt = _youtubeCtrl.text.trim();
           final localVideo = _localVideoPath;
+          if (localVideo != null && localVideo.isNotEmpty) {
+            _videoHandedOffToPublish = true;
+          }
           if (isEdit) {
             await ChurchAvisosService.update(
               churchIdHint: widget.tenantId,
@@ -2363,6 +2426,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
               instagramUrl: _instagramCtrl.text,
               publicSite: _publicSite,
               videoLocalPath: localVideo,
+              postIdHint: _reservedPostId,
               role: widget.role,
               permissions: widget.permissions,
               onUploadProgress: reportProgress,

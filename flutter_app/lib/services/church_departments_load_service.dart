@@ -320,6 +320,14 @@ abstract final class ChurchDepartmentsLoadService {
     } catch (_) {}
   }
 
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
+  /// igreja e continuava a servir o que ja estava em memoria.
+  static void purgarNaTrocaDeIgreja() {
+    _ram.clear();
+  }
+
   static void invalidateRam(String churchId) {
     final id = churchId.trim();
     if (id.isEmpty) return;

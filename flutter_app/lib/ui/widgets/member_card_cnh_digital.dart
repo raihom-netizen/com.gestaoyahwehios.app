@@ -24,6 +24,14 @@ class MemberCardCnhDigital extends StatelessWidget {
 
   static const Color _headerNavy = Color(0xFF0D2C54);
   static const Color _borderGreen = Color(0xFF2E7D32);
+
+  /// Diâmetro do brasão (logo da igreja) no cartão.
+  ///
+  /// Subiu de 118 para 146 de propósito: dentro de um círculo, a logo tem de
+  /// caber no **quadrado inscrito** (lado = diâmetro / √2), senão as pontas
+  /// são cortadas pelo recorte circular — era o que acontecia com logos
+  /// largas (a IBNA é 1338×753) e o utilizador via a arte cortada.
+  static const double _logoDiameter = 146;
   static const Color _labelColor = Color(0xFF4A5D48);
   static const Color _valueColor = Color(0xFF142414);
 
@@ -142,46 +150,9 @@ class MemberCardCnhDigital extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
-                                Container(
-                                  width: 118,
-                                  height: 118,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: _borderGreen.withValues(
-                                        alpha: 0.72,
-                                      ),
-                                      width: 2.5,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: _borderGreen.withValues(
-                                          alpha: 0.22,
-                                        ),
-                                        blurRadius: 14,
-                                        spreadRadius: 1,
-                                      ),
-                                      BoxShadow(
-                                        color: Colors.black
-                                            .withValues(alpha: 0.12),
-                                        blurRadius: 10,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ],
-                                  ),
-                                  clipBehavior: Clip.antiAlias,
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(2),
-                                    child: FittedBox(
-                                      fit: BoxFit.contain,
-                                      child: SizedBox(
-                                        width: 114,
-                                        height: 114,
-                                        child: logoSlot,
-                                      ),
-                                    ),
-                                  ),
+                                _LogoBrasao(
+                                  diameter: _logoDiameter,
+                                  child: logoSlot,
                                 ),
                                 const SizedBox(height: 10),
                                 Text(
@@ -280,10 +251,14 @@ class MemberCardCnhDigital extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
                         child: DecoratedBox(
                           decoration: BoxDecoration(
-                            color: const Color(0xFF0F5132).withValues(alpha: 0.06),
+                            color: const Color(
+                              0xFF0F5132,
+                            ).withValues(alpha: 0.06),
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                              color: const Color(0xFF0F5132).withValues(alpha: 0.28),
+                              color: const Color(
+                                0xFF0F5132,
+                              ).withValues(alpha: 0.28),
                             ),
                           ),
                           child: Padding(
@@ -302,7 +277,8 @@ class MemberCardCnhDigital extends StatelessWidget {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         'ASSINATURA DIGITAL',
@@ -486,6 +462,60 @@ class MemberCardCnhDigital extends StatelessWidget {
   }
 }
 
+/// Brasão circular da igreja no cartão.
+///
+/// A logo é encaixada no **quadrado inscrito** no círculo (lado = d/√2). É a
+/// única medida que garante que qualquer proporcão — quadrada, larga ou alta
+/// — fica inteira dentro do círculo, sem ponta cortada.
+class _LogoBrasao extends StatelessWidget {
+  const _LogoBrasao({required this.diameter, required this.child});
+
+  final double diameter;
+  final Widget child;
+
+  static const Color _ring = Color(0xFF2E7D32);
+
+  @override
+  Widget build(BuildContext context) {
+    // d/√2 menos uma folga para o anel não encostar na arte.
+    final inner = (diameter / 1.41421356) - 6;
+    return SizedBox(
+      width: diameter,
+      height: diameter,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Colors.white, Color(0xFFF6FAF6)],
+          ),
+          border: Border.all(color: _ring.withValues(alpha: 0.55), width: 2.2),
+          boxShadow: [
+            BoxShadow(
+              color: _ring.withValues(alpha: 0.18),
+              blurRadius: 16,
+              spreadRadius: 1,
+            ),
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.10),
+              blurRadius: 12,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Center(
+          child: SizedBox(
+            width: inner,
+            height: inner,
+            child: FittedBox(fit: BoxFit.contain, child: child),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _CnhSecurityBackground extends StatelessWidget {
   const _CnhSecurityBackground();
 
@@ -520,7 +550,11 @@ class _GuillochePainter extends CustomPainter {
 
     for (var i = -2; i < 24; i++) {
       final y = i * 18.0;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y + size.width * 0.15), paint);
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(size.width, y + size.width * 0.15),
+        paint,
+      );
     }
     for (var i = 0; i < 12; i++) {
       final cx = size.width * (0.1 + i * 0.08);
@@ -537,37 +571,27 @@ class _BrRibbonPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final path = Path()
       ..moveTo(0, size.height * 0.7)
-      ..quadraticBezierTo(
-        size.width * 0.4,
-        size.height * 0.1,
-        size.width,
-        0,
-      )
+      ..quadraticBezierTo(size.width * 0.4, size.height * 0.1, size.width, 0)
       ..lineTo(size.width, size.height * 0.35)
-      ..quadraticBezierTo(
-        size.width * 0.35,
-        size.height * 0.55,
-        0,
-        size.height,
-      )
+      ..quadraticBezierTo(size.width * 0.35, size.height * 0.55, 0, size.height)
       ..close();
 
-    final green = Paint()..color = const Color(0xFF009B3A).withValues(alpha: 0.85);
-    final yellow = Paint()..color = const Color(0xFFFEDD00).withValues(alpha: 0.75);
+    final green = Paint()
+      ..color = const Color(0xFF009B3A).withValues(alpha: 0.85);
+    final yellow = Paint()
+      ..color = const Color(0xFFFEDD00).withValues(alpha: 0.75);
 
     canvas.save();
     canvas.clipPath(path);
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, size.width, size.height * 0.55),
-      green,
-    );
+    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height * 0.55), green);
     canvas.drawRect(
       Rect.fromLTWH(0, size.height * 0.45, size.width, size.height * 0.55),
       yellow,
     );
     canvas.restore();
 
-    final diamond = Paint()..color = const Color(0xFF002776).withValues(alpha: 0.9);
+    final diamond = Paint()
+      ..color = const Color(0xFF002776).withValues(alpha: 0.9);
     final c = Offset(size.width * 0.72, size.height * 0.22);
     final r = 5.0;
     final diamondPath = Path()

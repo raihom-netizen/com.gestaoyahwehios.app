@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+﻿import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
@@ -110,7 +111,15 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
 
   /// Se true e o status for pendente, o lançamento aparece no calendário Agenda/Escala.
   /// Padrão: ligado (pendente deve aparecer no calendário).
-  bool _addToCalendar = true;
+  // Desligado por defeito: quem quiser o lancamento na Agenda liga o
+  // interruptor. Vinha ligado e enchia o calendario sozinho.
+  bool _addToCalendar = false;
+
+  /// Membro **ou** fornecedor deste lancamento — no maximo um.
+  ///
+  /// E o que permite somar "quanto gastamos com este fornecedor" ou "quanto
+  /// este membro contribuiu" sem rateio nem ambiguidade.
+  FinanceVinculoSelecao _vinculo = const FinanceVinculoSelecao.vazia();
 
   /// Última descrição aplicada automaticamente (categoria + mês/ano). Se o usuário editar o campo, zera e não sobrescreve ao mudar só a data.
   String? _lastAutoDescription;
@@ -197,7 +206,12 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     if (_selectedFinanceAccountId!.isEmpty) _selectedFinanceAccountId = null;
     _calendarColorHex = d['calendarColorHex']?.toString();
     final st = (d['status'] ?? 'paid').toString();
-    _addToCalendar = st == 'pending' && d['addToCalendar'] != false &&
+    _vinculo = FinanceVinculoSelecao.deFirestore(d);
+    // So conta como ligado quando foi gravado explicitamente `true`.
+    // Com `!= false`, lancamento antigo sem o campo aparecia no
+    // calendario ao ser reaberto.
+    _addToCalendar = st == 'pending' &&
+        d['addToCalendar'] == true &&
         d['hideFromCalendar'] != true;
 
     final receipt = Map<String, dynamic>.from(d['receipt'] ?? {});
@@ -590,6 +604,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
       if (!_isIncome) 'financeAccountId': financeAid,
       'addToCalendar': _status == 'pending' && _addToCalendar,
       'hideFromCalendar': _status == 'pending' && !_addToCalendar,
+      ..._vinculo.paraFirestore(),
       if (_status == 'pending' &&
           _addToCalendar &&
           _calendarColorHex != null &&
@@ -650,6 +665,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
 
     updateData['addToCalendar'] = _status == 'pending' && _addToCalendar;
     updateData['hideFromCalendar'] = _status == 'pending' && !_addToCalendar;
+    // Vinculo: grava o par escolhido e limpa o outro. Sem o `null` explicito,
+    // mudar de fornecedor para membro deixava o fornecedor antigo colado.
+    updateData.addAll(_vinculo.paraFirestore());
     if (_status == 'pending' &&
         _addToCalendar &&
         _calendarColorHex != null &&
@@ -1301,6 +1319,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildVinculoField(accent),
+          const SizedBox(height: 14),
           Row(
             children: [
               Icon(Icons.account_balance_rounded, size: 18, color: accent),
@@ -2122,6 +2142,154 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
   /// Linha de seleção de cor para exibição no calendário (Agenda/Escala).
   /// Padrão: vermelho para despesas, verde para receitas. Usuário pode trocar.
   /// Usa a mesma paleta de 72 cores do módulo Escalas.
+  /// Campo «Vínculo»: um membro **ou** um fornecedor, nunca os dois.
+  ///
+  /// É o que dá o controlo exato por pessoa — despesas de folha por membro,
+  /// gastos por fornecedor, contribuições por membro — somando lançamentos.
+  Widget _buildVinculoField(Color accent) {
+    final v = _vinculo;
+    final varios = v.somenteHistorico;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.link_rounded, size: 18, color: accent),
+            const SizedBox(width: 6),
+            Text(
+              'Vínculo (membro ou fornecedor)',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: context.appTextSecondary,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () async {
+              final escolhido = await escolherVinculoFinanceiro(
+                context,
+                tenantId: widget.uid,
+                atual: v,
+              );
+              if (escolhido == null || !mounted) return;
+              setState(() => _vinculo = escolhido);
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 13,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: accent.withValues(alpha: 0.28)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    v.vazio
+                        ? Icons.person_search_rounded
+                        : varios
+                        ? Icons.groups_rounded
+                        : (v.itens.first.ehMembro
+                              ? Icons.person_rounded
+                              : Icons.local_shipping_rounded),
+                    size: 20,
+                    color: varios ? const Color(0xFFEA580C) : accent,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          v.resumo,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
+                            color: context.appTextPrimary,
+                          ),
+                        ),
+                        Text(
+                          v.vazio
+                              ? 'Opcional — toque para escolher'
+                              : varios
+                              ? 'Não conta no total individual'
+                              : (v.itens.first.ehMembro
+                                    ? 'Membro'
+                                    : 'Fornecedor'),
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (!v.vazio)
+                    IconButton(
+                      tooltip: 'Remover vínculo',
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      onPressed: () => setState(
+                        () => _vinculo = const FinanceVinculoSelecao.vazia(),
+                      ),
+                    ),
+                  const Icon(Icons.chevron_right_rounded),
+                ],
+              ),
+            ),
+          ),
+        ),
+        // Mesmo aviso da folha, agora no formulário: quem só olha para o campo
+        // antes de gravar tem de ver o que muda.
+        if (varios)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Container(
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFED7AA)),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(
+                    Icons.info_rounded,
+                    size: 18,
+                    color: Color(0xFFEA580C),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Com ${v.itens.length} pessoas, este lançamento entra só '
+                      'no histórico geral — não soma no total de nenhuma delas.',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF9A3412),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _buildCalendarColorRow() {
     final defaultHex = _isIncome ? '#2E7D32' : '#E53935';
     final current = _calendarColorHex ?? defaultHex;

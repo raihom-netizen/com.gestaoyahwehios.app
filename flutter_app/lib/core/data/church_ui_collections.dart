@@ -8,6 +8,32 @@ abstract final class ChurchUiCollections {
 
   static String _id([String? hint]) => ChurchRepository.churchId(hint ?? '');
 
+  /// Referências de um tenant **explícito** — não passam pelo resolvedor do
+  /// painel, portanto não são afetadas pela igreja que o operador global
+  /// tenha aberto. Uso: site público e cadastro público de membro, onde o
+  /// tenant vem do slug da URL.
+  static DocumentReference<Map<String, dynamic>> churchDocExact(
+    String churchId,
+  ) => ChurchFirestoreAccess.churchDoc(
+    ChurchContext.resolveExactChurchId(churchId),
+  );
+
+  static CollectionReference<Map<String, dynamic>> refExact(
+    String churchId,
+    String sub,
+  ) => ChurchFirestoreAccess.collectionRef(
+    ChurchContext.resolveExactChurchId(churchId),
+    sub.trim(),
+  );
+
+  static CollectionReference<Map<String, dynamic>> membrosExact(
+    String churchId,
+  ) => refExact(churchId, ChurchDataPaths.membros);
+
+  static CollectionReference<Map<String, dynamic>> eventosExact(
+    String churchId,
+  ) => refExact(churchId, ChurchDataPaths.eventos);
+
   static DocumentReference<Map<String, dynamic>> churchDoc([String? hint]) =>
       ChurchFirestoreAccess.churchDoc(_id(hint));
 

@@ -64,6 +64,14 @@ abstract final class NoticiaSharePrefetchService {
       FirebaseFunctions.instanceFor(app: firebaseDefaultApp, region: 'us-central1');
 
   static final Map<String, _RamHit> _ram = {};
+
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
+  /// igreja e continuava a servir o que ja estava em memoria.
+  static void purgarNaTrocaDeIgreja() {
+    _ram.clear();
+  }
   static const Duration _ramTtl = Duration(minutes: 25);
 
   static String _key(String tenantId, String collection, String postId) =>

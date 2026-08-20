@@ -133,16 +133,29 @@ abstract final class YahwehDocWrite {
   static Future<void> delete(
     DocumentReference<Map<String, dynamic>> ref,
   ) async {
+    Object? falhaRest;
     if (YahwehRestFirst.prefer) {
       try {
         await firestoreRestDeleteDoc(ref.path);
         return;
-      } catch (_) {}
+      } catch (e) {
+        falhaRest = e;
+      }
     }
-    await FirestoreWebGuard.runWithWebRecovery(
-      () => ref.delete(),
-      maxAttempts: 3,
-    );
+    try {
+      await FirestoreWebGuard.runWithWebRecovery(
+        () => ref.delete(),
+        maxAttempts: 3,
+      );
+    } catch (e) {
+      // Nem REST nem SDK apagaram. Antes a falha do REST era engolida por um
+      // `catch (_) {}` e só sobrava a do SDK — que na web é o mesmo cliente
+      // envenenado. Propagar as duas: melhor o utilizador ver o erro do que
+      // pensar que apagou e o registo continuar no banco.
+      throw StateError(
+        'Não foi possível excluir. REST: ${falhaRest ?? 'n/a'} · SDK: $e',
+      );
+    }
   }
 
   /// `collection.add(...)` — id gerado no cliente e gravação pelo caminho seguro.

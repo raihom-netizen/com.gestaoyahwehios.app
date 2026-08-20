@@ -10,6 +10,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
         imageUrlFromMap,
         imageUrlsListFromMap,
         isValidImageUrl,
+        preloadNetworkImages,
         ResilientNetworkImage,
         sanitizeImageUrl;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -3184,6 +3185,19 @@ class _BensTabState extends State<_BensTab> {
         final snap = _snapshotFromLoadedDocs();
         _PatrimonioRamCache.store(tid, snap);
         setState(() => _future = Future.value(snap));
+      } else if (result.isAuthoritative) {
+        // Vazio confirmado pelo servidor: esvaziar de verdade (e não voltar a
+        // semear dos caches locais, que trariam de volta o que já não existe).
+        _loadedDocs.clear();
+        _lastCursor = null;
+        _hasMorePages = false;
+        final snap = _snapshotFromLoadedDocs();
+        _PatrimonioRamCache.store(tid, snap);
+        setState(() {
+          _lastLoadHint =
+              '${FirebasePaths.patrimonio(tid)} (${result.readSource}, 0 bens)';
+          _future = Future.value(snap);
+        });
       } else if (_loadedDocs.isEmpty) {
         _seedFromLocalCaches();
         setState(() {
@@ -5073,6 +5087,17 @@ class _RelatoriosPatrimonioTabState extends State<_RelatoriosPatrimonioTab> {
       if (result.docs.isNotEmpty) {
         _PatrimonioRamCache.store(tid, result.snapshot);
         setState(() => _future = Future.value(result.snapshot));
+      } else if (result.isAuthoritative) {
+        // Servidor confirmou 0 bens nesta igreja: limpar. Sem isto a lista
+        // ficava presa no cache — trocar de igreja (ou apagar o último bem)
+        // deixava os bens da igreja anterior no ecrã.
+        _PatrimonioRamCache.store(tid, result.snapshot);
+        setState(() {
+          _loadHint =
+              '${FirebasePaths.patrimonio(tid)} '
+              '(${result.readSource}, 0 bens)';
+          _future = Future.value(result.snapshot);
+        });
       } else if (cached.isNotEmpty) {
         setState(() => _loadHint = result.softError);
       } else {
@@ -5931,6 +5956,17 @@ class _DashboardTabState extends State<_DashboardTab> {
       if (result.docs.isNotEmpty) {
         _PatrimonioRamCache.store(tid, result.snapshot);
         setState(() => _future = Future.value(result.snapshot));
+      } else if (result.isAuthoritative) {
+        // Servidor confirmou 0 bens nesta igreja: limpar. Sem isto a lista
+        // ficava presa no cache — trocar de igreja (ou apagar o último bem)
+        // deixava os bens da igreja anterior no ecrã.
+        _PatrimonioRamCache.store(tid, result.snapshot);
+        setState(() {
+          _loadHint =
+              '${FirebasePaths.patrimonio(tid)} '
+              '(${result.readSource}, 0 bens)';
+          _future = Future.value(result.snapshot);
+        });
       } else if (cached.isNotEmpty) {
         setState(() => _loadHint = result.softError);
       } else {
@@ -6924,6 +6960,17 @@ class _InventarioTabState extends State<_InventarioTab> {
           _loadHint =
               '${FirebasePaths.patrimonio(tid)} '
               '(${result.readSource}, ${result.docs.length} bens)';
+          _future = Future.value(result.snapshot);
+        });
+      } else if (result.isAuthoritative) {
+        // Servidor confirmou 0 bens nesta igreja: limpar. Sem isto a lista
+        // ficava presa no cache — trocar de igreja (ou apagar o último bem)
+        // deixava os bens da igreja anterior no ecrã.
+        _PatrimonioRamCache.store(tid, result.snapshot);
+        setState(() {
+          _loadHint =
+              '${FirebasePaths.patrimonio(tid)} '
+              '(${result.readSource}, 0 bens)';
           _future = Future.value(result.snapshot);
         });
       } else if (cached.isNotEmpty) {
@@ -8383,6 +8430,16 @@ class _PatrimonioPhotoCarouselState extends State<_PatrimonioPhotoCarousel> {
   void initState() {
     super.initState();
     _controller = PageController();
+    // `PageView.builder` só constrói a página visível: as fotos 2..N nem
+    // sequer começavam a resolver o URL enquanto não se arrastasse, e cada
+    // arrasto parava num spinner. Ao abrir o detalhe, aquecemos todas de uma
+    // vez (o bem tem no máximo 5) — a partir daí a navegação é instantânea.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final urls = widget.urls.where((u) => u.trim().isNotEmpty).toList();
+      if (urls.isEmpty) return;
+      unawaited(preloadNetworkImages(context, urls, maxItems: 6));
+    });
   }
 
   @override
@@ -8426,6 +8483,8 @@ class _PatrimonioPhotoCarouselState extends State<_PatrimonioPhotoCarousel> {
       ),
       child: PageView.builder(
         controller: _controller,
+        // Constrói a página vizinha antes de ela entrar em cena.
+        allowImplicitScrolling: true,
         itemCount: widget.urls.length,
         itemBuilder: (_, i) {
           final raw = widget.urls[i];

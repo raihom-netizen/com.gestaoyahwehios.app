@@ -642,6 +642,59 @@ class _MarketingClientesShowcaseSectionState
     [Color(0xFF0E7490), Color(0xFF22D3EE)],
   ];
 
+  /// Última lista **não vazia** que chegou.
+  ///
+  /// O `StreamBuilder` reemite a cada evento do Firestore — incluindo erro,
+  /// falha de rede e eventos só de metadados, em que `snap.data` vem `null`.
+  /// Como a lista era recalculada do zero em cada emissão, num desses eventos
+  /// ficava vazia e a secção inteira colapsava no placeholder «sem clientes»:
+  /// era o «as igrejas somem». Guardar o último bom estado mantém a vitrine
+  /// estável — só muda quando chega uma lista nova com conteúdo.
+  List<Map<String, dynamic>> _ultimaListaBoa = const [];
+
+  /// Altura do card ditada pelo item mais cheio da lista mostrada.
+  ///
+  /// A grelha exige altura fixa para todas as células, por isso ela tem de
+  /// caber no pior caso: quantas linhas de informação (pastor, gestor,
+  /// endereço) e quantos botões (WhatsApp, Site, Localização) o card com mais
+  /// conteúdo tem.
+  static double _alturaCard(List<Map<String, dynamic>> itens) {
+    const base = 262.0; // capa + título em duas linhas + margens
+    const porLinhaInfo = 22.0;
+    const porBotao = 46.0 + 8.0;
+
+    String v(Map<String, dynamic> m, List<String> chaves) {
+      for (final k in chaves) {
+        final t = (m[k] ?? '').toString().trim();
+        if (t.isNotEmpty) return t;
+      }
+      return '';
+    }
+
+    var maxLinhas = 0;
+    var maxBotoes = 0;
+    for (final it in itens) {
+      var linhas = 0;
+      if (v(it, const ['pastor', 'pastorPresidente']).isNotEmpty) linhas++;
+      if (v(it, const ['gestor', 'gestorNome']).isNotEmpty) linhas++;
+      if (v(it, const ['endereco', 'localizacao', 'cidade']).isNotEmpty) {
+        linhas++;
+      }
+      var botoes = 0;
+      if (v(it, const ['whatsapp', 'telefone', 'phone']).isNotEmpty) botoes++;
+      if (v(it, const ['sitePublico', 'site', 'siteUrl', 'website'])
+          .isNotEmpty) {
+        botoes++;
+      }
+      if (v(it, const ['endereco', 'localizacao', 'cidade']).isNotEmpty) {
+        botoes++;
+      }
+      if (linhas > maxLinhas) maxLinhas = linhas;
+      if (botoes > maxBotoes) maxBotoes = botoes;
+    }
+    return base + maxLinhas * porLinhaInfo + maxBotoes * porBotao;
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -649,6 +702,7 @@ class _MarketingClientesShowcaseSectionState
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting &&
             !snap.hasData &&
+            _ultimaListaBoa.isEmpty &&
             !_fallbackTried) {
           return const Center(
             child: Padding(
@@ -664,7 +718,14 @@ class _MarketingClientesShowcaseSectionState
         if (firestoreItems.isEmpty && !_fallbackTried && !_fallbackLoading) {
           unawaited(_ensureFallbackItems());
         }
-        final items = _mergeItems(firestoreItems);
+        var items = _mergeItems(firestoreItems);
+        if (items.isNotEmpty) {
+          _ultimaListaBoa = items;
+        } else if (_ultimaListaBoa.isNotEmpty) {
+          // Emissão vazia (erro, metadados, rede a oscilar): fica o que já
+          // estava no ecrã em vez de apagar a vitrine.
+          items = _ultimaListaBoa;
+        }
         if (items.isEmpty) {
           if (_fallbackLoading) {
             return const Center(
@@ -724,7 +785,12 @@ class _MarketingClientesShowcaseSectionState
                   crossAxisCount: crossAxisCount,
                   mainAxisSpacing: ThemeCleanPremium.spaceMd,
                   crossAxisSpacing: ThemeCleanPremium.spaceMd,
-                  mainAxisExtent: crossAxisCount == 1 ? 448 : 424,
+                  // Altura medida pelo card mais cheio desta lista, em vez de
+                  // um número fixo. Fixo em 424 deixava um vazio grande nos
+                  // cards com poucas linhas; baixar à força cortava o botão
+                  // «Localização» no card mais cheio. Aqui não acontece nem um
+                  // nem outro: encolhe quando dá, cresce quando é preciso.
+                  mainAxisExtent: _alturaCard(shown),
                 ),
                 itemCount: shown.length,
                 itemBuilder: (context, i) {
@@ -1237,19 +1303,25 @@ class _ClienteCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: Container(
+        // Contorno discreto e sombra em duas camadas (uma curta que assenta o
+        // cartão, outra larga e difusa) — mesma linguagem do site das igrejas.
         decoration: BoxDecoration(
           color: ThemeCleanPremium.cardBackground,
           borderRadius: BorderRadius.circular(radius),
           boxShadow: [
-            BoxShadow(
-              color: c1.withValues(alpha: 0.18),
-              blurRadius: 22,
-              offset: const Offset(0, 12),
-              spreadRadius: -4,
+            const BoxShadow(
+              color: Color(0x0F0F172A),
+              blurRadius: 10,
+              offset: Offset(0, 3),
             ),
-            ...YahwehDesignSystem.softCardShadow,
+            BoxShadow(
+              color: c1.withValues(alpha: 0.14),
+              blurRadius: 34,
+              offset: const Offset(0, 16),
+              spreadRadius: -8,
+            ),
           ],
-          border: Border.all(color: c1.withValues(alpha: 0.22), width: 1.2),
+          border: Border.all(color: c1.withValues(alpha: 0.14)),
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -1257,7 +1329,7 @@ class _ClienteCard extends StatelessWidget {
           children: [
             // Faixa de cor no topo — identidade visual por card.
             Container(
-              height: 5,
+              height: 4,
               decoration: BoxDecoration(
                 gradient: LinearGradient(colors: [c1, c2]),
               ),
@@ -1265,7 +1337,7 @@ class _ClienteCard extends StatelessWidget {
             _ClienteShowcaseHero(item: item, accent: accent),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                padding: const EdgeInsets.fromLTRB(13, 10, 13, 10),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

@@ -50,6 +50,15 @@ abstract final class ChurchRelatoriosLoadService {
     return op().timeout(ChurchPanelReadTimeouts.queryCap);
   }
 
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
+  /// igreja e continuava a servir o que ja estava em memoria.
+  static void purgarNaTrocaDeIgreja() {
+    _membrosRam.clear();
+    _eventosRam.clear();
+  }
+
   static void invalidateMembros(String churchIdHint) {
     final id = _churchId(churchIdHint);
     if (id.isEmpty) return;

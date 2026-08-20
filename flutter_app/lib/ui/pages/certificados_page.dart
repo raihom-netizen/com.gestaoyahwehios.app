@@ -1,3 +1,5 @@
+import 'package:gestao_yahweh/ui/widgets/agenda_responsible_picker.dart';
+import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'dart:async' show Timer, unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -1275,19 +1277,19 @@ class _CertificadosPageState extends State<CertificadosPage> {
           debugPrint('Certificados _loadTenant ensurePanelReadReady: $e\n$st');
         });
       }
-      Future<DocumentSnapshot<Map<String, dynamic>>> read() =>
-          ChurchUiCollections.churchDoc(op)
-              .get(const GetOptions(source: Source.serverAndCache));
-      final snap = kIsWeb
-          ? await FirestoreWebGuard.runWithWebRecovery(
-              read,
-              maxAttempts: 4,
-            ).timeout(const Duration(seconds: 14))
-          : await read();
-      if (mounted) {
+      // Doc da igreja pelo gateway REST.
+      //
+      // Era um `.get()` cru do SDK embrulhado em `runWithWebRecovery` — e esse
+      // wrapper não salva nada: repete a leitura no **mesmo** cliente, que na
+      // web fica envenenado pelo INTERNAL ASSERTION do SDK. Quando falhava,
+      // `_tenantData` ficava nulo e o certificado saia com o cabeçalho
+      // «IGREJA», sem nome, sem CNPJ e sem os dados da igreja.
+      final snap = await ChurchFirestoreAccess.getChurchRoot(churchId: op);
+      final dados = snap.data();
+      if (mounted && dados != null && dados.isNotEmpty) {
         setState(() {
           _operationalTenantId = op;
-          _tenantData = snap.data();
+          _tenantData = dados;
         });
       }
     } catch (e, st) {
@@ -1295,8 +1297,31 @@ class _CertificadosPageState extends State<CertificadosPage> {
     }
   }
 
-  String get _nomeIgreja =>
-      (_tenantData?['name'] ?? _tenantData?['nome'] ?? 'Igreja').toString();
+  /// Placeholder que era gravado quando o doc da igreja ainda não tinha
+  /// carregado — é o «IGREJA» que saiu impresso no cabeçalho dos certificados.
+  static const String _kNomeIgrejaPlaceholder = 'Igreja';
+
+  /// Nome da igreja para o PDF.
+  ///
+  /// `??` só cai em `null`: com `name` presente mas **vazio** devolvia string
+  /// vazia e o certificado saia sem o nome. Aqui percorre os candidatos e fica
+  /// no primeiro que tem mesmo conteúdo.
+  String get _nomeIgreja {
+    final d = _tenantData;
+    if (d != null) {
+      for (final k in const [
+        'name',
+        'nome',
+        'nomeIgreja',
+        'razaoSocial',
+        'NOME_IGREJA',
+      ]) {
+        final v = (d[k] ?? '').toString().trim();
+        if (v.isNotEmpty) return v;
+      }
+    }
+    return _kNomeIgrejaPlaceholder;
+  }
 
   String get _churchTaxIdDigitsForStamp =>
       churchTaxIdDigitsFromMap(_tenantData);
@@ -2461,20 +2486,23 @@ class _CertificadosPageState extends State<CertificadosPage> {
     List<_SignatoryOption> signatories, {
     required bool useDigitalSignature,
   }) {
+    // Todos os selecionados vao para o PDF, inclusive em modo digital.
+    //
+    // Antes o modo digital ficava com `signatories.last` — marcar dois nomes
+    // dava **uma** assinatura no certificado. O construtor do PDF ja desenha um
+    // bloco por signatario e ajusta a largura (1, 2 ou 3+), portanto o corte
+    // aqui era a unica coisa a impedir.
     if (signatories.isEmpty) return const <_SignatoryOption>[];
-    if (!useDigitalSignature) return signatories;
-    // Em modo digital, manter somente a assinatura mais recente selecionada.
-    return <_SignatoryOption>[signatories.last];
+    return signatories;
   }
 
   List<CertPdfPipelineSignatory> _normalizePipelineSignatoriesForPdf(
     List<CertPdfPipelineSignatory> signatories, {
     required bool useDigitalSignature,
   }) {
+    // Mesma razao do normalizador acima: nao cortar em modo digital.
     if (signatories.isEmpty) return const <CertPdfPipelineSignatory>[];
-    if (!useDigitalSignature) return signatories;
-    // Em modo digital, manter somente a assinatura mais recente selecionada.
-    return <CertPdfPipelineSignatory>[signatories.last];
+    return signatories;
   }
 
   Map<String, dynamic> _certificateProtocolSnapshot({
@@ -2642,7 +2670,16 @@ class _CertificadosPageState extends State<CertificadosPage> {
           nomeMembro: (d['nomeMembro'] ?? '').toString(),
           nomeMembroLinha2: (d['nomeMembroLinha2'] ?? '').toString(),
           cpfFormatado: (d['cpfFormatado'] ?? '').toString(),
-          nomeIgreja: (d['nomeIgreja'] ?? _nomeIgreja).toString(),
+          // Certificados emitidos antes de o doc da igreja carregar ficaram
+          // com o placeholder «Igreja» gravado. Ao reimprimir, o nome vivo
+          // manda — senão o PDF sai para sempre com o cabeçalho errado.
+          nomeIgreja: () {
+            final gravado = (d['nomeIgreja'] ?? '').toString().trim();
+            if (gravado.isEmpty || gravado == _kNomeIgrejaPlaceholder) {
+              return _nomeIgreja;
+            }
+            return gravado;
+          }(),
           churchTaxIdDigits: _churchTaxIdDigitsForStamp,
           local: (d['local'] ?? '').toString(),
           issuedDate: (d['issuedDateStr'] ?? '').toString(),
@@ -2786,7 +2823,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
       if (template.id == 'casamento') {
         return modelo
             .replaceAll('{NOIVO}', sampleNome)
-            .replaceAll('{NOIVA}', '?')
+            // Mantem o marcador: trocado por '?' aqui, o segundo nome nunca
+            // chegava ao PDF (saia «Fulano e ? contrataram matrimonio»).
+            .replaceAll('{NOIVA}', '{NOIVA}')
             .replaceAll('{NOME}', sampleNome)
             .replaceAll('{DATA_CERTIFICADO}', dataHoje);
       }
@@ -4405,7 +4444,9 @@ class _CertificadosPageState extends State<CertificadosPage> {
     final textoFinal = template.id == 'casamento'
         ? textoModelo
             .replaceAll('{NOIVO}', nome)
-            .replaceAll('{NOIVA}', '?')
+            // Mantem o marcador: trocado por '?' aqui, o segundo nome nunca
+            // chegava ao PDF (saia «Fulano e ? contrataram matrimonio»).
+            .replaceAll('{NOIVA}', '{NOIVA}')
             .replaceAll('{DATA_CERTIFICADO}', '{DATA_CERTIFICADO}')
         : textoModelo
             .replaceAll('{NOME}', nome)
@@ -6176,38 +6217,50 @@ class _CertEditorPageState extends State<_CertEditorPage> {
 
   bool get _isCasamento => widget.template.id == 'casamento';
 
+  /// Nome que vai para o PDF.
+  ///
+  /// O campo de texto é a fonte única: escolher um membro na busca preenche-o,
+  /// e escrever à mão vale na mesma. Antes havia dois modos separados (dropdown
+  /// **ou** texto) e o operador tinha de decidir antes de começar a escrever.
+  String _nomeNoivo(TextEditingController ctrl, String? memberId) {
+    final digitado = ctrl.text.trim();
+    if (digitado.isNotEmpty) return digitado;
+    final id = (memberId ?? '').trim();
+    if (id.isEmpty) return '';
+    for (final o in widget.casamentoMembrosOpcoes) {
+      if (o.memberId.trim() == id) return o.nome;
+    }
+    return '';
+  }
+
+  /// Abre a grelha de membros (mesma tela dos «Responsáveis»: foto, nome
+  /// completo e filtros) e preenche o campo do noivo escolhido.
+  Future<void> _escolherNoivoNaGrelha({required bool primeiro}) async {
+    final escolhido = await escolherMembroNaGrelha(
+      context,
+      tenantId: widget.tenantId,
+      selecionadoId: primeiro ? _casamentoNoivoId : _casamentoNoivaId,
+    );
+    if (escolhido == null || !mounted) return;
+    setState(() {
+      if (primeiro) {
+        _casamentoNoivoId = escolhido.id;
+        _noivoManualCtrl.text = escolhido.nome;
+      } else {
+        _casamentoNoivaId = escolhido.id;
+        _noivaManualCtrl.text = escolhido.nome;
+      }
+    });
+  }
+
   String _pdfNoivoNome() {
     if (!_isCasamento) return widget.nomeMembro;
-    if (_casamentoPorMembros) {
-      final id = _casamentoNoivoId;
-      if (id != null) {
-        for (final o in widget.casamentoMembrosOpcoes) {
-          if (o.memberId == id) return o.nome;
-        }
-        final idT = id.trim();
-        for (final o in widget.casamentoMembrosOpcoes) {
-          if (o.memberId.trim() == idT) return o.nome;
-        }
-      }
-    }
-    return _noivoManualCtrl.text.trim();
+    return _nomeNoivo(_noivoManualCtrl, _casamentoNoivoId);
   }
 
   String _pdfNoivaNome() {
     if (!_isCasamento) return '';
-    if (_casamentoPorMembros) {
-      final id = _casamentoNoivaId;
-      if (id != null) {
-        for (final o in widget.casamentoMembrosOpcoes) {
-          if (o.memberId == id) return o.nome;
-        }
-        final idT = id.trim();
-        for (final o in widget.casamentoMembrosOpcoes) {
-          if (o.memberId.trim() == idT) return o.nome;
-        }
-      }
-    }
-    return _noivaManualCtrl.text.trim();
+    return _nomeNoivo(_noivaManualCtrl, _casamentoNoivaId);
   }
 
   void _refreshTemplateBgFuture() {
@@ -6634,106 +6687,39 @@ class _CertEditorPageState extends State<_CertEditorPage> {
               if (_isCasamento) ...[
                 const SizedBox(height: ThemeCleanPremium.spaceMd),
                 _SectionLabel(
-                  label: 'Noivos ? nomes no certificado',
+                  label: 'Noivos — nomes no certificado',
                   subtitle:
-                      'Escolha dois membros cadastrados ou digite os nomes completos (ex.: convidados ou outra igreja).',
+                      'Comece a escrever: aparecem os membros do cadastro. '
+                      'Toque num para preencher, ou deixe o nome escrito à mão '
+                      '(convidados, outra igreja).',
                 ),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment<bool>(
-                      value: true,
-                      label: Text('Membros da igreja'),
-                      icon: Icon(Icons.people_rounded, size: 18),
-                    ),
-                    ButtonSegment<bool>(
-                      value: false,
-                      label: Text('Nomes digitados'),
-                      icon: Icon(Icons.edit_rounded, size: 18),
-                    ),
-                  ],
-                  selected: {_casamentoPorMembros},
-                  onSelectionChanged: (Set<bool> sel) {
-                    setState(() => _casamentoPorMembros = sel.first);
-                  },
+                _NoivoNomeField(
+                  controller: _noivoManualCtrl,
+                  label: 'Primeiro noivo(ã)',
+                  hint: 'Nome completo — escreva ou procure no cadastro',
+                  opcoes: widget.casamentoMembrosOpcoes,
+                  memberIdSelecionado: _casamentoNoivoId,
+                  onMembro: (o) => setState(() {
+                    _casamentoNoivoId = o?.memberId;
+                    if (o != null) _noivoManualCtrl.text = o.nome;
+                  }),
+                  onTexto: () => setState(() => _casamentoNoivoId = null),
+                  onAbrirGrelha: () => _escolherNoivoNaGrelha(primeiro: true),
                 ),
-                const SizedBox(height: 12),
-                if (_casamentoPorMembros) ...[
-                  InputDecorator(
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: const Color(0xFFF8FAFC),
-                      border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                      ),
-                      labelText: 'Primeiro noivo(ã) — membro',
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _casamentoNoivoId != null &&
-                                widget.casamentoMembrosOpcoes.any(
-                                    (e) => e.memberId == _casamentoNoivoId)
-                            ? _casamentoNoivoId
-                            : null,
-                        isExpanded: true,
-                        isDense: true,
-                        items: [
-                          for (final o in widget.casamentoMembrosOpcoes)
-                            DropdownMenuItem<String>(
-                              value: o.memberId,
-                              child: Text(o.nome),
-                            ),
-                        ],
-                        onChanged: (v) =>
-                            setState(() => _casamentoNoivoId = v),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  InputDecorator(
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: const Color(0xFFF8FAFC),
-                      border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(ThemeCleanPremium.radiusSm),
-                      ),
-                      labelText: 'Segundo noivo(ã) — membro',
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _casamentoNoivaId != null &&
-                                widget.casamentoMembrosOpcoes.any(
-                                    (e) => e.memberId == _casamentoNoivaId)
-                            ? _casamentoNoivaId
-                            : null,
-                        isExpanded: true,
-                        isDense: true,
-                        items: [
-                          for (final o in widget.casamentoMembrosOpcoes)
-                            DropdownMenuItem<String>(
-                              value: o.memberId,
-                              child: Text(o.nome),
-                            ),
-                        ],
-                        onChanged: (v) =>
-                            setState(() => _casamentoNoivaId = v),
-                      ),
-                    ),
-                  ),
-                ] else ...[
-                  _EditBox(
-                    controller: _noivoManualCtrl,
-                    hint: 'Nome completo do primeiro noivo(ã)',
-                    onChanged: () => setState(() {}),
-                  ),
-                  const SizedBox(height: 10),
-                  _EditBox(
-                    controller: _noivaManualCtrl,
-                    hint: 'Nome completo do segundo noivo(ã)',
-                    onChanged: () => setState(() {}),
-                  ),
-                ],
+                const SizedBox(height: 10),
+                _NoivoNomeField(
+                  controller: _noivaManualCtrl,
+                  label: 'Segundo noivo(ã)',
+                  hint: 'Nome completo — escreva ou procure no cadastro',
+                  opcoes: widget.casamentoMembrosOpcoes,
+                  memberIdSelecionado: _casamentoNoivaId,
+                  onMembro: (o) => setState(() {
+                    _casamentoNoivaId = o?.memberId;
+                    if (o != null) _noivaManualCtrl.text = o.nome;
+                  }),
+                  onTexto: () => setState(() => _casamentoNoivaId = null),
+                  onAbrirGrelha: () => _escolherNoivoNaGrelha(primeiro: false),
+                ),
               ],
               const SizedBox(height: ThemeCleanPremium.spaceSm),
               _SectionLabel(label: 'Texto do Certificado'),
@@ -9362,6 +9348,167 @@ class _SectionLabel extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// Campo de nome do noivo(a) no certificado de casamento.
+///
+/// **A busca é escrever.** Um só campo serve os dois casos que o utilizador
+/// tem: membro do cadastro (aparece na lista enquanto escreve, toca e preenche)
+/// ou alguém de fora (fica o que escreveu). Antes eram dois modos separados num
+/// botão segmentado, e o dropdown de membros não tinha busca nenhuma — numa
+/// igreja com dezenas de membros era rolar a lista até achar.
+class _NoivoNomeField extends StatelessWidget {
+  const _NoivoNomeField({
+    required this.controller,
+    required this.label,
+    required this.hint,
+    required this.opcoes,
+    required this.memberIdSelecionado,
+    required this.onMembro,
+    required this.onTexto,
+    this.onAbrirGrelha,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String hint;
+  final List<_CasamentoMembroOpcao> opcoes;
+  final String? memberIdSelecionado;
+  final ValueChanged<_CasamentoMembroOpcao?> onMembro;
+  final VoidCallback onTexto;
+
+  /// Abre a grelha de membros com foto e filtros.
+  final VoidCallback? onAbrirGrelha;
+
+  static String _chave(String s) {
+    final t = s.trim().toLowerCase();
+    const de = 'áàãâäéèêëíìîïóòõôöúùûüç';
+    const para = 'aaaaaeeeeiiiiooooouuuuc';
+    final b = StringBuffer();
+    for (final c in t.split('')) {
+      final i = de.indexOf(c);
+      b.write(i >= 0 ? para[i] : c);
+    }
+    return b.toString();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selecionado = (memberIdSelecionado ?? '').trim().isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RawAutocomplete<_CasamentoMembroOpcao>(
+          textEditingController: controller,
+          focusNode: FocusNode(),
+          optionsBuilder: (TextEditingValue value) {
+            final q = _chave(value.text);
+            if (q.length < 2) return const Iterable<_CasamentoMembroOpcao>.empty();
+            return opcoes.where((o) => _chave(o.nome).contains(q)).take(8);
+          },
+          displayStringForOption: (o) => o.nome,
+          onSelected: onMembro,
+          fieldViewBuilder: (context, ctrl, focus, onSubmit) {
+            return TextField(
+              controller: ctrl,
+              focusNode: focus,
+              textCapitalization: TextCapitalization.words,
+              onChanged: (_) => onTexto(),
+              onSubmitted: (_) => onSubmit(),
+              decoration: InputDecoration(
+                labelText: label,
+                hintText: hint,
+                filled: true,
+                fillColor: const Color(0xFFF8FAFC),
+                prefixIcon: Icon(
+                  selecionado
+                      ? Icons.how_to_reg_rounded
+                      : Icons.person_search_rounded,
+                  color: selecionado
+                      ? const Color(0xFF16A34A)
+                      : ThemeCleanPremium.onSurfaceVariant,
+                ),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (onAbrirGrelha != null)
+                      IconButton(
+                        tooltip: 'Procurar no cadastro (com foto)',
+                        icon: const Icon(Icons.groups_rounded, size: 20),
+                        onPressed: onAbrirGrelha,
+                      ),
+                    if (ctrl.text.trim().isNotEmpty)
+                      IconButton(
+                        tooltip: 'Limpar',
+                        icon: const Icon(Icons.close_rounded, size: 18),
+                        onPressed: () {
+                          ctrl.clear();
+                          onMembro(null);
+                          onTexto();
+                        },
+                      ),
+                  ],
+                ),
+                border: OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius:
+                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+              ),
+            );
+          },
+          optionsViewBuilder: (context, onSelected, options) {
+            return Align(
+              alignment: Alignment.topLeft,
+              child: Material(
+                elevation: 6,
+                borderRadius: BorderRadius.circular(14),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 240, maxWidth: 460),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    itemCount: options.length,
+                    separatorBuilder: (_, __) =>
+                        const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                    itemBuilder: (_, i) {
+                      final o = options.elementAt(i);
+                      return ListTile(
+                        dense: true,
+                        leading: const Icon(Icons.person_rounded, size: 20),
+                        title: Text(
+                          o.nome,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        onTap: () => onSelected(o),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        if (selecionado)
+          Padding(
+            padding: const EdgeInsets.only(left: 4, top: 4),
+            child: Text(
+              'Membro do cadastro',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF16A34A),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

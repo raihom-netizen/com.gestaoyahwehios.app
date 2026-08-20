@@ -117,6 +117,10 @@ abstract final class ChurchContextService {
 
   /// ID do painel — hint do shell / mapa BPC primeiro (padrão Membros); bound só fallback.
   static String panelChurchId([String? shellTenantId]) {
+    // Mesma regra do [ChurchContext.resolveChurchId]: a igreja escolhida pelo
+    // operador manda no painel inteiro.
+    final escolhida = ChurchTenantOverride.forcedOrNull;
+    if (escolhida != null) return escolhida;
     final hint = shellTenantId?.trim() ?? '';
     if (hint.isNotEmpty) {
       final mapped = TenantResolverService.mapLegacySeedToCanonical(hint);
@@ -128,6 +132,18 @@ abstract final class ChurchContextService {
     final ctx = currentChurchId?.trim() ?? '';
     if (ctx.isNotEmpty) return _canonicalizePanelId(ctx);
     return _canonicalizePanelId(hint);
+  }
+
+  /// Igual a [panelChurchId] mas **sem** a igreja escolhida pelo operador e sem
+  /// cair na sessao: e para o site publico e o cadastro publico, onde o tenant
+  /// vem do slug da URL e nao pode ser trocado pelo que o master abriu no
+  /// painel.
+  static String panelChurchIdExact(String tenantId) {
+    final hint = tenantId.trim();
+    if (hint.isEmpty) return '';
+    final mapped = TenantResolverService.mapLegacySeedToCanonical(hint);
+    if (mapped != null && mapped.isNotEmpty) return mapped;
+    return hint;
   }
 
   static String _canonicalizePanelId(String raw) {
@@ -240,6 +256,18 @@ abstract final class ChurchContextService {
 
       if (stored == id) return;
 
+      // Nunca mover um utilizador de uma igreja para outra sem relação: este
+      // `set` não tinha guarda nenhuma (ao contrário do
+      // `syncUserToCanonicalChurchId`), e por isso reescrevia o perfil do
+      // operador global com a igreja que ele estava apenas a **visitar**.
+      if (stored.isNotEmpty) {
+        final cluster = <String>{
+          id,
+          ...TenantResolverService.anchoredClusterIdsFor(id),
+        };
+        if (!cluster.contains(stored)) return;
+      }
+
       await ref.set(
 
         {
@@ -271,6 +299,10 @@ abstract final class ChurchContextService {
   static void _applyBind(String churchId, String seed, String? uid) {
 
     final id = _canonicalizePanelId(churchId);
+
+    // Ligou-se a este doc, logo ele existe: registar faz com que os módulos
+    // aceitem o id mesmo fora do padrão `igreja_*` (e persiste no aparelho).
+    ChurchTenantOverride.registerKnown(id);
 
     // Trocou de igreja: os dados em memória são da igreja ANTERIOR e não
     // podem sobreviver ao rebind — era isto que fazia o painel continuar
@@ -405,13 +437,27 @@ abstract final class ChurchContextService {
 
 
     try {
+      // Igreja escolhida no seletor «Trocar de igreja» = **visita**. Duas regras
+      // valem só nesse caso, e são a diferença entre a troca funcionar ou não:
+      //
+      //  1. nunca cair na igreja do perfil — bastava o doc visitado demorar a
+      //     responder para o painel abrir calado na igreja de origem;
+      //  2. nunca gravar em `users/{uid}` — este bind estava a mudar o
+      //     `igrejaId` do próprio operador para a igreja visitada. Depois disso
+      //     «Minha igreja (padrão)» já não voltava a lado nenhum e o próximo
+      //     arranque abria na igreja visitada, com permissões a falhar.
+      final visita = ChurchTenantOverride.forcedOrNull ?? '';
+      final ehVisita = visita.isNotEmpty && visita == s;
+
       final tryOrder = <String>[];
       if (s.isNotEmpty) tryOrder.add(s);
-      final fromUser = await _churchIdFromUser(uid);
-      if (fromUser != null &&
-          fromUser.isNotEmpty &&
-          !tryOrder.contains(fromUser)) {
-        tryOrder.add(fromUser);
+      if (!ehVisita) {
+        final fromUser = await _churchIdFromUser(uid);
+        if (fromUser != null &&
+            fromUser.isNotEmpty &&
+            !tryOrder.contains(fromUser)) {
+          tryOrder.add(fromUser);
+        }
       }
 
       String? boundId;
@@ -426,9 +472,14 @@ abstract final class ChurchContextService {
         break;
       }
 
+      // Visita cujo doc não respondeu (rede lenta, cache fria): a igreja veio
+      // da lista real de igrejas, logo existe — ligar a ela na mesma em vez de
+      // abrir a igreja errada.
+      if ((boundId == null || boundId.isEmpty) && ehVisita) boundId = visita;
+
       if (boundId != null && boundId.isNotEmpty) {
         _applyBind(boundId, s, uid);
-        if (uid != null && uid.isNotEmpty) {
+        if (!ehVisita && uid != null && uid.isNotEmpty) {
           await _syncUserDirectChurchId(uid, boundId);
           final synced = await TenantResolverService.syncUserToCanonicalChurchId(
             userUid: uid,

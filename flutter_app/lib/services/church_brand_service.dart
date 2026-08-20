@@ -369,6 +369,16 @@ abstract final class ChurchBrandService {
     unawaited(getLogoBytes(churchId: cid, tenantData: tenantData));
   }
 
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
+  /// igreja e continuava a servir o que ja estava em memoria.
+  static void purgarNaTrocaDeIgreja() {
+    _cache.clear();
+    _logoUrlPending.clear();
+    _logoBytesPending.clear();
+  }
+
   static void invalidate({required String churchId}) {
     final cid = churchId.trim();
     if (cid.isEmpty) return;

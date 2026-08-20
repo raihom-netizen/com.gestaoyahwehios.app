@@ -822,7 +822,7 @@ class _FornecedoresFinanceModuloTabState
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Text(
-                'Financeiro por fornecedor ? ${porFn.length} com movimentação',
+                'Financeiro por fornecedor — ${porFn.length} com movimentação',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
@@ -1536,7 +1536,7 @@ class _LancamentoCard extends StatelessWidget {
                   ),
                   if (dataStr.isNotEmpty)
                     Text(
-                      '$dataStr ? ${m['categoria'] ?? ''}',
+                      '$dataStr · ${m['categoria'] ?? ''}',
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey.shade600,
@@ -1583,7 +1583,7 @@ class _LancamentoCard extends StatelessWidget {
                 itemBuilder: (_) => const [
                   PopupMenuItem(
                     value: 'editar',
-                    child: Text('Editar ? conta ? comprovante'),
+                    child: Text('Editar · conta · comprovante'),
                   ),
                   PopupMenuItem(
                     value: 'excluir',
@@ -1911,7 +1911,7 @@ class _FornecedorLancamentosGridSheetState
                         ),
                       ),
                       Text(
-                        '${visible.length} lançamento(s) ? Saldo bancos ${money.format(widget.saldoBancos)}',
+                        '${visible.length} lançamento(s) · Saldo bancos ${money.format(widget.saldoBancos)}',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,

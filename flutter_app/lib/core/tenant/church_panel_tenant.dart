@@ -1,4 +1,5 @@
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
+import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
 
 /// **Única** API de tenant no painel — slug BPC/legado → doc canónico `igrejas/{churchId}`.
@@ -27,8 +28,17 @@ abstract final class ChurchPanelTenant {
   }
 
   /// Síncrono — mapa BPC + sessão bound + hint do shell.
-  static String resolve(String? tenantHint) =>
-      ChurchContext.resolveChurchId(tenantHint);
+  ///
+  /// **A igreja escolhida no seletor manda em todo o painel.** Sem isto, um
+  /// módulo que guardasse a dica de antes da troca (ou que a fosse buscar ao
+  /// perfil) reabria a igreja de origem — era o «troquei de igreja e o
+  /// Financeiro/Membros continua na antiga». O site público não passa por
+  /// aqui, por isso continua a mandar o slug da URL.
+  static String resolve(String? tenantHint) {
+    final escolhida = ChurchTenantOverride.forcedOrNull;
+    if (escolhida != null) return escolhida;
+    return ChurchContext.resolveChurchId(tenantHint);
+  }
 
   /// Igual a [resolve]; nome explícito para gravações/publicação.
   static String forFirestore(String? tenantHint) => resolve(tenantHint);
@@ -36,8 +46,8 @@ abstract final class ChurchPanelTenant {
   static String require(String? tenantHint) =>
       ChurchContext.requireChurchId(tenantHint);
 
-  static bool isCanonicalDocId(String? id) {
-    final t = resolve(id);
-    return t.startsWith('igreja_') && t.length > 8;
-  }
+  /// Nem todo tenant real segue `igreja_*` — quem decide é
+  /// [ChurchTenantOverride.isChurchDocId] (fonte única).
+  static bool isCanonicalDocId(String? id) =>
+      ChurchTenantOverride.isChurchDocId(resolve(id));
 }

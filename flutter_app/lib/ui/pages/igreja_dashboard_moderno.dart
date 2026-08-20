@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -719,14 +720,13 @@ class _IgrejaDashboardModernoState extends State<IgrejaDashboardModerno>
           ),
         );
       }
-      Future<DocumentSnapshot<Map<String, dynamic>>> readChurchDoc() =>
-          ChurchRepository.churchDoc(effectiveChurchId).get();
-      igSnap = kIsWeb
-          ? await FirestoreWebGuard.runWithWebRecovery(
-              readChurchDoc,
-              maxAttempts: 3,
-            ).timeout(PanelResilientLoad.queryCap)
-          : await readChurchDoc();
+      // Doc da igreja pelo gateway REST — ver nota igual em
+      // `certificados_page._loadTenant`. Com o `.get()` cru, visitar outra
+      // igreja deixava o painel com «Sua igreja» no cabeçalho e o aviso
+      // «não foi possível carregar os links públicos».
+      igSnap = await ChurchFirestoreAccess.getChurchRoot(
+        churchId: effectiveChurchId,
+      );
       final id = igSnap.data() ?? {};
       churchSlug = _slugFromTenantData(id);
       churchNome = (id['name'] ?? id['nome'] ?? '').toString();

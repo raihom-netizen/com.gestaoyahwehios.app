@@ -175,6 +175,15 @@ abstract final class SmartCategoryHintsService {
   }
 
   /// Invalida cache após gravar aprendizado (próxima leitura traz lista nova).
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
+  /// igreja e continuava a servir o que ja estava em memoria.
+  static void purgarNaTrocaDeIgreja() {
+    _cache.clear();
+    _inflight.clear();
+  }
+
   static void invalidateHintsCache(String uid) {
     _cache.remove(uid.trim());
   }

@@ -40,6 +40,14 @@ abstract final class PanelProgramacaoLoader {
   static String _diskBucket(int rangeDays) => 'panel_programacao_$rangeDays';
 
   /// Invalida cache RAM + disco do painel de programação.
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
+  /// igreja e continuava a servir o que ja estava em memoria.
+  static void purgarNaTrocaDeIgreja() {
+    _ram.clear();
+  }
+
   static Future<void> clear(String tenantId) async {
     final tid = ChurchPanelTenant.resolve(tenantId).trim();
     if (tid.isEmpty) return;

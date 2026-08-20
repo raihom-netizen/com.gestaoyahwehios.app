@@ -5,6 +5,12 @@
 /// novo módulo financeiro veio do Controle Total App.
 library;
 
+import 'package:gestao_yahweh/utils/finance_line_opening.dart';
+import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
+import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_transaction_edit_dialog.dart';
+import 'package:gestao_yahweh/services/user_profile_startup_cache.dart';
+import 'package:gestao_yahweh/models/user_profile.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -55,6 +61,17 @@ Future<void> excluirLancamentoFinanceiroComAuditoria(
     maxAttempts: 2,
   );
   unawaited(ChurchFinanceRealtimeService.onFinanceMutation(tenantId));
+  // Saldos recalculam sozinhos a partir daqui.
+  //
+  // Antes so o `finance_page` invalidava, e so quando era ele o chamador:
+  // excluir a partir de Fornecedores (ou de qualquer outro modulo) deixava o
+  // saldo de abertura e os totais com o valor antigo ate a proxima leitura
+  // fria. Pondo a notificacao na primitiva, todos os caminhos ficam cobertos.
+  FinanceTransactionsHub.marcarApagado(doc.id);
+  FinanceTransactionsHub.notifyMutated(
+    uid: tenantId,
+    effectiveDate: FinanceLineOpening.effectiveDateTimeFromMap(data),
+  );
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -274,6 +291,30 @@ void showFinanceLancamentoDetailsBottomSheet(
 /// Esta é uma versão simplificada que cria/edita lançamentos diretamente
 /// no Firestore da igreja. O módulo financeiro principal (FinanceScreen)
 /// tem o seu próprio editor inline.
+/// Perfil para abrir o editor completo do Financeiro a partir de outro modulo.
+///
+/// Mesmo caminho do [CompromissoExpressFullForm]: cache de arranque primeiro,
+/// leitura do `users/{uid}` depois. Devolve `null` quando nao da — o chamador
+/// cai no editor curto.
+Future<UserProfile?> _perfilParaEditorCompleto(String uid) async {
+  final id = uid.trim();
+  if (id.isEmpty) return null;
+  final cached = UserProfileStartupCache.resolveForShell(shellUid: id);
+  if (cached != null) return cached;
+  final authUid = firebaseDefaultAuth.currentUser?.uid.trim() ?? '';
+  if (authUid.isEmpty) return null;
+  try {
+    final snap = await firebaseDefaultFirestore
+        .collection('users')
+        .doc(authUid)
+        .get()
+        .timeout(const Duration(seconds: 8));
+    return UserProfile.fromFirestoreMap(authUid, snap.data() ?? {});
+  } catch (_) {
+    return null;
+  }
+}
+
 Future<bool> showFinanceLancamentoEditorForTenant(
   BuildContext context, {
   required String tenantId,
@@ -291,6 +332,51 @@ Future<bool> showFinanceLancamentoEditorForTenant(
 
   final isEdit = existingDoc != null;
   final data = existingDoc?.data();
+
+  // ── Editar: a MESMA tela do Financeiro ────────────────────────────────────
+  //
+  // Esta folha aqui embaixo e o editor curto (tipo, valor, descricao,
+  // categoria). Serve para criar depressa, mas ao EDITAR faltava tudo o que o
+  // utilizador precisa: status pago/pendente, conta do lancamento, mostrar no
+  // calendario, cor, e sobretudo **anexar comprovante**. Quem edita um
+  // lancamento de fornecedor tem de ver o mesmo que ve no modulo Financeiro.
+  //
+  // O dialogo completo exige um [UserProfile]; se nao houver forma de o obter
+  // (sessao a arrancar, cache fria e leitura falhada), continua-se na folha
+  // curta em vez de deixar o utilizador sem editor nenhum.
+  if (isEdit && data != null) {
+    final tipoAtual = financeInferTipo(data);
+    if (tipoAtual == 'entrada' || tipoAtual == 'saida') {
+      final profile = await _perfilParaEditorCompleto(effectiveTenantId);
+      if (profile != null && context.mounted) {
+        final salvo = await showFinanceTransactionEditDialog(
+          context: context,
+          uid: effectiveTenantId,
+          profile: profile,
+          docId: existingDoc.id,
+          current: data,
+          type: tipoAtual == 'entrada' ? 'income' : 'expense',
+          logModulo: 'Fornecedores',
+          // Sem isto, editar o valor a partir de Fornecedores nao mexia no
+          // saldo de abertura — quem invalidava era so o `finance_page`.
+          onSaved: (id, patch, effectiveDate) {
+            FinanceTransactionsHub.notifyMutated(
+              uid: effectiveTenantId,
+              effectiveDate: effectiveDate,
+            );
+          },
+          onDeleted: (id, effectiveDate) {
+            FinanceTransactionsHub.marcarApagado(id);
+            FinanceTransactionsHub.notifyMutated(
+              uid: effectiveTenantId,
+              effectiveDate: effectiveDate,
+            );
+          },
+        );
+        return salvo;
+      }
+    }
+  }
   final financeCol = ChurchUiCollections.financeiro(effectiveTenantId);
 
   String tipo = isEdit ? financeInferTipo(data ?? const {}) : 'entrada';
@@ -320,6 +406,9 @@ Future<bool> showFinanceLancamentoEditorForTenant(
     if (ts is Timestamp) dataSel = ts.toDate();
   }
 
+  // A resolucao do perfil acima e assincrona: confirmar que a tela ainda esta
+  // montada antes de abrir a folha curta.
+  if (!context.mounted) return false;
   final result = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,

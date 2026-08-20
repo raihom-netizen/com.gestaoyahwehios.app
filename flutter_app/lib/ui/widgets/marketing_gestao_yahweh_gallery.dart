@@ -288,21 +288,31 @@ class _MarketingGestaoYahwehGallerySectionState
         if (!(widget.excludePdfFromPublicGallery && widget.adminConfig == null))
           MarketingStorageLayout.institutionalPdfPrefix,
       ];
+      // Os três prefixos em **paralelo** e com teto curto.
+      //
+      // Era um `for` com `await`: fotos, depois vídeos, depois PDFs, cada um
+      // até 22 s, e cada listagem a descer 8 níveis a 14 s por nível. No pior
+      // caso passava de um minuto a bloquear a galeria da página inicial — era
+      // isto que fazia «o site demorar a abrir». Em paralelo e com 6 s de teto,
+      // o pior caso passa a ser 6 s.
+      final listas = await Future.wait([
+        for (final p in prefixes)
+          _listFilesRecursive(
+            firebaseDefaultStorage.ref(p),
+            maxFiles: widget.maxStorageFiles,
+          ).timeout(
+            const Duration(seconds: 6),
+            onTimeout: () {
+              debugPrint(
+                  'MarketingGestaoYahwehGallerySection: list timeout $p');
+              return <Reference>[];
+            },
+          ),
+      ]);
       final refs = <Reference>[];
-      for (final p in prefixes) {
+      for (final sub in listas) {
         if (refs.length >= widget.maxStorageFiles) break;
-        final sub = await _listFilesRecursive(
-          firebaseDefaultStorage.ref(p),
-          maxFiles: widget.maxStorageFiles - refs.length,
-        ).timeout(
-          const Duration(seconds: 22),
-          onTimeout: () {
-            debugPrint(
-                'MarketingGestaoYahwehGallerySection: list timeout $p');
-            return <Reference>[];
-          },
-        );
-        refs.addAll(sub);
+        refs.addAll(sub.take(widget.maxStorageFiles - refs.length));
       }
       final entries = <_GalleryEntry>[];
       for (final r in refs) {
@@ -357,7 +367,9 @@ class _MarketingGestaoYahwehGallerySectionState
     required int maxFiles,
     int depth = 0,
   }) async {
-    if (depth > 8) return [];
+    // A mídia institucional vive em `fotos/`, `videos/` e `pdf/` — no máximo
+    // uma pasta abaixo. Descer 8 níveis só somava chamadas e tempo.
+    if (depth > 2) return [];
     // Windows/Linux: o SDK C++ não implementa listagem e chamar `listAll()`
     // MATA o processo (Segmentation fault) — era esta chamada que deixava o
     // app instalado «Não está respondendo». Nem tentar.
@@ -365,11 +377,11 @@ class _MarketingGestaoYahwehGallerySectionState
     final out = <Reference>[];
     try {
       final list = await ref.listAll().timeout(
-        const Duration(seconds: 14),
+        const Duration(seconds: 5),
         onTimeout: () {
           debugPrint(
               'MarketingGestaoYahwehGallerySection: listAll timeout at depth $depth');
-          throw TimeoutException('listAll', const Duration(seconds: 14));
+          throw TimeoutException('listAll', const Duration(seconds: 5));
         },
       );
       out.addAll(list.items);

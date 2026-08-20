@@ -67,6 +67,14 @@ abstract final class ChurchFornecedoresLoadService {
 
   static const Duration _ramTtl = Duration(minutes: 20);
 
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge].
+  static void purgarNaTrocaDeIgreja() {
+    _ram.clear();
+    _ramCompromissos.clear();
+  }
+
   static String _resolve(String hint) => ChurchRepository.churchId(hint.trim());
 
   static String resolveChurchId(String hint) => _resolve(hint);

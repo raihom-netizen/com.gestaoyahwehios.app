@@ -1,4 +1,5 @@
-﻿import 'dart:async' show StreamSubscription, unawaited;
+﻿import 'package:gestao_yahweh/core/tenant/church_tenant_switch_purge.dart';
+import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -7,6 +8,7 @@ import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/services/master_tenant_override_service.dart';
@@ -280,6 +282,15 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   /// Evita montar módulos com tenant errado antes do resolve (web IndexedStack).
   bool _tenantResolveComplete = false;
 
+  /// Cabeçalho do módulo visível (recolhe ao rolar para baixo).
+  ///
+  /// Ele vive fora da área rolável — num `Column`, acima do `Expanded` — e
+  /// por isso ficava sempre fixo, a comer altura em listas longas. Como cada
+  /// módulo traz o seu próprio scroll (uns `ListView`, outros `CustomScrollView`),
+  /// não dá para o transformar num `SliverAppBar` sem reescrever trinta telas.
+  /// Ouvir o sentido do scroll resolve o mesmo e serve qualquer conteúdo.
+  bool _moduleHeaderVisible = true;
+
   ValueKey _shellPageKey(int index) =>
       ValueKey('page_${index}_$_moduleTenantId');
 
@@ -465,7 +476,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       if (_pageCache[idx] == null) {
         _pageCache[idx] = _modulePage(idx);
       }
-      setState(() => _selectedIndex = idx);
+      setState(() {
+        // Cabecalho volta ao mudar de modulo.
+        _moduleHeaderVisible = true;
+        _selectedIndex = idx;
+      });
     }
 
     Widget edgeChevron({
@@ -967,6 +982,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     // igreja e caches de módulo. Sem isto o painel trocava de ID mas seguia
     // mostrando os dados da igreja de origem.
     ChurchContextService.clear();
+    // Os caches em RAM nao sao limpos por `ChurchContextService.clear()` — e
+    // eram eles que devolviam os dados da igreja anterior mesmo depois do id
+    // ja ter mudado (ver [ChurchTenantSwitchPurge]).
+    ChurchTenantSwitchPurge.purgarTudo();
     if (canonical.isNotEmpty) {
       ChurchContextService.bindPanelIdImmediate(
         seed: destino,
@@ -990,6 +1009,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _warmTenantDocFromLocalCacheFirst().whenComplete(() {
         if (!mounted) return;
         setState(() => _tenantResolveComplete = true);
+        // Rebind completo na igreja escolhida, **depois** do warm (o
+        // `forceRefresh` limpa o contexto, e em paralelo apagaria o que o warm
+        // acabou de pôr lá). Sem este passo o contexto ficava só com o id e o
+        // perfil — nome, slug, logo, links públicos — continuava a ser o da
+        // igreja anterior até algum módulo o carregar por acidente.
+        unawaited(_resolveOperationalTenant(forceRefresh: true));
       }),
     );
   }
@@ -1404,23 +1429,49 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                           // transmissão/menu) — o genérico aqui duplicava o título.
                           if (_selectedIndex != 0 &&
                               _selectedIndex != ChurchShellIndices.chatIgreja)
-                            ModuleHeaderPremium(
-                              title: _items[_selectedIndex].label,
-                              icon: _items[_selectedIndex].icon,
-                              accent: _items[_selectedIndex].accent,
-                              subtitle:
-                                  _items[_selectedIndex].subtitle.isNotEmpty
-                                  ? _items[_selectedIndex].subtitle
-                                  : (_isMobile
-                                        ? _shellUserGreetingName()
-                                        : null),
-                              onPainelBack: moduleBack,
-                              variant: moduleBack != null
-                                  ? ModuleHeaderVariant.wisdomGradient
-                                  : ModuleHeaderVariant.card,
+                            AnimatedSize(
+                              duration: const Duration(milliseconds: 180),
+                              curve: Curves.easeOutCubic,
+                              alignment: Alignment.topCenter,
+                              child: _moduleHeaderVisible
+                                  ? ModuleHeaderPremium(
+                                      title: _items[_selectedIndex].label,
+                                      icon: _items[_selectedIndex].icon,
+                                      accent: _items[_selectedIndex].accent,
+                                      subtitle:
+                                          _items[_selectedIndex]
+                                              .subtitle
+                                              .isNotEmpty
+                                          ? _items[_selectedIndex].subtitle
+                                          : (_isMobile
+                                                ? _shellUserGreetingName()
+                                                : null),
+                                      onPainelBack: moduleBack,
+                                      variant: moduleBack != null
+                                          ? ModuleHeaderVariant.wisdomGradient
+                                          : ModuleHeaderVariant.card,
+                                    )
+                                  : const SizedBox(width: double.infinity),
                             ),
                           Expanded(
-                            child: Semantics(
+                            child: NotificationListener<UserScrollNotification>(
+                              onNotification: (n) {
+                                // Só o scroll principal do módulo (depth 0):
+                                // carrosséis e listas horizontais internas não
+                                // podem mexer no cabeçalho.
+                                if (n.depth != 0) return false;
+                                final desce =
+                                    n.direction == ScrollDirection.reverse;
+                                final sobe =
+                                    n.direction == ScrollDirection.forward;
+                                if (desce && _moduleHeaderVisible) {
+                                  setState(() => _moduleHeaderVisible = false);
+                                } else if (sobe && !_moduleHeaderVisible) {
+                                  setState(() => _moduleHeaderVisible = true);
+                                }
+                                return false;
+                              },
+                              child: Semantics(
                               container: true,
                               label:
                                   'Conteúdo do módulo ${_items[_selectedIndex].label}',
@@ -1441,6 +1492,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                   ),
                                 ),
                               ),
+                            ),
                             ),
                           ),
                         ],
@@ -1618,6 +1670,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         default:
           break;
       }
+      _moduleHeaderVisible = true;
       _selectedIndex = shellIndex;
     });
   }
@@ -3479,20 +3532,30 @@ class _MasterChurchSwitcherSheet extends StatelessWidget {
       ),
     );
     if (c.logoRef.trim().isEmpty) return recuo;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: SizedBox(
-        width: 48,
-        height: 48,
-        child: SafeNetworkImage(
-          imageUrl: c.logoRef,
-          fit: BoxFit.cover,
-          width: 48,
-          height: 48,
-          memCacheWidth: 160,
-          placeholder: recuo,
-          errorWidget: recuo,
-        ),
+    // `contain` sobre fundo claro, não `cover`.
+    //
+    // Logo de igreja é arte, não fotografia: com `cover` num quadrado de 48
+    // uma logo larga (a IBNA é 1338×753) aparecia recortada ao meio — via-se
+    // uma tira do centro e mais nada. Com `contain` entra inteira, e a moldura
+    // clara evita que logo escura sobre transparente desapareça.
+    return Container(
+      width: 52,
+      height: 52,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: SafeNetworkImage(
+        imageUrl: c.logoRef,
+        fit: BoxFit.contain,
+        width: 44,
+        height: 44,
+        memCacheWidth: 200,
+        placeholder: recuo,
+        errorWidget: recuo,
       ),
     );
   }

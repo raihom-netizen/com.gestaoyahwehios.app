@@ -85,8 +85,12 @@ abstract final class ChurchCentralStorageUpload {
     bool skipEnsureReady = false,
   }) async {
     _assertCanonicalPath(storagePath, logLabel);
-    assertPayloadWithinRules(bytes: rawBytes.length, logLabel: logLabel, maxBytes: maxBytes);
-    
+    assertPayloadWithinRules(
+      bytes: rawBytes.length,
+      logLabel: logLabel,
+      maxBytes: maxBytes,
+    );
+
     logFirebasePublishPhase(
       'storage_upload_start',
       '$logLabel path=${storagePath.trim()} bytes=${rawBytes.length}',
@@ -155,11 +159,7 @@ abstract final class ChurchCentralStorageUpload {
         stack: st,
       );
       unawaited(
-        CrashlyticsService.record(
-          e,
-          st,
-          reason: 'central_upload_$logLabel',
-        ),
+        CrashlyticsService.record(e, st, reason: 'central_upload_$logLabel'),
       );
       rethrow;
     }
@@ -196,20 +196,19 @@ abstract final class ChurchCentralStorageUpload {
     required Uint8List rawBytes,
     bool alreadyCompressed = false,
     void Function(double progress)? onProgress,
-  }) =>
-      uploadImageAtPath(
-        storagePath: ChurchStorageLayout.avisoPostPhotoPath(
-          churchId,
-          postId,
-          slotIndex,
-        ),
-        rawBytes: rawBytes,
-        logLabel: 'aviso_photo',
-        alreadyCompressed: alreadyCompressed,
-        // Já veio do crop/encode do editor — NÃO recomprimir (qualidade).
-        compressForFeed: !alreadyCompressed,
-        onProgress: onProgress,
-      );
+  }) => uploadImageAtPath(
+    storagePath: ChurchStorageLayout.avisoPostPhotoPath(
+      churchId,
+      postId,
+      slotIndex,
+    ),
+    rawBytes: rawBytes,
+    logLabel: 'aviso_photo',
+    alreadyCompressed: alreadyCompressed,
+    // Já veio do crop/encode do editor — NÃO recomprimir (qualidade).
+    compressForFeed: !alreadyCompressed,
+    onProgress: onProgress,
+  );
 
   /// Evento ? `igrejas/{id}/eventos/{postId}/?`.
   static Future<ChurchCentralUploadResult> uploadEventoPhoto({
@@ -220,20 +219,19 @@ abstract final class ChurchCentralStorageUpload {
     bool alreadyCompressed = false,
     void Function(double progress)? onProgress,
     bool skipEnsureReady = false,
-  }) =>
-      uploadImageAtPath(
-        storagePath: ChurchStorageLayout.eventPostPhotoPath(
-          churchId,
-          postId,
-          slotIndex,
-        ),
-        rawBytes: rawBytes,
-        logLabel: 'evento_photo',
-        alreadyCompressed: alreadyCompressed,
-        compressForFeed: !alreadyCompressed,
-        onProgress: onProgress,
-        skipEnsureReady: skipEnsureReady,
-      );
+  }) => uploadImageAtPath(
+    storagePath: ChurchStorageLayout.eventPostPhotoPath(
+      churchId,
+      postId,
+      slotIndex,
+    ),
+    rawBytes: rawBytes,
+    logLabel: 'evento_photo',
+    alreadyCompressed: alreadyCompressed,
+    compressForFeed: !alreadyCompressed,
+    onProgress: onProgress,
+    skipEnsureReady: skipEnsureReady,
+  );
 
   /// Membro ? foto perfil.
   static Future<ChurchCentralUploadResult> uploadMemberProfilePhoto({
@@ -242,19 +240,18 @@ abstract final class ChurchCentralStorageUpload {
     required Uint8List fullBytes,
     void Function(double progress)? onProgress,
     bool skipEnsureReady = false,
-  }) =>
-      uploadImageAtPath(
-        storagePath: ChurchStorageLayout.memberProfilePhotoPath(
-          churchId,
-          storageFolderId,
-        ),
-        rawBytes: fullBytes,
-        logLabel: 'membro_profile',
-        alreadyCompressed: true,
-        compressForFeed: false,
-        onProgress: onProgress,
-        skipEnsureReady: skipEnsureReady,
-      );
+  }) => uploadImageAtPath(
+    storagePath: ChurchStorageLayout.memberProfilePhotoPath(
+      churchId,
+      storageFolderId,
+    ),
+    rawBytes: fullBytes,
+    logLabel: 'membro_profile',
+    alreadyCompressed: true,
+    compressForFeed: false,
+    onProgress: onProgress,
+    skipEnsureReady: skipEnsureReady,
+  );
 
   /// Patrimônio — slot de galeria.
   /// Com [alreadyCompressed] (JPEG do editor) — NÃO recomprimir (padrão CT).
@@ -266,25 +263,29 @@ abstract final class ChurchCentralStorageUpload {
     void Function(double progress)? onProgress,
     bool alreadyCompressed = false,
     bool skipEnsureReady = false,
-  }) =>
-      uploadImageAtPath(
-        storagePath: ChurchStorageLayout.patrimonioPhotoPath(
-          churchId,
-          itemDocId,
-          slotIndex,
-        ),
-        rawBytes: rawBytes,
-        logLabel: 'patrimonio_photo',
-        alreadyCompressed: alreadyCompressed,
-        compressForFeed: !alreadyCompressed,
-        onProgress: onProgress,
-        skipEnsureReady: skipEnsureReady,
-      );
+  }) => uploadImageAtPath(
+    storagePath: ChurchStorageLayout.patrimonioPhotoPath(
+      churchId,
+      itemDocId,
+      slotIndex,
+    ),
+    rawBytes: rawBytes,
+    logLabel: 'patrimonio_photo',
+    alreadyCompressed: alreadyCompressed,
+    compressForFeed: !alreadyCompressed,
+    onProgress: onProgress,
+    skipEnsureReady: skipEnsureReady,
+  );
 
   /// Logo igreja ? `configuracoes/logo_igreja.png`.
   static Future<ChurchCentralUploadResult> uploadChurchLogo({
     required String churchId,
     required Uint8List pngBytes,
+
+    /// PNG quando a logo tem transparência, JPEG quando não tem. O caminho no
+    /// bucket continua a ser `logo_igreja.png` — quem manda na renderização é
+    /// o `Content-Type`, não a extensão.
+    String mimeType = 'image/png',
     void Function(double progress)? onProgress,
     bool skipEnsureReady = false,
   }) async {
@@ -301,14 +302,14 @@ abstract final class ChurchCentralStorageUpload {
       final url = await DirectStorageUrlPublish.uploadBytes(
         storagePath: path,
         bytes: pngBytes,
-        mimeType: 'image/png',
+        mimeType: mimeType,
         onProgress: onProgress,
         skipEnsureReady: skipEnsureReady,
       );
       return ChurchCentralUploadResult(
         downloadUrl: sanitizeImageUrl(url),
         storagePath: path,
-        contentType: 'image/png',
+        contentType: mimeType,
         bytes: pngBytes,
       );
     } catch (e, st) {
@@ -318,7 +319,9 @@ abstract final class ChurchCentralStorageUpload {
         error: e,
         stack: st,
       );
-      unawaited(CrashlyticsService.record(e, st, reason: 'central_upload_logo'));
+      unawaited(
+        CrashlyticsService.record(e, st, reason: 'central_upload_logo'),
+      );
       rethrow;
     }
   }
@@ -402,7 +405,8 @@ abstract final class ChurchCentralStorageUpload {
 
   /// Fornecedor ? comprovante de compromisso (imagem ou PDF).
   /// Extensão no path = ficheiro real (JPEG após compress ? `.jpg`).
-  static Future<ChurchCentralUploadResult> uploadFornecedorCompromissoComprovante({
+  static Future<ChurchCentralUploadResult>
+  uploadFornecedorCompromissoComprovante({
     required String churchId,
     required String fornecedorId,
     required String compromissoId,

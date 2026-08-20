@@ -150,18 +150,33 @@ class ChurchPublicPremiumSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(24, 26, 24, 26),
+      padding: const EdgeInsets.fromLTRB(22, 24, 22, 24),
+      // Superfície moderna: em vez de branco chapado com risco cinzento,
+      // um lavado de cor da igreja de cima para baixo, contorno da mesma cor
+      // e sombra em duas camadas (uma curta que assenta o cartão, uma larga
+      // e difusa que lhe dá profundidade).
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.white,
+            Color.lerp(Colors.white, accentColor, 0.035)!,
+          ],
+        ),
+        border: Border.all(color: accentColor.withValues(alpha: 0.14)),
         boxShadow: [
-          ...ThemeCleanPremium.softUiCardShadow,
+          const BoxShadow(
+            color: Color(0x0F0F172A),
+            blurRadius: 10,
+            offset: Offset(0, 3),
+          ),
           BoxShadow(
-            color: accentColor.withValues(alpha: 0.08),
-            blurRadius: 40,
-            offset: const Offset(0, 18),
-            spreadRadius: -4,
+            color: accentColor.withValues(alpha: 0.10),
+            blurRadius: 44,
+            offset: const Offset(0, 20),
+            spreadRadius: -6,
           ),
         ],
       ),
@@ -213,10 +228,10 @@ class ChurchPublicPremiumSection extends StatelessWidget {
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 22,
+                        fontSize: 20.5,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
-                        height: 1.15,
+                        letterSpacing: -0.45,
+                        height: 1.18,
                         color: Color(0xFF0F172A),
                       ),
                     ),

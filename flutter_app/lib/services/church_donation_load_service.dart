@@ -44,6 +44,16 @@ abstract final class ChurchDonationLoadService {
 
   static const Duration _ramTtl = Duration(minutes: 25);
 
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
+  /// igreja e continuava a servir o que ja estava em memoria.
+  static void purgarNaTrocaDeIgreja() {
+    _contasRam.clear();
+    _configRam.clear();
+    _configDocRam.clear();
+  }
+
   static String contasCacheKey(String churchId) =>
       '${churchId.trim()}_contas_mp_donation_$kContasLimit';
 

@@ -2,6 +2,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
+import 'package:gestao_yahweh/services/public_church_slug_resolver.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
@@ -590,6 +591,30 @@ class TenantResolverService {
 
     var slug = await slugFromDoc(raw);
     if (slug.isNotEmpty) return slug;
+
+    // Índice `public_church_slugs`: a Cloud Function grava SEMPRE uma entrada
+    // com a chave derivada do próprio id da igreja, mesmo quando o cadastro
+    // não tem campo `slug`. Sem esta consulta o painel dizia «não foi possível
+    // carregar os links públicos» em igrejas que já tinham site publicado.
+    final indexKey = PublicChurchSlugResolver.normalizeSlugKey(raw);
+    if (indexKey.isNotEmpty) {
+      try {
+        final snap = await _firestore
+            .collection('public_church_slugs')
+            .doc(indexKey)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 6));
+        final data = snap.data();
+        if (data != null) {
+          final cid = (data['churchId'] ?? '').toString().trim();
+          if (cid == raw) {
+            ChurchTenantOverride.registerKnown(cid);
+            final s = (data['slug'] ?? indexKey).toString().trim();
+            if (s.isNotEmpty) return s;
+          }
+        }
+      } catch (_) {}
+    }
 
     List<String> siblings;
     try {

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'dart:async' show Timer, unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -6,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -220,8 +222,8 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     }
     final hint = (widget.tenantId ?? widget.slug ?? '').trim();
     if (hint.isNotEmpty) {
-      final panel = ChurchContextService.panelChurchId(hint);
-      final canonical = ChurchRepository.churchId(hint);
+      final panel = ChurchContextService.panelChurchIdExact(hint);
+      final canonical = ChurchContext.resolveExactChurchId(hint);
       if (hint != ctxId && panel != ctxId && canonical != ctxId) {
         return false;
       }
@@ -509,7 +511,12 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
   }
 
   void _applyTenantFromChurchDataSync(String docId, Map<String, dynamic> data) {
-    final operational = ChurchContextService.panelChurchId(docId);
+    // O id veio do doc real da igreja (slug → índice → `igrejas/{id}`): é
+    // autoritativo. Registar impede que o resolvedor o rejeite por não seguir
+    // `igreja_*` — era assim que o cadastro público de igrejas como
+    // `igreta_batista_nacional_alianca` acabava a apontar para outra base.
+    ChurchTenantOverride.registerKnown(docId);
+    final operational = ChurchContextService.panelChurchIdExact(docId);
     final op = operational.isNotEmpty ? operational : docId;
     final churchWithId = Map<String, dynamic>.from(data)..['id'] = op;
     final endereco = (data['endereco'] ?? '').toString().trim();
@@ -1250,8 +1257,12 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     }
     final cpfDigits = _onlyDigits(_cpfCtrl.text);
     final emailNorm = _emailCtrl.text.trim().toLowerCase();
-    final op = ChurchRepository.churchId(_tenantId!);
-    final col = ChurchUiCollections.membros(op);
+    // Gravar SEMPRE na igreja da página pública. Passar por
+    // `ChurchRepository.churchId` deixava o contexto da sessão (ou a igreja
+    // que o operador global está a visitar) sobrepor-se ao slug da URL — o
+    // cadastro entrava na igreja errada.
+    final op = _tenantId!.trim();
+    final col = ChurchUiCollections.membrosExact(op);
     final editingDocId = _editModeAfterSubmit ? _lastSubmittedDocId : null;
 
     // Duplicado: precisa de leitura em `membros` (regras só para tenant). Visitantes não têm — evitar permission-denied.

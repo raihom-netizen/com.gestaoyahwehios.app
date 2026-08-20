@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -40,8 +41,8 @@ Future<ChurchProximoCultoSnapshot?> fetchChurchProximoCultoSnapshot(
   if (tid.isEmpty) return null;
   final now = DateTime.now();
   try {
-    final op = ChurchPanelTenantGateway.churchId(tid.trim());
-    final snap = await         ChurchUiCollections.churchDoc(op)
+    final op = ChurchContext.resolveExactChurchId(tid);
+    final snap = await         ChurchUiCollections.churchDocExact(op)
         .collection(ChurchTenantPostsCollections.eventos)
         .where('type', isEqualTo: 'evento')
         .where('startAt', isGreaterThanOrEqualTo: Timestamp.fromDate(now))
@@ -186,22 +187,31 @@ class ChurchPublicProximoCultoCard extends StatelessWidget {
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
+            // Mesma superfície dos cartões de secção do site: lavado suave de
+            // cima para baixo (em vez do tinto forte na diagonal), contorno
+            // discreto e sombra em duas camadas.
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
                 colors: [
-                  accentColor.withValues(alpha: 0.14),
+                  Color.lerp(Colors.white, accentColor, 0.10)!,
                   Colors.white,
                 ],
               ),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: accentColor.withValues(alpha: 0.28)),
-              boxShadow: const [
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: accentColor.withValues(alpha: 0.16)),
+              boxShadow: [
+                const BoxShadow(
+                  color: Color(0x0F0F172A),
+                  blurRadius: 10,
+                  offset: Offset(0, 3),
+                ),
                 BoxShadow(
-                  color: Color(0x0C000000),
-                  blurRadius: 18,
-                  offset: Offset(0, 8),
+                  color: accentColor.withValues(alpha: 0.10),
+                  blurRadius: 44,
+                  offset: const Offset(0, 20),
+                  spreadRadius: -6,
                 ),
               ],
             ),

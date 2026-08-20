@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -74,7 +75,7 @@ class _EscolhaPlanoPageState extends State<EscolhaPlanoPage> {
   /// ASSERTION FAILED` no SDK JS por excesso de alvos de watch simultâneos.
   Stream<DocumentSnapshot<Map<String, dynamic>>> _landingContentStream() {
     final doc = FirebaseFirestore.instance.collection('landing_content').doc('main');
-    if (!kIsWeb) return doc.snapshots();
+    if (!YahwehRestFirst.prefer) return doc.snapshots();
     late final StreamController<DocumentSnapshot<Map<String, dynamic>>> controller;
     Timer? timer;
     Future<void> tick() async {

@@ -938,10 +938,22 @@ class ChurchPublicWelcomeStrip extends StatelessWidget {
   final String churchName;
   final Color accentColor;
 
+  /// Atalhos das pastilhas do hero. Sem callback a pastilha continua a ser
+  /// só decorativa — era esse o comportamento antigo, e parecia botão
+  /// partido: têm aspeto de botão e não levavam a lado nenhum.
+  final VoidCallback? onAvisos;
+  final VoidCallback? onEventos;
+  final VoidCallback? onCultos;
+  final VoidCallback? onComoChegar;
+
   const ChurchPublicWelcomeStrip({
     super.key,
     required this.churchName,
     required this.accentColor,
+    this.onAvisos,
+    this.onEventos,
+    this.onCultos,
+    this.onComoChegar,
   });
 
   @override
@@ -1076,43 +1088,34 @@ class ChurchPublicWelcomeStrip extends StatelessWidget {
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          for (final chip in const [
-                            (Icons.campaign_rounded, 'Avisos'),
-                            (Icons.event_rounded, 'Eventos'),
-                            (Icons.auto_awesome_rounded, 'Cultos'),
-                            (Icons.place_rounded, 'Como chegar'),
+                          for (final chip in <
+                            ({IconData icon, String label, VoidCallback? tap})
+                          >[
+                            (
+                              icon: Icons.campaign_rounded,
+                              label: 'Avisos',
+                              tap: onAvisos,
+                            ),
+                            (
+                              icon: Icons.event_rounded,
+                              label: 'Eventos',
+                              tap: onEventos,
+                            ),
+                            (
+                              icon: Icons.auto_awesome_rounded,
+                              label: 'Cultos',
+                              tap: onCultos,
+                            ),
+                            (
+                              icon: Icons.place_rounded,
+                              label: 'Como chegar',
+                              tap: onComoChegar,
+                            ),
                           ])
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.14),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.20),
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    chip.$1,
-                                    size: 15,
-                                    color: Colors.white,
-                                  ),
-                                  const SizedBox(width: 7),
-                                  Text(
-                                    chip.$2,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                            _ChurchPublicHeroChip(
+                              icon: chip.icon,
+                              label: chip.label,
+                              onTap: chip.tap,
                             ),
                         ],
                       ),
@@ -1122,6 +1125,72 @@ class ChurchPublicWelcomeStrip extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Pastilha do hero do site público — vidro fosco sobre o gradiente, com
+/// realce ao toque quando tem destino.
+class _ChurchPublicHeroChip extends StatelessWidget {
+  const _ChurchPublicHeroChip({
+    required this.icon,
+    required this.label,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: Colors.white),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          if (onTap != null) ...[
+            const SizedBox(width: 5),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 16,
+              color: Colors.white.withValues(alpha: 0.75),
+            ),
+          ],
+        ],
+      ),
+    );
+    final decoration = BoxDecoration(
+      color: Colors.white.withValues(alpha: onTap == null ? 0.14 : 0.18),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(
+        color: Colors.white.withValues(alpha: onTap == null ? 0.20 : 0.30),
+      ),
+    );
+    if (onTap == null) {
+      return DecoratedBox(decoration: decoration, child: content);
+    }
+    return Semantics(
+      button: true,
+      label: 'Ir para $label',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: Ink(decoration: decoration, child: content),
         ),
       ),
     );
@@ -1643,10 +1712,37 @@ class ChurchPublicSiteHero extends StatelessWidget {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: YahwehWisdomSectionCard(
+      child: Container(
+        width: double.infinity,
         margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        borderTint: accentColor,
+        padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
+        // Mesma superfície dos cartões de secção: lavado da cor da igreja,
+        // contorno da mesma cor e sombra em duas camadas.
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.white,
+              Color.lerp(Colors.white, accentColor, 0.05)!,
+            ],
+          ),
+          border: Border.all(color: accentColor.withValues(alpha: 0.14)),
+          boxShadow: [
+            const BoxShadow(
+              color: Color(0x0F0F172A),
+              blurRadius: 10,
+              offset: Offset(0, 3),
+            ),
+            BoxShadow(
+              color: accentColor.withValues(alpha: 0.10),
+              blurRadius: 44,
+              offset: const Offset(0, 20),
+              spreadRadius: -6,
+            ),
+          ],
+        ),
         child: LayoutBuilder(
           builder: (context, c) {
             final narrow = c.maxWidth < 420;
@@ -1707,27 +1803,77 @@ class ChurchPublicSiteHero extends StatelessWidget {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'Comece por aqui',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.poppins(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: YahwehWisdomVisualKit.navyDeep,
-                    letterSpacing: 0.2,
-                  ),
+                // Cabeçalho no mesmo padrão das outras secções: selo com
+                // ícone, rótulo curto e título legível. Antes era só uma linha
+                // de 13 px — o bloco mais importante da página (o cadastro)
+                // era o que tinha o título mais pequeno.
+                Row(
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(15),
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            accentColor.withValues(alpha: 0.18),
+                            accentColor.withValues(alpha: 0.06),
+                          ],
+                        ),
+                        border: Border.all(
+                          color: accentColor.withValues(alpha: 0.22),
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.how_to_reg_rounded,
+                        color: accentColor,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'PRIMEIRA VEZ AQUI?',
+                            style: GoogleFonts.poppins(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 2.2,
+                              color: accentColor.withValues(alpha: 0.88),
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            'Comece por aqui',
+                            style: GoogleFonts.poppins(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: -0.4,
+                              height: 1.15,
+                              color: YahwehWisdomVisualKit.navyDeep,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Cadastro público com campos obrigatórios e foto '
+                            'de perfil.',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              height: 1.45,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Cadastro público com campos obrigatórios e foto de perfil',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 18),
                 if (narrow)
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart'
         kIsWeb,
         kReleaseMode;
 import 'package:flutter/material.dart';
+import 'package:gestao_yahweh/services/church_known_tenants_store.dart';
 import 'package:gestao_yahweh/services/master_tenant_override_service.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -1030,6 +1031,10 @@ Future<void> runGestaoYahwehAfterFirebaseBootstrap() async {
       debugPrint('initializeDateFormatting(pt_BR): $e\n$st');
     }),
   );
+  // Ids reais de igreja (inclusive os que nao seguem `igreja_*`) ANTES de
+  // qualquer modulo resolver tenant — senao, no arranque a frio, o resolvedor
+  // rejeitava-os e lia a igreja de origem.
+  await ChurchKnownTenantsStore.restore().catchError((_) {});
   // Operador global: restaura a igreja escolhida ANTES da 1.a tela montar,
   // senao o painel abria na igreja de origem e so trocava depois.
   await MasterTenantOverrideService.restore().catchError((_) {});

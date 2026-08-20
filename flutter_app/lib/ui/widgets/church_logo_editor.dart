@@ -106,10 +106,15 @@ class ChurchLogoEditorState extends State<ChurchLogoEditor> {
     if (!mounted) return;
     setState(() => _loadingExisting = true);
     try {
+      // Com teto de tempo: `getLogoBytes` faz bootstrap + verificação no
+      // Storage + download, nada disso com prazo garantido — e enquanto não
+      // voltava, a pré-visualização ficava só com o spinner (era a caixa
+      // vazia no Cadastro da Igreja). Ao estourar, cai no [StableChurchLogo],
+      // que pinta a partir da URL e é bem mais rápido.
       final bytes = await ChurchBrandService.getLogoBytes(
         churchId: cid,
         tenantData: widget.tenantData,
-      );
+      ).timeout(const Duration(seconds: 6), onTimeout: () => null);
       if (!mounted) return;
       setState(() {
         _existingBytes = bytes;

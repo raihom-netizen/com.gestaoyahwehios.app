@@ -81,7 +81,7 @@ class FinanceResumoChartsSection extends StatelessWidget {
                   )
                 : Center(
                     child: Text(
-                      'Sem movimenta├º├úo efetivada em $year.',
+                      'Sem movimentação efetivada em $year.',
                       style: TextStyle(
                         color: Colors.grey.shade600,
                         fontSize: 13,
@@ -377,7 +377,7 @@ class _CategoryPieCard extends StatelessWidget {
           height: 160,
           child: Center(
             child: Text(
-              'Sem dados para o per├¡odo.',
+              'Sem dados para o período.',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
             ),
           ),
@@ -432,7 +432,7 @@ class _CategoryPieCard extends StatelessWidget {
                 ),
               ),
               Text(
-                'Total no per├¡odo',
+                'Total no período',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 
 /// Tipos compartilhados do serviço de vídeo (evita import circular).
@@ -25,6 +27,9 @@ abstract class IVideoHandlerService {
     Duration maxDuration = kMediaVideoMaxDuration,
     void Function(double uploadProgress01)? onUploadProgress,
     int? maxRawPickBytes,
+
+    /// Miniatura ja extraida pelo editor ao anexar (evita novo decode).
+    Uint8List? precomputedThumbBytes,
   });
 
   /// Comprime (se necessário) e envia vídeo já escolhido — permite pick rápido + upload em background.
@@ -35,5 +40,8 @@ abstract class IVideoHandlerService {
     required int videoSlotIndex,
     void Function(double uploadProgress01)? onUploadProgress,
     int? maxRawPickBytes,
+
+    /// Miniatura ja extraida pelo editor ao anexar (evita novo decode).
+    Uint8List? precomputedThumbBytes,
   });
 }

@@ -74,6 +74,15 @@ class CertificateEmitidoService {
   static final Map<String, ValueNotifier<CertificadosHistoricoState>>
       _historicoNotifiers = {};
 
+  /// Esvazia o cache em RAM quando o operador global troca de igreja.
+  ///
+  /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
+  /// igreja e continuava a servir o que ja estava em memoria.
+  static void purgarNaTrocaDeIgreja() {
+    _historicoRam.clear();
+    _historicoInflight.clear();
+  }
+
   static String _churchId(String tenantHint) =>
       ChurchRepository.churchId(tenantHint.trim());
 
