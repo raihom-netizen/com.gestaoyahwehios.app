@@ -48,6 +48,38 @@ import 'package:gestao_yahweh/ui/pages/relatorio_gastos_fornecedores_page.dart'
 import 'package:gestao_yahweh/services/app_permissions.dart';
 
 /// Membros para relatórios — cache RAM + `_panel_cache/members_directory` (rápido).
+/// Datas de relatorio, venham de onde vierem.
+///
+/// A mesma data chega como `Timestamp` (SDK), mapa `{_seconds}` (REST/Cloud
+/// Function), epoch em milissegundos ou ISO. Sem isto o relatorio imprimia
+/// `{_seconds: 1784587883, _nanoseconds: 170000000}` na coluna.
+abstract final class _RelatoriosDataFormat {
+  _RelatoriosDataFormat._();
+
+  static final DateFormat _f = DateFormat('dd/MM/yyyy');
+
+  static String data(dynamic v) {
+    if (v == null) return '—';
+    if (v is Timestamp) return _f.format(v.toDate());
+    if (v is DateTime) return _f.format(v);
+    if (v is Map) {
+      final sec = v['seconds'] ?? v['_seconds'];
+      final n = sec is num ? sec.toInt() : int.tryParse('$sec');
+      if (n != null && n > 0) {
+        return _f.format(DateTime.fromMillisecondsSinceEpoch(n * 1000));
+      }
+      return '—';
+    }
+    if (v is num) {
+      final ms = v > 100000000000 ? v.toInt() : v.toInt() * 1000;
+      if (ms <= 0) return '—';
+      return _f.format(DateTime.fromMillisecondsSinceEpoch(ms));
+    }
+    final parsed = DateTime.tryParse(v.toString());
+    return parsed != null ? _f.format(parsed) : v.toString();
+  }
+}
+
 abstract final class _RelatoriosMembersDataCache {
   _RelatoriosMembersDataCache._();
 
@@ -809,10 +841,12 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
     if (key == 'telefone') return (m['TELEFONES'] ?? m['telefone'] ?? '').toString();
     if (key == 'cpf') return (m['CPF'] ?? m['cpf'] ?? '').toString();
     if (key == 'dataNascimento') {
+      // Mesma coercao do relatorio de patrimonio: vindo da Cloud Function ou
+      // do REST a data e um mapa `{_seconds}` ou um epoch, e o `toString()`
+      // imprimia isso cru na coluna.
       final t = m['DATA_NASCIMENTO'] ?? m['dataNascimento'] ?? m['birthDate'];
-      if (t == null) return '';
-      if (t is Timestamp) return DateFormat('dd/MM/yyyy').format(t.toDate());
-      return t.toString();
+      final txt = _RelatoriosDataFormat.data(t);
+      return txt == '—' ? '' : txt;
     }
     if (key == 'sexo') {
       final s = (m['SEXO'] ?? m['sexo'] ?? '').toString().trim();
@@ -4757,29 +4791,8 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
   /// Sem o ramo do mapa `{_seconds, _nanoseconds}`, a leitura por REST caia no
   /// `toString()` e o relatorio imprimia literalmente
   /// `{_seconds: 1784587883, _nanoseconds: 170000000}` na coluna da data.
-  static String _fmtDate(dynamic v) {
-    if (v == null) return '—';
-    if (v is Timestamp) return DateFormat('dd/MM/yyyy').format(v.toDate());
-    if (v is DateTime) return DateFormat('dd/MM/yyyy').format(v);
-    if (v is Map) {
-      final sec = v['seconds'] ?? v['_seconds'];
-      final n = sec is num ? sec.toInt() : int.tryParse('$sec');
-      if (n != null && n > 0) {
-        return DateFormat('dd/MM/yyyy')
-            .format(DateTime.fromMillisecondsSinceEpoch(n * 1000));
-      }
-      return '—';
-    }
-    if (v is num) {
-      final ms = v > 100000000000 ? v.toInt() : v.toInt() * 1000;
-      if (ms <= 0) return '—';
-      return DateFormat('dd/MM/yyyy')
-          .format(DateTime.fromMillisecondsSinceEpoch(ms));
-    }
-    final parsed = DateTime.tryParse(v.toString());
-    if (parsed != null) return DateFormat('dd/MM/yyyy').format(parsed);
-    return '—';
-  }
+  static String _fmtDate(dynamic v) => _RelatoriosDataFormat.data(v);
+
 
   String _cellValue(Map<String, dynamic> m, String key) {
     switch (key) {

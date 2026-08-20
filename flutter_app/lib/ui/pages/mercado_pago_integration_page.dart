@@ -1,3 +1,5 @@
+import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:async' show unawaited;
 
 import 'package:cloud_functions/cloud_functions.dart';
@@ -12,7 +14,7 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Tela ?Integra??o? da conta Mercado Pago (Financeiro ? Contas).
+/// Tela «Integração» da conta Mercado Pago (Financeiro → Contas).
 /// Credenciais (produção + teste) ficam só no servidor — nunca são reexibidas.
 class MercadoPagoIntegrationPage extends StatefulWidget {
   const MercadoPagoIntegrationPage({
@@ -127,6 +129,7 @@ class _MercadoPagoIntegrationPageState
       _publicKeyTestCtrl.text = (_cfg?['publicKeyTest'] ?? '').toString();
       _clientIdTestCtrl.text = (_cfg?['clientIdTest'] ?? '').toString();
       _webhookCtrl.text = (_cfg?['notificationWebhookUrl'] ?? '').toString();
+      _taxaComoDespesa = _cfg?['lancarTaxaComoDespesa'] == true;
       final cfgMode = (_cfg?['mode'] ?? 'production').toString().trim();
       _mode = cfgMode == 'test' ? 'test' : 'production';
     } catch (_) {}
@@ -146,6 +149,48 @@ class _MercadoPagoIntegrationPageState
     _clientIdTestCtrl.dispose();
     _clientSecretTestCtrl.dispose();
     super.dispose();
+  }
+
+  /// Lançar a taxa do Mercado Pago como despesa separada.
+  ///
+  /// Desligado: a receita e o **líquido** e a taxa fica só registada no
+  /// lançamento. Ligado: a receita passa a ser o **bruto** e a taxa vira uma
+  /// despesa em «Taxas e tarifas». O saldo dá o mesmo nos dois casos; a
+  /// diferença é conseguir responder «quanto pagámos de taxa este ano».
+  bool _taxaComoDespesa = false;
+
+  Future<void> _guardarTaxaComoDespesa(bool v) async {
+    setState(() => _taxaComoDespesa = v);
+    try {
+      // Gravacao pelo gateway (REST na web) — o `.set()` cru do SDK e o que
+      // rebenta com a INTERNAL ASSERTION.
+      await YahwehDocWrite.set(
+        ChurchUiCollections.ref('config', churchIdHint: _effectiveTenantId)
+            .doc('mercado_pago'),
+        <String, dynamic>{'lancarTaxaComoDespesa': v},
+        merge: true,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              v
+                  ? 'A partir de agora a taxa entra como despesa e a receita '
+                      'passa a ser o valor bruto.'
+                  : 'A receita volta a ser o valor líquido; a taxa deixa de '
+                      'gerar despesa.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _taxaComoDespesa = !v);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Não foi possível guardar: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _salvar() async {
@@ -173,7 +218,7 @@ class _MercadoPagoIntegrationPageState
     if (wh.isNotEmpty && !wh.toLowerCase().startsWith('https://')) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Webhook deve ser uma URL HTTPS (ex.: https://?).'),
+          content: Text('Webhook deve ser uma URL HTTPS (ex.: https://…).'),
         ),
       );
       return;
@@ -447,6 +492,25 @@ class _MercadoPagoIntegrationPageState
                         ),
                       ],
                     ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _Card(
+                  child: SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: _taxaComoDespesa,
+                    onChanged: _guardarTaxaComoDespesa,
+                    title: const Text(
+                      'Lançar a taxa como despesa',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    subtitle: const Text(
+                      'Desligado: entra o valor líquido. Ligado: entra o valor '
+                      'bruto e a taxa vira despesa em «Taxas e tarifas» — o '
+                      'saldo é o mesmo, mas passa a dar para somar quanto se '
+                      'pagou de taxa no período.',
+                      style: TextStyle(fontSize: 12, height: 1.35),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 20),

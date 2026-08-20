@@ -1,3 +1,7 @@
+import 'package:gestao_yahweh/ui/widgets/finance_transaction_list_tile.dart';
+import 'package:gestao_yahweh/services/finance_accounts_service.dart';
+import 'package:gestao_yahweh/models/user_profile.dart';
+import 'package:gestao_yahweh/models/finance_account.dart';
 import 'package:gestao_yahweh/ui/pages/finance_vinculo_extrato_page.dart';
 import 'dart:async' show unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
@@ -180,6 +184,10 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
   bool _loading = true;
   bool _exportingPdf = false;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = const [];
+  // O cartao do Financeiro precisa do perfil (permissoes) e das contas (nome
+  // do banco em cada linha).
+  List<FinanceAccount> _contas = const [];
+  UserProfile? _perfil;
 
   @override
   void initState() {
@@ -212,9 +220,20 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
             if (db == null) return -1;
             return db.compareTo(da);
           });
+      List<FinanceAccount> contas = _contas;
+      if (contas.isEmpty || force) {
+        try {
+          contas = await FinanceAccountsService().listOnce(tid);
+        } catch (_) {}
+      }
+      final perfil = _perfil ??
+          await perfilParaEditorFinanceiro(tid, panelRole: widget.panelRole);
+
       if (!mounted) return;
       setState(() {
         _docs = filtered;
+        _contas = contas;
+        _perfil = perfil;
         _loading = false;
       });
     } catch (_) {
@@ -539,14 +558,37 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
               sliver: SliverList(
                 delegate: SliverChildBuilderDelegate((context, i) {
                   final d = _visible[i];
-                  return _LancamentoCard(
-                    doc: d,
-                    money: money,
-                    onTap: () =>
-                        fornecedorShowLancamentoPreview(context, doc: d),
-                    onEditar: () => widget.onEditar(d),
-                    onExcluir: () => widget.onExcluir(d),
-                    onRecibo: () => widget.onRecibo(d.data(), d.id),
+                  final perfil = _perfil;
+                  if (perfil == null) {
+                    // Sem perfil o editor do Financeiro nao abre; mostrar o
+                    // cartao antigo e melhor do que nao mostrar nada.
+                    return _LancamentoCard(
+                      doc: d,
+                      money: money,
+                      onTap: () =>
+                          fornecedorShowLancamentoPreview(context, doc: d),
+                      onEditar: () => widget.onEditar(d),
+                      onExcluir: () => widget.onExcluir(d),
+                      onRecibo: () => widget.onRecibo(d.data(), d.id),
+                    );
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: FinanceTransactionListTile(
+                      doc: d,
+                      profile: perfil,
+                      financeAccounts: _contas,
+                      gridSelectionMode: false,
+                      isSelected: false,
+                      optimisticPaidIds: const <String>{},
+                      onEdit: (ctx, id, data, type) async =>
+                          widget.onEditar(d),
+                      onDelete: (ctx, id) async => widget.onExcluir(d),
+                      onConfirmPayment: (ctx, id) async =>
+                          widget.onEditar(d),
+                      onAttachReceipt: (ctx, id) async =>
+                          widget.onEditar(d),
+                    ),
                   );
                 }, childCount: _visible.length),
               ),

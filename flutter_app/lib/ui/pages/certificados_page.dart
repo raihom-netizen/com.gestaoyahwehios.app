@@ -3251,7 +3251,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                           Text(
                             distinctTemplateCount == 1
                                 ? 'O tipo de certificado foi definido na coluna ao lado do nome.'
-                                : 'Cada pessoa pode ter um modelo diferente (coluna ?Modelo? na lista). '
+                                : 'Cada pessoa pode ter um modelo diferente (coluna «Modelo» na lista). '
                                     'Um PDF único inclui todas as páginas com o respetivo estilo.',
                             style: TextStyle(
                               fontSize: 12.5,

@@ -628,7 +628,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       if (!ok) {
         setState(() {
           _firebaseInitError =
-              'A sincronizar com o servidor? tente de novo em instantes.';
+              'A sincronizar com o servidor — tente de novo em instantes.';
         });
         return;
       }
@@ -2677,7 +2677,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
         setState(() {
           _fetching = false;
           _loadError =
-              'A sincronizar com o servidor? tente de novo em instantes.';
+              'A sincronizar com o servidor — tente de novo em instantes.';
         });
         return;
       }
@@ -4228,7 +4228,7 @@ class _FeedTabState extends State<_FeedTab> {
         setState(() {
           _isInitialLoading = false;
           _feedLoadError = StateError(
-            'A sincronizar com o servidor? tente de novo em instantes.',
+            'A sincronizar com o servidor — tente de novo em instantes.',
           );
         });
       }

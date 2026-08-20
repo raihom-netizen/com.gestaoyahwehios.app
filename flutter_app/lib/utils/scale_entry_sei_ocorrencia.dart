@@ -76,13 +76,13 @@ List<String> scaleEntryResumoNumberLines(ScaleEntry e) {
     }
     final sn = (e.scaleNumber ?? '').trim();
     if (sn.isEmpty) return const [];
-    return ['??? N? Escala: $sn'];
+    return ['Nº Escala: $sn'];
   }
   final num = scalePlantaoNumberFromEntry(e);
   if (num.isEmpty) {
     return const [];
   }
-  return ['??? N? Escala: $num'];
+  return ['Nº Escala: $num'];
 }
 
 /// Mensagem quando não há número no card (Escalas).

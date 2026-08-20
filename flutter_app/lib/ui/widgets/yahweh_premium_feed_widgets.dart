@@ -469,7 +469,7 @@ Future<void> saveNoticiaCoverToGallery(
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       ThemeCleanPremium.feedbackSnackBar(
-        'Na web, use ?Compartilhar? ou copie o link do convite.',
+        'Na web, use «Compartilhar» ou copie o link do convite.',
       ),
     );
     return;

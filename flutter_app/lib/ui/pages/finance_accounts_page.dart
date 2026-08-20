@@ -74,7 +74,7 @@ class FinanceAccountsScreen extends StatelessWidget {
                     border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
                   ),
                   child: Text(
-                    'Escolha o tipo, a instituição, a cor do card no Financeiro e um apelido. A prévia mostra como ficar? na faixa de contas. Toque no card para editar; arraste = para reordenar.',
+                    'Escolha o tipo, a instituição, a cor do card no Financeiro e um apelido. A prévia mostra como ficará na faixa de contas. Toque no card para editar; arraste para reordenar.',
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.35,

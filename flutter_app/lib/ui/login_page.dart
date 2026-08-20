@@ -2571,7 +2571,7 @@ class _LoginPageState extends State<LoginPage> {
         ),
         const SizedBox(height: 4),
         Text(
-          'Outra conta? No painel: Configurações ? Trocar de conta.',
+          'Outra conta? No painel: Configurações → Trocar de conta.',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
           textAlign: TextAlign.center,
         ),
@@ -2645,7 +2645,7 @@ class _LoginPageState extends State<LoginPage> {
         Padding(
           padding: const EdgeInsets.only(top: 4),
           child: Text(
-            'Outra conta? No painel: Configurações ? Trocar de conta.',
+            'Outra conta? No painel: Configurações → Trocar de conta.',
             style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             textAlign: TextAlign.center,
           ),
