@@ -1,3 +1,5 @@
+import 'package:gestao_yahweh/ui/widgets/agenda_responsible_picker.dart';
+import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/utils/yahweh_date_range_picker.dart';
 import 'dart:async' show Timer, unawaited;
 import 'dart:convert';
@@ -2883,38 +2885,111 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDlg) {
-          DropdownButtonFormField<String> signerField({
+          Widget signerField({
             required String label,
             required String? value,
             required ValueChanged<String?> onChanged,
           }) {
-            return DropdownButtonFormField<String>(
-              initialValue: value,
-              isExpanded: true,
-              decoration: InputDecoration(
-                labelText: label,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
+            final atual = value == null
+                ? null
+                : members.where((e) => e.id == value).firstOrNull;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.7,
+                    color: Color(0xFF94A3B8),
+                  ),
                 ),
-                filled: true,
-                fillColor: const Color(0xFFF8FAFC),
-              ),
-              items: [
-                const DropdownMenuItem<String>(
-                  value: null,
-                  child: Text('— Não definido —'),
-                ),
-                ...members.map(
-                  (e) => DropdownMenuItem<String>(
-                    value: e.id,
-                    child: Text(
-                      e.cargo.isEmpty ? e.nome : '${e.nome} — ${e.cargo}',
-                      overflow: TextOverflow.ellipsis,
+                const SizedBox(height: 6),
+                Material(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () async {
+                      final escolhido = await escolherMembroNaGrelha(
+                        ctx,
+                        tenantId: widget.tenantId,
+                        selecionadoId: value,
+                      );
+                      if (escolhido != null) onChanged(escolhido.id);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 13,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            atual == null
+                                ? Icons.person_search_rounded
+                                : Icons.person_rounded,
+                            size: 20,
+                            color: ThemeCleanPremium.primary,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  atual?.nome ?? 'Buscar membro…',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w800,
+                                    color: atual == null
+                                        ? const Color(0xFF94A3B8)
+                                        : const Color(0xFF0F172A),
+                                  ),
+                                ),
+                                if (atual != null && atual.cargo.isNotEmpty)
+                                  Text(
+                                    atual.cargo,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF64748B),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          if (atual != null)
+                            IconButton(
+                              tooltip: 'Remover',
+                              onPressed: () => onChanged(null),
+                              icon: const Icon(
+                                Icons.close_rounded,
+                                size: 18,
+                                color: Color(0xFF94A3B8),
+                              ),
+                            )
+                          else
+                            const Icon(
+                              Icons.chevron_right_rounded,
+                              color: Color(0xFF94A3B8),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ],
-              onChanged: onChanged,
             );
           }
 
@@ -2956,6 +3031,10 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                 onPressed: () => Navigator.pop(ctx),
                 child: const Text('Cancelar'),
               ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, _semAssinatura),
+                child: const Text('Emitir sem assinatura'),
+              ),
               FilledButton(
                 onPressed: () async {
                   ({String id, String nome, String cargo, String assinatura, String cpf})? byId(
@@ -2971,7 +3050,12 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                   final right = byId(rightId);
                   Map<String, dynamic> churchData = {};
                   try {
-                    churchData = (await _tenantRef.get()).data() ?? {};
+                    // Gateway REST: o `.get()` cru do SDK e o que fazia
+                    // «erro ao emitir» na web (INTERNAL ASSERTION).
+                    churchData = (await ChurchFirestoreAccess.getChurchRoot(
+                          churchId: widget.tenantId,
+                        )).data() ??
+                        {};
                   } catch (_) {}
                   final churchName = churchTaxIdChurchNameFromMap(churchData);
 
@@ -3027,13 +3111,36 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
     );
   }
 
+  /// Seleção vazia: o PDF sai com as linhas em branco para assinar à mão.
+  ///
+  /// Existe porque «Cancelar» abortava a exportação inteira, e não havia
+  /// caminho nenhum para emitir um relatório sem assinante — mesmo quando o
+  /// documento e só para conferência interna.
+  static ({
+    String leftName,
+    String rightName,
+    Uint8List? leftSig,
+    Uint8List? rightSig,
+    bool showDigital,
+    PdfDigitalStampInput? leftDigitalStamp,
+    PdfDigitalStampInput? rightDigitalStamp,
+  }) get _semAssinatura => (
+        leftName: '',
+        rightName: '',
+        leftSig: null,
+        rightSig: null,
+        showDigital: false,
+        leftDigitalStamp: null,
+        rightDigitalStamp: null,
+      );
+
   Future<void> _exportPdf({bool fechamentoOficial = false}) async {
     final signerSel = await _pickFinanceReportSigners();
     if (signerSel == null) return;
     setState(() => _loading = true);
     try {
-      final tenantSnap = await _tenantRef.get(
-        const GetOptions(source: Source.serverAndCache),
+      final tenantSnap = await ChurchFirestoreAccess.getChurchRoot(
+        churchId: widget.tenantId,
       );
       final tenant = tenantSnap.data() ?? <String, dynamic>{};
       final prep = await Future.wait<dynamic>([

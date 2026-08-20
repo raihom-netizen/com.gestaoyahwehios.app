@@ -60,8 +60,15 @@ abstract final class YahwehReportsEngineFetcher {
       'tipo': tipo,
       'type': m['type'] ?? m['tipo'],
       'amount': valor,
-      'categoria': (m['categoria'] ?? '').toString(),
-      'descricao': (m['descricao'] ?? m['anotacoes'] ?? '').toString(),
+      // O editor do Financeiro grava em ingles (`category`/`description`); os
+      // fluxos antigos gravam em portugues. Ler so um dos lados deixava o
+      // relatorio com categoria e descricao em branco.
+      'categoria': (m['categoria'] ?? m['category'] ?? '').toString(),
+      'descricao':
+          (m['descricao'] ?? m['description'] ?? m['anotacoes'] ?? '')
+              .toString(),
+      'membroId': (m['membroId'] ?? m['memberId'] ?? '').toString(),
+      'membroNome': (m['membroNome'] ?? '').toString(),
       'valor': valor,
       'contaOrigemId': (m['contaOrigemId'] ?? '').toString(),
       'contaDestinoId': (m['contaDestinoId'] ?? '').toString(),

@@ -286,7 +286,13 @@ abstract final class ChurchRelatoriosLoadService {
         final list = res.data['finance'];
         if (list is List && list.isNotEmpty) {
           return list
-              .map((e) => Map<String, dynamic>.from(e as Map))
+              .map((e) {
+                final bruto = Map<String, dynamic>.from(e as Map);
+                return normalizeFinanceRowMap(
+                  bruto,
+                  (bruto['id'] ?? '').toString(),
+                );
+              })
               .where((row) {
                 final dt = _financeDate(row);
                 if (dt == null) return true;
@@ -321,12 +327,24 @@ abstract final class ChurchRelatoriosLoadService {
   }
 
   static DateTime? _financeDate(Map<String, dynamic> m) {
+    final ms = m['createdAtMs'];
+    if (ms is num && ms > 0) {
+      return DateTime.fromMillisecondsSinceEpoch(ms.toInt());
+    }
     final raw = m['createdAt'] ?? m['data'] ?? m['date'];
     if (raw is Timestamp) return raw.toDate();
     if (raw is DateTime) return raw;
     if (raw is int && raw > 0) {
       return DateTime.fromMillisecondsSinceEpoch(raw);
     }
+    if (raw is Map) {
+      final sec = raw['seconds'] ?? raw['_seconds'];
+      final n = sec is num ? sec.toInt() : int.tryParse('$sec');
+      if (n != null && n > 0) {
+        return DateTime.fromMillisecondsSinceEpoch(n * 1000);
+      }
+    }
+    if (raw != null) return DateTime.tryParse(raw.toString());
     return null;
   }
 
@@ -374,21 +392,39 @@ abstract final class ChurchRelatoriosLoadService {
 
   static Map<String, dynamic> _normalizeFinanceRow(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) =>
+      normalizeFinanceRowMap(doc.data(), doc.id);
+
+  /// Normaliza um lançamento venha ele do SDK, do REST ou da Cloud Function.
+  ///
+  /// A fonte muda o formato: a função devolve `type`/`description`/`date` como
+  /// estão no Firestore, o SDK devolve `Timestamp`, o REST devolve mapas
+  /// `{_seconds}`. O relatório não pode saber de onde veio.
+  static Map<String, dynamic> normalizeFinanceRowMap(
+    Map<String, dynamic> data,
+    String id,
   ) {
-    final m = doc.data();
-    final dataWithId = {...m, 'id': doc.id};
+    final m = data;
+    final dataWithId = {...m, 'id': id};
     final dt = financeLancamentoDate(m);
     final valor = financeParseValorBr(m['amount'] ?? m['valor']);
     final tipo = financeInferTipo(dataWithId);
     return {
-      'id': doc.id,
+      'id': id,
       'createdAtMs': dt?.millisecondsSinceEpoch ?? 0,
       'createdAt': m['createdAt'] ?? m['data'],
       'tipo': tipo,
       'type': m['type'] ?? m['tipo'],
       'amount': valor,
-      'categoria': (m['categoria'] ?? '').toString(),
-      'descricao': (m['descricao'] ?? m['anotacoes'] ?? '').toString(),
+      // O editor do Financeiro grava em ingles (`category`/`description`); os
+      // fluxos antigos gravam em portugues. Ler so um dos lados deixava o
+      // relatorio com categoria e descricao em branco.
+      'categoria': (m['categoria'] ?? m['category'] ?? '').toString(),
+      'descricao':
+          (m['descricao'] ?? m['description'] ?? m['anotacoes'] ?? '')
+              .toString(),
+      'membroId': (m['membroId'] ?? m['memberId'] ?? '').toString(),
+      'membroNome': (m['membroNome'] ?? '').toString(),
       'valor': valor,
       'contaOrigemId': (m['contaOrigemId'] ?? '').toString(),
       'contaDestinoId': (m['contaDestinoId'] ?? '').toString(),
