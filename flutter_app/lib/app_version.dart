@@ -1,4 +1,4 @@
-/// Single source of app version used everywhere.
+﻿/// Single source of app version used everywhere.
 /// 11.2.305+2204: Recuperação total da acentuação (207 arquivos ASCII-ficados por
 /// script) — corrige o RegExp partido em utf8_mojibake_fix.dart que derrubava
 /// TODO módulo que lê Firestore (Membros, Departamentos). Botão «Cadastrar novo
@@ -505,7 +505,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2220';
+const String appBuildNumber = '2221';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

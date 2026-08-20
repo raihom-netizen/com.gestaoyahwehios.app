@@ -72,9 +72,24 @@ $versionJsonPretty = @{
 } | ConvertTo-Json
 Set-Content $webVersionFile -Value $versionJsonPretty -Encoding UTF8
 
+# web/index.html carrega flutter_bootstrap.js?v=NNNN. Se este numero nao subir,
+# o browser reaproveita o bootstrap antigo e o utilizador continua na versao
+# anterior mesmo com o deploy feito (ja aconteceu: version.json 2210 servido
+# junto de ?v=2199). Faz parte do bump, nao do build.
+$indexFile = Join-Path $appDir "web\index.html"
+if (Test-Path $indexFile) {
+    $idx = Get-Content $indexFile -Raw -Encoding UTF8
+    $idxNovo = [regex]::Replace($idx, 'flutter_bootstrap\.js\?v=\d+', "flutter_bootstrap.js?v=$buildNum")
+    if ($idxNovo -ne $idx) {
+        Set-Content $indexFile -Value $idxNovo -Encoding UTF8 -NoNewline
+        Write-Host "  - web/index.html (?v=$buildNum)"
+    }
+}
+
 Write-Host "Versao atualizada: $marketing+$buildNum" -ForegroundColor Green
 Write-Host "  - lib/app_version.dart"
 Write-Host "  - pubspec.yaml"
 Write-Host "  - web/version.json"
+Write-Host "  - web/index.html (cache-bust ?v=)"
 Write-Host ""
 Write-Host "Marketing fixo: $LockedMarketing (use -NewMarketing apenas se pedido explicitamente)."
