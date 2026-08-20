@@ -7,7 +7,7 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
@@ -1020,7 +1020,11 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   }
 
   Future<void> _bindHomeWidgetLaunchListener() async {
-    if (kIsWeb) return;
+    // Widgets de ecra inicial so existem em Android e iOS. No Windows o
+    // `home_widget` nao tem implementacao e o `.listen` do EventChannel
+    // rebentava com MissingPluginException no arranque — a mesma classe de
+    // defeito ja corrigida no FcmService (plugin sem plataforma, sem guarda).
+    if (kIsWeb || !_plataformaTemWidgetsDeEcra) return;
     try {
       final uri = await HomeWidget.initiallyLaunchedFromHomeWidget();
       _openModuleFromWidgetUri(uri);
@@ -1032,8 +1036,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     await _consumeAndroidWidgetPendingModule();
   }
 
+  /// Android e iOS — as unicas plataformas com `home_widget`.
+  bool get _plataformaTemWidgetsDeEcra =>
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+
   Future<void> _consumeAndroidWidgetPendingModule() async {
-    if (kIsWeb) return;
+    if (kIsWeb || !_plataformaTemWidgetsDeEcra) return;
     try {
       const ch = MethodChannel('gestaoyahweh/launcher');
       final raw = await ch.invokeMethod<dynamic>('takePendingModule');
