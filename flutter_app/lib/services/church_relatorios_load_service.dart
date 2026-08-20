@@ -63,6 +63,19 @@ abstract final class ChurchRelatoriosLoadService {
   ///
   /// Chamado por [ChurchTenantSwitchPurge]. Sem isto o painel mudava de
   /// igreja e continuava a servir o que ja estava em memoria.
+  /// Esquece os lançamentos em cache desta igreja.
+  ///
+  /// Chamado pelo [FinanceTransactionsHub] a cada criação, edição ou
+  /// exclusão: o relatório tem de refletir na hora, não ao fim do TTL.
+  static void invalidateFinance(String churchIdHint) {
+    final id = _churchId(churchIdHint);
+    if (id.isEmpty) {
+      _financeRam.clear();
+      return;
+    }
+    _financeRam.removeWhere((k, _) => k.startsWith('$id|'));
+  }
+
   static void purgarNaTrocaDeIgreja() {
     _membrosRam.clear();
     _financeRam.clear();

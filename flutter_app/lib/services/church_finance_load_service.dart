@@ -817,6 +817,25 @@ abstract final class ChurchFinanceLoadService {
     return _mergeFinanceDocs(primary, legacy, sortDocs);
   }
 
+  /// Esquece so o que esta em RAM — o cache offline (Hive) fica.
+  ///
+  /// E o que se quer a cada gravacao: a proxima leitura vai a rede e traz o
+  /// valor novo, mas o arranque a frio continua a ter dados para pintar na
+  /// hora. [invalidate] apaga tambem o Hive e serve para trocas de contexto,
+  /// nao para cada save.
+  static void invalidateRam(String seedTenantId) {
+    final churchId = _resolve(seedTenantId);
+    if (churchId.isEmpty) return;
+    _ramLancamentos.removeWhere((k, _) => k.startsWith(churchId));
+    _ramContas.remove(cacheKeyContas(churchId));
+    _ramFinanceLogs.removeWhere(
+      (k, _) => k.startsWith('${churchId}_finance_logs_'),
+    );
+    _ramFinanceMpNotifications.removeWhere(
+      (k, _) => k.startsWith('${churchId}_finance_mp_notifications_'),
+    );
+  }
+
   static Future<void> invalidate(String seedTenantId) async {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) return;

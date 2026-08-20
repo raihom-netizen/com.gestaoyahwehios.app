@@ -2,6 +2,8 @@
 
 import 'package:flutter/foundation.dart';
 
+import 'package:gestao_yahweh/services/church_relatorios_load_service.dart';
+import 'package:gestao_yahweh/services/church_finance_load_service.dart';
 import 'package:gestao_yahweh/services/finance_opening_balance_service.dart';
 import 'package:gestao_yahweh/services/post_save_background_coordinator.dart';
 
@@ -78,6 +80,12 @@ abstract final class FinanceTransactionsHub {
         }
       }
       if (u != null && u.isNotEmpty) {
+        // Sem isto, quem recarregasse sem `forceRefresh` recebia a lista
+        // velha do cache em RAM: o total do membro/fornecedor so mudava ao
+        // fim do TTL ou com «Atualizar» a mao. Avisar os ecras e deixar o
+        // cache com o que ja nao existe e meio caminho.
+        ChurchFinanceLoadService.invalidateRam(u);
+        ChurchRelatoriosLoadService.invalidateFinance(u);
         PostSaveBackgroundCoordinator.scheduleFinanceWidget(u);
       }
     });

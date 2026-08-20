@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_transaction_list_tile.dart';
 import 'package:gestao_yahweh/services/finance_accounts_service.dart';
@@ -190,10 +191,29 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
   List<FinanceAccount> _contas = const [];
   UserProfile? _perfil;
 
+  int _revisaoHub = -1;
+
+  /// Recarrega quando um lançamento e criado, editado ou apagado em QUALQUER
+  /// ecra — inclusive no módulo Financeiro. Sem isto o financeiro do
+  /// fornecedor ficava parado no valor antigo.
+  void _aoMudarNoFinanceiro() {
+    final r = FinanceTransactionsHub.revision.value;
+    if (r == _revisaoHub) return;
+    _revisaoHub = r;
+    if (mounted) unawaited(_load(force: true));
+  }
+
   @override
   void initState() {
     super.initState();
+    FinanceTransactionsHub.revision.addListener(_aoMudarNoFinanceiro);
     _load();
+  }
+
+  @override
+  void dispose() {
+    FinanceTransactionsHub.revision.removeListener(_aoMudarNoFinanceiro);
+    super.dispose();
   }
 
   Future<void> _load({bool force = false}) async {
@@ -652,10 +672,28 @@ class _FornecedoresFinanceModuloTabState
     if (mounted) unawaited(_load(force: true));
   }
 
+  int _revisaoHub = -1;
+
+  /// Qualquer lancamento criado, editado ou apagado noutro ecra tem de mexer
+  /// nos totais desta aba — o dinheiro e o mesmo.
+  void _aoMudarNoFinanceiro() {
+    final r = FinanceTransactionsHub.revision.value;
+    if (r == _revisaoHub) return;
+    _revisaoHub = r;
+    if (mounted) unawaited(_load(force: true));
+  }
+
   @override
   void initState() {
     super.initState();
+    FinanceTransactionsHub.revision.addListener(_aoMudarNoFinanceiro);
     _load();
+  }
+
+  @override
+  void dispose() {
+    FinanceTransactionsHub.revision.removeListener(_aoMudarNoFinanceiro);
+    super.dispose();
   }
 
   Future<void> _load({bool force = false}) async {
