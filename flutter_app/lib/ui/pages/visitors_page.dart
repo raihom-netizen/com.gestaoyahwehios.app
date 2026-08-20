@@ -1,3 +1,5 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:gestao_yahweh/utils/yahweh_date_range_picker.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -2824,8 +2826,8 @@ class _VisitorsReportPanel extends StatelessWidget {
 
   Future<void> _pickCustomRange(BuildContext context) async {
     final now = DateTime.now();
-    final picked = await showDateRangePicker(
-      context: context,
+    final picked = await escolherIntervaloDeDatas(
+      context,
       firstDate: DateTime(2020, 1, 1),
       lastDate: DateTime(now.year + 1, 12, 31),
       initialDateRange:
@@ -2991,7 +2993,7 @@ class _VisitorsReportPanel extends StatelessWidget {
                       label: Text(
                         customRange == null
                             ? 'Escolher datas'
-                            : '${_dd(customRange!.start)} ? ${_dd(customRange!.end)}',
+                            : '${_dd(customRange!.start)} — ${_dd(customRange!.end)}',
                       ),
                     ),
                 ],
@@ -3105,7 +3107,7 @@ class _VisitorsReportPanel extends StatelessWidget {
                               series: s,
                               start: bucket.start,
                               endExclusive: bucket.endExclusive,
-                              label: '${s.label} ? ${bucket.label}',
+                              label: '${s.label} — ${bucket.label}',
                             ),
                           );
                         },
@@ -3711,7 +3713,7 @@ class _VisitorFormPageState extends State<_VisitorFormPage> {
       'email': _emailCtrl.text.trim(),
       'comoConheceu': _comoConheceu,
       'observacoes': _obsCtrl.text.trim(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
 
     try {
@@ -4653,7 +4655,7 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
     if (picked != null && picked != v.status && context.mounted) {
       await _patchVisitorDoc({
         'status': picked,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       });
     }
   }
@@ -4733,12 +4735,12 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
         'status': 'ativo',
         'origemVisitante': true,
         'visitanteId': v.id,
-        'createdAt': FieldValue.serverTimestamp(),
+        'createdAt': YahwehFv.serverTimestamp,
       });
       await _patchVisitorDoc({
         'status': 'Convertido',
-        'convertedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'convertedAt': YahwehFv.serverTimestamp,
+        'updatedAt': YahwehFv.serverTimestamp,
       });
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -4854,12 +4856,12 @@ class _VisitorDetailsPageState extends State<_VisitorDetailsPage> {
                       'tipo': tipoCtrl.value,
                       'notas': notasCtrl.text.trim(),
                       'responsavel': responsavelCtrl.text.trim(),
-                      'data': FieldValue.serverTimestamp(),
+                      'data': YahwehFv.serverTimestamp,
                     });
                     await _patchVisitorDoc({
-                      'followupCount': FieldValue.increment(1),
-                      'ultimoFollowupAt': FieldValue.serverTimestamp(),
-                      'updatedAt': FieldValue.serverTimestamp(),
+                      'followupCount': YahwehFv.increment(1),
+                      'ultimoFollowupAt': YahwehFv.serverTimestamp,
+                      'updatedAt': YahwehFv.serverTimestamp,
                     });
                     if (ctx.mounted) Navigator.pop(ctx, true);
                   },

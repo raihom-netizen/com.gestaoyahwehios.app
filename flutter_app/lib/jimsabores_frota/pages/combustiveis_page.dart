@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -100,7 +101,7 @@ class _CombustiveisPageState extends State<CombustiveisPage> {
       for (final entry in entries.sublist(i, fim)) {
         batch.set(entry.key, {
           ...entry.value,
-          'updated_at': FieldValue.serverTimestamp(),
+          'updated_at': YahwehFv.serverTimestamp,
         }, SetOptions(merge: true));
       }
       await batch.commit();
@@ -170,13 +171,13 @@ class _CombustiveisPageState extends State<CombustiveisPage> {
       'nome': nome,
       'ativo': ativo,
       'nome_lower': nome.toLowerCase(),
-      'updated_at': FieldValue.serverTimestamp(),
+      'updated_at': YahwehFv.serverTimestamp,
     };
 
     if (doc == null) {
       await FrotaFirestorePaths.combustiveis().add({
         ...payload,
-        'created_at': FieldValue.serverTimestamp(),
+        'created_at': YahwehFv.serverTimestamp,
       });
     } else {
       await YahwehDocWrite.set(doc.reference as DocumentReference<Map<String, dynamic>>, payload);

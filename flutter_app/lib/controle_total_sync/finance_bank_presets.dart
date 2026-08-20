@@ -1,6 +1,6 @@
 ﻿import 'package:flutter/material.dart';
 
-/// Institui├º├Áes brasileiras comuns ÔÇö cores + sigla; miniatura embutida em assets (ver `finance_bank_brand_thumb.dart`).
+/// Instituições brasileiras comuns — cores + sigla; miniatura embutida em assets (ver `finance_bank_brand_thumb.dart`).
 class FinanceBankPreset {
   final String id;
   final String name;
@@ -19,11 +19,11 @@ class FinanceBankPreset {
   });
 }
 
-/// Lista fixa para o usu├írio escolher ao cadastrar conta/cart├úo.
+/// Lista fixa para o usuário escolher ao cadastrar conta/cartão.
 const List<FinanceBankPreset> kFinanceBankPresets = [
   FinanceBankPreset(id: 'bradesco', name: 'Bradesco', initials: 'BR', color1: Color(0xFF5C1848), color2: Color(0xFFE3061A), icon: Icons.account_balance_rounded),
-  FinanceBankPreset(id: 'itau', name: 'Ita├║', initials: 'IT', color1: Color(0xFFFF8C00), color2: Color(0xFFEC7000), icon: Icons.account_balance_rounded),
-  FinanceBankPreset(id: 'caixa', name: 'Caixa Econ├┤mica', initials: 'CX', color1: Color(0xFF003366), color2: Color(0xFF0066B3), icon: Icons.account_balance_rounded),
+  FinanceBankPreset(id: 'itau', name: 'Itaú', initials: 'IT', color1: Color(0xFFFF8C00), color2: Color(0xFFEC7000), icon: Icons.account_balance_rounded),
+  FinanceBankPreset(id: 'caixa', name: 'Caixa Econômica', initials: 'CX', color1: Color(0xFF003366), color2: Color(0xFF0066B3), icon: Icons.account_balance_rounded),
   FinanceBankPreset(id: 'nubank', name: 'Nubank', initials: 'NU', color1: Color(0xFF820AD1), color2: Color(0xFF4A0072), icon: Icons.credit_card_rounded),
   FinanceBankPreset(id: 'c6', name: 'C6 Bank', initials: 'C6', color1: Color(0xFF1A1A1A), color2: Color(0xFF505050), icon: Icons.credit_card_rounded),
   FinanceBankPreset(id: 'santander', name: 'Santander', initials: 'ST', color1: Color(0xFFEC0000), color2: Color(0xFFAA0000), icon: Icons.account_balance_rounded),
@@ -42,7 +42,7 @@ const List<FinanceBankPreset> kFinanceBankPresets = [
   FinanceBankPreset(id: 'neon', name: 'Neon', initials: 'NE', color1: Color(0xFF00E5FF), color2: Color(0xFF00B4D8), icon: Icons.credit_card_rounded),
   FinanceBankPreset(id: 'will', name: 'Will Bank', initials: 'WL', color1: Color(0xFF7C4DFF), color2: Color(0xFF5E35B1), icon: Icons.credit_card_rounded),
   FinanceBankPreset(id: 'outro_banco', name: 'Outro banco', initials: 'BK', color1: Color(0xFF475569), color2: Color(0xFF334155), icon: Icons.account_balance_rounded),
-  FinanceBankPreset(id: 'outro_cartao', name: 'Outro cart├úo', initials: 'CR', color1: Color(0xFF64748B), color2: Color(0xFF475569), icon: Icons.credit_card_rounded),
+  FinanceBankPreset(id: 'outro_cartao', name: 'Outro cartão', initials: 'CR', color1: Color(0xFF64748B), color2: Color(0xFF475569), icon: Icons.credit_card_rounded),
 ];
 
 FinanceBankPreset? financeBankPresetById(String? id) {
@@ -53,7 +53,7 @@ FinanceBankPreset? financeBankPresetById(String? id) {
   return null;
 }
 
-/// Cor do nome da conta em listas claras (ex.: ┬½Saldo por contas┬╗ no painel).
+/// Cor do nome da conta em listas claras (ex.: «Saldo por contas» no painel).
 const Color _kFinanceAccountTitleDefault = Color(0xFF1A237E);
 
 Color financeAccountListTitleColor(FinanceBankPreset? p) {

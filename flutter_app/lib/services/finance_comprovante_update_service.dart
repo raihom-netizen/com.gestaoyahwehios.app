@@ -9,7 +9,7 @@ import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/finance_comprovante_publish_service.dart';
 import 'package:gestao_yahweh/services/fornecedor_compromisso_publish_service.dart';
 
-/// Comprovantes ÔÇö paths can├│nicos `igrejas/{churchId}/ÔÇª` via [ChurchRepository.churchId].
+/// Comprovantes — paths canónicos `igrejas/{churchId}/…` via [ChurchRepository.churchId].
 abstract final class FinanceComprovanteUpdateService {
   FinanceComprovanteUpdateService._();
 
@@ -136,7 +136,7 @@ abstract final class FinanceComprovanteUpdateService {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Sem permiss├úo para alterar comprovantes.'),
+            content: Text('Sem permissão para alterar comprovantes.'),
           ),
         );
       }

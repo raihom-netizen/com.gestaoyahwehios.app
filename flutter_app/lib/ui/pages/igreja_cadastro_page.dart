@@ -1538,7 +1538,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       'STATUS': 'ativo',
       'status': 'ativo',
       'GESTOR_SYNC': true,
-      'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+      'ATUALIZADO_EM': YahwehFv.serverTimestamp,
       'podeVerFinanceiro': false,
       'podeVerPatrimonio': false,
     };
@@ -1551,7 +1551,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       );
     }
     if (!existingExists) {
-      payload['CRIADO_EM'] = FieldValue.serverTimestamp();
+      payload['CRIADO_EM'] = YahwehFv.serverTimestamp;
     }
     await FirestoreWebGuard.runWithWebRecovery(
       () => YahwehDocWrite.set(ref, payload),
@@ -1649,7 +1649,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                 'FUNCOES': funcoes,
                 if (authUidForPayload.isNotEmpty) 'uid': authUidForPayload,
                 if (authUidForPayload.isNotEmpty) 'authUid': authUidForPayload,
-                'updatedAt': FieldValue.serverTimestamp(),
+                'updatedAt': YahwehFv.serverTimestamp,
               }, SetOptions(merge: true)),
         ),
       );
@@ -1674,7 +1674,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                 'FUNCOES': funcoes,
                 'uid': authUidForPayload,
                 'authUid': authUidForPayload,
-                'updatedAt': FieldValue.serverTimestamp(),
+                'updatedAt': YahwehFv.serverTimestamp,
               }, SetOptions(merge: true)),
         ),
       );
@@ -1921,9 +1921,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         'churchCanonicalId': resolvedId,
         'canonicalTenantId': resolvedId,
         'registrationComplete': true,
-        'alias': FieldValue.delete(),
-        'slug': FieldValue.delete(),
-        'slugId': FieldValue.delete(),
+        'alias': YahwehFv.deleteField,
+        'slug': YahwehFv.deleteField,
+        'slugId': YahwehFv.deleteField,
         'cidade': _cidadeCtrl.text.trim().isEmpty
             ? null
             : _cidadeCtrl.text.trim(),
@@ -1946,16 +1946,16 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
             : _telefoneCtrl.text.trim(),
         ...(cnpjDigits.isEmpty
             ? <String, dynamic>{
-                'cnpj': FieldValue.delete(),
-                'CNPJ': FieldValue.delete(),
-                'cnpjCpf': FieldValue.delete(),
+                'cnpj': YahwehFv.deleteField,
+                'CNPJ': YahwehFv.deleteField,
+                'cnpjCpf': YahwehFv.deleteField,
               }
             : <String, dynamic>{
                 'cnpj': _cnpjIgrejaCtrl.text.trim(),
                 'CNPJ': _cnpjIgrejaCtrl.text.trim(),
                 'cnpjCpf': _cnpjIgrejaCtrl.text.trim(),
               }),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       };
 
       void mergeOptionalUrl(
@@ -1964,9 +1964,9 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         List<String> legacyKeys,
       ) {
         if (trimmed.isEmpty) {
-          data[primaryKey] = FieldValue.delete();
+          data[primaryKey] = YahwehFv.deleteField;
           for (final k in legacyKeys) {
-            data[k] = FieldValue.delete();
+            data[k] = YahwehFv.deleteField;
           }
         } else {
           data[primaryKey] = trimmed;
@@ -1995,7 +1995,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         'linkWhatsapp',
       ]);
       if (waDigits.isEmpty) {
-        data['whatsapp'] = FieldValue.delete();
+        data['whatsapp'] = YahwehFv.deleteField;
       } else {
         data['whatsapp'] = waDigits;
       }
@@ -2015,7 +2015,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       }
       for (final k in ChurchBrandService.legacyLogoUrlFirestoreKeys) {
         if (k == 'logoUrl') continue;
-        data[k] = FieldValue.delete();
+        data[k] = YahwehFv.deleteField;
       }
       final enderecoCompleto = _buildEnderecoCompleto();
       if (enderecoCompleto.isNotEmpty) data['endereco'] = enderecoCompleto;
@@ -2039,7 +2039,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
       if (anosLegado != null) {
         data['carteiraValidadeAnos'] = anosLegado;
       } else {
-        data['carteiraValidadeAnos'] = FieldValue.delete();
+        data['carteiraValidadeAnos'] = YahwehFv.deleteField;
       }
       if (_carteiraValidadeModo == CarteiraValidadeModo.dataFixa &&
           _carteiraValidadeDataFixa != null) {
@@ -2047,7 +2047,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
           _carteiraValidadeDataFixa!,
         );
       } else {
-        data[CarteiraValidadeChurch.firestoreKeyDataFixa] = FieldValue.delete();
+        data[CarteiraValidadeChurch.firestoreKeyDataFixa] = YahwehFv.deleteField;
       }
 
       if (slugRaw.isNotEmpty) {
@@ -2086,7 +2086,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
         }
       }
 
-      data['sitePrimaryHex'] = FieldValue.delete();
+      data['sitePrimaryHex'] = YahwehFv.deleteField;
 
       await ChurchCadastroSaveService.saveChurchProfile(
         churchId: resolvedId,

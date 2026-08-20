@@ -2315,9 +2315,9 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       await YahwehDocWrite.set(doc.reference, {
         'active': !archive,
         'ativo': !archive,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
         ChurchDepartmentFirestoreFields.ultimaAtualizacao:
-            FieldValue.serverTimestamp(),
+            YahwehFv.serverTimestamp,
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3310,7 +3310,7 @@ class _DepartmentsPageState extends State<DepartmentsPage> {
       ...leaderPayload,
       'updatedAt': Timestamp.now(),
       ChurchDepartmentFirestoreFields.ultimaAtualizacao:
-          FieldValue.serverTimestamp(),
+          YahwehFv.serverTimestamp,
       'active': true,
     };
     final user = FirebaseAuth.instance.currentUser;

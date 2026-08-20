@@ -1,7 +1,7 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -61,7 +61,7 @@ class _MasterFeatureFlagsPageState extends State<MasterFeatureFlagsPage> {
       await FirestoreWebGuard.runWithWebRecovery(
         () => YahwehDocWrite.set(firebaseDefaultFirestore.doc(_docPath), {
           ..._flags,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
           'updatedBy': firebaseDefaultAuth.currentUser?.email,
         }),
       );

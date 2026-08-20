@@ -204,7 +204,7 @@ abstract final class ChurchFeedLinearPublishService {
               final bytes = await f.readAsBytes();
               if (bytes.isEmpty) {
                 throw StateError(
-                  'Foto do evento vazia ÔÇö selecione outra imagem.',
+                  'Foto do evento vazia — selecione outra imagem.',
                 );
               }
               return bytes;
@@ -301,7 +301,7 @@ abstract final class ChurchFeedLinearPublishService {
               final bytes = await f.readAsBytes();
               if (bytes.isEmpty) {
                 throw StateError(
-                  'Foto do aviso vazia ÔÇö selecione outra imagem.',
+                  'Foto do aviso vazia — selecione outra imagem.',
                 );
               }
               return bytes;

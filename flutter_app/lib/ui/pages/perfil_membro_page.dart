@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -130,7 +131,7 @@ class _PerfilMembroPageState extends State<PerfilMembroPage> {
         .doc(scheduleDocId);
     await YahwehDocWrite.update(ref, {
       'confirmations.$cpfDigits': 'confirmado',
-      'unavailabilityReasons.$cpfDigits': FieldValue.delete(),
+      'unavailabilityReasons.$cpfDigits': YahwehFv.deleteField,
     });
   }
 

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -2515,7 +2516,7 @@ class _PanelFinanceContaMovimentosState extends State<_PanelFinanceContaMoviment
     if (kIsWeb) {
       await firestoreRestUpdateDoc(
         doc.reference.path,
-        setFields: {field: !atual, 'updatedAt': FieldValue.serverTimestamp()},
+        setFields: {field: !atual, 'updatedAt': YahwehFv.serverTimestamp},
       );
     } else {
       await YahwehDocWrite.update(doc.reference, {field: !atual});

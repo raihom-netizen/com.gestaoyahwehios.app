@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -451,7 +452,7 @@ abstract final class MemberCardDirectoryService {
     try {
       await YahwehDocWrite.set(_signatoryCacheRef(churchId), {
         'items': list.map((e) => e.toFirestoreIndexEntry()).toList(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
         'source': 'client',
       });
     } catch (_) {}

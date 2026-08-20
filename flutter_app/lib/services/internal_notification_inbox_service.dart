@@ -33,7 +33,7 @@ abstract final class InternalNotificationInboxService {
         'tenantId': ?tenantId,
         'deepLink': ?deepLink,
         'read': false,
-        'createdAt': FieldValue.serverTimestamp(),
+        'createdAt': YahwehFv.serverTimestamp,
         'meta': ?meta,
       });
     } catch (_) {}
@@ -48,7 +48,7 @@ abstract final class InternalNotificationInboxService {
 
   static Future<void> markRead(DocumentReference<Map<String, dynamic>> ref) async {
     try {
-      await YahwehDocWrite.update(ref, {'read': true, 'readAt': FieldValue.serverTimestamp()});
+      await YahwehDocWrite.update(ref, {'read': true, 'readAt': YahwehFv.serverTimestamp});
     } catch (_) {}
   }
 

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/utils/yahweh_date_range_picker.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -206,8 +207,8 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
     final now = DateTime.now();
     final initialStart = _customStart ?? now.subtract(const Duration(days: 30));
     final initialEnd = _customEnd ?? now;
-    final range = await showDateRangePicker(
-      context: context,
+    final range = await escolherIntervaloDeDatas(
+      context,
       firstDate: DateTime(2020),
       lastDate: DateTime(now.year + 1, 12, 31),
       initialDateRange: DateTimeRange(start: initialStart, end: initialEnd),

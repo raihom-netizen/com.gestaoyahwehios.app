@@ -83,8 +83,8 @@ abstract final class PendingUploadsFirestoreService {
       'status': status,
       'progress': progress,
       'contentType': contentType,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': YahwehFv.serverTimestamp,
+      'updatedAt': YahwehFv.serverTimestamp,
       if (localPath != null && localPath.isNotEmpty) 'localPath': localPath,
       if (alias != null && alias.isNotEmpty) 'canonicalPathHint': alias,
       ...?meta,
@@ -172,7 +172,7 @@ abstract final class PendingUploadsFirestoreService {
     final patch = {
       'progress': progress.clamp(0.0, 1.0),
       'status': status,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
     try {
       await YahwehDocWrite.set(_col(tenantId).doc(uploadId), patch);
@@ -215,7 +215,7 @@ abstract final class PendingUploadsFirestoreService {
     final patch = {
       'status': 'failed',
       'lastError': error.toString(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
     try {
       await YahwehDocWrite.set(_col(tenantId).doc(uploadId), patch);

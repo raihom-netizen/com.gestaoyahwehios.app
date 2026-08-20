@@ -3,7 +3,7 @@
 import 'package:gestao_yahweh/services/sync_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// Feedback breve ap├│s grava├º├úo no financeiro (via [SyncService]).
+/// Feedback breve após gravação no financeiro (via [SyncService]).
 void showFinanceSaveSnackBar(
   BuildContext context, {
   required String message,

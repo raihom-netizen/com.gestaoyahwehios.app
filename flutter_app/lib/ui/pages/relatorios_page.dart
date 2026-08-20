@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/utils/yahweh_date_range_picker.dart';
 import 'dart:async' show Timer, unawaited;
 import 'dart:convert';
 import 'dart:math' as math;
@@ -2742,7 +2743,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
       case _FinancePeriodMode.fullYear:
         return 'Ano $_ano';
       case _FinancePeriodMode.custom:
-        return '${DateFormat('dd/MM/yyyy').format(p.inicio)} ? ${DateFormat('dd/MM/yyyy').format(p.fim)}';
+        return '${DateFormat('dd/MM/yyyy').format(p.inicio)} — ${DateFormat('dd/MM/yyyy').format(p.fim)}';
     }
   }
 
@@ -2762,8 +2763,8 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
     final now = DateTime.now();
     final start = _customRangeStart ?? DateTime(_ano, _mes, 1);
     final end = _customRangeEnd ?? DateTime(_ano, _mes + 1, 0);
-    final range = await showDateRangePicker(
-      context: context,
+    final range = await escolherIntervaloDeDatas(
+      context,
       firstDate: DateTime(now.year - 8),
       lastDate: DateTime(now.year + 1, 12, 31),
       initialDateRange: DateTimeRange(start: start, end: end),
@@ -2907,7 +2908,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
                   (e) => DropdownMenuItem<String>(
                     value: e.id,
                     child: Text(
-                      e.cargo.isEmpty ? e.nome : '${e.nome} ? ${e.cargo}',
+                      e.cargo.isEmpty ? e.nome : '${e.nome} — ${e.cargo}',
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -4614,7 +4615,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
     ('valor', 'Valor (R\$)'),
     ('localizacao', 'Localização'),
     ('responsavel', 'Responsável'),
-    ('numeroSerie', 'N? Série'),
+    ('numeroSerie', 'Nº Série'),
     ('dataAquisicao', 'Data Aquisição'),
     ('proximaManutencao', 'Próx. Manutenção'),
     ('descricao', 'Descrição'),
@@ -4638,17 +4639,39 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
   }
 
   static String _fmtMoney(dynamic v) {
-    if (v == null) return '?';
+    if (v == null) return '—';
     final n = v is num ? v.toDouble() : double.tryParse(v.toString());
-    if (n == null) return '?';
+    if (n == null) return '—';
     return 'R\$ ${n.toStringAsFixed(2).replaceAll('.', ',')}';
   }
 
+  /// Data de qualquer origem: SDK, REST, cache Hive ou JSON.
+  ///
+  /// Sem o ramo do mapa `{_seconds, _nanoseconds}`, a leitura por REST caia no
+  /// `toString()` e o relatorio imprimia literalmente
+  /// `{_seconds: 1784587883, _nanoseconds: 170000000}` na coluna da data.
   static String _fmtDate(dynamic v) {
-    if (v == null) return '?';
+    if (v == null) return '—';
     if (v is Timestamp) return DateFormat('dd/MM/yyyy').format(v.toDate());
     if (v is DateTime) return DateFormat('dd/MM/yyyy').format(v);
-    return v.toString();
+    if (v is Map) {
+      final sec = v['seconds'] ?? v['_seconds'];
+      final n = sec is num ? sec.toInt() : int.tryParse('$sec');
+      if (n != null && n > 0) {
+        return DateFormat('dd/MM/yyyy')
+            .format(DateTime.fromMillisecondsSinceEpoch(n * 1000));
+      }
+      return '—';
+    }
+    if (v is num) {
+      final ms = v > 100000000000 ? v.toInt() : v.toInt() * 1000;
+      if (ms <= 0) return '—';
+      return DateFormat('dd/MM/yyyy')
+          .format(DateTime.fromMillisecondsSinceEpoch(ms));
+    }
+    final parsed = DateTime.tryParse(v.toString());
+    if (parsed != null) return DateFormat('dd/MM/yyyy').format(parsed);
+    return '—';
   }
 
   String _cellValue(Map<String, dynamic> m, String key) {

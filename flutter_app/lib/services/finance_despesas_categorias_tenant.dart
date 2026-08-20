@@ -3,24 +3,24 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 
-/// Categorias de despesa padr├úo (seed). Alinhado ao m├│dulo financeiro.
+/// Categorias de despesa padrão (seed). Alinhado ao módulo financeiro.
 const kCategoriasDespesaPadrao = [
-  '├ügua',
+  'Água',
   'Ajuda Social',
-  'Energia El├®trica',
+  'Energia Elétrica',
   'Eventos',
   'Impostos',
   'Internet',
-  'Investimentos em M├¡dia',
-  'Manuten├º├úo',
+  'Investimentos em Mídia',
+  'Manutenção',
   'Material de Limpeza',
-  'Oferta Mission├íria',
+  'Oferta Missionária',
   'Pagamento de Obreiros',
   'Prebenda',
-  'Sal├írios',
-  'Material de Escrit├│rio',
+  'Salários',
+  'Material de Escritório',
   'Transporte',
-  'Alimenta├º├úo',
+  'Alimentação',
   'Outros',
 ];
 
@@ -37,7 +37,7 @@ Future<void> _seedCategoriasDespesaFirestore(
   } catch (_) {}
 }
 
-/// Categorias de despesa do tenant, com cria├º├úo dos documentos padr├úo se a cole├º├úo estiver vazia.
+/// Categorias de despesa do tenant, com criação dos documentos padrão se a coleção estiver vazia.
 Future<List<String>> getCategoriasDespesaForTenant(String tenantId) async {
   try {
     final op = ChurchRepository.churchId(tenantId.trim());

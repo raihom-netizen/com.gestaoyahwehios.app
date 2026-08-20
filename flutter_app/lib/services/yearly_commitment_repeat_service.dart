@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -629,11 +630,11 @@ class YearlyCommitmentRepeatService {
     );
 
     if (weekdays.isEmpty) {
-      template['yearlyRepeatWeekdays'] = FieldValue.delete();
+      template['yearlyRepeatWeekdays'] = YahwehFv.deleteField;
     }
-    template['reminderLeads'] = FieldValue.delete();
-    template['notificationSoundId'] = FieldValue.delete();
-    template['notificationDeliveryMode'] = FieldValue.delete();
+    template['reminderLeads'] = YahwehFv.deleteField;
+    template['notificationSoundId'] = YahwehFv.deleteField;
+    template['notificationDeliveryMode'] = YahwehFv.deleteField;
 
     if (planChanged) {
       await _clearAllInstancesFromCalendar(
@@ -718,8 +719,8 @@ class YearlyCommitmentRepeatService {
     if (templateId != null && year != null) {
       try {
         await YahwehDocWrite.set(_reminders(userDocId).doc(templateId), {
-          'yearlyRepeatExcludedYears': FieldValue.arrayUnion([year]),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'yearlyRepeatExcludedYears': YahwehFv.arrayUnion([year]),
+          'updatedAt': YahwehFv.serverTimestamp,
         });
       } catch (_) {}
     }
@@ -808,7 +809,7 @@ class YearlyCommitmentRepeatService {
       if (y != null && y >= now.year) {
         try {
           await YahwehDocWrite.set(_reminders(userDocId).doc(id), {
-            'agendaNotifResyncAt': FieldValue.serverTimestamp(),
+            'agendaNotifResyncAt': YahwehFv.serverTimestamp,
           });
         } catch (_) {}
       }
@@ -830,7 +831,7 @@ class YearlyCommitmentRepeatService {
     await YahwehDocWrite.set(_reminders(userDocId).doc(templateId), {
       'isYearlyRepeatTemplate': true,
       'repeatYearly': true,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
 
     final month = (templateData['yearlyRepeatMonth'] as num?)?.toInt() ??
@@ -1002,9 +1003,9 @@ class YearlyCommitmentRepeatService {
       linkLocalizacao: linkLoc,
       contatoWhatsApp: wa,
     );
-    payload['reminderLeads'] = FieldValue.delete();
-    payload['notificationSoundId'] = FieldValue.delete();
-    payload['notificationDeliveryMode'] = FieldValue.delete();
+    payload['reminderLeads'] = YahwehFv.deleteField;
+    payload['notificationSoundId'] = YahwehFv.deleteField;
+    payload['notificationDeliveryMode'] = YahwehFv.deleteField;
 
     final instAfterPlan = instBefore != null
         ? (Map<String, dynamic>.from(instBefore)..addAll(payload))
@@ -1026,7 +1027,7 @@ class YearlyCommitmentRepeatService {
       payload.addAll(AgendaDeliveryReset.clearDeliveryFields());
     }
 
-    payload['agendaLoginDaySyncAt'] = FieldValue.serverTimestamp();
+    payload['agendaLoginDaySyncAt'] = YahwehFv.serverTimestamp;
 
     await YahwehDocWrite.set(instRef, payload);
 
@@ -1203,7 +1204,7 @@ class YearlyCommitmentRepeatService {
       'yearlyRepeatDay': day,
       'yearlyRepeatTemplateId': isTemplate ? null : templateId,
       'isYearlyRepeatTemplate': isTemplate,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
 
     if (instanceYear != null) {
@@ -1220,7 +1221,7 @@ class YearlyCommitmentRepeatService {
     }
 
     if (isTemplate) {
-      payload['createdAt'] = FieldValue.serverTimestamp();
+      payload['createdAt'] = YahwehFv.serverTimestamp;
 
       payload['source'] = 'yearly_repeat_template';
     } else {

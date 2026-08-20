@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -1537,7 +1538,7 @@ class _MySchedulesPageState extends State<MySchedulesPage> {
         'escalaTime': escalaTime,
         'escalaGeneratedByUid': (m['generatedByUid'] ?? '').toString().trim(),
         'escalaGeneratedByName': (m['generatedByName'] ?? '').toString().trim(),
-        'createdAt': FieldValue.serverTimestamp(),
+        'createdAt': YahwehFv.serverTimestamp,
       });
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

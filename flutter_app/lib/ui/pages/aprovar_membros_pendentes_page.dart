@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/utils/yahweh_date_range_picker.dart';
 import 'dart:async' show TimeoutException, Timer, unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -1476,8 +1477,8 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
     final now = DateTime.now();
     final initialEnd = _customEnd ?? now;
     final initialStart = _customStart ?? now.subtract(const Duration(days: 30));
-    final range = await showDateRangePicker(
-      context: context,
+    final range = await escolherIntervaloDeDatas(
+      context,
       firstDate: DateTime(now.year - 5),
       lastDate: DateTime(now.year + 1, 12, 31),
       initialDateRange: DateTimeRange(start: initialStart, end: initialEnd),
@@ -1617,7 +1618,7 @@ class _ApprovalHistoryPanelState extends State<_ApprovalHistoryPanel> {
   Widget build(BuildContext context) {
     final range = _effectiveRange;
     final periodoLabel =
-        '${DateFormat('dd/MM/yyyy').format(range.$1)} ? ${DateFormat('dd/MM/yyyy').format(range.$2)}';
+        '${DateFormat('dd/MM/yyyy').format(range.$1)} — ${DateFormat('dd/MM/yyyy').format(range.$2)}';
 
     if (_lastData == null && _historicoError != null && !_historicoLoading) {
       return Padding(

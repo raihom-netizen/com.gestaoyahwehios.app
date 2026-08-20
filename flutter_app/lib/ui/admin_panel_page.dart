@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -425,7 +426,7 @@ class _AdminPanelPageState extends State<AdminPanelPage>
         'usuario': user?.email ?? user?.uid ?? 'sistema',
         'uid': user?.uid,
         'igrejaId': igrejaId,
-        'data': FieldValue.serverTimestamp(),
+        'data': YahwehFv.serverTimestamp,
       });
     } catch (e, st) {
       debugPrint('AdminPanel _writeAuditLog: $e\n$st');
@@ -2007,8 +2008,8 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
         'alias': slug,
         'plano': _plano,
         'status': 'ativa',
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': YahwehFv.serverTimestamp,
+        'updatedAt': YahwehFv.serverTimestamp,
       };
       if (_plano == 'premium' && _dataTeste != null) {
         data['licenseExpiresAt'] = Timestamp.fromDate(_dataTeste!);

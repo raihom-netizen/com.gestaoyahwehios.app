@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
@@ -68,7 +68,7 @@ class GestorMembroStubService {
     if (existe) {
       final d = existente ?? {};
       final patch = <String, dynamic>{
-        'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+        'ATUALIZADO_EM': YahwehFv.serverTimestamp,
       };
       if ((d['NOME_COMPLETO'] ?? d['nome'] ?? '').toString().trim().isEmpty) {
         patch['NOME_COMPLETO'] = nomeVal;
@@ -100,7 +100,7 @@ class GestorMembroStubService {
       'GESTOR_PRECADASTRO': true,
       'FOTO_URL_OU_ID': placeholderAvatar,
       'fotoUrl': placeholderAvatar,
-      'CRIADO_EM': FieldValue.serverTimestamp(),
+      'CRIADO_EM': YahwehFv.serverTimestamp,
       'alias': tenantId,
       'slug': tenantId,
     });

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/offline/offline_write_operations.dart';
@@ -70,7 +71,7 @@ abstract final class SmartTrashService {
       'originalPath': ref.path,
       'modulo': module,
       'data': data,
-      'deletedAt': FieldValue.serverTimestamp(),
+      'deletedAt': YahwehFv.serverTimestamp,
       'expiresAt': Timestamp.fromDate(expires),
       'deletedByUid': u?.uid,
       'deletedByEmail': u?.email,

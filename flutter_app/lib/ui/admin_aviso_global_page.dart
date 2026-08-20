@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:flutter/material.dart';
@@ -151,31 +152,31 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         () => YahwehDocWrite.set(_ref, {
         'message': msg,
         'title': _titleCtrl.text.trim().isEmpty
-            ? FieldValue.delete()
+            ? YahwehFv.deleteField
             : _titleCtrl.text.trim(),
         'kind': _kind,
         'primaryButtonUrl': _primaryUrlCtrl.text.trim().isEmpty
-            ? FieldValue.delete()
+            ? YahwehFv.deleteField
             : _primaryUrlCtrl.text.trim(),
         'primaryButtonLabel': _primaryLabelCtrl.text.trim().isEmpty
-            ? FieldValue.delete()
+            ? YahwehFv.deleteField
             : _primaryLabelCtrl.text.trim(),
         'secondaryButtonUrl': _secondaryUrlCtrl.text.trim().isEmpty
-            ? FieldValue.delete()
+            ? YahwehFv.deleteField
             : _secondaryUrlCtrl.text.trim(),
         'secondaryButtonLabel': _secondaryLabelCtrl.text.trim().isEmpty
-            ? FieldValue.delete()
+            ? YahwehFv.deleteField
             : _secondaryLabelCtrl.text.trim(),
         'androidButtonUrl': _androidUrlCtrl.text.trim().isEmpty
-            ? FieldValue.delete()
+            ? YahwehFv.deleteField
             : _androidUrlCtrl.text.trim(),
         'iosButtonUrl': _iosUrlCtrl.text.trim().isEmpty
-            ? FieldValue.delete()
+            ? YahwehFv.deleteField
             : _iosUrlCtrl.text.trim(),
         'validUntil': _validUntil != null ? Timestamp.fromDate(_validUntil!) : null,
         'active': _active,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'revision': FieldValue.increment(1),
+        'updatedAt': YahwehFv.serverTimestamp,
+        'revision': YahwehFv.increment(1),
       }),
       );
       final snap = await FirestoreReadResilience.getDocument(
@@ -203,7 +204,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         'validUntil': _validUntil != null ? Timestamp.fromDate(_validUntil!) : null,
         'active': _active,
         'revision': rev,
-        'savedAt': FieldValue.serverTimestamp(),
+        'savedAt': YahwehFv.serverTimestamp,
         'savedByEmail': email.isEmpty ? null : email,
         'action': 'save',
       });
@@ -250,18 +251,18 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
     try {
       await YahwehDocWrite.set(_ref, {
         'active': false,
-        'message': FieldValue.delete(),
-        'title': FieldValue.delete(),
-        'kind': FieldValue.delete(),
-        'primaryButtonUrl': FieldValue.delete(),
-        'primaryButtonLabel': FieldValue.delete(),
-        'secondaryButtonUrl': FieldValue.delete(),
-        'secondaryButtonLabel': FieldValue.delete(),
-        'androidButtonUrl': FieldValue.delete(),
-        'iosButtonUrl': FieldValue.delete(),
-        'validUntil': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'revision': FieldValue.increment(1),
+        'message': YahwehFv.deleteField,
+        'title': YahwehFv.deleteField,
+        'kind': YahwehFv.deleteField,
+        'primaryButtonUrl': YahwehFv.deleteField,
+        'primaryButtonLabel': YahwehFv.deleteField,
+        'secondaryButtonUrl': YahwehFv.deleteField,
+        'secondaryButtonLabel': YahwehFv.deleteField,
+        'androidButtonUrl': YahwehFv.deleteField,
+        'iosButtonUrl': YahwehFv.deleteField,
+        'validUntil': YahwehFv.deleteField,
+        'updatedAt': YahwehFv.serverTimestamp,
+        'revision': YahwehFv.increment(1),
       });
       final snap = await FirestoreReadResilience.getDocument(
         _ref,
@@ -274,7 +275,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         'validUntil': null,
         'active': false,
         'revision': rev,
-        'savedAt': FieldValue.serverTimestamp(),
+        'savedAt': YahwehFv.serverTimestamp,
         'savedByEmail': email.isEmpty ? null : email,
         'action': 'removed',
       });
@@ -339,8 +340,8 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
     try {
       await YahwehDocWrite.set(_ref, {
         'validUntil': Timestamp.fromDate(date),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'revision': FieldValue.increment(1),
+        'updatedAt': YahwehFv.serverTimestamp,
+        'revision': YahwehFv.increment(1),
       });
       final snap = await FirestoreReadResilience.getDocument(
         _ref,
@@ -353,7 +354,7 @@ class _AdminAvisoGlobalPageState extends State<AdminAvisoGlobalPage> {
         'validUntil': Timestamp.fromDate(date),
         'active': snap.data()?['active'] == true,
         'revision': rev,
-        'savedAt': FieldValue.serverTimestamp(),
+        'savedAt': YahwehFv.serverTimestamp,
         'savedByEmail': email.isEmpty ? null : email,
         'action': 'extend',
       });

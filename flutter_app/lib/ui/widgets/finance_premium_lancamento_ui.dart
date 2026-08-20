@@ -2,7 +2,7 @@
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 
-/// UI premium de lan├ºamentos ÔÇö clonado do Controle Total, cores YAHWEH.
+/// UI premium de lançamentos — clonado do Controle Total, cores YAHWEH.
 abstract final class FinancePremiumLancamentoUi {
   FinancePremiumLancamentoUi._();
 
@@ -42,7 +42,7 @@ abstract final class FinancePremiumLancamentoUi {
       };
 }
 
-/// AppBar gradiente ÔÇö tela de lan├ºamento (Controle Total).
+/// AppBar gradiente — tela de lançamento (Controle Total).
 PreferredSizeWidget financePremiumLancamentoAppBar({
   required String title,
   required VoidCallback onBack,
@@ -94,7 +94,7 @@ PreferredSizeWidget financePremiumLancamentoAppBar({
   );
 }
 
-/// Receita / Despesa / Transfer├¬ncia ÔÇö toggle premium.
+/// Receita / Despesa / Transferência — toggle premium.
 class FinancePremiumTipoToggle extends StatelessWidget {
   const FinancePremiumTipoToggle({
     super.key,
@@ -220,7 +220,7 @@ class FinancePremiumTipoToggle extends StatelessWidget {
   }
 }
 
-/// Campo valor R$ grande ÔÇö estilo Controle Total.
+/// Campo valor R$ grande — estilo Controle Total.
 class FinancePremiumAmountField extends StatelessWidget {
   const FinancePremiumAmountField({
     super.key,
@@ -313,7 +313,7 @@ class FinancePremiumAmountField extends StatelessWidget {
   }
 }
 
-/// Tile toc├ível (data, conta) ÔÇö Controle Total.
+/// Tile tocável (data, conta) — Controle Total.
 class FinancePremiumFieldTile extends StatelessWidget {
   const FinancePremiumFieldTile({
     super.key,
@@ -440,7 +440,7 @@ InputDecoration financePremiumDropdownDecoration({
   );
 }
 
-/// Rodap├® Cancelar + Confirmar ÔÇö formul├írio financeiro.
+/// Rodapé Cancelar + Confirmar — formulário financeiro.
 class FinancePremiumFormFooterActions extends StatelessWidget {
   const FinancePremiumFormFooterActions({
     super.key,
@@ -554,7 +554,7 @@ class FinancePremiumFormFooterActions extends StatelessWidget {
   }
 }
 
-/// Chip de filtro ÔÇö gradiente colorido quando selecionado (mobile-first).
+/// Chip de filtro — gradiente colorido quando selecionado (mobile-first).
 class FinancePremiumFilterChip extends StatelessWidget {
   const FinancePremiumFilterChip({
     super.key,
@@ -642,7 +642,7 @@ class FinancePremiumFilterChip extends StatelessWidget {
   }
 }
 
-/// Segmento colorido ÔÇö v├¡nculo, situa├º├úo, tipo de conta (├írea de toque ÔëÑ 48px).
+/// Segmento colorido — vínculo, situação, tipo de conta (área de toque ÔëÑ 48px).
 class FinancePremiumColorSegment<T> extends StatelessWidget {
   const FinancePremiumColorSegment({
     super.key,
@@ -750,7 +750,7 @@ class FinancePremiumColorSegment<T> extends StatelessWidget {
   }
 }
 
-/// V├¡nculo: nenhum / fornecedor / membro.
+/// Vínculo: nenhum / fornecedor / membro.
 class FinancePremiumVinculoToggle extends StatelessWidget {
   const FinancePremiumVinculoToggle({
     super.key,
@@ -799,7 +799,7 @@ class FinancePremiumVinculoToggle extends StatelessWidget {
   }
 }
 
-/// Situa├º├úo receita (recebido/pendente) ou despesa (pago/pendente).
+/// Situação receita (recebido/pendente) ou despesa (pago/pendente).
 class FinancePremiumSituacaoToggle extends StatelessWidget {
   const FinancePremiumSituacaoToggle({
     super.key,
@@ -839,7 +839,7 @@ class FinancePremiumSituacaoToggle extends StatelessWidget {
   }
 }
 
-/// Tipo de conta banc├íria: corrente / poupan├ºa / caixa.
+/// Tipo de conta bancária: corrente / poupança / caixa.
 class FinancePremiumContaTipoToggle extends StatelessWidget {
   const FinancePremiumContaTipoToggle({
     super.key,
@@ -864,7 +864,7 @@ class FinancePremiumContaTipoToggle extends StatelessWidget {
         ),
         (
           value: 'poupanca',
-          label: 'Poupan├ºa',
+          label: 'Poupança',
           icon: Icons.savings_rounded,
           colors: [Color(0xFF7C3AED), Color(0xFFA78BFA)],
         ),
@@ -876,7 +876,7 @@ class FinancePremiumContaTipoToggle extends StatelessWidget {
         ),
         (
           value: 'cartao_credito',
-          label: 'Cart├úo',
+          label: 'Cartão',
           icon: Icons.credit_score_rounded,
           colors: [Color(0xFFDB2777), Color(0xFFF472B6)],
         ),
@@ -885,7 +885,7 @@ class FinancePremiumContaTipoToggle extends StatelessWidget {
   }
 }
 
-/// Badge de status em cards de lan├ºamento.
+/// Badge de status em cards de lançamento.
 class FinancePremiumStatusPill extends StatelessWidget {
   const FinancePremiumStatusPill({
     super.key,
@@ -930,7 +930,7 @@ class FinancePremiumStatusPill extends StatelessWidget {
   }
 }
 
-/// Chip de v├¡nculo (membro / fornecedor) no card.
+/// Chip de vínculo (membro / fornecedor) no card.
 class FinancePremiumVinculoPill extends StatelessWidget {
   const FinancePremiumVinculoPill({
     super.key,
@@ -985,7 +985,7 @@ class FinancePremiumVinculoPill extends StatelessWidget {
   }
 }
 
-/// Transfer├¬ncia entre contas ÔÇö visual premium com fluxo origem ÔåÆ destino.
+/// Transferência entre contas — visual premium com fluxo origem ÔåÆ destino.
 class FinancePremiumTransferAccountsSection extends StatelessWidget {
   const FinancePremiumTransferAccountsSection({
     super.key,
@@ -1098,7 +1098,7 @@ class FinancePremiumTransferAccountsSection extends StatelessWidget {
   }
 }
 
-/// Bot├úo de a├º├úo compacto ÔÇö editar, excluir, comprovante (ÔëÑ 48px).
+/// Botão de ação compacto — editar, excluir, comprovante (ÔëÑ 48px).
 class FinancePremiumIconAction extends StatelessWidget {
   const FinancePremiumIconAction({
     super.key,
@@ -1155,7 +1155,7 @@ class FinancePremiumIconAction extends StatelessWidget {
   }
 }
 
-/// Filtros de situa├º├úo ÔÇö pendente, recebido, a pagar, etc.
+/// Filtros de situação — pendente, recebido, a pagar, etc.
 class FinancePremiumExtraStatusFilters extends StatelessWidget {
   const FinancePremiumExtraStatusFilters({
     super.key,
@@ -1168,7 +1168,7 @@ class FinancePremiumExtraStatusFilters extends StatelessWidget {
 
   static const _items = [
     ('todos', 'Todos', Icons.apps_rounded, Color(0xFF64748B)),
-    ('pendente_aprovacao', 'Pend. aprova├º├úo', Icons.gavel_rounded, Color(0xFFEA580C)),
+    ('pendente_aprovacao', 'Pend. aprovação', Icons.gavel_rounded, Color(0xFFEA580C)),
     ('nao_conciliados', 'Conciliar', Icons.sync_problem_rounded, Color(0xFFF59E0B)),
     ('a_pagar', 'A pagar', Icons.schedule_rounded, Color(0xFFDC2626)),
     ('pagos', 'Pagos', Icons.check_circle_rounded, Color(0xFF059669)),
@@ -1200,7 +1200,7 @@ class FinancePremiumExtraStatusFilters extends StatelessWidget {
   }
 }
 
-/// Card sec├º├úo do formul├írio.
+/// Card secção do formulário.
 class FinancePremiumSectionCard extends StatelessWidget {
   const FinancePremiumSectionCard({
     super.key,

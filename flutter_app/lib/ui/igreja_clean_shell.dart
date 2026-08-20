@@ -1,4 +1,5 @@
-﻿import 'package:gestao_yahweh/core/tenant/church_tenant_switch_purge.dart';
+﻿import 'package:gestao_yahweh/core/tenant/church_session_restart.dart';
+import 'package:gestao_yahweh/core/tenant/church_tenant_switch_purge.dart';
 import 'dart:async' show StreamSubscription, unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -1003,6 +1004,14 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       _materializedModuleLru.clear();
       _shellPrefetchDone.clear();
       _tenantResolveComplete = false;
+    });
+
+    // Reinicio total: em vez de esperar que cada modulo largue o id antigo, a
+    // arvore inteira e recriada com a igreja escolhida ja no contexto. Foi o
+    // que o utilizador pediu depois de tres voltas de correcoes parciais —
+    // «ao selecionar a igreja o sistema faz um novo login».
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ChurchSessionRestart.reiniciar();
     });
 
     unawaited(

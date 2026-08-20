@@ -5,6 +5,11 @@
 /// novo módulo financeiro veio do Controle Total App.
 library;
 
+import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
+import 'package:gestao_yahweh/ui/pages/novo_lancamento_page.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -301,26 +306,57 @@ void showFinanceLancamentoDetailsBottomSheet(
 /// Público porque o extrato por membro/fornecedor abre o **mesmo** editor: sem
 /// perfil o diálogo não abre, e duplicar esta resolução dava duas noções
 /// diferentes de quem está a editar.
-Future<UserProfile?> perfilParaEditorFinanceiro(String uid) =>
-    _perfilParaEditorCompleto(uid);
+Future<UserProfile?> perfilParaEditorFinanceiro(String uid, {String? panelRole}) =>
+    _perfilParaEditorCompleto(uid, panelRole: panelRole);
 
-Future<UserProfile?> _perfilParaEditorCompleto(String uid) async {
+Future<UserProfile?> _perfilParaEditorCompleto(String uid, {String? panelRole}) async {
   final id = uid.trim();
   if (id.isEmpty) return null;
   final cached = UserProfileStartupCache.resolveForShell(shellUid: id);
   if (cached != null) return cached;
   final authUid = firebaseDefaultAuth.currentUser?.uid.trim() ?? '';
   if (authUid.isEmpty) return null;
+
+  // Leitura pelo gateway REST. Com `.get()` cru do SDK esta leitura falhava na
+  // web (INTERNAL ASSERTION do Firestore JS) e devolvia null — e um null aqui
+  // nao dava erro nenhum: mandava o utilizador para o editor CURTO, sem
+  // status, conta, vinculo nem comprovante. Era esse o «Fornecedores nao esta
+  // igual ao Financeiro».
+  Map<String, dynamic>? dados;
   try {
-    final snap = await firebaseDefaultFirestore
-        .collection('users')
-        .doc(authUid)
-        .get()
-        .timeout(const Duration(seconds: 8));
-    return UserProfile.fromFirestoreMap(authUid, snap.data() ?? {});
+    if (YahwehRestFirst.prefer) {
+      final snap = await firestoreRestGetDocSnap('users/$authUid')
+          .timeout(const Duration(seconds: 8));
+      dados = snap.data();
+    } else {
+      final snap = await firebaseDefaultFirestore
+          .collection('users')
+          .doc(authUid)
+          .get()
+          .timeout(const Duration(seconds: 8));
+      dados = snap.data();
+    }
   } catch (_) {
-    return null;
+    dados = null;
   }
+  if (dados != null && dados.isNotEmpty) {
+    return UserProfile.fromFirestoreMap(authUid, dados);
+  }
+
+  // Sem o documento (rede, permissoes, cache fria) ainda assim se abre o
+  // editor completo: quem esta no painel ja passou pelo guarda de licenca do
+  // shell, e cair na folha curta perde funcionalidade que o utilizador espera.
+  final user = firebaseDefaultAuth.currentUser;
+  return UserProfile(
+    uid: authUid,
+    cpf: '',
+    cpfMasked: '',
+    email: user?.email ?? '',
+    name: user?.displayName ?? 'Utilizador',
+    role: (panelRole ?? '').trim().isEmpty ? 'admin' : panelRole!.trim(),
+    plan: 'premium',
+    planStatus: 'active',
+  );
 }
 
 Future<bool> showFinanceLancamentoEditorForTenant(
@@ -355,7 +391,10 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   if (isEdit && data != null) {
     final tipoAtual = financeInferTipo(data);
     if (tipoAtual == 'entrada' || tipoAtual == 'saida') {
-      final profile = await _perfilParaEditorCompleto(effectiveTenantId);
+      final profile = await _perfilParaEditorCompleto(
+        effectiveTenantId,
+        panelRole: panelRole,
+      );
       if (profile != null && context.mounted) {
         final salvo = await showFinanceTransactionEditDialog(
           context: context,
@@ -385,6 +424,51 @@ Future<bool> showFinanceLancamentoEditorForTenant(
       }
     }
   }
+  // ── Criar: a MESMA tela do Financeiro ──────────────────────────
+  //
+  // A folha curta lá em baixo pede tipo, valor, descrição e categoria. Falta
+  // tudo o resto: conta, pago/pendente, vencimento, comprovante. Lançar a
+  // partir de Fornecedores ou da ficha de um membro tem de dar exatamente o
+  // mesmo que lançar pelo Financeiro — só muda o vínculo, que já vem
+  // preenchido porque a pessoa foi escolhida ao abrir o ecrã.
+  //
+  // Transferência continua na folha curta: não é receita nem despesa e a
+  // [NovoLancamentoPage] não a trata.
+  if (!isEdit && presetNovoTipo != 'transferencia') {
+    final perfil = await _perfilParaEditorCompleto(
+      effectiveTenantId,
+      panelRole: panelRole,
+    );
+    if (context.mounted) {
+      final fid = (presetFornecedorId ?? '').trim();
+      final salvo = await Navigator.of(context).push<bool>(
+        MaterialPageRoute<bool>(
+          fullscreenDialog: true,
+          builder: (_) => NovoLancamentoPage(
+            uid: effectiveTenantId,
+            initialType:
+                presetNovoTipo == 'saida' ? 'expense' : 'income',
+            hasActiveLicense: perfil?.hasActiveLicense ?? true,
+            vinculoFixo: fid.isEmpty
+                ? null
+                : FinanceVinculo(
+                    tipo: 'fornecedor',
+                    id: fid,
+                    nome: (presetFornecedorNome ?? '').trim().isEmpty
+                        ? fid
+                        : presetFornecedorNome!.trim(),
+                  ),
+            travarVinculo: fid.isNotEmpty && lockFornecedor,
+          ),
+        ),
+      );
+      if (salvo == true) {
+        FinanceTransactionsHub.notifyMutated(uid: effectiveTenantId);
+      }
+      return salvo == true;
+    }
+  }
+
   final financeCol = ChurchUiCollections.financeiro(effectiveTenantId);
 
   String tipo = isEdit ? financeInferTipo(data ?? const {}) : 'entrada';
@@ -525,7 +609,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                           'categoria': categoria,
                           'tipo': tipo,
                           'date': Timestamp.fromDate(dataSel),
-                          'updatedAt': FieldValue.serverTimestamp(),
+                          'updatedAt': YahwehFv.serverTimestamp,
                         };
                         if (presetFornecedorId != null) {
                           payload['fornecedorId'] = presetFornecedorId;
@@ -535,7 +619,7 @@ Future<bool> showFinanceLancamentoEditorForTenant(
                         if (isEdit) {
                           await YahwehDocWrite.update(existingDoc.reference, payload);
                         } else {
-                          payload['createdAt'] = FieldValue.serverTimestamp();
+                          payload['createdAt'] = YahwehFv.serverTimestamp;
                           payload['churchId'] = effectiveTenantId;
                           await financeCol.add(payload);
                         }

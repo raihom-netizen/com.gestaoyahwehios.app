@@ -79,6 +79,10 @@ class FixedExpenseService {
     bool addToCalendar = false,
     String? calendarColorHex,
     String? financeAccountId,
+
+    /// Campos de vínculo (membro/fornecedor) prontos para o Firestore — vindos
+    /// de `FinanceVinculoSelecao.paraFirestore()`, o mesmo do lançamento avulso.
+    Map<String, dynamic>? vinculo,
   }) async {
     final day = dayOfMonth.clamp(1, 31);
     DateTime end;
@@ -113,8 +117,9 @@ class FixedExpenseService {
           calendarColorHex != null &&
           calendarColorHex.trim().isNotEmpty)
         'calendarColorHex': calendarColorHex.trim(),
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': YahwehFv.serverTimestamp,
+      'updatedAt': YahwehFv.serverTimestamp,
+      if (vinculo != null) ...vinculo,
     };
     if (mode == modeInstallments && effTotalParcelas != null) {
       data['mode'] = modeInstallments;
@@ -147,9 +152,11 @@ class FixedExpenseService {
     String? calendarColorHex,
     String? financeAccountId,
     bool clearFinanceAccount = false,
+    Map<String, dynamic>? vinculo,
   }) async {
     final data = <String, dynamic>{
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
+      if (vinculo != null) ...vinculo,
     };
     if (description != null) data['description'] = description;
     if (category != null) data['category'] = category;
@@ -167,8 +174,8 @@ class FixedExpenseService {
     if (mode != null) {
       data['mode'] = mode;
       if (mode == modePeriod) {
-        data['totalParcelas'] = FieldValue.delete();
-        data['parcelaInicial'] = FieldValue.delete();
+        data['totalParcelas'] = YahwehFv.deleteField;
+        data['parcelaInicial'] = YahwehFv.deleteField;
       }
     }
     if (totalParcelas != null) {
@@ -181,11 +188,11 @@ class FixedExpenseService {
       data['parcelaInicial'] = parcelaInicial.clamp(1, cap);
     }
     if (clearFinanceAccount) {
-      data['financeAccountId'] = FieldValue.delete();
+      data['financeAccountId'] = YahwehFv.deleteField;
     } else if (financeAccountId != null) {
       final accId = financeAccountId.trim();
       if (accId.isEmpty) {
-        data['financeAccountId'] = FieldValue.delete();
+        data['financeAccountId'] = YahwehFv.deleteField;
       } else {
         data['financeAccountId'] = accId;
       }
@@ -197,13 +204,13 @@ class FixedExpenseService {
           calendarColorHex.trim().isNotEmpty) {
         data['calendarColorHex'] = calendarColorHex.trim();
       } else {
-        data['calendarColorHex'] = FieldValue.delete();
+        data['calendarColorHex'] = YahwehFv.deleteField;
       }
     } else if (calendarColorHex != null) {
       if (calendarColorHex.trim().isNotEmpty) {
         data['calendarColorHex'] = calendarColorHex.trim();
       } else {
-        data['calendarColorHex'] = FieldValue.delete();
+        data['calendarColorHex'] = YahwehFv.deleteField;
       }
     }
     await YahwehDocWrite.update(_fixedRef(uid).doc(id), data);
@@ -639,8 +646,8 @@ class FixedExpenseService {
             'contaOrigemId': financeAccountId,
           },
           if (addToCalendar && calHex.isNotEmpty) 'calendarColorHex': calHex,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': YahwehFv.serverTimestamp,
+          'updatedAt': YahwehFv.serverTimestamp,
         });
         month = DateTime(month.year, month.month + 1, 1);
       }

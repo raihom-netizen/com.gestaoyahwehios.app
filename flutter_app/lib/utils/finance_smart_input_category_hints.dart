@@ -1,27 +1,27 @@
 ﻿import 'package:gestao_yahweh/utils/finance_smart_input_text.dart';
 
-/// Sugere categoria a partir de palavras comuns (voz ou colagem). S├│ devolve r├│tulo
-/// que **existe** em [validCategorias] (nome can├│nico do Firestore/tenant).
+/// Sugere categoria a partir de palavras comuns (voz ou colagem). Só devolve rótulo
+/// que **existe** em [validCategorias] (nome canónico do Firestore/tenant).
 class FinanceSmartInputCategoryHints {
   FinanceSmartInputCategoryHints._();
 
-  /// (palavras-chave) ÔåÆ categoria padr├úo do m├│dulo financeiro.
+  /// (palavras-chave) ÔåÆ categoria padrão do módulo financeiro.
   static const _rules = <(List<String>, String)>[
     (
       ['sabesp', 'cedae', 'copasa', 'caesb', 'corsan', 'agua e es', 'esgoto', 'saneam'],
-      '├ügua',
+      'Água',
     ),
     (
-      ['luz', 'enel', 'cemig', 'cpfl', 'celesc', 'energi', 'el├®tric', 'eletric', 'kwh', 'k w h'],
-      'Energia El├®trica',
+      ['luz', 'enel', 'cemig', 'cpfl', 'celesc', 'energi', 'elétric', 'eletric', 'kwh', 'k w h'],
+      'Energia Elétrica',
     ),
     (
       ['internet', 'fibra', 'claro', 'net virt', 'o i ', 'banda larga', 'roteador'],
       'Internet',
     ),
     (
-      ['m├¡d', 'mid', 'tela de', 'comunicaudi', 'palco', 'sistema de som', 'comunica'],
-      'Investimentos em M├¡dia',
+      ['míd', 'mid', 'tela de', 'comunicaudi', 'palco', 'sistema de som', 'comunica'],
+      'Investimentos em Mídia',
     ),
     (
       [
@@ -32,10 +32,10 @@ class FinanceSmartInputCategoryHints {
         'ipiranga',
         'uber',
         'taxi',
-        't├íx',
+        'táx',
         'onibus',
         'lotacao',
-        'lota├º├úo',
+        'lotação',
         'estaciona',
         '99 pop',
         ' pedag',
@@ -54,19 +54,19 @@ class FinanceSmartInputCategoryHints {
         'ifood',
         'rappi',
         'padar',
-        'a├ºougue',
-        'a├ºougu',
+        'açougue',
+        'açougu',
         'restaur',
         'lanchon',
         'lanche',
-        'p├úo d',
+        'pão d',
         'pao d',
         'mercad',
         'feira',
         'hortifrut',
         'pastelar',
       ],
-      'Alimenta├º├úo',
+      'Alimentação',
     ),
     (
       ['darf', 'dctf', 'inss', 'irpf', 'receit federal', 'prefeitur', ' guia de', 'iss '],
@@ -78,19 +78,19 @@ class FinanceSmartInputCategoryHints {
     ),
     (
       ['papel a4', 'a4 75', 'grampe', 'pasta susp', 'toner', 'cartucho'],
-      'Material de Escrit├│rio',
+      'Material de Escritório',
     ),
     (
       ['reparo', 'manutenc', 'encanad', 'pedreir', 'civil '],
-      'Manuten├º├úo',
+      'Manutenção',
     ),
     (
       ['oferta miss', 'missao d', 'missa d', 'sustento miss', 'casa de miss'],
-      'Oferta Mission├íria',
+      'Oferta Missionária',
     ),
     (['feste', 'aniversa da igreja', 'culto de gala', 'decora'], 'Eventos'),
     (
-      ['hono obreir', 'pagamento a obreir', 'cach├¬ obreir', 'cach├® obreir', 'cach├® mis'],
+      ['hono obreir', 'pagamento a obreir', 'cachê obreir', 'caché obreir', 'caché mis'],
       'Pagamento de Obreiros',
     ),
     (['alugue', 'aluguel', 'condomini', 'loteamento', 'sala terceir', 'sala terci'], 'Outros'),
@@ -133,17 +133,17 @@ class FinanceSmartInputCategoryHints {
   }
 
   static const _diac = <MapEntry<String, String>>[
-    MapEntry('├í', 'a'),
-    MapEntry('├á', 'a'),
-    MapEntry('├ú', 'a'),
-    MapEntry('├ó', 'a'),
-    MapEntry('├®', 'e'),
-    MapEntry('├¬', 'e'),
-    MapEntry('├¡', 'i'),
-    MapEntry('├│', 'o'),
-    MapEntry('├┤', 'o'),
-    MapEntry('├Á', 'o'),
-    MapEntry('├║', 'u'),
-    MapEntry('├º', 'c'),
+    MapEntry('á', 'a'),
+    MapEntry('à', 'a'),
+    MapEntry('ã', 'a'),
+    MapEntry('â', 'a'),
+    MapEntry('é', 'e'),
+    MapEntry('ê', 'e'),
+    MapEntry('í', 'i'),
+    MapEntry('ó', 'o'),
+    MapEntry('ô', 'o'),
+    MapEntry('õ', 'o'),
+    MapEntry('ú', 'u'),
+    MapEntry('ç', 'c'),
   ];
 }

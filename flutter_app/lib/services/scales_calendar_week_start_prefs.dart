@@ -1,4 +1,5 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -244,7 +245,7 @@ class ScalesCalendarWeekStartPrefs {
       await FirestoreSessionGuard.runWithAuthRetry(() async {
         await YahwehDocWrite.set(homePlanningRef(uid), {
           kCalendarWeekStartsOnSundayField: startsOnSunday,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         });
       });
     } catch (e, st) {

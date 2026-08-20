@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -619,7 +620,7 @@ Future<void> _exportPatrimonioInventarioSessaoPdf({
           accent: branding.accent,
           sectionTitle: 'Validação pastoral',
           label: signerCfg.signerCargo.trim().isNotEmpty
-              ? '${signerCfg.signerName.trim()} ? ${signerCfg.signerCargo.trim()}'
+              ? '${signerCfg.signerName.trim()} — ${signerCfg.signerCargo.trim()}'
               : 'Assinatura do pastor responsável',
           signerName: signerCfg.signerName,
           signatureImageBytes: signerCfg.signerSignatureBytes,
@@ -1505,7 +1506,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               ),
               const SizedBox(height: 14),
               Text(
-                'N? Série: $serie',
+                'Nº Série: $serie',
                 style: TextStyle(
                   fontSize: 12,
                   color: Colors.grey.shade600,
@@ -1653,7 +1654,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
               await YahwehDocWrite.update(_col.doc(doc.id), {
                 'responsavel': novoResp,
                 'localizacao': novoLocal,
-                'atualizadoEm': FieldValue.serverTimestamp(),
+                'atualizadoEm': YahwehFv.serverTimestamp,
               });
               await ChurchUiCollections.subOf(
                 _col.doc(doc.id),
@@ -1662,7 +1663,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                 'de': antigoResp,
                 'para': novoResp,
                 'localizacao': novoLocal,
-                'data': FieldValue.serverTimestamp(),
+                'data': YahwehFv.serverTimestamp,
                 'criadoPorUid': uid,
                 'criadoPorNome': userName,
               });
@@ -1897,7 +1898,7 @@ class _PatrimonioPageState extends State<PatrimonioPage>
                           'descricao': descCtrl.text.trim(),
                           'custo': parseBrCurrencyInput(custoCtrl.text),
                           'prestador': prestCtrl.text.trim(),
-                          'data': FieldValue.serverTimestamp(),
+                          'data': YahwehFv.serverTimestamp,
                           'criadoPorUid': uid,
                           'criadoPorNome': userName,
                         });
@@ -7007,7 +7008,7 @@ class _InventarioTabState extends State<_InventarioTab> {
     final uid = firebaseDefaultAuth.currentUser?.uid ?? '';
     final nome = firebaseDefaultAuth.currentUser?.displayName ?? 'Usuário';
     await YahwehDocWrite.update(doc.reference, {
-      'ultimaConferencia': FieldValue.serverTimestamp(),
+      'ultimaConferencia': YahwehFv.serverTimestamp,
       'conferidoPor': nome,
       'conferidoPorUid': uid,
     });
@@ -7092,7 +7093,7 @@ class _InventarioTabState extends State<_InventarioTab> {
                 ).add({
                   'churchId': op,
                   'tenantId': op,
-                  'finalizadoEm': FieldValue.serverTimestamp(),
+                  'finalizadoEm': YahwehFv.serverTimestamp,
                   'totalBens': total,
                   'conferidos': conferidos,
                   'pendentes': pendentes,

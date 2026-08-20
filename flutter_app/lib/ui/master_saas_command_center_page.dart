@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -139,7 +140,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
         'details': details,
         'usuario': u?.email ?? u?.uid ?? 'master',
         'uid': u?.uid,
-        'data': FieldValue.serverTimestamp(),
+        'data': YahwehFv.serverTimestamp,
       });
     } catch (e, st) {
       debugPrint('MasterSaasCommand _audit: $e\n$st');
@@ -279,7 +280,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
           'authorizedDomains': list,
           'integrationNotes': notesCtrl.text.trim(),
           'mapsApiKey': mapsKeyCtrl.text.trim(),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         },
       });
       await _audit('saas_white_label_update', 'tenant=$tenantId domains=${list.length}');
@@ -298,7 +299,7 @@ class _MasterSaasCommandCenterPageState extends State<MasterSaasCommandCenterPag
     final op = ChurchPanelTenantGateway.churchId(tenantId.trim());
     await YahwehDocWrite.set(ChurchUiCollections.churchDoc(op), {
       'saasTier': tier,
-      'saas': {'tier': tier, 'updatedAt': FieldValue.serverTimestamp()},
+      'saas': {'tier': tier, 'updatedAt': YahwehFv.serverTimestamp},
     });
     await _audit('saas_tier_change', 'tenant=$tenantId tier=$tier');
     if (mounted) setState(() {});

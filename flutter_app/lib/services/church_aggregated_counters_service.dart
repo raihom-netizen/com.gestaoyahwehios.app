@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/yahweh_church_profile_engine.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
@@ -166,19 +167,19 @@ abstract final class ChurchAggregatedCountersService {
     final id = churchId.trim();
     if (id.isEmpty) return;
     final patch = <String, dynamic>{
-      'countersUpdatedAt': FieldValue.serverTimestamp(),
+      'countersUpdatedAt': YahwehFv.serverTimestamp,
     };
     if (membersDelta != 0) {
-      patch['membersCount'] = FieldValue.increment(membersDelta);
+      patch['membersCount'] = YahwehFv.increment(membersDelta);
     }
     if (eventsDelta != 0) {
-      patch['eventsCount'] = FieldValue.increment(eventsDelta);
+      patch['eventsCount'] = YahwehFv.increment(eventsDelta);
     }
     if (avisosDelta != 0) {
-      patch['avisosCount'] = FieldValue.increment(avisosDelta);
+      patch['avisosCount'] = YahwehFv.increment(avisosDelta);
     }
     if (departmentsDelta != 0) {
-      patch['departmentsCount'] = FieldValue.increment(departmentsDelta);
+      patch['departmentsCount'] = YahwehFv.increment(departmentsDelta);
     }
     await YahwehDocWrite.set(ChurchOperationalPaths.churchDoc(id), patch);
   }

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/utils/admin_user_search.dart';
@@ -24,7 +25,7 @@ class UserService {
       final trialEnd = now.add(const Duration(days: 30));
 
       final data = <String, dynamic>{
-        'createdAt': FieldValue.serverTimestamp(),
+        'createdAt': YahwehFv.serverTimestamp,
         'email': emailTrim,
         'onboardingCompleted': false,
         'trialStart': Timestamp.fromDate(now),
@@ -59,7 +60,7 @@ class UserService {
   Future<void> markOnboardingDone(String uid) async {
     await YahwehDocWrite.set(_db.collection('users').doc(uid), {
       'onboardingCompleted': true,
-      'onboardingAt': FieldValue.serverTimestamp(),
+      'onboardingAt': YahwehFv.serverTimestamp,
     });
   }
 }

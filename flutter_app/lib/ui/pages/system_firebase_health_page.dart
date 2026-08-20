@@ -559,7 +559,7 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
                   q == null
                       ? 'A executar 28 verificações…'
                       : '${q.passCount} OK ? ${q.failCount} falha(s) ? '
-                          '${q.warnCount} aviso(s) ? ${q.manualCount} manual(is)',
+                          '${q.warnCount} aviso(s) — ${q.manualCount} manual(is)',
                   style: TextStyle(color: Colors.grey.shade800),
                 ),
                 if (q != null) ...[

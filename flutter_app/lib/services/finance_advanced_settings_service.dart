@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
@@ -61,7 +62,7 @@ class FinanceAdvancedSettingsService {
     if (uid.isEmpty) return;
     await YahwehDocWrite.set(_doc(uid), {
       _keyStripHideZero: value,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 
@@ -104,13 +105,13 @@ class FinanceAdvancedSettingsService {
     if (uid.isEmpty) return;
     if (accountId == null || accountId.trim().isEmpty) {
       await YahwehDocWrite.set(_doc(uid), {
-        keyDefaultFinanceAccountId: FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        keyDefaultFinanceAccountId: YahwehFv.deleteField,
+        'updatedAt': YahwehFv.serverTimestamp,
       });
     } else {
       await YahwehDocWrite.set(_doc(uid), {
         keyDefaultFinanceAccountId: accountId.trim(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       });
     }
   }
@@ -134,7 +135,7 @@ class FinanceAdvancedSettingsService {
     if (uid.isEmpty || accountId.trim().isEmpty) return;
     await YahwehDocWrite.set(_doc(uid), {
       keyVaultAccountId: accountId.trim(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 }

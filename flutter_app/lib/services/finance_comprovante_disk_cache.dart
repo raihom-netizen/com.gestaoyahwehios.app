@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-/// Cache em disco para PDFs de comprovantes financeiros ÔÇö abertura instant├ónea na 2.┬¬ vez.
+/// Cache em disco para PDFs de comprovantes financeiros — abertura instantânea na 2.ª vez.
 abstract final class FinanceComprovanteDiskCache {
   FinanceComprovanteDiskCache._();
 

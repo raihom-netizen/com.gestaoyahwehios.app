@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -97,7 +98,7 @@ class _VeiculosPageState extends State<VeiculosPage> {
       for (final entry in entries.sublist(i, fim)) {
         batch.set(entry.key, {
           ...entry.value,
-          'updated_at': FieldValue.serverTimestamp(),
+          'updated_at': YahwehFv.serverTimestamp,
         }, SetOptions(merge: true));
       }
       await batch.commit();
@@ -194,7 +195,7 @@ class _VeiculosPageState extends State<VeiculosPage> {
       'modelo': modelo,
       'frota': frota,
       'ativo': ativo,
-      'updated_at': FieldValue.serverTimestamp(),
+      'updated_at': YahwehFv.serverTimestamp,
     };
 
     if (doc == null) {
@@ -208,7 +209,7 @@ class _VeiculosPageState extends State<VeiculosPage> {
       }
       await YahwehDocWrite.set(FrotaFirestorePaths.veiculos().doc(placaId), {
         ...payload,
-        'created_at': FieldValue.serverTimestamp(),
+        'created_at': YahwehFv.serverTimestamp,
       }, merge: false);
       await _atualizarVinculosVeiculo(
         placaAntiga: '',
@@ -231,7 +232,7 @@ class _VeiculosPageState extends State<VeiculosPage> {
         final novoRef = FrotaFirestorePaths.veiculos().doc(placaId);
         batch.set(novoRef, {
           ...payload,
-          'created_at': dados?['created_at'] ?? FieldValue.serverTimestamp(),
+          'created_at': dados?['created_at'] ?? YahwehFv.serverTimestamp,
         });
         batch.delete(doc.reference);
         await batch.commit();

@@ -169,7 +169,7 @@ class FinanceAccountsService {
         nickname: 'Cofre pessoal',
         sortOrder: -1000000,
       ).toMap(),
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': YahwehFv.serverTimestamp,
     }, merge: false);
     await prefs.setVaultAccountId(uid, ref.id);
     return ref.id;
@@ -197,7 +197,7 @@ class FinanceAccountsService {
         statementClosingDay: sc,
         cardColorId: cc,
       ).toMap(),
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': YahwehFv.serverTimestamp,
     }, merge: false);
     return ref.id;
   }
@@ -241,22 +241,22 @@ class FinanceAccountsService {
       'presetId': acc.presetId,
       'productType': acc.productType,
       'kind': acc.kind,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
     if (acc.nickname == null) {
-      data['nickname'] = FieldValue.delete();
+      data['nickname'] = YahwehFv.deleteField;
     } else {
       data['nickname'] = acc.nickname;
     }
     if (sc != null) {
       data['statementClosingDay'] = sc;
     } else {
-      data['statementClosingDay'] = FieldValue.delete();
+      data['statementClosingDay'] = YahwehFv.deleteField;
     }
     if (cc != null) {
       data['cardColorId'] = cc;
     } else {
-      data['cardColorId'] = FieldValue.delete();
+      data['cardColorId'] = YahwehFv.deleteField;
     }
     await YahwehDocWrite.update(_col(uid).doc(accountId), data);
   }
@@ -433,11 +433,11 @@ class FinanceAccountsService {
 
   Future<void> updateNickname(String uid, String accountId, String? nickname) async {
     final data = <String, dynamic>{
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
     final trimmed = nickname?.trim();
     if (trimmed == null || trimmed.isEmpty) {
-      data['nickname'] = FieldValue.delete();
+      data['nickname'] = YahwehFv.deleteField;
       // `nome` fica como está — é o campo lido por doações/OFX/saldo, não
       // pode ficar vazio só porque o apelido pessoal foi removido.
     } else {

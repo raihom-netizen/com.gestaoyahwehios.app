@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/finance_despesas_categorias_tenant.dart';
@@ -93,8 +93,8 @@ abstract final class FinanceChurchBootstrapService {
             'observacao': 'Conta padrão da tesouraria.',
             'ativo': true,
             'seedPreset': preset.seedPreset,
-            'createdAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
+            'createdAt': YahwehFv.serverTimestamp,
+            'updatedAt': YahwehFv.serverTimestamp,
           }),
           maxAttempts: 4,
         );

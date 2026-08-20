@@ -184,7 +184,7 @@ Future<Uint8List> buildFornecedorReciboPdf({
                             ? 'Assinatura ? ${branding.churchName}'
                             : churchSignerRole.trim().isEmpty
                                 ? churchSignerName.trim()
-                                : '${churchSignerName.trim()} ? ${churchSignerRole.trim()}',
+                                : '${churchSignerName.trim()} — ${churchSignerRole.trim()}',
                       ),
                       style: const pw.TextStyle(fontSize: 8.5, lineSpacing: 1.1),
                     ),

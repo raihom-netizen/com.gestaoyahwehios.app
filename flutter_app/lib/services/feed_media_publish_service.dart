@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -172,7 +173,7 @@ abstract final class FeedMediaPublishService {
         'publicado': false,
         'status': 'erro',
         'publishError': error.toString(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       },
       SetOptions(merge: true),
     );

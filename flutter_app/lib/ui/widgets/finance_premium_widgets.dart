@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/core/brasil_bancos.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 
-/// KPI hero ÔÇö estilo Controle Total (gradiente suave, tipografia forte).
+/// KPI hero — estilo Controle Total (gradiente suave, tipografia forte).
 class FinancePremiumKpiHero extends StatelessWidget {
   const FinancePremiumKpiHero({
     super.key,
@@ -96,7 +96,7 @@ class FinancePremiumKpiHero extends StatelessWidget {
   }
 }
 
-/// Cart├úo de conta banc├íria ÔÇö saldo atual em destaque.
+/// Cartão de conta bancária — saldo atual em destaque.
 class FinancePremiumAccountCard extends StatelessWidget {
   const FinancePremiumAccountCard({
     super.key,
@@ -201,7 +201,7 @@ class FinancePremiumAccountCard extends StatelessWidget {
                           Text(
                             bancoSubtitle.isEmpty
                                 ? 'Saldo atual'
-                                : '$bancoSubtitle ┬À Saldo atual',
+                                : '$bancoSubtitle · Saldo atual',
                             style: TextStyle(
                               fontSize: 11.5,
                               fontWeight: FontWeight.w600,
@@ -391,7 +391,7 @@ class FinancePremiumFluxoMiniBar extends StatelessWidget {
   }
 }
 
-/// Gr├ífico de barras mensal ÔÇö entradas vs sa├¡das.
+/// Gráfico de barras mensal — entradas vs saídas.
 class FinancePremiumMonthlyBarChart extends StatelessWidget {
   const FinancePremiumMonthlyBarChart({
     super.key,
@@ -417,7 +417,7 @@ class FinancePremiumMonthlyBarChart extends StatelessWidget {
         height: 160,
         child: Center(
           child: Text(
-            'Sem movimenta├º├úo no per├¡odo',
+            'Sem movimentação no período',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
         ),
@@ -511,7 +511,7 @@ class FinancePremiumMonthlyBarChart extends StatelessWidget {
   }
 }
 
-/// Item de lan├ºamento ÔÇö card horizontal premium.
+/// Item de lançamento — card horizontal premium.
 class FinancePremiumLancamentoTile extends StatelessWidget {
   const FinancePremiumLancamentoTile({
     super.key,
@@ -653,7 +653,7 @@ class FinancePremiumLancamentoTile extends StatelessWidget {
   }
 }
 
-/// Logo circular do banco ÔÇö PNG oficial ou iniciais (banco de marcas BR).
+/// Logo circular do banco — PNG oficial ou iniciais (banco de marcas BR).
 class FinanceBankMiniLogo extends StatelessWidget {
   const FinanceBankMiniLogo({
     super.key,
@@ -722,7 +722,7 @@ class FinanceBankMiniLogo extends StatelessWidget {
   }
 }
 
-/// Cart├úo de conta/banco ÔÇö gradiente da marca (estilo Controle Total).
+/// Cartão de conta/banco — gradiente da marca (estilo Controle Total).
 class FinanceBankBrandCard extends StatelessWidget {
   const FinanceBankBrandCard({
     super.key,
@@ -885,7 +885,7 @@ class FinanceBankBrandCard extends StatelessWidget {
                                       color: Colors.white, size: 14),
                                   SizedBox(width: 4),
                                   Text(
-                                    'CR├ëDITO',
+                                    'CRÉDITO',
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 9,
@@ -1018,7 +1018,7 @@ class FinanceBankBrandCard extends StatelessWidget {
   }
 }
 
-/// Grade responsiva de cart├Áes de conta (1 ou 2 colunas).
+/// Grade responsiva de cartões de conta (1 ou 2 colunas).
 class FinanceContasBrandGrid extends StatelessWidget {
   const FinanceContasBrandGrid({
     super.key,

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -200,7 +201,7 @@ class PendingStorageUploadService {
         .update({
       'oficioUrl': url,
       'oficioFileName': fileName,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     await file.delete();
     return true;
@@ -240,8 +241,8 @@ class PendingStorageUploadService {
         'webViewLink': result.url,
         'webContentLink': result.url,
       },
-      'receiptPendingUpload': FieldValue.delete(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'receiptPendingUpload': YahwehFv.deleteField,
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     await file.delete();
     return true;
@@ -273,8 +274,8 @@ class PendingStorageUploadService {
       'anexoContentType': mime,
       'anexoSizeBytes': bytes.length,
       'anexoStoragePath': storagePath,
-      'anexoPendingUpload': FieldValue.delete(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'anexoPendingUpload': YahwehFv.deleteField,
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     await file.delete();
     return true;

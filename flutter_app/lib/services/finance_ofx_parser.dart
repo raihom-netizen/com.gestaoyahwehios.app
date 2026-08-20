@@ -1,4 +1,4 @@
-﻿/// Parser leve de extratos OFX/QFX (1.x SGML e 2.x XML) ÔÇö Dart puro, sem rede.
+﻿/// Parser leve de extratos OFX/QFX (1.x SGML e 2.x XML) — Dart puro, sem rede.
 class OfxStatementTransaction {
   const OfxStatementTransaction({
     required this.fitId,
@@ -9,7 +9,7 @@ class OfxStatementTransaction {
   });
 
   final String fitId;
-  /// Valor com sinal: positivo = cr├®dito, negativo = d├®bito.
+  /// Valor com sinal: positivo = crédito, negativo = débito.
   final double amount;
   final DateTime date;
   final String memo;
@@ -90,7 +90,7 @@ abstract final class FinanceOfxParser {
     }
     if (out.isNotEmpty) return out;
 
-    // OFX 1.x SGML: tags sem fechamento expl├¡cito.
+    // OFX 1.x SGML: tags sem fechamento explícito.
     final lines = text.split('\n');
     var buf = <String>[];
     var inBlock = false;

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -271,7 +272,7 @@ abstract final class ChurchEventCategoriesLoadService {
     final payload = ChurchTenantFields.stamp(churchId, {
       'nome': trimmed,
       'cor': colorValue,
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': YahwehFv.serverTimestamp,
     });
 
     await _writeFast(() => YahwehDocWrite.set(ref, payload, merge: false));

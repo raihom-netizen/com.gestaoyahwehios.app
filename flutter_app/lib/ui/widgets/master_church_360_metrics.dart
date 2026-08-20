@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/data/church_data_paths.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -237,7 +237,7 @@ abstract final class MasterPlanAlertPersistence {
         : shouldWarn
         ? 'Faltam $remaining membro(s) para atingir o limite do plano. Avalie a mudança de plano.'
         : 'Uso do plano dentro do limite.';
-    final now = FieldValue.serverTimestamp();
+    final now = YahwehFv.serverTimestamp;
     final churchRef = firebaseDefaultFirestore
         .collection(ChurchDataPaths.rootCollection)
         .doc(tid)

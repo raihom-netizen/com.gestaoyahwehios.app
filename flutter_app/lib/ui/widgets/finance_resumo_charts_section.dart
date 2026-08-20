@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/services/panel_finance_chart_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:intl/intl.dart';
 
-/// Gr├íficos premium do Resumo Financeiro ÔÇö [PanelFinanceChartService] + categorias.
+/// Gráficos premium do Resumo Financeiro — [PanelFinanceChartService] + categorias.
 class FinanceResumoChartsSection extends StatelessWidget {
   const FinanceResumoChartsSection({
     super.key,
@@ -69,7 +69,7 @@ class FinanceResumoChartsSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _ChartShell(
-          title: 'Receitas x Despesas ┬À $year',
+          title: 'Receitas x Despesas · $year',
           icon: Icons.bar_chart_rounded,
           child: SizedBox(
             height: 240,
@@ -504,7 +504,7 @@ class _CategoryPieCard extends StatelessWidget {
   }
 }
 
-/// Card donut modernizado ÔÇö visual Controle Total (├¡cone insight + total + %).
+/// Card donut modernizado — visual Controle Total (ícone insight + total + %).
 class _ModernCategoryShell extends StatelessWidget {
   const _ModernCategoryShell({
     required this.title,

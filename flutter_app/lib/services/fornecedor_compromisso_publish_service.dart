@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:typed_data';
@@ -32,7 +33,7 @@ abstract final class FornecedorCompromissoPublishService {
     final data = isNew
         ? {
             ...payload,
-            'createdAt': FieldValue.serverTimestamp(),
+            'createdAt': YahwehFv.serverTimestamp,
           }
         : payload;
 
@@ -81,7 +82,7 @@ abstract final class FornecedorCompromissoPublishService {
         () => docRef.set(
           {
             'comprovanteUploadState': 'uploading',
-            'updatedAt': FieldValue.serverTimestamp(),
+            'updatedAt': YahwehFv.serverTimestamp,
           },
           SetOptions(merge: true),
         ),
@@ -106,8 +107,8 @@ abstract final class FornecedorCompromissoPublishService {
         fileName: fileName,
       );
       patch['comprovanteUploadState'] = 'ready';
-      patch['comprovantePendingLocal'] = FieldValue.delete();
-      patch['updatedAt'] = FieldValue.serverTimestamp();
+      patch['comprovantePendingLocal'] = YahwehFv.deleteField;
+      patch['updatedAt'] = YahwehFv.serverTimestamp;
       await AdminFeedFirestoreBridge.upsertDocRef(
         docRef: docRef,
         data: patch,
@@ -175,7 +176,7 @@ abstract final class FornecedorCompromissoPublishService {
           'comprovantePendingLocal': true,
           'comprovanteStoragePath': storagePath,
           'hasComprovante': true,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         },
         SetOptions(merge: true),
       ),
@@ -218,7 +219,7 @@ abstract final class FornecedorCompromissoPublishService {
     final cid = ChurchRepository.churchId(churchId.trim());
     final clearPatch =
         ChurchCanonicalMediaContract.comprovanteClearFirestorePatch();
-    clearPatch['updatedAt'] = FieldValue.serverTimestamp();
+    clearPatch['updatedAt'] = YahwehFv.serverTimestamp;
     if (kIsWeb) {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }

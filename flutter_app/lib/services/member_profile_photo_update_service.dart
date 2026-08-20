@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:typed_data';
@@ -72,8 +73,8 @@ class MemberProfilePhotoUpdateService {
     return {
       photoUploadStateField: stateUploading,
       'fotoUrlCacheRevision': rev,
-      'photoUploadError': FieldValue.delete(),
-      'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+      'photoUploadError': YahwehFv.deleteField,
+      'ATUALIZADO_EM': YahwehFv.serverTimestamp,
     };
   }
 
@@ -319,7 +320,7 @@ class MemberProfilePhotoUpdateService {
     final patch = {
       photoUploadStateField: stateError,
       'photoUploadError': error.toString(),
-      'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+      'ATUALIZADO_EM': YahwehFv.serverTimestamp,
     };
     var tenantIds = <String>[];
     try {
@@ -623,14 +624,14 @@ class MemberProfilePhotoUpdateService {
       'memberDocId': memberDocId,
       'displayName': displayName.isEmpty ? 'Membro' : displayName,
       if (clearPhoto) ...{
-        'fotoUrl': FieldValue.delete(),
-        'photoUrl': FieldValue.delete(),
-        'fotoThumbUrl': FieldValue.delete(),
-        'photoThumbUrl': FieldValue.delete(),
-        'photoStoragePath': FieldValue.delete(),
-        'photoThumbStoragePath': FieldValue.delete(),
-        'fotoPath': FieldValue.delete(),
-        'fotoThumbPath': FieldValue.delete(),
+        'fotoUrl': YahwehFv.deleteField,
+        'photoUrl': YahwehFv.deleteField,
+        'fotoThumbUrl': YahwehFv.deleteField,
+        'photoThumbUrl': YahwehFv.deleteField,
+        'photoStoragePath': YahwehFv.deleteField,
+        'photoThumbStoragePath': YahwehFv.deleteField,
+        'fotoPath': YahwehFv.deleteField,
+        'fotoThumbPath': YahwehFv.deleteField,
       },
       if (bustedUrl.isNotEmpty) ...{
         'fotoUrl': bustedUrl,
@@ -645,7 +646,7 @@ class MemberProfilePhotoUpdateService {
       if (sp.isNotEmpty) 'fotoPath': sp,
       if (tsp.isNotEmpty) 'fotoThumbPath': tsp,
       'fotoUrlCacheRevision': cacheRevision,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
 
     final memberRefData = Map<String, dynamic>.from(memberData)
@@ -800,14 +801,14 @@ class MemberProfilePhotoUpdateService {
       if (authUid.isNotEmpty) {
         try {
           await YahwehDocWrite.set(firebaseDefaultFirestore.collection('users').doc(authUid), {
-            'fotoUrl': FieldValue.delete(),
-            'photoUrl': FieldValue.delete(),
-            'fotoThumbUrl': FieldValue.delete(),
-            'photoThumbUrl': FieldValue.delete(),
-            'photoStoragePath': FieldValue.delete(),
-            'photoThumbStoragePath': FieldValue.delete(),
-            'fotoPath': FieldValue.delete(),
-            'fotoThumbPath': FieldValue.delete(),
+            'fotoUrl': YahwehFv.deleteField,
+            'photoUrl': YahwehFv.deleteField,
+            'fotoThumbUrl': YahwehFv.deleteField,
+            'photoThumbUrl': YahwehFv.deleteField,
+            'photoStoragePath': YahwehFv.deleteField,
+            'photoThumbStoragePath': YahwehFv.deleteField,
+            'fotoPath': YahwehFv.deleteField,
+            'fotoThumbPath': YahwehFv.deleteField,
             'fotoUrlCacheRevision': revision,
           });
         } catch (e, st) {

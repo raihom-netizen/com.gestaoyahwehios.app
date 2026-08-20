@@ -1,3 +1,5 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:gestao_yahweh/utils/yahweh_date_range_picker.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_responsible_picker.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'dart:async' show Timer, unawaited;
@@ -2874,7 +2876,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                               ),
                               Expanded(
                                 child: Text(
-                                  '${_tituloForTemplate(template)} ? $selectedCount',
+                                  '${_tituloForTemplate(template)} — $selectedCount',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: GoogleFonts.poppins(
@@ -3399,7 +3401,7 @@ class _CertificadosPageState extends State<CertificadosPage> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      '$cloudTotal certificado(s) ? ${_tituloForTemplate(template)}',
+                      '$cloudTotal certificado(s) — ${_tituloForTemplate(template)}',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                     ),
@@ -5097,8 +5099,8 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
           'logoUrl': primaryHttps.trim(),
           'logoPath': primaryHttps.trim(),
           'logoStoragePath': upload.storagePath,
-          'logoVariants': FieldValue.delete(),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'logoVariants': YahwehFv.deleteField,
+          'updatedAt': YahwehFv.serverTimestamp,
         }, SetOptions(merge: true));
         ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar('Logo da galeria definido.'));
@@ -5215,7 +5217,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
           .set({
         'logoUrl': _logoCtrl.text.trim().isEmpty ? null : _logoCtrl.text.trim(),
         if (_logoCtrl.text.trim().isEmpty) 'logoPath': null,
-        'logoVariants': FieldValue.delete(),
+        'logoVariants': YahwehFv.deleteField,
         'certLayoutId': _certPdfLayoutId,
         'templates': templates,
         'certSignatorySlots': [
@@ -5232,7 +5234,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
             if ((_slotMemberIds[i] ?? '').trim().isNotEmpty)
               _slotMemberIds[i]!.trim(),
         ],
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       }, SetOptions(merge: true));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -5445,7 +5447,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                       border: Border.all(color: Colors.grey.shade300),
                     ),
                     child: Text(
-                      '${_certLayoutOptions.first.nome} ? ${_certLayoutOptions.first.descricao}',
+                      '${_certLayoutOptions.first.nome} — ${_certLayoutOptions.first.descricao}',
                       style: TextStyle(fontSize: 13, height: 1.35, color: Colors.grey.shade700),
                     ),
                   ),
@@ -5666,7 +5668,7 @@ class _CertificadosConfigPageState extends State<_CertificadosConfigPage> {
                       items: _certFontStyleOptions
                           .map((o) => DropdownMenuItem<String>(
                                 value: o.id,
-                                child: Text('${o.nome} ? ${o.descricao}'),
+                                child: Text('${o.nome} — ${o.descricao}'),
                               ))
                           .toList(),
                       onChanged: (v) {
@@ -8125,7 +8127,6 @@ class _CertificadosEmitidosHistoricoViewState
       initialDate: _diaFiltro ?? now,
       firstDate: first,
       lastDate: last,
-      locale: const Locale('pt', 'BR'),
     );
     if (d != null) {
       setState(() {
@@ -8144,15 +8145,14 @@ class _CertificadosEmitidosHistoricoViewState
     final last = DateTime(now.year + 1, 12, 31);
     final initialStart = _periodoInicio ?? now.subtract(const Duration(days: 30));
     final initialEnd = _periodoFim ?? now;
-    final range = await showDateRangePicker(
-      context: context,
+    final range = await escolherIntervaloDeDatas(
+      context,
       firstDate: first,
       lastDate: last,
       initialDateRange: DateTimeRange(
         start: initialStart.isBefore(first) ? first : initialStart,
         end: initialEnd.isAfter(last) ? last : initialEnd,
       ),
-      locale: const Locale('pt', 'BR'),
       helpText: 'Período de emissão',
       cancelText: 'Cancelar',
       confirmText: 'Aplicar',
@@ -8973,7 +8973,7 @@ class _CertificadosEmitidosHistoricoViewState
                                             label: Text(
                                               _periodoInicio != null &&
                                                       _periodoFim != null
-                                                  ? '${DateFormat.yMd('pt_BR').format(_periodoInicio!)} ? ${DateFormat.yMd('pt_BR').format(_periodoFim!)}'
+                                                  ? '${DateFormat.yMd('pt_BR').format(_periodoInicio!)} — ${DateFormat.yMd('pt_BR').format(_periodoFim!)}'
                                                   : 'Período (de/até)',
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
@@ -9066,7 +9066,7 @@ class _CertificadosEmitidosHistoricoViewState
                                     label: Text(
                                       _periodoInicio != null &&
                                               _periodoFim != null
-                                          ? '${DateFormat.yMd('pt_BR').format(_periodoInicio!)} ? ${DateFormat.yMd('pt_BR').format(_periodoFim!)}'
+                                          ? '${DateFormat.yMd('pt_BR').format(_periodoInicio!)} — ${DateFormat.yMd('pt_BR').format(_periodoFim!)}'
                                           : 'Período de emissão (de/até)',
                                     ),
                                     style: OutlinedButton.styleFrom(

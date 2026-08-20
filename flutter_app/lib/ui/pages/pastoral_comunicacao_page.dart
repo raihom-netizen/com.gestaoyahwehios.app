@@ -1,3 +1,5 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:gestao_yahweh/utils/yahweh_date_range_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -1509,8 +1511,8 @@ class _DevocionalTabState extends State<_DevocionalTab> {
 
   Future<void> _pickDevRange() async {
     final now = DateTime.now();
-    final range = await showDateRangePicker(
-      context: context,
+    final range = await escolherIntervaloDeDatas(
+      context,
       firstDate: DateTime(now.year - 5),
       lastDate: DateTime(now.year + 1, 12, 31),
       initialDateRange: _devRangeStart != null && _devRangeEnd != null
@@ -1672,7 +1674,7 @@ class _DevocionalTabState extends State<_DevocionalTab> {
         'devocionalTexto': _textoCtrl.text.trim(),
         'devocionalReferencia': _refCtrl.text.trim(),
         'devocionalHora': _hora,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

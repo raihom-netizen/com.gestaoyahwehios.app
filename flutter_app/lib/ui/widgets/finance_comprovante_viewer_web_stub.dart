@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:typed_data';
 
-/// Stub mobile/desktop ÔÇö viewer nativo em FinanceComprovanteViewerSheet.
+/// Stub mobile/desktop — viewer nativo em FinanceComprovanteViewerSheet.
 Future<void> showFinanceComprovanteWebEmbed({
   required BuildContext context,
   required String url,

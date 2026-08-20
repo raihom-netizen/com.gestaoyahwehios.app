@@ -122,15 +122,15 @@ class GoalDepositService {
           'contaDestinoId': accountId,
         },
         'recebimentoConfirmado': true,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': YahwehFv.serverTimestamp,
+        'updatedAt': YahwehFv.serverTimestamp,
       }, merge: false);
     }
 
     await _contribRef(goalRef).add({
       'amount': amount,
       'date': Timestamp.fromDate(effectiveDate),
-      'createdAt': FieldValue.serverTimestamp(),
+      'createdAt': YahwehFv.serverTimestamp,
       if (weeks.length == 1) 'weekNumber': weeks.first,
       if (weeks.length > 1) 'weekNumbers': weeks,
       if (accountId.isNotEmpty) 'financeAccountId': accountId,
@@ -197,13 +197,13 @@ class GoalDepositService {
     if (is52) {
       if (newWeeks.length == 1) {
         contribUpdate['weekNumber'] = newWeeks.first;
-        contribUpdate['weekNumbers'] = FieldValue.delete();
+        contribUpdate['weekNumbers'] = YahwehFv.deleteField;
       } else if (newWeeks.length > 1) {
         contribUpdate['weekNumbers'] = newWeeks;
-        contribUpdate['weekNumber'] = FieldValue.delete();
+        contribUpdate['weekNumber'] = YahwehFv.deleteField;
       } else {
-        contribUpdate['weekNumber'] = FieldValue.delete();
-        contribUpdate['weekNumbers'] = FieldValue.delete();
+        contribUpdate['weekNumber'] = YahwehFv.deleteField;
+        contribUpdate['weekNumbers'] = YahwehFv.deleteField;
       }
     }
     await YahwehDocWrite.update(contribDoc.reference, contribUpdate);
@@ -219,7 +219,7 @@ class GoalDepositService {
           'financeAccountId': accountId,
           'contaDestinoId': accountId,
         },
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       });
       FinanceTransactionsHub.notifyMutated(uid: uid);
     }
@@ -471,19 +471,19 @@ class GoalDepositService {
   static Map<String, dynamic> _weekFieldsPatch(List<int> weeks) {
     if (weeks.isEmpty) {
       return {
-        'weekNumber': FieldValue.delete(),
-        'weekNumbers': FieldValue.delete(),
+        'weekNumber': YahwehFv.deleteField,
+        'weekNumbers': YahwehFv.deleteField,
       };
     }
     if (weeks.length == 1) {
       return {
         'weekNumber': weeks.first,
-        'weekNumbers': FieldValue.delete(),
+        'weekNumbers': YahwehFv.deleteField,
       };
     }
     return {
       'weekNumbers': weeks,
-      'weekNumber': FieldValue.delete(),
+      'weekNumber': YahwehFv.deleteField,
     };
   }
 

@@ -483,17 +483,17 @@ Future<void> commitFinanceConfirmPayment({
     'status': 'paid',
     'paidAt': confTs,
     'effectiveDate': confTs,
-    'updatedAt': FieldValue.serverTimestamp(),
+    'updatedAt': YahwehFv.serverTimestamp,
   };
   final aid = result.financeAccountId?.trim() ?? '';
   if (creditCardFaturaPayment) {
     if (aid.isNotEmpty) {
       updateData['paidFromFinanceAccountId'] = aid;
     } else {
-      updateData['paidFromFinanceAccountId'] = FieldValue.delete();
+      updateData['paidFromFinanceAccountId'] = YahwehFv.deleteField;
     }
   } else if (aid.isEmpty) {
-    updateData['financeAccountId'] = FieldValue.delete();
+    updateData['financeAccountId'] = YahwehFv.deleteField;
   } else {
     updateData['financeAccountId'] = aid;
   }
@@ -914,7 +914,7 @@ Future<void> commitFinanceConfirmPaymentBatch({
   if (unique.isEmpty) return;
 
   final confTs = Timestamp.fromDate(result.paymentDate);
-  final updatedAt = FieldValue.serverTimestamp();
+  final updatedAt = YahwehFv.serverTimestamp;
   final aid = result.financeAccountId?.trim() ?? '';
   final payDay = DateTime(
     result.paymentDate.year,
@@ -1002,11 +1002,11 @@ Future<int> processDueFaturaScheduledPayments({
       'status': 'paid',
       'paidAt': confTs,
       'effectiveDate': confTs,
-      'faturaPaymentScheduledAt': FieldValue.delete(),
-      'faturaClosedAt': FieldValue.delete(),
-      'faturaAutoDebit': FieldValue.delete(),
+      'faturaPaymentScheduledAt': YahwehFv.deleteField,
+      'faturaClosedAt': YahwehFv.deleteField,
+      'faturaAutoDebit': YahwehFv.deleteField,
       if (paidFrom.isNotEmpty) 'paidFromFinanceAccountId': paidFrom,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     n++;
   }

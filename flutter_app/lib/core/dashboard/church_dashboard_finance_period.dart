@@ -9,7 +9,7 @@ enum ChurchDashboardFinancePreset {
   custom,
 }
 
-/// Resolve o intervalo [DateTimeRange] em hor├írio local e r├│tulos para a UI.
+/// Resolve o intervalo [DateTimeRange] em horário local e rótulos para a UI.
 class ChurchDashboardFinancePeriod {
   ChurchDashboardFinancePeriod._();
 
@@ -91,19 +91,19 @@ class ChurchDashboardFinancePeriod {
   static String presetLabel(ChurchDashboardFinancePreset p) {
     switch (p) {
       case ChurchDashboardFinancePreset.previousMonth:
-        return 'M├¬s anterior';
+        return 'Mês anterior';
       case ChurchDashboardFinancePreset.currentMonth:
-        return 'M├¬s atual';
+        return 'Mês atual';
       case ChurchDashboardFinancePreset.weekly:
         return 'Semanal';
       case ChurchDashboardFinancePreset.yearly:
         return 'Anual';
       case ChurchDashboardFinancePreset.custom:
-        return 'Per├¡odo';
+        return 'Período';
     }
   }
 
-  /// Meses ÔÇ£equivalentesÔÇØ para m├®dias tipo / m├¬s (proje├º├úo).
+  /// Meses “equivalentes” para médias tipo / mês (projeção).
   static double equivalentMonths(DateTimeRange range) {
     final days = range.end.difference(range.start).inDays + 1;
     if (days < 1) return 1 / 30.4;

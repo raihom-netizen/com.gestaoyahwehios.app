@@ -1923,7 +1923,7 @@ class _SchedulesPageState extends State<SchedulesPage>
       try {
         await YahwehDocWrite.update(troca.reference, {
           'status': 'recusada',
-          'resolvedAt': FieldValue.serverTimestamp(),
+          'resolvedAt': YahwehFv.serverTimestamp,
         });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2023,7 +2023,7 @@ class _SchedulesPageState extends State<SchedulesPage>
       });
       await YahwehDocWrite.update(troca.reference, {
         'status': 'aprovada',
-        'resolvedAt': FieldValue.serverTimestamp(),
+        'resolvedAt': YahwehFv.serverTimestamp,
       });
       if (mounted) {
         _refreshInstances();
@@ -4662,7 +4662,7 @@ class _SchedulesPageState extends State<SchedulesPage>
                 ThemeCleanPremium.success,
                 lines:
                     whoAttended.entries
-                        .map((e) => '${e.key} ? ${e.value} confirmação(?es)')
+                        .map((e) => '${e.key} — ${e.value} confirmação(?es)')
                         .toList()
                       ..sort(),
               );
@@ -4674,7 +4674,7 @@ class _SchedulesPageState extends State<SchedulesPage>
                 ThemeCleanPremium.error,
                 lines:
                     whoMissedNj.entries
-                        .map((e) => '${e.key} ? ${e.value} ocorrência(s)')
+                        .map((e) => '${e.key} — ${e.value} ocorrência(s)')
                         .toList()
                       ..sort(),
               );
@@ -4686,7 +4686,7 @@ class _SchedulesPageState extends State<SchedulesPage>
                 const Color(0xFFDC2626),
                 lines:
                     whoIndisponivel.entries
-                        .map((e) => '${e.key} ? ${e.value} ocorrência(s)')
+                        .map((e) => '${e.key} — ${e.value} ocorrência(s)')
                         .toList()
                       ..sort(),
               );
@@ -5310,7 +5310,7 @@ class _SchedulesPageState extends State<SchedulesPage>
                                             ),
                                             const SizedBox(height: 4),
                                             Text(
-                                              '$when${tim.isNotEmpty ? ' ? $tim' : ''} ? $dep',
+                                              '$when${tim.isNotEmpty ? ' ? $tim' : ''} — $dep',
                                               style: TextStyle(
                                                 fontSize: 12,
                                                 color: Colors.grey.shade700,
@@ -5319,7 +5319,7 @@ class _SchedulesPageState extends State<SchedulesPage>
                                             ),
                                             const SizedBox(height: 8),
                                             Text(
-                                              '${sol.isNotEmpty ? sol : 'Titular'} ? ${alv.isNotEmpty ? alv : 'Substituto'}',
+                                              '${sol.isNotEmpty ? sol : 'Titular'} — ${alv.isNotEmpty ? alv : 'Substituto'}',
                                               style: TextStyle(
                                                 fontSize: 13,
                                                 color: Colors.grey.shade900,
@@ -5939,7 +5939,7 @@ class _SchedulesPageState extends State<SchedulesPage>
             pw.SizedBox(height: 10),
             pw.Center(
               child: pw.Text(
-                'ESCALA GERAL SEMANAL (${start.day}/${start.month} ? ${end.day}/${end.month}/${end.year})',
+                'ESCALA GERAL SEMANAL (${start.day}/${start.month} — ${end.day}/${end.month}/${end.year})',
                 style: pw.TextStyle(
                   fontSize: 12,
                   fontWeight: pw.FontWeight.bold,
@@ -6626,8 +6626,8 @@ class _SchedulesPageState extends State<SchedulesPage>
     final updates = <String, dynamic>{
       'memberCpfs': newCpfs,
       'memberNames': newNames,
-      'confirmations.$currentCpf': FieldValue.delete(),
-      'unavailabilityReasons.$currentCpf': FieldValue.delete(),
+      'confirmations.$currentCpf': YahwehFv.deleteField,
+      'unavailabilityReasons.$currentCpf': YahwehFv.deleteField,
     };
     try {
       await YahwehDocWrite.update(doc.reference, updates);
@@ -8646,7 +8646,7 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
     if (conflicts.isNotEmpty) {
       final buf = StringBuffer();
       for (final e in conflicts.entries) {
-        buf.writeln('? ${_displayNameForCpf(e.key)} ? ${e.value.join("; ")}');
+        buf.writeln('? ${_displayNameForCpf(e.key)} — ${e.value.join("; ")}');
       }
       await showDialog<void>(
         context: context,

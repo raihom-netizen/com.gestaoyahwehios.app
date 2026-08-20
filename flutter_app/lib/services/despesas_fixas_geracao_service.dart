@@ -1,10 +1,11 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/receitas_recorrentes_geracao_service.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
-/// Id determin├¡stico do lan├ºamento gerado por despesa fixa + compet├¬ncia.
+/// Id determinístico do lançamento gerado por despesa fixa + competência.
 String idLancamentoDespesaFixa(String despesaFixaId, String competencia) =>
     'desp_${despesaFixaId}_$competencia';
 
@@ -14,7 +15,7 @@ int _diaNaCompetencia(int diaVencimento, DateTime monthStart) {
   return d > last ? last : d;
 }
 
-/// Gera lan├ºamentos de despesa **pendentes de pagamento** (idempotente).
+/// Gera lançamentos de despesa **pendentes de pagamento** (idempotente).
 Future<int> gerarDespesasFixasPendentes(String tenantId) async {
   final churchId = ChurchRepository.churchId(tenantId.trim());
   final fixSnap = await ChurchTenantResilientReads.despesasFixas(churchId);
@@ -95,14 +96,14 @@ Future<int> gerarDespesasFixasPendentes(String tenantId) async {
           'type': 'saida',
           'amount': v,
           'categoria': categoria,
-          'descricao': '$descricao ($labelMes) ┬À fixa',
+          'descricao': '$descricao ($labelMes) · fixa',
           'pagamentoConfirmado': false,
           'pendenteConciliacaoDespesaFixa': true,
           'despesaFixaId': fd.id,
           'competencia': comp,
           'vinculoTipo': vinculoTipo,
           'date': Timestamp.fromDate(dataLanc),
-          'createdAt': FieldValue.serverTimestamp(),
+          'createdAt': YahwehFv.serverTimestamp,
         };
         if (titular.isNotEmpty) base['titularNome'] = titular;
         if (vinculoTipo == 'membro') {

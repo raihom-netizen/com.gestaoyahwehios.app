@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/tenant/church_session_restart.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart'
     show
@@ -1138,6 +1139,19 @@ class _AppWithThemeState extends State<_AppWithTheme>
 
   @override
   Widget build(BuildContext context) {
+    // Trocar de igreja incrementa a epoca; a chave nova faz o Flutter descartar
+    // TODA a arvore e reconstrui-la — o equivalente a entrar de novo, sem
+    // recarregar a pagina. Ver [ChurchSessionRestart].
+    return ValueListenableBuilder<int>(
+      valueListenable: ChurchSessionRestart.epoch,
+      builder: (context, epoca, _) => KeyedSubtree(
+        key: ValueKey<int>(epoca),
+        child: _buildApp(context),
+      ),
+    );
+  }
+
+  Widget _buildApp(BuildContext context) {
     return ThemeModeScope(
       notifier: _themeProvider,
       child: MaterialApp(

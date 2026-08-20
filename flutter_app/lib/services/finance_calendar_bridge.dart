@@ -292,8 +292,8 @@ abstract final class FinanceCalendarBridge {
     try {
       await YahwehDocWrite.update(_txCol(uid).doc(docId), {
         'status': 'paid',
-        'paidAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'paidAt': YahwehFv.serverTimestamp,
+        'updatedAt': YahwehFv.serverTimestamp,
       });
       FinanceMonthCache.clearUid(uid);
       return true;
@@ -364,7 +364,7 @@ abstract final class FinanceCalendarBridge {
         existing.add(monthKey!);
         tx.update(ref, {
           'excludedMonths': existing,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         });
       });
     } catch (_) {}

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/constants/default_categories.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -156,7 +157,7 @@ class UserCategoriesService {
     await YahwehDocWrite.set(_ref(uid), {
       ...data,
       key: list,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 
@@ -176,7 +177,7 @@ class UserCategoriesService {
     await YahwehDocWrite.set(_ref(uid), {
       ...data,
       key: out,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 
@@ -216,7 +217,7 @@ class UserCategoriesService {
     current.sort((a, b) => _sortKeyPt(a).compareTo(_sortKeyPt(b)));
     final payload = <String, dynamic>{
       key: current,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
     if (snap.exists) {
       await YahwehDocWrite.update(_ref(uid), payload);
@@ -248,7 +249,7 @@ class UserCategoriesService {
     await YahwehDocWrite.set(_ref(uid), {
       ...data,
       key: updated,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 
@@ -284,7 +285,7 @@ class UserCategoriesService {
     await YahwehDocWrite.set(_ref(uid), {
       ...data,
       key: next,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 }

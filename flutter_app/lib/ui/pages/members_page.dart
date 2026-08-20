@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:gestao_yahweh/ui/pages/finance_vinculo_extrato_page.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
@@ -347,7 +348,7 @@ class _MembersPageState extends State<MembersPage> {
     final patch = <String, dynamic>{
       for (final key in photoKeys) key: null,
       'fotoUrlCacheRevision': result.cacheRevision,
-      'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+      'ATUALIZADO_EM': YahwehFv.serverTimestamp,
       'profilePhotoRemoved': true,
     };
     final merged = Map<String, dynamic>.from(memberData);
@@ -5423,7 +5424,7 @@ class _MembersPageState extends State<MembersPage> {
           'CIDADE': (result['cidade'] ?? '').toString().trim(),
           'CEP': (result['cep'] ?? '').toString().trim(),
           'ESTADO': (result['estado'] ?? '').toString().trim(),
-          'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+          'ATUALIZADO_EM': YahwehFv.serverTimestamp,
         };
         if (nascSaved != null) {
           updates['DATA_NASCIMENTO'] = Timestamp.fromDate(nascSaved);
@@ -5487,7 +5488,7 @@ class _MembersPageState extends State<MembersPage> {
                   'nome': updates['NOME_COMPLETO'],
                   'displayName': updates['NOME_COMPLETO'],
                   'email': updates['EMAIL'],
-                  'updatedAt': FieldValue.serverTimestamp(),
+                  'updatedAt': YahwehFv.serverTimestamp,
                 }, SetOptions(merge: true));
           } catch (_) {}
           final cpfKey = (widget.linkedCpf ?? _str(member.data, 'CPF', 'cpf'))
@@ -5500,7 +5501,7 @@ class _MembersPageState extends State<MembersPage> {
                 'name': updates['NOME_COMPLETO'],
                 'nome': updates['NOME_COMPLETO'],
                 'email': updates['EMAIL'],
-                'updatedAt': FieldValue.serverTimestamp(),
+                'updatedAt': YahwehFv.serverTimestamp,
               });
             } catch (_) {}
           }
@@ -5638,7 +5639,7 @@ class _MembersPageState extends State<MembersPage> {
       'CARGO': funcaoFinal,
       'role': permBaseFinal,
       if (result['removeConsagracao'] == true)
-        'DATA_CONSAGRACAO': FieldValue.delete()
+        'DATA_CONSAGRACAO': YahwehFv.deleteField
       else if (result['dataConsagracao'] is DateTime)
         'DATA_CONSAGRACAO': Timestamp.fromDate(
           result['dataConsagracao'] as DateTime,
@@ -5670,7 +5671,7 @@ class _MembersPageState extends State<MembersPage> {
       'CIDADE': (result['cidade'] ?? cidadeCtrl.text).toString().trim(),
       'CEP': (result['cep'] ?? cepCtrl.text).toString().trim(),
       'ESTADO': (result['estado'] ?? estadoCtrl.text).toString().trim(),
-      'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+      'ATUALIZADO_EM': YahwehFv.serverTimestamp,
     };
     if (result['dataBatismo'] is DateTime) {
       updates['DATA_BATISMO'] = Timestamp.fromDate(
@@ -5761,8 +5762,8 @@ class _MembersPageState extends State<MembersPage> {
       if (uAss.isNotEmpty) {
         await FirebaseStorageCleanupService.deleteObjectAtDownloadUrl(uAss);
       }
-      updates['assinaturaUrl'] = FieldValue.delete();
-      updates['assinaturaStoragePath'] = FieldValue.delete();
+      updates['assinaturaUrl'] = YahwehFv.deleteField;
+      updates['assinaturaStoragePath'] = YahwehFv.deleteField;
     }
     final linkage = isMoveToOtherChurch
         ? await _getLinkageForTenant(targetTenantId)

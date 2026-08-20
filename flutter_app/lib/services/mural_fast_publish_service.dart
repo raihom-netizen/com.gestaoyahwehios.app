@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async' show TimeoutException, unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:io';
@@ -237,7 +238,7 @@ abstract final class MuralFastPublishService {
     try {
       await YahwehDocWrite.set(docRef, {
         'publishState': EntityPublishStatus.uploading,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       });
     } catch (e, st) {
       YahwehFlowLog.error('AVISOS', e, st);
@@ -424,9 +425,9 @@ abstract final class MuralFastPublishService {
     patch['publishState'] = statePublished;
     patch['publicado'] = true;
     patch['status'] = 'publicado';
-    patch['pendingImageCount'] = FieldValue.delete();
-    patch['publishError'] = FieldValue.delete();
-    patch['updatedAt'] = FieldValue.serverTimestamp();
+    patch['pendingImageCount'] = YahwehFv.deleteField;
+    patch['publishError'] = YahwehFv.deleteField;
+    patch['updatedAt'] = YahwehFv.serverTimestamp;
     Object? lastFinalize;
     for (var attempt = 1; attempt <= 3; attempt++) {
       try {

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async' show TimeoutException, unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:typed_data';
@@ -232,10 +233,10 @@ abstract final class MemberProfilePhotoSaveService {
         },
         MemberProfilePhotoUpdateService.photoUploadStateField:
             EntityPublishStatus.published,
-        'photoUploadError': FieldValue.delete(),
+        'photoUploadError': YahwehFv.deleteField,
         'fotoUrlCacheRevision': revision,
-        'ATUALIZADO_EM': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'ATUALIZADO_EM': YahwehFv.serverTimestamp,
+        'updatedAt': YahwehFv.serverTimestamp,
         'ativo': true,
       };
 

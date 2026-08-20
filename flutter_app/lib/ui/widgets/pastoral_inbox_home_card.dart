@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async' show StreamSubscription;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -487,7 +488,7 @@ class _PastoralInboxTileState extends State<_PastoralInboxTile>
     final messenger = ScaffoldMessenger.of(context);
     try {
       final payload = <String, dynamic>{
-        'readAt': FieldValue.serverTimestamp(),
+        'readAt': YahwehFv.serverTimestamp,
       };
       if (includeReply && r.isNotEmpty) payload['reply'] = r;
       await YahwehDocWrite.set(leituraRef, payload);

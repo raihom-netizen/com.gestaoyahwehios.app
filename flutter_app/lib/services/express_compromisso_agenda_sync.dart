@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
@@ -194,15 +195,15 @@ class ExpressCompromissoAgendaSync {
       'done': false,
       'source': 'lancamento_expresso',
       'lancamentoOrigem': 'lancamento_expresso',
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
-    payload['reminderLeads'] = FieldValue.delete();
-    payload['notificationSoundId'] = FieldValue.delete();
-    payload['notificationDeliveryMode'] = FieldValue.delete();
+    payload['reminderLeads'] = YahwehFv.deleteField;
+    payload['notificationSoundId'] = YahwehFv.deleteField;
+    payload['notificationDeliveryMode'] = YahwehFv.deleteField;
     if (linked == null) {
-      payload['createdAt'] = FieldValue.serverTimestamp();
+      payload['createdAt'] = YahwehFv.serverTimestamp;
     }
-    payload['agendaLoginDaySyncAt'] = FieldValue.serverTimestamp();
+    payload['agendaLoginDaySyncAt'] = YahwehFv.serverTimestamp;
 
     if (beforeData != null &&
         AgendaDeliveryReset.reminderScheduleChanged(
@@ -374,7 +375,7 @@ class ExpressCompromissoAgendaSync {
     }
 
     const batchLimit = 250;
-    final generatedAt = FieldValue.serverTimestamp();
+    final generatedAt = YahwehFv.serverTimestamp;
     var count = 0;
 
     for (var i = 0; i < items.length; i += batchLimit) {

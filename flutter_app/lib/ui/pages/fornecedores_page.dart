@@ -1,3 +1,5 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
 import 'package:gestao_yahweh/ui/widgets/color_palette_tabs_dialog.dart';
 import 'dart:async' show Timer, unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
@@ -381,6 +383,11 @@ Future<void> showFornecedorCompromissoEditor(
   required DateTime day,
   QueryDocumentSnapshot<Map<String, dynamic>>? existing,
   bool canManageComprovante = true,
+
+  /// Tipo escolhido no calendário (visita, manutenção, compromisso): entra já
+  /// no título e escolhe a cor, para o utilizador não repetir a mesma decisão.
+  String? tituloPreset,
+  Color? corPreset,
 }) async {
   var initialDate = DateTime(day.year, day.month, day.day);
   final tituloCtrl = TextEditingController();
@@ -388,7 +395,11 @@ Future<void> showFornecedorCompromissoEditor(
   final timeNotify = ValueNotifier(const TimeOfDay(hour: 9, minute: 0));
   var pickColor = existing != null
       ? FornecedorAgendaCalendarCells.corFromCompromisso(existing.data())
-      : FornecedorAgendaCalendarCells.compromissoPalette.first;
+      : (corPreset ??
+            FornecedorAgendaCalendarCells.compromissoPalette.first);
+  if (existing == null && (tituloPreset ?? '').trim().isNotEmpty) {
+    tituloCtrl.text = tituloPreset!.trim();
+  }
 
   if (existing != null) {
     final m = existing.data();
@@ -866,7 +877,7 @@ Future<void> showFornecedorCompromissoEditor(
     'valorEstimado': valorParse,
     'status': 'pendente',
     'cor': pickColor.toARGB32(),
-    'updatedAt': FieldValue.serverTimestamp(),
+    'updatedAt': YahwehFv.serverTimestamp,
   };
 
   _CompromissosRamCache.invalidate(churchId);
@@ -1255,8 +1266,8 @@ class _FornecedoresPageState extends State<FornecedoresPage>
           'tenantId': tid,
           'observacoes':
               'Cadastro restaurado automaticamente (referenciado no Financeiro).',
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': YahwehFv.serverTimestamp,
+          'updatedAt': YahwehFv.serverTimestamp,
         }, merge: false);
         return e.key;
       }
@@ -4581,7 +4592,7 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
         'status': _status,
         'churchId': churchId,
         'tenantId': churchId,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       };
       if (kIsWeb) {
         await FirestoreWebGuard.prepareForCriticalWrite();
@@ -4607,7 +4618,7 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
         } catch (_) {
           // Leitura de checagem falhou — não pode bloquear o salvamento.
         }
-        if (isNew) payload['createdAt'] = FieldValue.serverTimestamp();
+        if (isNew) payload['createdAt'] = YahwehFv.serverTimestamp;
         await AdminFeedFirestoreBridge.upsertDocRef(
           docRef: ref,
           data: payload,
@@ -4615,7 +4626,7 @@ class _FornecedorFormSheetState extends State<_FornecedorFormSheet> {
           directWrite: () => YahwehDocWrite.set(ref, payload),
         );
       } else {
-        payload['createdAt'] = FieldValue.serverTimestamp();
+        payload['createdAt'] = YahwehFv.serverTimestamp;
         final ref = col.doc();
         await AdminFeedFirestoreBridge.upsertDocRef(
           docRef: ref,
@@ -5369,7 +5380,7 @@ class _FornecedorHubPageState extends State<FornecedorHubPage>
         filename: 'recibo_fornecedor.pdf',
       );
       await YahwehDocWrite.update(_financeCol.doc(financeDocId), {
-        'reciboEmitidoAt': FieldValue.serverTimestamp(),
+        'reciboEmitidoAt': YahwehFv.serverTimestamp,
       });
     } catch (e, st) {
       debugPrint('fornecedor recibo: $e\n$st');
@@ -5972,7 +5983,11 @@ class _AgendaTabState extends State<_AgendaTab> {
   bool _sameVisibleMonthAgendaFornecedor(DateTime day, DateTime focusedDay) =>
       day.year == focusedDay.year && day.month == focusedDay.month;
 
-  Future<void> _addNaData(DateTime day) async {
+  Future<void> _addNaData(
+    DateTime day, {
+    String? tituloPreset,
+    Color? corPreset,
+  }) async {
     await showFornecedorCompromissoEditor(
       context,
       compCol: widget.compCol,
@@ -5980,6 +5995,8 @@ class _AgendaTabState extends State<_AgendaTab> {
       day: day,
       existing: null,
       canManageComprovante: widget.canWrite,
+      tituloPreset: tituloPreset,
+      corPreset: corPreset,
     );
   }
 
@@ -6547,16 +6564,14 @@ class _AgendaTabState extends State<_AgendaTab> {
                           horizontal: 16,
                           vertical: 8,
                         ),
-                        child: FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            minimumSize: const Size(double.infinity, 48),
-                          ),
-                          onPressed: () => _addNaData(_selected!),
-                          icon: const Icon(Icons.add_rounded),
-                          label: Text(
-                            'Novo vencimento em ${DateFormat('dd/MM/yyyy').format(_selected!)}',
-                            style: const TextStyle(fontWeight: FontWeight.w800),
+                        child: _AgendarNoDiaCard(
+                          dia: _selected!,
+                          onEscolher: (titulo, cor) => unawaited(
+                            _addNaData(
+                              _selected!,
+                              tituloPreset: titulo,
+                              corPreset: cor,
+                            ),
                           ),
                         ),
                       ),
@@ -6624,6 +6639,158 @@ class _AgendaTabState extends State<_AgendaTab> {
           },
         );
       },
+    );
+  }
+}
+
+/// Agendar no dia escolhido: visita, manutenção ou compromisso.
+///
+/// Antes havia um botão único «Novo vencimento», que obrigava a escrever do
+/// zero o que se ia agendar. As três coisas que se marcam a um fornecedor são
+/// sempre as mesmas, por isso cada uma tem o seu botão e a sua cor — as cores
+/// vindas da [AgendaVisualPalette], a mesma paleta da agenda da igreja.
+class _AgendarNoDiaCard extends StatelessWidget {
+  const _AgendarNoDiaCard({required this.dia, required this.onEscolher});
+
+  final DateTime dia;
+  final void Function(String titulo, Color cor) onEscolher;
+
+  @override
+  Widget build(BuildContext context) {
+    final data = DateFormat('dd/MM/yyyy').format(dia);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 16,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: ThemeCleanPremium.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.add_task_rounded,
+                  size: 17,
+                  color: ThemeCleanPremium.primary,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  'Agendar em $data',
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _BotaoTipoAgenda(
+                  rotulo: 'Visita',
+                  icone: Icons.directions_car_rounded,
+                  cor: AgendaVisualPalette.culto,
+                  onTap: () => onEscolher('Visita', AgendaVisualPalette.culto),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _BotaoTipoAgenda(
+                  rotulo: 'Manutenção',
+                  icone: Icons.build_rounded,
+                  cor: AgendaVisualPalette.pendencia,
+                  onTap: () => onEscolher(
+                    'Manutenção',
+                    AgendaVisualPalette.pendencia,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _BotaoTipoAgenda(
+                  rotulo: 'Compromisso',
+                  icone: Icons.event_available_rounded,
+                  cor: AgendaVisualPalette.evento,
+                  onTap: () => onEscolher(
+                    'Compromisso',
+                    AgendaVisualPalette.evento,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BotaoTipoAgenda extends StatelessWidget {
+  const _BotaoTipoAgenda({
+    required this.rotulo,
+    required this.icone,
+    required this.cor,
+    required this.onTap,
+  });
+
+  final String rotulo;
+  final IconData icone;
+  final Color cor;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: cor.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: cor.withValues(alpha: 0.35)),
+          ),
+          child: Column(
+            children: [
+              Icon(icone, color: cor, size: 20),
+              const SizedBox(height: 6),
+              Text(
+                rotulo,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  color: cor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

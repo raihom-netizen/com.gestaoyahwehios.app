@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -529,7 +530,7 @@ class _CadastrarGestorDialogState extends State<_CadastrarGestorDialog> {
         'email': _emailCtrl.text.trim(),
         'gestorTelefone': _telefoneCtrl.text.trim(),
         'gestor_telefone': _telefoneCtrl.text.trim(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       };
       if (_dataNascimento != null) {
         update['gestorDataNascimento'] =

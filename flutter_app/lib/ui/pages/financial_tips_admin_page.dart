@@ -309,7 +309,7 @@ class _TipEditorSheetState extends State<_TipEditorSheet> {
       'textoVersiculo': _textoVersiculo.text.trim(),
       'ordem': int.tryParse(_ordem.text.trim()) ?? 999,
       'ativo': true,
-      'atualizadoEm': FieldValue.serverTimestamp(),
+      'atualizadoEm': YahwehFv.serverTimestamp,
     };
     try {
       if (widget.docId == null) {

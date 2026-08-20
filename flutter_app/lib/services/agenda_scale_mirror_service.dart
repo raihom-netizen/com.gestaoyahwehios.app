@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'agenda_reminder_delete_helper.dart';
@@ -45,7 +46,7 @@ abstract final class AgendaScaleMirrorService {
       'linkedReminderId': agendaId,
       'source': _scaleDocId(agendaId),
       'createdByLancamentoExpresso': createdByLancamentoExpresso,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 

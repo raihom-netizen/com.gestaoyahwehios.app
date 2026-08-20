@@ -274,7 +274,7 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
                                   Text(nome, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
                                   if (row.email.isNotEmpty) Text(row.email, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                                   if (row.email.isEmpty && (row.funcao.isNotEmpty || row.status.isNotEmpty))
-                                    Text('${row.funcao} ? ${row.status}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                    Text('${row.funcao} — ${row.status}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                                 ]),
                               ),
                             ]),
@@ -316,7 +316,7 @@ class _UsuariosPermissoesPageState extends State<UsuariosPermissoesPage> {
                               ),
                             ] else if (row.funcao.isNotEmpty || row.status.isNotEmpty) ...[
                               const SizedBox(height: 6),
-                              Text('${row.funcao} ? ${row.status}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                              Text('${row.funcao} — ${row.status}', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
                             ],
                           ],
                         ),

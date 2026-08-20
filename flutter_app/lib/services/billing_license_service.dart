@@ -71,7 +71,7 @@ class BillingLicenseService {
         'plano': plan,
         'status': 'ativa',
         'updatedAt': _tsNow(),
-        'removedByAdminAt': FieldValue.delete(),
+        'removedByAdminAt': YahwehFv.deleteField,
       });
     });
   }
@@ -100,7 +100,7 @@ class BillingLicenseService {
       await YahwehDocWrite.update(ChurchOperationalPaths.churchDoc(op), {
         'status': 'ativa',
         'updatedAt': _tsNow(),
-        'removedByAdminAt': FieldValue.delete(),
+        'removedByAdminAt': YahwehFv.deleteField,
       });
     });
   }
@@ -138,9 +138,9 @@ class BillingLicenseService {
       final ref = ChurchOperationalPaths.churchDoc(op);
       final patch = <String, dynamic>{'updatedAt': _tsNow()};
       if (date == null) {
-        patch['licenseExpiresAt'] = FieldValue.delete();
-        patch['expiresAt'] = FieldValue.delete();
-        patch['data_vencimento'] = FieldValue.delete();
+        patch['licenseExpiresAt'] = YahwehFv.deleteField;
+        patch['expiresAt'] = YahwehFv.deleteField;
+        patch['data_vencimento'] = YahwehFv.deleteField;
       } else {
         final ts = Timestamp.fromDate(date);
         patch['licenseExpiresAt'] = ts;
@@ -174,7 +174,7 @@ class BillingLicenseService {
       await YahwehDocWrite.set(ChurchOperationalPaths.churchDoc(op), {
         'status': 'ativa',
         'updatedAt': _tsNow(),
-        'removedByAdminAt': FieldValue.delete(),
+        'removedByAdminAt': YahwehFv.deleteField,
       });
     });
     try {
@@ -498,7 +498,7 @@ class BillingLicenseService {
     await _runLicenseWrite(() async {
       await YahwehDocWrite.update(_db.collection('usuarios').doc(uid), {
         'updatedAt': _tsNow(),
-        'removedByAdminAt': FieldValue.delete(),
+        'removedByAdminAt': YahwehFv.deleteField,
       });
     });
   }

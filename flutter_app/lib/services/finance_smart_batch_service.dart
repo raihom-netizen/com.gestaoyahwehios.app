@@ -28,13 +28,13 @@ abstract final class FinanceSmartBatchService {
   }) {
     final v = row.valor ?? 0.0;
     if (v <= 0) {
-      throw StateError('Valor inv├ílido');
+      throw StateError('Valor inválido');
     }
     var desc = (row.descricao ?? '').toString();
     desc = FinanceSmartInputText.sanitize(desc);
     desc = desc.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (desc.isEmpty) {
-      throw StateError('Descri├º├úo vazia');
+      throw StateError('Descrição vazia');
     }
     final t = _yahwehType(row.type);
     final when = row.data ?? DateTime.now();

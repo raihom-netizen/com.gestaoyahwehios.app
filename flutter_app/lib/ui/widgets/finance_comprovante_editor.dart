@@ -8,13 +8,13 @@ import 'package:gestao_yahweh/services/finance_comprovante_update_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/immediate_media_attach_feedback.dart';
 
-/// Alvo do comprovante ÔÇö financeiro ou compromisso de fornecedor.
+/// Alvo do comprovante — financeiro ou compromisso de fornecedor.
 enum FinanceComprovanteEditorTarget {
   financeLancamento,
   fornecedorCompromisso,
 }
 
-/// Estado local do editor (formul├írio ÔÇö envio no Salvar).
+/// Estado local do editor (formulário — envio no Salvar).
 class FinanceComprovanteEditorSnapshot {
   const FinanceComprovanteEditorSnapshot({
     this.pending,
@@ -27,7 +27,7 @@ class FinanceComprovanteEditorSnapshot {
   bool get hasPending => pending != null;
 }
 
-/// Editor de comprovante ÔÇö Galeria / C├ómera / Arquivo (padr├úo Controle Total).
+/// Editor de comprovante — Galeria / Câmera / Arquivo (padrão Controle Total).
 class FinanceComprovanteEditor extends StatefulWidget {
   const FinanceComprovanteEditor({
     super.key,
@@ -114,7 +114,7 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       ThemeCleanPremium.feedbackSnackBar(
-        'Sem permiss├úo para alterar comprovantes.',
+        'Sem permissão para alterar comprovantes.',
       ),
     );
   }
@@ -221,7 +221,7 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
         ),
         title: const Text('Remover comprovante'),
         content: const Text(
-          'O comprovante ser├í removido deste registo e apagado do Storage.',
+          'O comprovante será removido deste registo e apagado do Storage.',
         ),
         actions: [
           TextButton(
@@ -325,7 +325,7 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
     Widget actionButtons() {
       if (!canPick) {
         return Text(
-          'Sem permiss├úo para anexar ou alterar comprovantes.',
+          'Sem permissão para anexar ou alterar comprovantes.',
           style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
         );
       }
@@ -346,7 +346,7 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
           OutlinedButton.icon(
             onPressed: _picking ? null : () => unawaited(_pickCamera()),
             icon: const Icon(Icons.photo_camera_outlined, size: 20),
-            label: const Text('C├ómera'),
+            label: const Text('Câmera'),
             style: OutlinedButton.styleFrom(
               foregroundColor: cor,
               side: BorderSide(color: cor.withValues(alpha: 0.55), width: 1.5),
@@ -404,7 +404,7 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'JPEG, PNG ou PDF ÔÇö at├® 5 MB. Toque em Salvar para enviar.',
+                          'JPEG, PNG ou PDF — até 5 MB. Toque em Salvar para enviar.',
                           style: TextStyle(
                             fontSize: 13,
                             height: 1.35,
@@ -437,7 +437,7 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
                     ),
                     const SizedBox(width: 10),
                     Text(
-                      'A preparar ficheiroÔÇª',
+                      'A preparar ficheiro…',
                       style: TextStyle(
                         fontSize: 13,
                         color: Colors.grey.shade700,
@@ -501,8 +501,8 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
                       ),
                     ),
                     Text(
-                      '${_formatBytes(_pending!.bytes.length)} ┬À '
-                      '${_pending!.mimeType} ┬À ser├í enviado ao salvar',
+                      '${_formatBytes(_pending!.bytes.length)} · '
+                      '${_pending!.mimeType} · será enviado ao salvar',
                       style: TextStyle(
                         fontSize: 12,
                         color: Colors.grey.shade600,
@@ -526,7 +526,7 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
         ] else if (!hasExisting && canPick) ...[
           const SizedBox(height: 8),
           Text(
-            'Nenhum comprovante ÔÇö use Galeria, C├ómera ou PDF.',
+            'Nenhum comprovante — use Galeria, Câmera ou PDF.',
             style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),
         ],
@@ -534,7 +534,7 @@ class FinanceComprovanteEditorState extends State<FinanceComprovanteEditor> {
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
-              'Comprovante marcado para remo├º├úo ao salvar.',
+              'Comprovante marcado para remoção ao salvar.',
               style: TextStyle(
                 fontSize: 12,
                 color: ThemeCleanPremium.error,

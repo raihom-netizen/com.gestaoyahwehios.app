@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async' show TimeoutException, unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:typed_data';
@@ -30,7 +31,7 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Financeiro ÔÇö comprovante: Storage `igrejas/{id}/financeiro/YYYY_MM/{lancamentoId}.ext`
+/// Financeiro — comprovante: Storage `igrejas/{id}/financeiro/YYYY_MM/{lancamentoId}.ext`
 /// ÔåÆ URL HTTPS ÔåÆ Firestore (`comprovanteUrl`, `hasComprovante`).
 /// Resultado can+?nico ap+?s upload Storage + grava+?+?o Firestore.
 class FinanceComprovantePersistResult {
@@ -55,7 +56,7 @@ class FinanceComprovantePersistResult {
       );
 }
 
-/// Comprovante enfileirado localmente ÔÇö UI trata como sucesso (Controle Total).
+/// Comprovante enfileirado localmente — UI trata como sucesso (Controle Total).
 class FinanceComprovanteQueuedLocally implements Exception {
   const FinanceComprovanteQueuedLocally();
 }
@@ -266,7 +267,7 @@ abstract final class FinanceComprovantePublishService {
           comprovanteUploadStateField: EntityPublishStatus.error,
           'comprovanteUploadError': msg.length > 240 ? msg.substring(0, 240) : msg,
           'hasComprovante': false,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         },
         SetOptions(merge: true),
       ),
@@ -318,7 +319,7 @@ abstract final class FinanceComprovantePublishService {
     required Map<String, dynamic> patch,
   }) async {
     final data = Map<String, dynamic>.from(patch)
-      ..['updatedAt'] = FieldValue.serverTimestamp();
+      ..['updatedAt'] = YahwehFv.serverTimestamp;
     await EcoFireDirectFirebase.ensureForFirestoreWrite(requireAuth: true);
     Future<void> write() async {
       if (kIsWeb) {
@@ -493,7 +494,7 @@ abstract final class FinanceComprovantePublishService {
       throw StateError('Igreja n+?o identificada para o comprovante.');
     }
     if (rawBytes.isEmpty) {
-      throw StateError('Arquivo vazio ÔÇö selecione outra imagem ou PDF.');
+      throw StateError('Arquivo vazio — selecione outra imagem ou PDF.');
     }
     final mt = mimeType.toLowerCase();
     if (mt.startsWith('video/')) {
@@ -616,7 +617,7 @@ abstract final class FinanceComprovantePublishService {
         () => docRef.set(
           {
             comprovanteUploadStateField: EntityPublishStatus.uploading,
-            'updatedAt': FieldValue.serverTimestamp(),
+            'updatedAt': YahwehFv.serverTimestamp,
           },
           SetOptions(merge: true),
         ),
@@ -713,14 +714,14 @@ abstract final class FinanceComprovantePublishService {
           'comprovantePendingLocal': true,
           'comprovanteStoragePath': storagePath,
           'hasComprovante': true,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         },
         SetOptions(merge: true),
       ),
     ).catchError((_) {});
   }
 
-  /// Upload Storage ÔåÆ validar ÔåÆ gravar URL no Firestore (legado ÔÇö delega ao CT).
+  /// Upload Storage ÔåÆ validar ÔåÆ gravar URL no Firestore (legado — delega ao CT).
   static Future<String> uploadComprovanteNow({
     required String tenantId,
     required DocumentReference<Map<String, dynamic>> docRef,

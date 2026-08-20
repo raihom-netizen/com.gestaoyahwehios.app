@@ -1,3 +1,5 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:gestao_yahweh/utils/yahweh_date_range_picker.dart';
 import 'dart:async' show Timer, unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:typed_data';
@@ -1423,7 +1425,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
           'modeloApresentacao': _tplApresentacaoCtrl.text,
           'modeloTransferencia': _tplTransferCtrl.text,
           'modeloAgradecimento': _tplAgradecimentoCtrl.text,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         }),
         maxAttempts: 4,
       );
@@ -1467,7 +1469,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
       'signatureMode': _signatureMode == _LetterSignatureMode.digital
           ? 'digital'
           : 'manual',
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
       'emitidoPorUid': uid,
     };
 
@@ -1479,7 +1481,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
         maxAttempts: 4,
       );
     } else {
-      payload['createdAt'] = FieldValue.serverTimestamp();
+      payload['createdAt'] = YahwehFv.serverTimestamp;
       await FirestoreWebGuard.runWithWebRecovery(
         () => _historicoCol.add(payload),
         maxAttempts: 4,
@@ -2714,8 +2716,8 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                 OutlinedButton.icon(
                   onPressed: () async {
                     final now = DateTime.now();
-                    final range = await showDateRangePicker(
-                      context: context,
+                    final range = await escolherIntervaloDeDatas(
+                      context,
                       firstDate: DateTime(now.year - 8),
                       lastDate: DateTime(now.year + 1),
                       initialDateRange:
@@ -2740,7 +2742,7 @@ class _ChurchLettersPageState extends State<ChurchLettersPage>
                   label: Text(
                     _histCustomRange == null
                         ? 'Período personalizado'
-                        : '${DateFormat('dd/MM/yyyy').format(_histCustomRange!.start)} ? ${DateFormat('dd/MM/yyyy').format(_histCustomRange!.end)}',
+                        : '${DateFormat('dd/MM/yyyy').format(_histCustomRange!.start)} — ${DateFormat('dd/MM/yyyy').format(_histCustomRange!.end)}',
                   ),
                 ),
                 if (_histCustomRange != null)

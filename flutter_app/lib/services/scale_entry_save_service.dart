@@ -134,8 +134,8 @@ class ScaleEntrySaveService {
     }
     final docRef = ref ?? scalesCol(userDocId).doc();
     final payload = Map<String, dynamic>.from(data)
-      ..putIfAbsent('createdAt', () => FieldValue.serverTimestamp())
-      ..['updatedAt'] = FieldValue.serverTimestamp();
+      ..putIfAbsent('createdAt', () => YahwehFv.serverTimestamp)
+      ..['updatedAt'] = YahwehFv.serverTimestamp;
     await _commitOrEnqueuePerDoc(
       [ScaleEntryWriteItem(ref: docRef, data: payload)],
       localWait,

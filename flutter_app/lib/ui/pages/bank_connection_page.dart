@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fa;
@@ -146,8 +147,8 @@ class _BankConnectionScreenState extends State<BankConnectionScreen> {
         'institutionId': bank.id,
         'status': 'connected',
         'itemId': itemId,
-        'lastSync': FieldValue.serverTimestamp(),
-        'createdAt': FieldValue.serverTimestamp(),
+        'lastSync': YahwehFv.serverTimestamp,
+        'createdAt': YahwehFv.serverTimestamp,
       }, merge: false);
 
       if (!mounted) return;

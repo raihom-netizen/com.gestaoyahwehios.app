@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -108,7 +109,7 @@ class FinancialTipsHomeSyncService {
       'favoriteTipIds': favoriteTipIds,
       'rotationOrder': rotationOrder,
       'weekdayTipIds': weekdayPayload,
-      'syncedAt': FieldValue.serverTimestamp(),
+      'syncedAt': YahwehFv.serverTimestamp,
       'syncedByEmail': syncedByEmail.trim(),
     });
   }

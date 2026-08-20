@@ -1,3 +1,6 @@
+import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
+import 'package:gestao_yahweh/ui/pages/novo_lancamento_page.dart';
+import 'package:gestao_yahweh/utils/yahweh_date_range_picker.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -156,7 +159,8 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
           contas = await FinanceAccountsService().listOnce(_tid);
         } catch (_) {}
       }
-      final perfil = _perfil ?? await perfilParaEditorFinanceiro(_tid);
+      final perfil = _perfil ??
+          await perfilParaEditorFinanceiro(_tid, panelRole: widget.panelRole);
 
       if (!mounted) return;
       setState(() {
@@ -385,10 +389,41 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
     }
   }
 
+  /// Lancar receita/despesa **ja no nome desta pessoa**.
+  ///
+  /// E a mesma tela de lancamentos do Financeiro; so o vinculo vem preenchido
+  /// e travado — quem lanca a partir da ficha de um membro nao devia ter de o
+  /// procurar outra vez numa lista de centenas de nomes.
+  Future<void> _novoLancamento({required bool receita}) async {
+    final perfil = _perfil ??
+        await perfilParaEditorFinanceiro(_tid, panelRole: widget.panelRole);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => NovoLancamentoPage(
+          uid: _tid,
+          initialType: receita ? 'income' : 'expense',
+          hasActiveLicense: perfil?.hasActiveLicense ?? true,
+          vinculoFixo: FinanceVinculo(
+            tipo: widget.tipo,
+            id: widget.vinculoId,
+            nome: widget.nome,
+          ),
+          travarVinculo: true,
+        ),
+      ),
+    );
+    if (mounted) {
+      await _carregar(force: true);
+      widget.onChanged?.call();
+    }
+  }
+
   Future<void> _escolherIntervalo() async {
     final agora = DateTime.now();
-    final r = await showDateRangePicker(
-      context: context,
+    final r = await escolherIntervaloDeDatas(
+      context,
       firstDate: DateTime(agora.year - 8),
       lastDate: DateTime(agora.year + 1, 12, 31),
       initialDateRange: _intervalo ??
@@ -396,7 +431,6 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
             start: DateTime(agora.year, agora.month, 1),
             end: agora,
           ),
-      locale: const Locale('pt', 'BR'),
     );
     if (r != null && mounted) {
       setState(() {
@@ -476,12 +510,36 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
           ),
         ],
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButton: _carregando && _todos.isEmpty
+          ? null
+          : Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _BotaoLancar(
+                    rotulo: widget.ehMembro ? 'Contribuicao' : 'Receita',
+                    icone: Icons.trending_up_rounded,
+                    cor: const Color(0xFF15803D),
+                    onTap: () => _novoLancamento(receita: true),
+                  ),
+                  const SizedBox(width: 10),
+                  _BotaoLancar(
+                    rotulo: 'Despesa',
+                    icone: Icons.trending_down_rounded,
+                    cor: const Color(0xFFB91C1C),
+                    onTap: () => _novoLancamento(receita: false),
+                  ),
+                ],
+              ),
+            ),
       body: _carregando && _todos.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: () => _carregar(force: true),
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 28),
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 96),
                 children: [
                   if (_erro.isNotEmpty) _BannerErro(texto: _erro),
                   _barraPeriodo(),
@@ -513,9 +571,14 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: const [
-          BoxShadow(color: Color(0x11000000), blurRadius: 10, offset: Offset(0, 3)),
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 16,
+            offset: Offset(0, 6),
+          ),
         ],
       ),
       child: Column(
@@ -527,8 +590,13 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
                   size: 18, color: ThemeCleanPremium.primary),
               const SizedBox(width: 6),
               const Text(
-                'Período',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
+                'PERÍODO',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                  color: Color(0xFF334155),
+                ),
               ),
               const Spacer(),
               Text(
@@ -675,9 +743,14 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: const [
-          BoxShadow(color: Color(0x11000000), blurRadius: 10, offset: Offset(0, 3)),
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 16,
+            offset: Offset(0, 6),
+          ),
         ],
       ),
       child: Column(
@@ -689,8 +762,13 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
                   size: 18, color: ThemeCleanPremium.primary),
               const SizedBox(width: 6),
               const Text(
-                'Mês a mês',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
+                'MÊS A MÊS',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                  color: Color(0xFF334155),
+                ),
               ),
               const Spacer(),
               const _Legenda(cor: Color(0xFF15803D), texto: 'Entradas'),
@@ -899,39 +977,56 @@ class _CardTotal extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cor.withValues(alpha: 0.22)),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: const [
-          BoxShadow(color: Color(0x11000000), blurRadius: 8, offset: Offset(0, 2)),
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 16,
+            offset: Offset(0, 6),
+          ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icone, size: 18, color: cor),
-          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [cor.withValues(alpha: 0.18), cor.withValues(alpha: 0.06)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icone, size: 18, color: cor),
+          ),
+          const SizedBox(height: 10),
           Text(
-            titulo,
+            titulo.toUpperCase(),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF64748B),
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.6,
+              color: Color(0xFF94A3B8),
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
             child: Text(
               valor,
               style: TextStyle(
-                fontSize: 15,
+                fontSize: 19,
                 fontWeight: FontWeight.w900,
+                letterSpacing: -0.4,
                 color: cor,
               ),
             ),
@@ -951,10 +1046,14 @@ class _Barra extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: altura.isFinite && altura > 0 ? altura.clamp(2.0, 96.0) : 2,
+      height: altura.isFinite && altura > 0 ? altura.clamp(3.0, 96.0) : 3,
       decoration: BoxDecoration(
-        color: cor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+        gradient: LinearGradient(
+          colors: [cor, cor.withValues(alpha: 0.62)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+        borderRadius: BorderRadius.circular(5),
       ),
     );
   }
@@ -1056,6 +1155,53 @@ class _LinhaSimples extends StatelessWidget {
         style: TextStyle(
           fontWeight: FontWeight.w900,
           color: saida ? const Color(0xFFB91C1C) : const Color(0xFF15803D),
+        ),
+      ),
+    );
+  }
+}
+
+class _BotaoLancar extends StatelessWidget {
+  const _BotaoLancar({
+    required this.rotulo,
+    required this.icone,
+    required this.cor,
+    required this.onTap,
+  });
+
+  final String rotulo;
+  final IconData icone;
+  final Color cor;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: cor,
+      borderRadius: BorderRadius.circular(30),
+      elevation: 4,
+      shadowColor: cor.withValues(alpha: 0.45),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(30),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icone, color: Colors.white, size: 19),
+              const SizedBox(width: 8),
+              Text(
+                rotulo,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13.5,
+                  letterSpacing: 0.1,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -240,9 +241,9 @@ abstract final class ChurchCartasModelosService {
     }
     final data = Map<String, dynamic>.from(payload)
       ..['churchId'] = churchId
-      ..['updatedAt'] = FieldValue.serverTimestamp();
+      ..['updatedAt'] = YahwehFv.serverTimestamp;
     if (docId == null || docId.trim().isEmpty) {
-      data['createdAt'] = FieldValue.serverTimestamp();
+      data['createdAt'] = YahwehFv.serverTimestamp;
     }
     final ref = docId != null && docId.trim().isNotEmpty
         ? modelosCol(churchId).doc(docId.trim())

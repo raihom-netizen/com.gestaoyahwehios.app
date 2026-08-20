@@ -1,4 +1,5 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/services/home_start_module_cache.dart';
@@ -120,7 +121,7 @@ Future<void> saveHomeStartModulePreference(String uid, int moduleIndex) async {
   await YahwehDocWrite.set(homePlanningRef(uid), {
     kHomeDefaultStartModuleField: moduleIndex,
     kHomeDefaultStartModuleSchemaField: kHomeDefaultStartModuleSchemaCurrent,
-    'updatedAt': FieldValue.serverTimestamp(),
+    'updatedAt': YahwehFv.serverTimestamp,
   });
   await HomeStartModuleCache.save(uid, moduleIndex);
 }

@@ -1,6 +1,6 @@
-﻿import 'dart:typed_data';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'dart:typed_data';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 
@@ -65,7 +65,7 @@ class FinanceReceiptUploadService {
             'webViewLink': result.url,
             'webContentLink': result.url,
           },
-          'receiptPendingUpload': FieldValue.delete(),
+          'receiptPendingUpload': YahwehFv.deleteField,
         });
         if (showUserFeedback && context != null && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -90,7 +90,7 @@ class FinanceReceiptUploadService {
     await YahwehDocWrite.update(col.doc(txDocId), {
       'hasReceipt': true,
       'receiptPendingUpload': true,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     if (showUserFeedback && context != null && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

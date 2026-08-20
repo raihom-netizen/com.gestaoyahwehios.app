@@ -1,4 +1,5 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
@@ -175,8 +176,8 @@ class NoticiaExpiredMediaCleanupService {
             {
               'status': 'galeria',
               'galleryPermanent': true,
-              'archivedAt': FieldValue.serverTimestamp(),
-              'updatedAt': FieldValue.serverTimestamp(),
+              'archivedAt': YahwehFv.serverTimestamp,
+              'updatedAt': YahwehFv.serverTimestamp,
             },
             SetOptions(merge: true),
           );

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -211,8 +212,8 @@ class _FuncoesPermissoesPageState extends State<FuncoesPermissoesPage> {
         'permissionTemplate': template,
         'order': order,
         'enabled': enabled,
-        'updatedAt': FieldValue.serverTimestamp(),
-        if (!isEdit) 'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
+        if (!isEdit) 'createdAt': YahwehFv.serverTimestamp,
       });
 
       if (mounted) {

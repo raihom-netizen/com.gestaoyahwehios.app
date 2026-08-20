@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
-/// Conta banc├íria com saldo pr├®-calculado (`_panel_cache/finance_accounts`).
+/// Conta bancária com saldo pré-calculado (`_panel_cache/finance_accounts`).
 class PanelFinanceAccountBalance {
   const PanelFinanceAccountBalance({
     required this.contaId,

@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+﻿import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
+import 'dart:async';
 
 import 'package:flutter/material.dart' hide showDatePicker;
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
@@ -269,6 +270,9 @@ class _ReceitasFixasScreenState extends State<ReceitasFixasScreen> {
     // explicitamente `true` (com `!= false`, o campo ausente ligava).
     bool addToCalendar =
         existing != null && existing['addToCalendar'] == true;
+    // Mesmo seletor do lançamento individual (busca por nome, membros e
+    // fornecedores na mesma folha).
+    var vinculo = FinanceVinculoSelecao.deFirestore(existing);
     String? calendarColorHex = existing?['calendarColorHex']?.toString();
     final isEdit = existing != null;
     final id = existing?['id']?.toString();
@@ -543,6 +547,13 @@ class _ReceitasFixasScreenState extends State<ReceitasFixasScreen> {
                                     prefixIcon: prefixIcon),
                             onChanged: (v) => setModalState(
                                 () => financeAccountId = v),
+                          ),
+                          SizedBox(height: 18),
+                          _VinculoFixoField(
+                            tenantId: _fsUid,
+                            selecao: vinculo,
+                            onChanged: (v) =>
+                                setModalState(() => vinculo = v),
                           ),
                           SizedBox(height: 18),
                           _buildAddToCalendarToggle(
@@ -865,6 +876,7 @@ class _ReceitasFixasScreenState extends State<ReceitasFixasScreen> {
                                         ? parcelaInicial
                                         : null,
                                     addToCalendar: addToCalendar,
+                                    vinculo: vinculo.paraFirestore(),
                                     calendarColorHex: calendarColorHex,
                                     financeAccountId: financeAccountId,
                                     clearFinanceAccount:
@@ -902,6 +914,7 @@ class _ReceitasFixasScreenState extends State<ReceitasFixasScreen> {
                                         ? parcelaInicial
                                         : null,
                                     addToCalendar: addToCalendar,
+                                    vinculo: vinculo.paraFirestore(),
                                     calendarColorHex: calendarColorHex,
                                     financeAccountId: financeAccountId,
                                   );
@@ -1467,6 +1480,108 @@ class _ReceitasFixasScreenState extends State<ReceitasFixasScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Campo de vínculo (membro ou fornecedor) da despesa/receita fixa.
+///
+/// É o mesmo seletor do lançamento individual — assim «quanto gastámos com
+/// este fornecedor» passa a incluir os compromissos recorrentes, que é onde
+/// está a maior parte do dinheiro de um fornecedor.
+class _VinculoFixoField extends StatelessWidget {
+  const _VinculoFixoField({
+    required this.tenantId,
+    required this.selecao,
+    required this.onChanged,
+  });
+
+  final String tenantId;
+  final FinanceVinculoSelecao selecao;
+  final ValueChanged<FinanceVinculoSelecao> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    const cor = Color(0xFF2563EB);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.link_rounded, size: 18, color: cor),
+            const SizedBox(width: 6),
+            const Text(
+              'Vínculo (membro ou fornecedor)',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () async {
+              final escolha = await escolherVinculoFinanceiro(
+                context,
+                tenantId: tenantId,
+                atual: selecao,
+              );
+              if (escolha != null) onChanged(escolha);
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 13,
+              ),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: cor.withValues(alpha: 0.35)),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    selecao.vazio
+                        ? Icons.link_off_rounded
+                        : (selecao.individual && selecao.itens.first.ehMembro
+                            ? Icons.person_rounded
+                            : Icons.local_shipping_rounded),
+                    size: 18,
+                    color: cor,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      selecao.resumo,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.unfold_more_rounded, color: cor, size: 22),
+                ],
+              ),
+            ),
+          ),
+        ),
+        if (selecao.somenteHistorico)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Com mais de uma pessoa, os lançamentos gerados ficam só no '
+              'histórico geral — não entram no total individual de ninguém.',
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFFB45309),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

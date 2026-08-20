@@ -731,7 +731,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
           ),
           const SizedBox(height: 12),
           Text(
-            '${_selectedPlan.name} ? ${_billingAnnual ? "Anual" : "Mensal"} ? '
+            '${_selectedPlan.name} — ${_billingAnnual ? "Anual" : "Mensal"} ? '
             'Cartão ${inst}x$parcelHint',
             style: TextStyle(
               fontSize: 14,
@@ -1978,7 +1978,7 @@ class _RenewPlanPageState extends State<RenewPlanPage> {
                   const SizedBox(height: 16),
                   Center(
                     child: Text(
-                      '${_selectedPlan.name} ? ${_billingAnnual ? "Anual" : "Mensal"} ? ${_paymentPix ? "PIX" : (_billingAnnual ? "Cartão ${_expressCardInstallments.clamp(1, 6)}x" : "Cartão 1x")}',
+                      '${_selectedPlan.name} — ${_billingAnnual ? "Anual" : "Mensal"} — ${_paymentPix ? "PIX" : (_billingAnnual ? "Cartão ${_expressCardInstallments.clamp(1, 6)}x" : "Cartão 1x")}',
                       style: TextStyle(
                         color: cs.primary,
                         fontWeight: FontWeight.w700,

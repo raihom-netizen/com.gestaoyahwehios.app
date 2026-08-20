@@ -1,4 +1,5 @@
-﻿import 'package:gestao_yahweh/utils/finance_line_opening.dart';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -130,7 +131,7 @@ Future<void> _markFixedMonthExcludedIfNeeded(
       existing.add(monthKey!);
       tx.update(ref, {
         'excludedMonths': existing,
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       });
     });
   } catch (_) {

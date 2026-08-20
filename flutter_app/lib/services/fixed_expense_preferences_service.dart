@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
@@ -52,7 +53,7 @@ class FixedExpensePreferencesService {
     // Web: grava por REST com updateMask (merge — só os campos enviados).
     if (kIsWeb) {
       final setFields = <String, dynamic>{
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       };
       if (showInPending != null) setFields[_showInPendingKey] = showInPending;
       if (pendingMonthsAhead != null) {
@@ -62,7 +63,7 @@ class FixedExpensePreferencesService {
       return;
     }
     final data = <String, dynamic>{
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
     if (showInPending != null) data[_showInPendingKey] = showInPending;
     if (pendingMonthsAhead != null) {

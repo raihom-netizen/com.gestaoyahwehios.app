@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async' show Timer, unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -582,7 +583,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
           ),
         // Só marca «a enviar» quando o upload falhou e vai ser retomado.
         // Campos inline de propósito: `pendingUploadPatchFields()` inclui um
-        // `FieldValue.delete()`, que o Firestore rejeita num `set()` de criação
+        // `YahwehFv.deleteField`, que o Firestore rejeita num `set()` de criação
         // — era isso que fazia o cadastro com foto falhar por inteiro.
         if (photoUploadFailed) ...{
           MemberProfilePhotoUpdateService.photoUploadStateField:
@@ -595,7 +596,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         'FUNCAO': 'membro',
         'CARGO': 'membro',
         'role': 'membro',
-        'CRIADO_EM': FieldValue.serverTimestamp(),
+        'CRIADO_EM': YahwehFv.serverTimestamp,
         'FILIACAO_PAI': _filiacaoPaiCtrl.text.trim(),
         'FILIACAO_MAE': _filiacaoMaeCtrl.text.trim(),
         'FILIACAO': _buildFiliacaoLegado(
@@ -678,7 +679,7 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
     }
   }
 
-  /// Sentinelas (`FieldValue.serverTimestamp()`, `delete()`) não existem no
+  /// Sentinelas (`YahwehFv.serverTimestamp`, `delete()`) não existem no
   /// documento lido — troca por valores locais antes de alimentar o cache.
   Map<String, dynamic> _memberDataForLocalCache(Map<String, dynamic> data) {
     final now = Timestamp.now();

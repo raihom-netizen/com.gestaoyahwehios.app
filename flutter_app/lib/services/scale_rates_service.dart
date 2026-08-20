@@ -1,4 +1,5 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/models/controle_total_config.dart';
 import 'package:gestao_yahweh/models/scale_rates.dart';
 import 'package:gestao_yahweh/utils/firestore_user_doc_id.dart';
@@ -216,7 +217,7 @@ class ScaleRatesService {
 
   Future<void> setGlobalRates(ScaleRates rates) async {
     final map = rates.toMap();
-    map['updatedAt'] = FieldValue.serverTimestamp();
+    map['updatedAt'] = YahwehFv.serverTimestamp;
     await YahwehDocWrite.set(_globalRatesDoc, map);
     invalidateMemory();
   }
@@ -228,7 +229,7 @@ class ScaleRatesService {
   Future<void> setUserRates(String uid, ScaleRates rates) async {
     if (uid.isEmpty) return;
     final map = rates.toMap();
-    map['updatedAt'] = FieldValue.serverTimestamp();
+    map['updatedAt'] = YahwehFv.serverTimestamp;
     await YahwehDocWrite.set(_userRatesDoc(uid), map);
     invalidateMemory(uid);
   }

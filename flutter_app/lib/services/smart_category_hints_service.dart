@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -305,10 +306,10 @@ abstract final class SmartCategoryHintsService {
     if (frag.length < 3 || cat.length < 2) return;
 
     await YahwehDocWrite.set(_ref(uid), {
-      'learned': FieldValue.arrayUnion([
+      'learned': YahwehFv.arrayUnion([
         {'fragment': frag.length > 80 ? frag.substring(0, 80) : frag, 'category': cat},
       ]),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     invalidateHintsCache(uid);
   }

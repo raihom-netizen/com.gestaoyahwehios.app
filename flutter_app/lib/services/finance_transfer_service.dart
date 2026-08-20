@@ -188,8 +188,8 @@ class FinanceTransferService {
         'transferDirection': 'out',
         'transferCounterpartyAccountId': toId,
         'transferCounterpartyLabel': toLabel,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': YahwehFv.serverTimestamp,
+        'updatedAt': YahwehFv.serverTimestamp,
       },
     );
     await FinanceLancamentoWriteService.commitInTransaction(
@@ -212,8 +212,8 @@ class FinanceTransferService {
         'transferDirection': 'in',
         'transferCounterpartyAccountId': fromId,
         'transferCounterpartyLabel': fromLabel,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'createdAt': YahwehFv.serverTimestamp,
+        'updatedAt': YahwehFv.serverTimestamp,
       },
     );
     return (pairId: pairId, outId: outRef.id, inId: inRef.id);

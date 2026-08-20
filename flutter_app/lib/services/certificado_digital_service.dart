@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:flutter/foundation.dart';
@@ -125,7 +126,7 @@ class CertificadoDigitalService {
     final payload = <String, dynamic>{
       'certificadoDigitalStoragePath': path,
       'certificadoDigitalFileName': safeName,
-      'certificadoDigitalUpdatedAt': FieldValue.serverTimestamp(),
+      'certificadoDigitalUpdatedAt': YahwehFv.serverTimestamp,
       'certificadoDigitalTenantId': tid,
     };
     await firebaseDefaultFirestore.collection('users').doc(uid).set(
@@ -146,10 +147,10 @@ class CertificadoDigitalService {
     final uid = firebaseDefaultAuth.currentUser?.uid;
     if (uid == null || uid.isEmpty) return;
     final deletes = <String, dynamic>{
-      'certificadoDigitalStoragePath': FieldValue.delete(),
-      'certificadoDigitalFileName': FieldValue.delete(),
-      'certificadoDigitalUpdatedAt': FieldValue.delete(),
-      'certificadoDigitalTenantId': FieldValue.delete(),
+      'certificadoDigitalStoragePath': YahwehFv.deleteField,
+      'certificadoDigitalFileName': YahwehFv.deleteField,
+      'certificadoDigitalUpdatedAt': YahwehFv.deleteField,
+      'certificadoDigitalTenantId': YahwehFv.deleteField,
     };
     final userRef = firebaseDefaultFirestore.collection('users').doc(uid);
     Map<String, dynamic>? userData;

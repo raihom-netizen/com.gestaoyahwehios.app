@@ -2,7 +2,7 @@
 
 import 'package:pdfrx/pdfrx.dart';
 
-/// Extrai texto de PDF (extrato com texto embutido) para importa├º├úo de lan├ºamentos.
+/// Extrai texto de PDF (extrato com texto embutido) para importação de lançamentos.
 abstract final class FinancePdfTextService {
   FinancePdfTextService._();
 
@@ -14,7 +14,7 @@ abstract final class FinancePdfTextService {
     _init = true;
   }
 
-  /// Heur├¡stica: ficheiro parece bytes brutos de PDF, n├úo UTF-8.
+  /// Heurística: ficheiro parece bytes brutos de PDF, não UTF-8.
   static bool textLooksLikePdfBinary(String s) {
     final t = s.trim();
     if (t.length < 32) return false;

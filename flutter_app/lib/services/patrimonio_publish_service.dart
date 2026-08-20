@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:typed_data';
@@ -342,12 +343,12 @@ abstract final class PatrimonioPublishService {
     payload['ativo'] = true;
     payload[photoUploadStateField] = EntityPublishStatus.published;
     if (!isNewDoc) {
-      payload['photoUploadError'] = FieldValue.delete();
-      payload['publishState'] = FieldValue.delete();
+      payload['photoUploadError'] = YahwehFv.deleteField;
+      payload['publishState'] = YahwehFv.deleteField;
     }
-    payload['atualizadoEm'] = FieldValue.serverTimestamp();
+    payload['atualizadoEm'] = YahwehFv.serverTimestamp;
     if (isNewDoc) {
-      payload['criadoEm'] = FieldValue.serverTimestamp();
+      payload['criadoEm'] = YahwehFv.serverTimestamp;
     }
 
     onUploadProgress?.call(0.92);
@@ -460,11 +461,11 @@ abstract final class PatrimonioPublishService {
     payload['ativo'] = true;
     payload[photoUploadStateField] = EntityPublishStatus.published;
     if (!isNewDoc) {
-      payload['photoUploadError'] = FieldValue.delete();
-      payload['publishState'] = FieldValue.delete();
+      payload['photoUploadError'] = YahwehFv.deleteField;
+      payload['publishState'] = YahwehFv.deleteField;
     }
-    payload['atualizadoEm'] = FieldValue.serverTimestamp();
-    if (isNewDoc) payload['criadoEm'] = FieldValue.serverTimestamp();
+    payload['atualizadoEm'] = YahwehFv.serverTimestamp;
+    if (isNewDoc) payload['criadoEm'] = YahwehFv.serverTimestamp;
 
     final mergeMeta = FirestoreWriteGuard.effectiveSetMerge(
       merge: !isNewDoc,
@@ -524,8 +525,8 @@ abstract final class PatrimonioPublishService {
     payload['ativo'] = true;
     payload[photoUploadStateField] = EntityPublishStatus.uploading;
     payload['publishState'] = EntityPublishStatus.uploading;
-    payload['atualizadoEm'] = FieldValue.serverTimestamp();
-    if (isNewDoc) payload['criadoEm'] = FieldValue.serverTimestamp();
+    payload['atualizadoEm'] = YahwehFv.serverTimestamp;
+    if (isNewDoc) payload['criadoEm'] = YahwehFv.serverTimestamp;
 
     final mergePending = FirestoreWriteGuard.effectiveSetMerge(
       merge: !isNewDoc,
@@ -611,9 +612,9 @@ abstract final class PatrimonioPublishService {
     );
     payload['ativo'] = true;
     payload[photoUploadStateField] = EntityPublishStatus.published;
-    payload['photoUploadError'] = FieldValue.delete();
-    payload['publishState'] = FieldValue.delete();
-    payload['atualizadoEm'] = FieldValue.serverTimestamp();
+    payload['photoUploadError'] = YahwehFv.deleteField;
+    payload['publishState'] = YahwehFv.deleteField;
+    payload['atualizadoEm'] = YahwehFv.serverTimestamp;
 
     await AdminFeedFirestoreBridge.upsertTenantDoc(
       churchId: cid,

@@ -6,7 +6,7 @@ import 'package:gestao_yahweh/core/offline/offline_modules.dart';
 import 'package:gestao_yahweh/services/tenant_audit_service.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
-/// Hist├│rico de exclus├Áes e altera├º├Áes relevantes no m├│dulo financeiro (quem, quando).
+/// Histórico de exclusões e alterações relevantes no módulo financeiro (quem, quando).
 Future<void> logFinanceiroAuditoria({
   required String tenantId,
   required String acao,
@@ -17,7 +17,7 @@ Future<void> logFinanceiroAuditoria({
     await ensureFirebaseReadyForPublishUpload();
     final u = firebaseDefaultAuth.currentUser;
     final op = await ChurchOperationalPaths.resolveCached(tenantId.trim());
-    // N├úo gravar payload enorme (pode falhar regras / limites).
+    // Não gravar payload enorme (pode falhar regras / limites).
     Map<String, dynamic>? slim;
     if (dadosAntes != null) {
       slim = <String, dynamic>{};
@@ -48,6 +48,6 @@ Future<void> logFinanceiroAuditoria({
       before: slim,
     );
   } catch (_) {
-    // Best-effort ÔÇö exclus├úo do lan├ºamento n├úo depende disto.
+    // Best-effort — exclusão do lançamento não depende disto.
   }
 }

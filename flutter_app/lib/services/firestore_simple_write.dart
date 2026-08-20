@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -10,9 +11,9 @@ abstract final class FirestoreSimpleWrite {
     bool onCreate = false,
   }) {
     final out = Map<String, dynamic>.from(data);
-    out['updatedAt'] = FieldValue.serverTimestamp();
+    out['updatedAt'] = YahwehFv.serverTimestamp;
     if (onCreate) {
-      out['createdAt'] = FieldValue.serverTimestamp();
+      out['createdAt'] = YahwehFv.serverTimestamp;
     }
     return out;
   }

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/church_tenant_write_log.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -147,16 +148,16 @@ abstract final class ChurchTenantDashboardDocService {
     final tid = tenantId.trim();
     if (tid.isEmpty) return;
     final patch = <String, dynamic>{
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
     if (membersDelta != null) {
-      patch['members'] = FieldValue.increment(membersDelta);
+      patch['members'] = YahwehFv.increment(membersDelta);
     }
     if (avisosDelta != null) {
-      patch['avisos'] = FieldValue.increment(avisosDelta);
+      patch['avisos'] = YahwehFv.increment(avisosDelta);
     }
     if (eventosDelta != null) {
-      patch['eventos'] = FieldValue.increment(eventosDelta);
+      patch['eventos'] = YahwehFv.increment(eventosDelta);
     }
     for (final docRef in [statsRef(tid), ref(tid)]) {
       final path = docRef.path;

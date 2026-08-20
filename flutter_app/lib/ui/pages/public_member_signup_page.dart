@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'dart:async' show Timer, unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
@@ -1409,7 +1410,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
         'CARGO': 'Membro',
         'FUNCAO': 'Membro',
         'FUNCOES': <String>['membro'],
-        'CRIADO_EM': FieldValue.serverTimestamp(),
+        'CRIADO_EM': YahwehFv.serverTimestamp,
         'FILIACAO_PAI': _filiacaoPaiCtrl.text.trim(),
         'FILIACAO_MAE': _filiacaoMaeCtrl.text.trim(),
         'FILIACAO': _buildFiliacaoLegado(

@@ -135,9 +135,9 @@ abstract final class FinanceOfxConciliationService {
     int score,
   ) {
     if (score >= 95) return 'Valor, data e tipo coincidem';
-    if (score >= 80) return 'Valor e data pr├│ximos';
-    if (score >= 50) return 'Poss├¡vel correspond├¬ncia';
-    return 'Sem lan├ºamento compat├¡vel';
+    if (score >= 80) return 'Valor e data próximos';
+    if (score >= 50) return 'Possível correspondência';
+    return 'Sem lançamento compatível';
   }
 
   static bool financeIsEntrada(Map<String, dynamic> data) {

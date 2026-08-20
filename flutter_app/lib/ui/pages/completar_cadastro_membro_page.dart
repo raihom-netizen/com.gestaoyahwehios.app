@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async' show unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -280,7 +281,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
         'FILIACAO_PAI': _filiacaoPaiCtrl.text.trim(),
         'FILIACAO_MAE': _filiacaoMaeCtrl.text.trim(),
         'FILIACAO': _buildFiliacaoLegado(_filiacaoPaiCtrl.text.trim(), _filiacaoMaeCtrl.text.trim()),
-        'ATUALIZADO_EM': FieldValue.serverTimestamp(),
+        'ATUALIZADO_EM': YahwehFv.serverTimestamp,
       });
 
       var authRecreatedAfterEmail = false;
@@ -342,7 +343,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
           'name': _nameCtrl.text.trim(),
           'nome': _nameCtrl.text.trim(),
           'email': _emailCtrl.text.trim(),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         });
         await ChurchUiCollections.churchDoc(op)
             .collection('usersIndex')
@@ -352,7 +353,7 @@ class _CompletarCadastroMembroPageState extends State<CompletarCadastroMembroPag
           'name': _nameCtrl.text.trim(),
           'nome': _nameCtrl.text.trim(),
           'email': _emailCtrl.text.trim(),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         });
         try {
           await FirebaseAuth.instance.currentUser?.getIdToken(true);

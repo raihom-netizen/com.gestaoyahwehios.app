@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -314,7 +315,7 @@ class ChurchChatMemberPrefs {
 
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'starredMessageIdsByThread': next,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
 
     if (value) {
@@ -359,9 +360,9 @@ class ChurchChatMemberPrefs {
     }
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'favoriteThreadIds': value
-          ? FieldValue.arrayUnion([threadId])
-          : FieldValue.arrayRemove([threadId]),
-      'updatedAt': FieldValue.serverTimestamp(),
+          ? YahwehFv.arrayUnion([threadId])
+          : YahwehFv.arrayRemove([threadId]),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     return true;
   }
@@ -374,9 +375,9 @@ class ChurchChatMemberPrefs {
     final uid = firebaseDefaultAuth.currentUser!.uid;
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'mutedThreadIds': value
-          ? FieldValue.arrayUnion([threadId])
-          : FieldValue.arrayRemove([threadId]),
-      'updatedAt': FieldValue.serverTimestamp(),
+          ? YahwehFv.arrayUnion([threadId])
+          : YahwehFv.arrayRemove([threadId]),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 
@@ -388,9 +389,9 @@ class ChurchChatMemberPrefs {
     final uid = firebaseDefaultAuth.currentUser!.uid;
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'blockedPeerUids': value
-          ? FieldValue.arrayUnion([peerUid])
-          : FieldValue.arrayRemove([peerUid]),
-      'updatedAt': FieldValue.serverTimestamp(),
+          ? YahwehFv.arrayUnion([peerUid])
+          : YahwehFv.arrayRemove([peerUid]),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 
@@ -412,9 +413,9 @@ class ChurchChatMemberPrefs {
     }
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'hiddenDmThreadIds': hide
-          ? FieldValue.arrayUnion([tid])
-          : FieldValue.arrayRemove([tid]),
-      'updatedAt': FieldValue.serverTimestamp(),
+          ? YahwehFv.arrayUnion([tid])
+          : YahwehFv.arrayRemove([tid]),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     return true;
   }
@@ -445,8 +446,8 @@ class ChurchChatMemberPrefs {
     }
 
     await YahwehDocWrite.set(docRef(tenantId, uid), {
-      'hiddenDmThreadIds': FieldValue.arrayUnion(toAdd),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'hiddenDmThreadIds': YahwehFv.arrayUnion(toAdd),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     return (hidden: toAdd.length, hitLimit: hitLimit);
   }
@@ -488,9 +489,9 @@ class ChurchChatMemberPrefs {
     }
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'pinnedThreadIds': value
-          ? FieldValue.arrayUnion([tid])
-          : FieldValue.arrayRemove([tid]),
-      'updatedAt': FieldValue.serverTimestamp(),
+          ? YahwehFv.arrayUnion([tid])
+          : YahwehFv.arrayRemove([tid]),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     return true;
   }
@@ -512,10 +513,10 @@ class ChurchChatMemberPrefs {
     }
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'archivedThreadIds': value
-          ? FieldValue.arrayUnion([tid])
-          : FieldValue.arrayRemove([tid]),
-      if (value) 'pinnedThreadIds': FieldValue.arrayRemove([tid]),
-      'updatedAt': FieldValue.serverTimestamp(),
+          ? YahwehFv.arrayUnion([tid])
+          : YahwehFv.arrayRemove([tid]),
+      if (value) 'pinnedThreadIds': YahwehFv.arrayRemove([tid]),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     return true;
   }
@@ -527,14 +528,14 @@ class ChurchChatMemberPrefs {
     final uid = firebaseDefaultAuth.currentUser!.uid;
     if (mode == null) {
       await YahwehDocWrite.set(docRef(tenantId, uid), {
-        'dmNotificationStyle': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'dmNotificationStyle': YahwehFv.deleteField,
+        'updatedAt': YahwehFv.serverTimestamp,
       });
       return;
     }
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'dmNotificationStyle': _normalizeChatAlertMode(mode),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 
@@ -545,14 +546,14 @@ class ChurchChatMemberPrefs {
     final uid = firebaseDefaultAuth.currentUser!.uid;
     if (mode == null) {
       await YahwehDocWrite.set(docRef(tenantId, uid), {
-        'groupNotificationStyle': FieldValue.delete(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'groupNotificationStyle': YahwehFv.deleteField,
+        'updatedAt': YahwehFv.serverTimestamp,
       });
       return;
     }
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'groupNotificationStyle': _normalizeChatAlertMode(mode),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 
@@ -575,7 +576,7 @@ class ChurchChatMemberPrefs {
     }
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'threadNotifModes': map,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     return true;
   }
@@ -601,7 +602,7 @@ class ChurchChatMemberPrefs {
     }
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'departmentAlertModes': map,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     return true;
   }
@@ -627,7 +628,7 @@ class ChurchChatMemberPrefs {
     }
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'dmPeerAlertModes': map,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
     return true;
   }
@@ -645,7 +646,7 @@ class ChurchChatMemberPrefs {
         .toList();
     await YahwehDocWrite.set(docRef(tenantId, uid), {
       'departmentGroupOrderIds': cleaned,
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 
@@ -653,8 +654,8 @@ class ChurchChatMemberPrefs {
   static Future<void> clearDepartmentGroupOrder(String tenantId) async {
     final uid = firebaseDefaultAuth.currentUser!.uid;
     await YahwehDocWrite.set(docRef(tenantId, uid), {
-      'departmentGroupOrderIds': FieldValue.delete(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'departmentGroupOrderIds': YahwehFv.deleteField,
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 
@@ -668,8 +669,8 @@ class ChurchChatMemberPrefs {
     final tid = threadId.trim();
     if (tid.isEmpty) return;
     await YahwehDocWrite.set(docRef(tenantId, uid), {
-      'unreadCounts.$tid': FieldValue.delete(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'unreadCounts.$tid': YahwehFv.deleteField,
+      'updatedAt': YahwehFv.serverTimestamp,
     });
   }
 

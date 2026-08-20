@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:async' show unawaited;
 
@@ -235,7 +236,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
         'details': details,
         'usuario': u?.email ?? u?.uid ?? 'master',
         'uid': u?.uid,
-        'data': FieldValue.serverTimestamp(),
+        'data': YahwehFv.serverTimestamp,
       });
     } catch (e, st) {
       debugPrint('MasterChurchDetail _audit: $e\n$st');
@@ -252,7 +253,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
         await YahwehDocWrite.set(ChurchUiCollections.churchDoc(op), {
           'license': {
             'isFree': false,
-            'updatedAt': FieldValue.serverTimestamp(),
+            'updatedAt': YahwehFv.serverTimestamp,
           },
         });
       }
@@ -282,7 +283,7 @@ class _MasterChurchDetailSheetState extends State<MasterChurchDetailSheet> {
       final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
       await YahwehDocWrite.set(ChurchUiCollections.churchDoc(op), {
         'masterNotes': _notesCtrl.text.trim(),
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       });
       await _audit('master_notes', 'len=${_notesCtrl.text.length}');
       if (mounted) {

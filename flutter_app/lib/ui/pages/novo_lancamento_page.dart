@@ -1,4 +1,5 @@
-﻿import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -54,6 +55,16 @@ class NovoLancamentoPage extends StatefulWidget {
   final String? editingTransactionId;
   final Map<String, dynamic>? editingData;
 
+  /// Vínculo já escolhido pelo ecrã que abriu esta página.
+  ///
+  /// Quando se lança a partir da ficha de um membro ou de um fornecedor, a
+  /// pessoa já está decidida — obrigar a escolhê-la outra vez numa lista de
+  /// centenas de nomes só convida ao engano de a marcar errada.
+  final FinanceVinculo? vinculoFixo;
+
+  /// Com [vinculoFixo], impede trocar a pessoa dentro do formulário.
+  final bool travarVinculo;
+
   const NovoLancamentoPage({
     super.key,
     required this.uid,
@@ -62,6 +73,8 @@ class NovoLancamentoPage extends StatefulWidget {
     this.hasActiveLicense = true,
     this.editingTransactionId,
     this.editingData,
+    this.vinculoFixo,
+    this.travarVinculo = false,
   });
 
   @override
@@ -119,7 +132,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
   ///
   /// E o que permite somar "quanto gastamos com este fornecedor" ou "quanto
   /// este membro contribuiu" sem rateio nem ambiguidade.
-  FinanceVinculoSelecao _vinculo = const FinanceVinculoSelecao.vazia();
+  late FinanceVinculoSelecao _vinculo = widget.vinculoFixo == null
+      ? const FinanceVinculoSelecao.vazia()
+      : FinanceVinculoSelecao([widget.vinculoFixo!]);
 
   /// Última descrição aplicada automaticamente (categoria + mês/ano). Se o usuário editar o campo, zera e não sobrescreve ao mudar só a data.
   String? _lastAutoDescription;
@@ -650,7 +665,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
       'description': _descCtrl.text.trim(),
       'status': resolvedStatus,
       'date': Timestamp.fromDate(dateWithoutSeconds),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
       'effectiveDate': FinanceLineOpening.effectiveTimestampForWrite(
         date: dateWithoutSeconds,
         paidAt: paidForEffective,
@@ -658,7 +673,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     };
 
     if (financeAid.isEmpty) {
-      updateData['financeAccountId'] = FieldValue.delete();
+      updateData['financeAccountId'] = YahwehFv.deleteField;
     } else {
       updateData['financeAccountId'] = financeAid;
     }
@@ -674,13 +689,13 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         _calendarColorHex!.isNotEmpty) {
       updateData['calendarColorHex'] = _calendarColorHex;
     } else {
-      updateData['calendarColorHex'] = FieldValue.delete();
+      updateData['calendarColorHex'] = YahwehFv.deleteField;
     }
 
     try {
       if (widget.canAttachReceipt) {
         if (_removeExistingReceipt) {
-          updateData['receipt'] = FieldValue.delete();
+          updateData['receipt'] = YahwehFv.deleteField;
           updateData['hasReceipt'] = false;
         } else if (_receiptBytes != null &&
             _receiptBytes!.isNotEmpty &&
@@ -2174,15 +2189,19 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: () async {
-              final escolhido = await escolherVinculoFinanceiro(
-                context,
-                tenantId: widget.uid,
-                atual: v,
-              );
-              if (escolhido == null || !mounted) return;
-              setState(() => _vinculo = escolhido);
-            },
+            // Vindo da ficha de um membro/fornecedor a pessoa ja esta
+            // decidida: o campo mostra quem e, mas nao deixa trocar.
+            onTap: widget.travarVinculo
+                ? null
+                : () async {
+                    final escolhido = await escolherVinculoFinanceiro(
+                      context,
+                      tenantId: widget.uid,
+                      atual: v,
+                    );
+                    if (escolhido == null || !mounted) return;
+                    setState(() => _vinculo = escolhido);
+                  },
             child: Container(
               padding: const EdgeInsets.symmetric(
                 horizontal: 14,

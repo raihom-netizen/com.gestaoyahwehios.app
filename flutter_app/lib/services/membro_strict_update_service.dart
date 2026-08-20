@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async' show unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -384,8 +385,8 @@ abstract final class MembroStrictUpdateService {
     );
 
     final payload = Map<String, dynamic>.from(updates);
-    payload.putIfAbsent('ATUALIZADO_EM', () => FieldValue.serverTimestamp());
-    payload.putIfAbsent('updatedAt', () => FieldValue.serverTimestamp());
+    payload.putIfAbsent('ATUALIZADO_EM', () => YahwehFv.serverTimestamp);
+    payload.putIfAbsent('updatedAt', () => YahwehFv.serverTimestamp);
 
     if (kDebugMode) {
       debugPrint('UPDATE MEMBER');

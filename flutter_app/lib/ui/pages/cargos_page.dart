@@ -1590,10 +1590,10 @@ class _CargosPageState extends State<CargosPage> {
       appBar: null,
       body: SafeArea(
         top: !widget.embeddedInShell,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
+        child: NestedScrollView(
+          headerSliverBuilder: (context, innerBoxIsScrolled) => [
+            SliverToBoxAdapter(
+              child: Padding(
               padding: EdgeInsets.fromLTRB(padding.left, 4, padding.right, 0),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -1644,11 +1644,15 @@ class _CargosPageState extends State<CargosPage> {
                 ],
               ),
             ),
-            _buildTopActionRow(padding: padding),
-            _buildCargoTabs(padding: padding),
-            if (_cargoListTab != 0) _buildCargoSearchBar(padding: padding),
-            Expanded(
-              child: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            ),
+            SliverToBoxAdapter(child: _buildTopActionRow(padding: padding)),
+            SliverToBoxAdapter(child: _buildCargoTabs(padding: padding)),
+            if (_cargoListTab != 0)
+              SliverToBoxAdapter(
+                child: _buildCargoSearchBar(padding: padding),
+              ),
+          ],
+          body: FutureBuilder<QuerySnapshot<Map<String, dynamic>>>(
                 future: _cargosFuture,
                 builder: (context, snap) {
                   final isWaiting =
@@ -1882,9 +1886,7 @@ class _CargosPageState extends State<CargosPage> {
                     child: SizedBox.expand(child: list),
                   );
                 },
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

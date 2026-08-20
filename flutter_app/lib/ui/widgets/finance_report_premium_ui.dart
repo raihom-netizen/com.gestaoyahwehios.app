@@ -3,7 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_premium_widgets.dart';
 
-/// Paleta can├│nica ÔÇö receitas (azul/verde) vs despesas (vermelho).
+/// Paleta canónica — receitas (azul/verde) vs despesas (vermelho).
 abstract final class FinanceReportColors {
   FinanceReportColors._();
 
@@ -17,7 +17,7 @@ abstract final class FinanceReportColors {
   static const accent = Color(0xFF16A34A);
 }
 
-/// Hero principal ÔÇö balan├ºo receitas ├ù despesas (estilo resumo financeiro).
+/// Hero principal — balanço receitas ├ù despesas (estilo resumo financeiro).
 class FinanceReportBalanceHero extends StatelessWidget {
   const FinanceReportBalanceHero({
     super.key,
@@ -82,7 +82,7 @@ class FinanceReportBalanceHero extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Balan├ºo do per├¡odo',
+                        'Balanço do período',
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: 0.92),
                           fontWeight: FontWeight.w900,
@@ -108,7 +108,7 @@ class FinanceReportBalanceHero extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      'Saldo l├¡quido',
+                      'Saldo líquido',
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.75),
                         fontSize: 11,
@@ -226,7 +226,7 @@ class _BalancePill extends StatelessWidget {
   }
 }
 
-/// KPI secund├írio ÔÇö gradiente colorido (previs├úo, pend├¬ncias).
+/// KPI secundário — gradiente colorido (previsão, pendências).
 class FinanceReportKpiTile extends StatelessWidget {
   const FinanceReportKpiTile({
     super.key,
@@ -254,7 +254,7 @@ class FinanceReportKpiTile extends StatelessWidget {
   }
 }
 
-/// Cabe├ºalho de sec├º├úo com ├¡cone gradiente.
+/// Cabeçalho de secção com ícone gradiente.
 class FinanceReportSectionHeader extends StatelessWidget {
   const FinanceReportSectionHeader({
     super.key,
@@ -326,7 +326,7 @@ class FinanceReportSectionHeader extends StatelessWidget {
   }
 }
 
-/// Card de lan├ºamento ÔÇö substitui linhas cruas da tabela.
+/// Card de lançamento — substitui linhas cruas da tabela.
 class FinanceReportLancamentoCard extends StatelessWidget {
   const FinanceReportLancamentoCard({
     super.key,
@@ -405,7 +405,7 @@ class FinanceReportLancamentoCard extends StatelessWidget {
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Text(
-                                    tipo.isEmpty ? 'ÔÇö' : tipo,
+                                    tipo.isEmpty ? '—' : tipo,
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w800,
@@ -426,7 +426,7 @@ class FinanceReportLancamentoCard extends StatelessWidget {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              (data['descricao'] ?? 'ÔÇö').toString(),
+                              (data['descricao'] ?? '—').toString(),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -437,7 +437,7 @@ class FinanceReportLancamentoCard extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              (data['categoria'] ?? 'ÔÇö').toString(),
+                              (data['categoria'] ?? '—').toString(),
                               style: TextStyle(
                                 fontSize: 12,
                                 color: Colors.grey.shade600,
@@ -517,7 +517,7 @@ class FinanceReportLancamentoCard extends StatelessWidget {
   }
 }
 
-/// Barra de exporta├º├úo PDF / CSV premium.
+/// Barra de exportação PDF / CSV premium.
 class FinanceReportExportBar extends StatelessWidget {
   const FinanceReportExportBar({
     super.key,
@@ -551,7 +551,7 @@ class FinanceReportExportBar extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const FinanceReportSectionHeader(
-            title: 'Exportar relat├│rio',
+            title: 'Exportar relatório',
             subtitle: 'PDF completo, fechamento oficial ou planilha CSV.',
             icon: Icons.file_download_rounded,
           ),
@@ -561,7 +561,7 @@ class FinanceReportExportBar extends StatelessWidget {
             runSpacing: 10,
             children: [
               _ExportBtn(
-                label: loading ? 'GerandoÔÇª' : 'PDF completo',
+                label: loading ? 'Gerando…' : 'PDF completo',
                 icon: Icons.picture_as_pdf_rounded,
                 filled: true,
                 onTap: loading ? null : onPdf,
@@ -637,7 +637,7 @@ class _ExportBtn extends StatelessWidget {
   }
 }
 
-/// Card resumo por conta no relat├│rio.
+/// Card resumo por conta no relatório.
 class FinanceReportContaResumoCard extends StatelessWidget {
   const FinanceReportContaResumoCard({
     super.key,
@@ -661,7 +661,7 @@ class FinanceReportContaResumoCard extends StatelessWidget {
       saldoAtual: liquido,
       receitasMes: entradas,
       despesasMes: saidas,
-      bancoSubtitle: 'Movimenta├º├úo no per├¡odo',
+      bancoSubtitle: 'Movimentação no período',
       accent: FinanceReportColors.accent,
     );
   }

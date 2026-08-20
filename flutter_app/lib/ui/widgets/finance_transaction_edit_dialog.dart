@@ -1,4 +1,5 @@
-﻿import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -1127,7 +1128,7 @@ Future<bool> showFinanceTransactionEditDialog({
     'description': descCtrl.text.trim(),
     'status': status,
     'date': Timestamp.fromDate(FinanceTransactionDatetime.withoutSeconds(date)),
-    'updatedAt': FieldValue.serverTimestamp(),
+    'updatedAt': YahwehFv.serverTimestamp,
   };
   final paidForEffective = status == 'paid'
       ? (current['paidAt'] is Timestamp
@@ -1143,7 +1144,7 @@ Future<bool> showFinanceTransactionEditDialog({
 
   final aid = selectedFinanceAccountId?.trim() ?? '';
   if (aid.isEmpty) {
-    updateData['financeAccountId'] = FieldValue.delete();
+    updateData['financeAccountId'] = YahwehFv.deleteField;
   } else {
     updateData['financeAccountId'] = aid;
   }
@@ -1156,12 +1157,12 @@ Future<bool> showFinanceTransactionEditDialog({
         calendarColorHex!.trim().isNotEmpty) {
       updateData['calendarColorHex'] = calendarColorHex!.trim();
     } else {
-      updateData['calendarColorHex'] = FieldValue.delete();
+      updateData['calendarColorHex'] = YahwehFv.deleteField;
     }
   } else {
     updateData['addToCalendar'] = false;
-    updateData['hideFromCalendar'] = FieldValue.delete();
-    updateData['calendarColorHex'] = FieldValue.delete();
+    updateData['hideFromCalendar'] = YahwehFv.deleteField;
+    updateData['calendarColorHex'] = YahwehFv.deleteField;
   }
 
   /// Motivo da falha do comprovante, quando houver — o lancamento grava na
@@ -1172,7 +1173,7 @@ Future<bool> showFinanceTransactionEditDialog({
   // miniatura e o olho, salvava — e o ficheiro era descartado em silêncio
   // porque este bloco estava dentro de `if (profile.temAcessoPremium)`.
   if (removeReceipt) {
-    updateData['receipt'] = FieldValue.delete();
+    updateData['receipt'] = YahwehFv.deleteField;
     updateData['hasReceipt'] = false;
   } else if (newReceiptBytes != null &&
       newReceiptBytes!.isNotEmpty &&

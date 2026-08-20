@@ -136,7 +136,7 @@ class PanelFinanceSnapshotService {
         '${d.month.toString().padLeft(2, '0')}';
   }
 
-  /// Fluxo l├¡quido (entradas ÔêÆ sa├¡das) por bucket do painel ÔÇö s├│ `finance_summary`.
+  /// Fluxo líquido (entradas ÔêÆ saídas) por bucket do painel — só `finance_summary`.
   static List<double> netFlowByBuckets({
     required PanelFinanceSnapshot snapshot,
     required List<DateTime> bucketStarts,
@@ -157,7 +157,7 @@ class PanelFinanceSnapshotService {
     return out;
   }
 
-  /// Sa├¡das por bucket ÔÇö s├│ cache mensal.
+  /// Saídas por bucket — só cache mensal.
   static List<double> saidasByBuckets({
     required PanelFinanceSnapshot snapshot,
     required List<DateTime> bucketStarts,
@@ -171,7 +171,7 @@ class PanelFinanceSnapshotService {
       if (monthlyMode) {
         out[i] = m.saidas;
       } else {
-        // Cache s├│ tem totais mensais ÔÇö n├úo repetir o mesmo valor em cada dia.
+        // Cache só tem totais mensais — não repetir o mesmo valor em cada dia.
         out[i] = 0;
       }
     }
@@ -181,7 +181,7 @@ class PanelFinanceSnapshotService {
   static Future<PanelFinanceSnapshot> readOnce(String tenantId) =>
       _fetchOnce(tenantId);
 
-  /// Ignora cache local ÔÇö uso ap├│s lan├ºamento financeiro (actualiza├º├úo imediata).
+  /// Ignora cache local — uso após lançamento financeiro (actualização imediata).
   static Future<PanelFinanceSnapshot> readOnceFromServer(String tenantId) async {
     final fromServer = await _fetchOnce(
       tenantId,

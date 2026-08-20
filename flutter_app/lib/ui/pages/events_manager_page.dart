@@ -940,16 +940,16 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   }
 
   Map<String, dynamic> _eventoFixoCoverClearPatch() => {
-    'defaultImageUrl': FieldValue.delete(),
-    'imageUrl': FieldValue.delete(),
-    'imageUrls': FieldValue.delete(),
-    'imagemUrl': FieldValue.delete(),
-    'imagem_url': FieldValue.delete(),
-    'coverUrl': FieldValue.delete(),
-    'coverStoragePath': FieldValue.delete(),
-    'photoStoragePath': FieldValue.delete(),
-    'imageStoragePath': FieldValue.delete(),
-    'defaultImageStoragePath': FieldValue.delete(),
+    'defaultImageUrl': YahwehFv.deleteField,
+    'imageUrl': YahwehFv.deleteField,
+    'imageUrls': YahwehFv.deleteField,
+    'imagemUrl': YahwehFv.deleteField,
+    'imagem_url': YahwehFv.deleteField,
+    'coverUrl': YahwehFv.deleteField,
+    'coverStoragePath': YahwehFv.deleteField,
+    'photoStoragePath': YahwehFv.deleteField,
+    'imageStoragePath': YahwehFv.deleteField,
+    'defaultImageStoragePath': YahwehFv.deleteField,
   };
 
   Future<void> _editTemplate({
@@ -2042,10 +2042,10 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       'active': true,
       'updatedAt': now,
       'validFrom': validFrom.value == null
-          ? FieldValue.delete()
+          ? YahwehFv.deleteField
           : Timestamp.fromDate(validFrom.value!),
       'validUntil': validUntil.value == null
-          ? FieldValue.delete()
+          ? YahwehFv.deleteField
           : Timestamp.fromDate(validUntil.value!),
     };
     if (coverClearedByUser) {
@@ -8140,7 +8140,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             'fotoPath': paths.first,
           },
           'photoUploadState': 'uploaded',
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         };
         if (urls.isNotEmpty) {
           patch['fotos'] = urls;
@@ -8153,7 +8153,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         final ps = (data['publishState'] ?? '').toString();
         if (ps == MuralFastPublishService.stateUploading && paths.isNotEmpty) {
           patch['publishState'] = MuralFastPublishService.stateDraft;
-          patch['publishError'] = FieldValue.delete();
+          patch['publishError'] = YahwehFv.deleteField;
         }
         await YahwehDocWrite.set(_eventDocRef, patch);
       });
@@ -8980,7 +8980,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'category': cat,
       'color': colorHex,
       'location': _localSalvo(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
     };
     final batch = YahwehBatch();
     if (existing.docs.isEmpty) {
@@ -9102,9 +9102,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         if (cor is int) out['eventCategoryColor'] = cor;
       }
     } else if (merge) {
-      out['eventCategoryId'] = FieldValue.delete();
-      out['eventCategoryName'] = FieldValue.delete();
-      out['eventCategoryColor'] = FieldValue.delete();
+      out['eventCategoryId'] = YahwehFv.deleteField;
+      out['eventCategoryName'] = YahwehFv.deleteField;
+      out['eventCategoryColor'] = YahwehFv.deleteField;
     }
     return out;
   }
@@ -9148,7 +9148,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   Map<String, dynamic> _locationFieldsForSave({
     required bool allowDeleteSentinels,
   }) {
-    final del = FieldValue.delete();
+    final del = YahwehFv.deleteField;
     if (_useChurchLocation) {
       final m = <String, dynamic>{
         'location': _localSalvo(),
@@ -9928,7 +9928,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (_instagramUrl.text.trim().isNotEmpty)
         'instagramUrl': _instagramUrl.text.trim()
       else
-        'instagramUrl': FieldValue.delete(),
+        'instagramUrl': YahwehFv.deleteField,
       if (allUrlsSafe.isNotEmpty) 'fotos': allUrlsSafe,
       if (fotoPaths.isNotEmpty) 'fotoStoragePaths': fotoPaths,
       if (fotoPaths.isNotEmpty) 'imageStoragePaths': fotoPaths,
@@ -9939,7 +9939,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'active': true,
       'likes': widget.doc?.data()?['likes'] ?? <String>[],
       'rsvp': widget.doc?.data()?['rsvp'] ?? <String>[],
-      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedAt': YahwehFv.serverTimestamp,
       'generated': false,
       'publicSite': _publicSite,
       'galleryPermanent': false,
@@ -9956,13 +9956,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       payload['validUntil'] = Timestamp.fromDate(_validUntil!);
     }
     if (!isNewDoc) {
-      payload['imageVariants'] = FieldValue.delete();
-      payload['templateId'] = FieldValue.delete();
+      payload['imageVariants'] = YahwehFv.deleteField;
+      payload['templateId'] = YahwehFv.deleteField;
       if (widget.doc!.data()?['createdAt'] == null) {
-        payload['createdAt'] = FieldValue.serverTimestamp();
+        payload['createdAt'] = YahwehFv.serverTimestamp;
       }
     } else {
-      payload['createdAt'] = FieldValue.serverTimestamp();
+      payload['createdAt'] = YahwehFv.serverTimestamp;
       payload['createdByUid'] = firebaseDefaultAuth.currentUser?.uid ?? '';
       payload['likesCount'] = 0;
       payload['rsvpCount'] = 0;
@@ -10007,7 +10007,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           'videoUrl': firstVideoUrl,
           'thumbUrl': firstThumbUrl,
           'videos': videosClean,
-          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAt': YahwehFv.serverTimestamp,
         };
         await AdminFeedFirestoreBridge.upsertDocRef(
           docRef: _eventDocRef,
@@ -15283,7 +15283,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
       if (all) {
         await YahwehDocWrite.update(ref, {_arrayField: <String>[]});
       } else {
-        await YahwehDocWrite.update(ref, {_arrayField: FieldValue.arrayRemove(uidsToRemove)});
+        await YahwehDocWrite.update(ref, {_arrayField: YahwehFv.arrayRemove(uidsToRemove)});
       }
       if (!mounted) return;
       setState(() {

@@ -736,7 +736,7 @@ class _AttendancePageState extends State<AttendancePage> {
     if (editing) {
       await YahwehDocWrite.update(doc.reference, payload);
     } else {
-      payload['createdAt'] = FieldValue.serverTimestamp();
+      payload['createdAt'] = YahwehFv.serverTimestamp;
       await _cultos.add(payload);
     }
 

@@ -33,7 +33,7 @@ String titularNomeFinanceFixo(Map<String, dynamic> d) {
   return (d['membroNome'] ?? d['memberNome'] ?? '').toString().trim();
 }
 
-/// Despesas fixas: v├¡nculo opcional (nenhum / membro / fornecedor).
+/// Despesas fixas: vínculo opcional (nenhum / membro / fornecedor).
 class FinanceFixoVinculoSegmentDespesa extends StatelessWidget {
   final String value;
   final ValueChanged<String> onChanged;
@@ -68,7 +68,7 @@ class FinanceFixoVinculoSegmentDespesa extends StatelessWidget {
   }
 }
 
-/// Segmento Membro / Fornecedor ÔÇö mesmo padr├úo em receitas e despesas fixas.
+/// Segmento Membro / Fornecedor — mesmo padrão em receitas e despesas fixas.
 class FinanceFixoVinculoSegment extends StatelessWidget {
   final String value;
   final ValueChanged<String> onChanged;
@@ -104,7 +104,7 @@ class FinanceFixoVinculoSegment extends StatelessWidget {
   }
 }
 
-/// Cart├úo de sele├º├úo (membro ou fornecedor) ÔÇö toque abre o picker premium.
+/// Cartão de seleção (membro ou fornecedor) — toque abre o picker premium.
 class FinanceFixoTitularCard extends StatelessWidget {
   final String vinculoTipo;
   final String tituloPlaceholder;
@@ -291,7 +291,7 @@ Future<(String, String, String?)?> showFinancePremiumMemberPicker(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
                   child: TextField(
                     decoration: InputDecoration(
-                      hintText: 'Buscar nome ou CPFÔÇª',
+                      hintText: 'Buscar nome ou CPF…',
                       prefixIcon: const Icon(Icons.search_rounded),
                       filled: true,
                       fillColor: const Color(0xFFF8FAFC),
@@ -401,7 +401,7 @@ Future<(String, String, String?)?> showFinancePremiumMemberPicker(
 Future<List<({String id, String nome})>> _fornecedoresAtivos(String tenantId) async {
   try {
     final op = ChurchPanelTenantGateway.churchId(tenantId.trim());
-    // Mesmo loader can├│nico da aba Cadastros (RAM/Hive/Firestore + legado).
+    // Mesmo loader canónico da aba Cadastros (RAM/Hive/Firestore + legado).
     final loaded = await ChurchFornecedoresLoadService.loadAll(
       seedTenantId: op,
       forceRefresh: true,
@@ -416,7 +416,7 @@ Future<List<({String id, String nome})>> _fornecedoresAtivos(String tenantId) as
     }
     if (out.isNotEmpty) return out;
 
-    // Fallback directo (sem orderBy ÔÇö evita falha por ├¡ndice/campo ausente).
+    // Fallback directo (sem orderBy — evita falha por índice/campo ausente).
     final snap = await ChurchUiCollections.fornecedores(op).limit(500).get();
     for (final d in snap.docs) {
       final m = d.data();
@@ -509,7 +509,7 @@ Future<(String, String)?> showFinancePremiumFornecedorPicker(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
                   child: TextField(
                     decoration: InputDecoration(
-                      hintText: 'Buscar nomeÔÇª',
+                      hintText: 'Buscar nome…',
                       prefixIcon: const Icon(Icons.search_rounded),
                       filled: true,
                       fillColor: const Color(0xFFF8FAFC),

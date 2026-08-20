@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -249,7 +250,7 @@ abstract final class ChurchCanonicalMediaDeleteService {
       urls[idx] = '';
       paths[idx] = '';
       final patch = <String, dynamic>{
-        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedAt': YahwehFv.serverTimestamp,
       };
       ChurchCanonicalMediaContract.patrimonioApplyIndexedSlots(
         patch,

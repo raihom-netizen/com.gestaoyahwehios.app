@@ -1,4 +1,5 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -189,8 +190,8 @@ abstract final class FinanceService {
               calendarColorHex != null &&
               calendarColorHex.trim().isNotEmpty)
             'calendarColorHex': calendarColorHex.trim(),
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': YahwehFv.serverTimestamp,
+          'updatedAt': YahwehFv.serverTimestamp,
         });
       });
     } on FirebaseException catch (e) {

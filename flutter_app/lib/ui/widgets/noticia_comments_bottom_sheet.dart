@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'dart:async' show unawaited;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -213,7 +214,7 @@ class _NoticiaCommentsSheetState extends State<NoticiaCommentsSheet> {
       Future<void> run() async {
         await YahwehDocWrite.delete(widget.commentsRef.doc(item.id));
         await widget.postRef.set(
-          {'commentsCount': FieldValue.increment(-1)},
+          {'commentsCount': YahwehFv.increment(-1)},
           SetOptions(merge: true),
         );
       }

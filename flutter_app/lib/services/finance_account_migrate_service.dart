@@ -4,7 +4,7 @@ import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
 
-/// Migra├º├úo de lan├ºamentos entre contas ÔÇö padr├úo Controle Total, com ajuste de `saldo`.
+/// Migração de lançamentos entre contas — padrão Controle Total, com ajuste de `saldo`.
 abstract final class FinanceAccountMigrateService {
   FinanceAccountMigrateService._();
 
@@ -96,7 +96,7 @@ abstract final class FinanceAccountMigrateService {
     return next;
   }
 
-  /// Aplica migra├º├úo com rec├ílculo de saldo (chunk Ôëñ 40 por transa├º├úo Firestore).
+  /// Aplica migração com recálculo de saldo (chunk Ôëñ 40 por transação Firestore).
   static Future<int> migrateDocuments({
     required String churchId,
     required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
@@ -105,7 +105,7 @@ abstract final class FinanceAccountMigrateService {
     String? sourceAccountId,
   }) async {
     final cid = ChurchRepository.churchId(churchId);
-    if (cid.isEmpty) throw StateError('Igreja n├úo identificada.');
+    if (cid.isEmpty) throw StateError('Igreja não identificada.');
 
     var applied = 0;
     const chunk = 40;
@@ -134,7 +134,7 @@ abstract final class FinanceAccountMigrateService {
   }
 }
 
-/// Chave de deduplica├º├úo de contas (mesmo banco + ag├¬ncia + n├║mero, ou mesmo nome).
+/// Chave de deduplicação de contas (mesmo banco + agência + número, ou mesmo nome).
 String financeContaDedupeKey(Map<String, dynamic> d) {
   final nome = (d['nome'] ?? '').toString().trim().toLowerCase();
   final cod = (d['bancoCodigo'] ?? '').toString().trim();

@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:flutter/material.dart';
@@ -140,7 +141,7 @@ class _AdminSugestoesPageState extends State<AdminSugestoesPage> {
     try {
       await YahwehDocWrite.update(firebaseDefaultFirestore.collection('suggestions').doc(docId), {
         'response': resposta,
-        'respondedAt': FieldValue.serverTimestamp(),
+        'respondedAt': YahwehFv.serverTimestamp,
         'status': 'respondido',
       });
       if (mounted) {
