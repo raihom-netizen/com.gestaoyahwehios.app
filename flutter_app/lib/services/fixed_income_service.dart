@@ -199,6 +199,9 @@ class FixedIncomeService {
       }
     }
     await YahwehDocWrite.update(_fixedRef(uid).doc(id), data);
+    if (vinculo != null) {
+      await _updateFuturePendingVinculo(uid, id, vinculo);
+    }
     if (addToCalendar != null || calendarColorHex != null) {
       await _updateFuturePendingCalendarFlags(
         uid,
@@ -254,6 +257,51 @@ class FixedIncomeService {
       return updated;
     } catch (_) {
       return 0;
+    }
+  }
+
+  /// Propaga o vínculo (membro/fornecedor) aos lançamentos **pendentes
+  /// futuros** desta fixa.
+  ///
+  /// As parcelas já pagas ficam como estão: são histórico, e reescrevê-las
+  /// mudaria totais que a tesouraria já fechou.
+  Future<void> _updateFuturePendingVinculo(
+    String uid,
+    String fixedId,
+    Map<String, dynamic> vinculo,
+  ) async {
+    if (vinculo.isEmpty) return;
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final snap = await _txRef(uid)
+          .where('fixedIncomeId', isEqualTo: fixedId)
+          .where('status', isEqualTo: 'pending')
+          .get();
+      final toUpdate = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+      for (final doc in snap.docs) {
+        final dateTs = doc.data()['date'];
+        if (dateTs is! Timestamp) continue;
+        if (dateTs.toDate().isBefore(today)) continue;
+        toUpdate.add(doc);
+      }
+      if (toUpdate.isEmpty) return;
+      // `null` no mapa apaga o campo — e assim que o vínculo antigo sai quando
+      // se troca de membro para fornecedor (ou se remove).
+      final patch = <String, dynamic>{
+        for (final e in vinculo.entries)
+          e.key: e.value ?? YahwehFv.deleteField,
+        'updatedAt': YahwehFv.serverTimestamp,
+      };
+      for (var i = 0; i < toUpdate.length; i += batchLimit) {
+        final batch = YahwehBatch();
+        for (final doc in toUpdate.skip(i).take(batchLimit)) {
+          batch.update(doc.reference, patch);
+        }
+        await batch.commit();
+      }
+    } catch (_) {
+      // Best-effort: a fixa ja foi gravada; falhar aqui nao pode desfazer isso.
     }
   }
 
@@ -495,7 +543,23 @@ class FixedIncomeService {
       final description = (fe['description'] ?? 'Receita fixa').toString();
       final feId = fe['id'].toString();
       final amount = (fe['amount'] as num?)?.toDouble() ?? 0;
-      final addToCalendar = fe['addToCalendar'] != false;
+      // `== true`, nao `!= false`: campo ausente e DESLIGADO, igual ao
+      // formulario. Com `!= false` toda fixa antiga voltava para o calendario.
+      final addToCalendar = fe['addToCalendar'] == true;
+      // Vinculo da fixa (membro ou fornecedor) — copiado para cada lancamento
+      // gerado, senao o total por pessoa ignorava os recorrentes.
+      final vinculoFixo = <String, dynamic>{
+        for (final k in const [
+          'membroId',
+          'membroNome',
+          'memberId',
+          'fornecedorId',
+          'fornecedorNome',
+          'vinculoMultiplo',
+          'vinculos',
+        ])
+          if (fe[k] != null) k: fe[k],
+      };
       final calHex = (fe['calendarColorHex'] ?? '').toString().trim();
       final financeAccountId =
           (fe['financeAccountId'] ?? '').toString().trim();
@@ -583,6 +647,7 @@ class FixedIncomeService {
           'recurrence': 'fixed',
           'installmentCount': installmentCount,
           'installmentIndex': parcelIndex,
+          ...vinculoFixo,
           'fixedIncomeId': feId,
           'fixedIncomeMonthKey': monthKey,
           'addToCalendar': addToCalendar,

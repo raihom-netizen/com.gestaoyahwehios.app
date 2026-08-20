@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
 import 'package:gestao_yahweh/ui/pages/novo_lancamento_page.dart';
 import 'package:gestao_yahweh/utils/yahweh_date_range_picker.dart';
@@ -13,7 +14,6 @@ import 'package:gestao_yahweh/core/finance_church_ops.dart';
 import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
-import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/models/finance_account.dart';
 import 'package:gestao_yahweh/models/user_profile.dart';
 import 'package:gestao_yahweh/pdf/finance_vinculo_extrato_pdf.dart';
@@ -99,6 +99,9 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
   bool _carregando = true;
   bool _exportando = false;
   String _erro = '';
+
+  /// A leitura encheu o limite — pode haver movimento mais antigo de fora.
+  bool _amostraTruncada = false;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _todos = const [];
   List<FinanceAccount> _contas = const [];
   UserProfile? _perfil;
@@ -138,12 +141,17 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
   Future<void> _carregar({bool force = false}) async {
     if (mounted) setState(() => _carregando = _todos.isEmpty);
     try {
+      // `financeChartsSampleLimit` (60) e amostra de GRAFICO. Aqui somam-se
+      // valores: le-se o maximo que a camada de leitura permite.
+      const limite = FirebasePerformanceLimits.financeiroPage;
       final res = await ChurchFinanceLoadService.loadLancamentos(
         seedTenantId: _tid,
-        limit: YahwehPerformanceV4.financeChartsSampleLimit,
+        limit: limite,
         forceRefresh: force,
         forceServer: force,
       );
+      // Amostra cheia = pode haver lancamentos mais antigos de fora.
+      final amostraCheia = res.docs.length >= limite;
       final meus = res.docs.where((d) => _pertence(d.data())).toList()
         ..sort((a, b) {
           final da = financeLancamentoDate(a.data());
@@ -169,6 +177,7 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
         _perfil = perfil;
         _carregando = false;
         _erro = '';
+        _amostraTruncada = amostraCheia;
       });
     } catch (e) {
       if (!mounted) return;
@@ -544,6 +553,10 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
                   if (_erro.isNotEmpty) _BannerErro(texto: _erro),
                   _barraPeriodo(),
                   const SizedBox(height: 14),
+                  if (_amostraTruncada) ...[
+                    const _AvisoAmostra(),
+                    const SizedBox(height: 12),
+                  ],
                   _cardsTotais(receitas, despesas, saldo),
                   const SizedBox(height: 14),
                   _grafico(),
@@ -1203,6 +1216,47 @@ class _BotaoLancar extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Diz que o total pode estar incompleto.
+///
+/// A leitura de lançamentos tem tecto (200 por igreja). Um número de dinheiro
+/// que pode estar a menos precisa de o dizer — senão o tesoureiro confia num
+/// total que não fecha.
+class _AvisoAmostra extends StatelessWidget {
+  const _AvisoAmostra();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFED7AA)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_rounded, color: Color(0xFFEA580C), size: 20),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'Este extrato usa os lançamentos mais recentes da igreja. Se '
+              'houver movimento antigo, pode ficar de fora do total — use o '
+              'filtro de período para conferir ano a ano.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF9A3412),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

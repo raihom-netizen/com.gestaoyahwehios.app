@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_transaction_list_tile.dart';
 import 'package:gestao_yahweh/services/finance_accounts_service.dart';
 import 'package:gestao_yahweh/models/user_profile.dart';
@@ -199,9 +200,11 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
     setState(() => _loading = _docs.isEmpty);
     try {
       final tid = ChurchRepository.churchId(widget.tenantId);
+      // Amostra de grafico (60) nao serve para somar o gasto de um
+      // fornecedor: le-se o maximo permitido.
       final r = await ChurchFinanceLoadService.loadLancamentos(
         seedTenantId: tid,
-        limit: YahwehPerformanceV4.financeChartsSampleLimit,
+        limit: FirebasePerformanceLimits.financeiroPage,
         forceRefresh: force,
         forceServer: force,
       ).timeout(PanelResilientLoad.queryCap);
