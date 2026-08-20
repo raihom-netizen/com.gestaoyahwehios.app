@@ -346,81 +346,137 @@ class ControleTotalSupplierFinanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final saldoColor = saldoNegativo ? const Color(0xFF991B1B) : const Color(0xFF166534);
+    final saldoColor =
+        saldoNegativo ? const Color(0xFFB91C1C) : const Color(0xFF15803D);
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF14532D), Color(0xFF166534)],
-        ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 18,
+            offset: Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              fontSize: 18,
-            ),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0x2215803D), Color(0x0A15803D)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: const Icon(
+                  Icons.local_shipping_rounded,
+                  size: 19,
+                  color: Color(0xFF15803D),
+                ),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                        letterSpacing: -0.3,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 2),
-          Text(
-            subtitle,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.86),
-              fontSize: 12.5,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
           if (saldoBancos != null) ...[
             _lineCard('Saldo bancos', saldoBancos!, const Color(0xFF1D4ED8)),
             const SizedBox(height: 8),
           ],
           Row(
             children: [
-              Expanded(child: _miniCard('Despesas', despesas, const Color(0xFF991B1B))),
+              Expanded(
+                child: _miniCard(
+                  'Despesas',
+                  despesas,
+                  const Color(0xFFB91C1C),
+                  Icons.trending_down_rounded,
+                ),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _miniCard('Receitas', receitas, const Color(0xFF166534))),
+              Expanded(
+                child: _miniCard(
+                  'Receitas',
+                  receitas,
+                  const Color(0xFF15803D),
+                  Icons.trending_up_rounded,
+                ),
+              ),
               const SizedBox(width: 8),
-              Expanded(child: _miniCard('Saldo', saldo, saldoColor)),
+              Expanded(
+                child: _miniCard(
+                  'Saldo',
+                  saldo,
+                  saldoColor,
+                  Icons.account_balance_wallet_rounded,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          const SizedBox(height: 12),
+          Row(
             children: [
-              OutlinedButton.icon(
-                onPressed: onOpenLancamentos,
-                icon: const Icon(Icons.grid_view_rounded, size: 18),
-                label: const Text('Lançamentos'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.6)),
+              Expanded(
+                child: _acao(
+                  'Lançamentos',
+                  Icons.grid_view_rounded,
+                  const Color(0xFF2563EB),
+                  onOpenLancamentos,
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: onOpenPendentes,
-                icon: const Icon(Icons.schedule_rounded, size: 18),
-                label: const Text('Pendentes'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.6)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _acao(
+                  'Pendentes',
+                  Icons.schedule_rounded,
+                  const Color(0xFFEA580C),
+                  onOpenPendentes,
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: onOpenComprovantes,
-                icon: const Icon(Icons.receipt_long_rounded, size: 18),
-                label: const Text('Comprovantes'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: BorderSide(color: Colors.white.withValues(alpha: 0.6)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _acao(
+                  'Comprovantes',
+                  Icons.receipt_long_rounded,
+                  const Color(0xFF7C3AED),
+                  onOpenComprovantes,
                 ),
               ),
             ],
@@ -430,13 +486,54 @@ class ControleTotalSupplierFinanceCard extends StatelessWidget {
     );
   }
 
+  Widget _acao(
+    String rotulo,
+    IconData icone,
+    Color cor,
+    VoidCallback onTap,
+  ) {
+    return Material(
+      color: cor.withValues(alpha: 0.09),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 6),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: cor.withValues(alpha: 0.3)),
+          ),
+          child: Column(
+            children: [
+              Icon(icone, size: 18, color: cor),
+              const SizedBox(height: 5),
+              Text(
+                rotulo,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: cor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _lineCard(String label, String value, Color valueColor) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Row(
         children: [
@@ -463,39 +560,52 @@ class ControleTotalSupplierFinanceCard extends StatelessWidget {
     );
   }
 
-  Widget _miniCard(String label, String value, Color valueColor) {
+  Widget _miniCard(
+    String label,
+    String value,
+    Color valueColor,
+    IconData icone,
+  ) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Icon(icone, size: 16, color: valueColor),
+          const SizedBox(height: 7),
           Text(
-            label,
+            label.toUpperCase(),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 12.5,
-              color: Color(0xFF334155),
+              fontSize: 9.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+              color: Color(0xFF94A3B8),
             ),
           ),
-          const SizedBox(height: 5),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontWeight: FontWeight.w900,
-              fontSize: 15,
-              color: valueColor,
+          const SizedBox(height: 3),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 15.5,
+                letterSpacing: -0.3,
+                color: valueColor,
+              ),
             ),
           ),
         ],
       ),
     );
   }
+
 }

@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/core/finance_church_ops.dart';
 import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
@@ -304,21 +303,15 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
   // ─────────────────────────────────────────────── ações
 
   Future<void> _editar(
-    BuildContext ctx,
-    String docId,
-    Map<String, dynamic> data,
-    String type,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
-    final ref = ChurchUiCollections.financeiro(_tid).doc(docId);
-    DocumentSnapshot<Map<String, dynamic>>? snap;
-    try {
-      snap = await ref.get();
-    } catch (_) {}
-    if (!mounted) return;
+    // O documento vem da lista — nada de reler. A releitura crua podia falhar
+    // na web e `existingDoc: null` abre o editor em modo CRIACAO, duplicando
+    // o lancamento em vez de o alterar.
     final ok = await showFinanceLancamentoEditorForTenant(
       context,
       tenantId: widget.tenantId,
-      existingDoc: snap,
+      existingDoc: doc,
       panelRole: widget.panelRole,
     );
     if (ok && mounted) {
@@ -327,7 +320,9 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
     }
   }
 
-  Future<void> _excluir(BuildContext ctx, String docId) async {
+  Future<void> _excluir(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
@@ -350,8 +345,7 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
     );
     if (ok != true) return;
     try {
-      final snap = await ChurchUiCollections.financeiro(_tid).doc(docId).get();
-      await excluirLancamentoFinanceiroComAuditoria(snap, _tid);
+      await excluirLancamentoFinanceiroComAuditoria(doc, _tid);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -925,16 +919,12 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
             gridSelectionMode: false,
             isSelected: false,
             optimisticPaidIds: const <String>{},
-            onEdit: _editar,
-            onDelete: _excluir,
-            onConfirmPayment: (ctx, id) async {
-              final doc = docs.firstWhere((e) => e.id == id, orElse: () => d);
-              await _editar(ctx, id, doc.data(), 'expense');
-            },
-            onAttachReceipt: (ctx, id) async {
-              final doc = docs.firstWhere((e) => e.id == id, orElse: () => d);
-              await _editar(ctx, id, doc.data(), 'expense');
-            },
+            // Editar, confirmar pagamento e anexar comprovante abrem todos o
+            // MESMO editor do Financeiro — e onde essas tres coisas se fazem.
+            onEdit: (ctx, id, data, type) => _editar(d),
+            onDelete: (ctx, id) => _excluir(d),
+            onConfirmPayment: (ctx, id) => _editar(d),
+            onAttachReceipt: (ctx, id) => _editar(d),
           ),
         ),
     ];
