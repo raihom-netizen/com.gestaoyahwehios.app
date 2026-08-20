@@ -296,6 +296,14 @@ void showFinanceLancamentoDetailsBottomSheet(
 /// Mesmo caminho do [CompromissoExpressFullForm]: cache de arranque primeiro,
 /// leitura do `users/{uid}` depois. Devolve `null` quando nao da — o chamador
 /// cai no editor curto.
+/// Perfil usado pelo editor de lançamentos do Financeiro.
+///
+/// Público porque o extrato por membro/fornecedor abre o **mesmo** editor: sem
+/// perfil o diálogo não abre, e duplicar esta resolução dava duas noções
+/// diferentes de quem está a editar.
+Future<UserProfile?> perfilParaEditorFinanceiro(String uid) =>
+    _perfilParaEditorCompleto(uid);
+
 Future<UserProfile?> _perfilParaEditorCompleto(String uid) async {
   final id = uid.trim();
   if (id.isEmpty) return null;

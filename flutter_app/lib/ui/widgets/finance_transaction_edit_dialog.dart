@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+﻿import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
@@ -115,11 +116,16 @@ Future<bool> showFinanceTransactionEditDialog({
         : (selectedCategory == '__outra__' ? '' : selectedCategory),
   );
   String status = (current['status'] ?? 'paid').toString();
-  // Pendente: calendário ligado por padrão (salvo hideFromCalendar explícito).
+  // Desligado por defeito. So fica ligado se foi gravado explicitamente
+  // `true` — com `!= false`, o campo ausente (todo lançamento antigo) ligava.
   var addToCalendar = status == 'pending' &&
       current['hideFromCalendar'] != true &&
-      current['addToCalendar'] != false;
+      current['addToCalendar'] == true;
   String? calendarColorHex = current['calendarColorHex']?.toString();
+  // Vinculo (membro ou fornecedor). Estava gravado no lancamento mas nao
+  // aparecia ao editar: quem abria «Editar despesa» nao tinha como saber de
+  // quem era aquele gasto, nem como corrigir se estivesse errado.
+  var vinculo = FinanceVinculoSelecao.deFirestore(current);
   DateTime date = (current['date'] is Timestamp)
       ? (current['date'] as Timestamp).toDate()
       : DateTime.now();
@@ -543,7 +549,8 @@ Future<bool> showFinanceTransactionEditDialog({
                             ],
                             onChanged: (v) => setState(() {
                               status = v ?? 'paid';
-                              if (status == 'pending') addToCalendar = true;
+                              // Sem religar o calendário: «Pendente» não é
+                              // consentimento para pôr o lançamento na agenda.
                             }),
                           ),
                           if (status == 'pending') ...[
@@ -653,6 +660,85 @@ Future<bool> showFinanceTransactionEditDialog({
                               }),
                             ],
                           ],
+                          SizedBox(height: 12),
+                          Text('Vínculo (membro ou fornecedor)',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w700, fontSize: 13)),
+                          SizedBox(height: 6),
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () async {
+                                final escolha =
+                                    await escolherVinculoFinanceiro(
+                                  context,
+                                  tenantId: uid,
+                                  atual: vinculo,
+                                );
+                                if (escolha != null) {
+                                  setState(() => vinculo = escolha);
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 13),
+                                decoration: BoxDecoration(
+                                  color: context.appInputFill,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: editAccent.withValues(alpha: 0.35),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      vinculo.vazio
+                                          ? Icons.link_off_rounded
+                                          : (vinculo.individual &&
+                                                  vinculo.itens.first.ehMembro
+                                              ? Icons.person_rounded
+                                              : Icons.local_shipping_rounded),
+                                      size: 18,
+                                      color: editAccent,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        vinculo.resumo,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                          color: vinculo.vazio
+                                              ? context.appTextSecondary
+                                              : context.appTextPrimary,
+                                        ),
+                                      ),
+                                    ),
+                                    Icon(Icons.unfold_more_rounded,
+                                        color: editAccent, size: 22),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (vinculo.somenteHistorico)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text(
+                                'Com mais de uma pessoa, o lançamento fica só no '
+                                'histórico geral — não entra no total individual '
+                                'de nenhuma delas.',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFFB45309),
+                                ),
+                              ),
+                            ),
                           SizedBox(height: 12),
                           Text('Conta',
                               style: TextStyle(
@@ -1052,6 +1138,8 @@ Future<bool> showFinanceTransactionEditDialog({
     date: FinanceTransactionDatetime.withoutSeconds(date),
     paidAt: paidForEffective,
   );
+
+  updateData.addAll(vinculo.paraFirestore());
 
   final aid = selectedFinanceAccountId?.trim() ?? '';
   if (aid.isEmpty) {

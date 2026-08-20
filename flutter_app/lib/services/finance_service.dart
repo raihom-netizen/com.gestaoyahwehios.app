@@ -129,8 +129,11 @@ abstract final class FinanceService {
     int? installmentIndex,
     int? installmentCount,
 
-    /// Se true (e status pendente), o lançamento aparece no calendário Agenda/Escala.
-    bool addToCalendar = true,
+    /// Se true (e status pendente), o lançamento aparece no calendário
+    /// Agenda/Escala. **Desligado por defeito** — pôr um lançamento na agenda
+    /// da igreja é uma escolha do utilizador, não um efeito secundário de o
+    /// marcar como pendente.
+    bool addToCalendar = false,
     String? calendarColorHex,
   }) async {
     if (amount.isNaN || amount.isInfinite || amount <= 0) return null;

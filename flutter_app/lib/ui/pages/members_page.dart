@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/ui/pages/finance_vinculo_extrato_page.dart';
 import 'dart:async';
 import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
@@ -2451,6 +2452,39 @@ class _MembersPageState extends State<MembersPage> {
   bool _canOpenCarteirinhaFor(_MemberDoc member) =>
       _canManage || _isSelfMember(member);
 
+  /// Extrato financeiro do membro: **só quem tem acesso ao módulo Financeiro**.
+  ///
+  /// Quanto cada pessoa contribuiu é dado sensível; o botão nem sequer aparece
+  /// para quem não teria como abrir o Financeiro pela barra lateral.
+  bool get _canOpenFinanceiroDoMembro => widget.role.canViewChurchFinance;
+
+  String _nomeCompletoDoMembro(Map<String, dynamic> d) {
+    for (final k in ['NOME', 'nome', 'name', 'nomeCompleto', 'displayName']) {
+      final v = (d[k] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return 'Membro';
+  }
+
+  String _fotoDoMembro(Map<String, dynamic> d) {
+    for (final k in ['fotoUrl', 'photoUrl', 'FOTO', 'foto', 'imagemUrl']) {
+      final v = (d[k] ?? '').toString().trim();
+      if (v.isNotEmpty) return v;
+    }
+    return '';
+  }
+
+  Future<void> _abrirFinanceiroDoMembro(_MemberDoc member) =>
+      abrirExtratoFinanceiroDoVinculo(
+        context,
+        tenantId: _effectiveTenantId,
+        tipo: 'membro',
+        vinculoId: member.id,
+        nome: _nomeCompletoDoMembro(member.data),
+        fotoUrl: _fotoDoMembro(member.data),
+        panelRole: widget.role,
+      );
+
   String _memberCpfDigitsForCarteira(Map<String, dynamic> data) =>
       (data['CPF'] ?? data['cpf'] ?? '').toString().replaceAll(
         RegExp(r'\D'),
@@ -3190,6 +3224,18 @@ class _MembersPageState extends State<MembersPage> {
                                                 Map<String, dynamic>.from(
                                                   member.data,
                                                 ),
+                                          );
+                                        },
+                                      ),
+                                    if (_canOpenFinanceiroDoMembro)
+                                      _ActionChip(
+                                        icon: Icons.account_balance_wallet_rounded,
+                                        label: 'Financeiro',
+                                        color: const Color(0xFF047857),
+                                        onTap: () {
+                                          closeDetail();
+                                          unawaited(
+                                            _abrirFinanceiroDoMembro(member),
                                           );
                                         },
                                       ),

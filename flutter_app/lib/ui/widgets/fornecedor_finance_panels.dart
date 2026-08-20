@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/ui/pages/finance_vinculo_extrato_page.dart';
 import 'dart:async' show unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
@@ -84,20 +85,19 @@ Future<void> openFornecedorFinanceGrid(
       }
     } catch (_) {}
   }
-  double saldoBancos = 0;
-  try {
-    saldoBancos = await fornecedorFinanceLoadSaldoBancos(tid);
-  } catch (_) {}
   if (!context.mounted) return;
   try {
-    await showFornecedorLancamentosGridPreview(
+    // Extrato partilhado com o módulo Membros: mesma grelha do Financeiro
+    // (editar valor, anexar comprovante, marcar pendente), gráficos, filtro
+    // anual por defeito e exportação PDF. A grelha própria que existia aqui
+    // era mais pobre e obrigava a ir ao Financeiro para qualquer alteração.
+    await abrirExtratoFinanceiroDoVinculo(
       context,
       tenantId: tenantId,
-      fornecedorId: fornecedorId,
-      fornecedorNome: nome,
+      tipo: 'fornecedor',
+      vinculoId: fornecedorId,
+      nome: nome,
       panelRole: panelRole,
-      filtroInicial: filtroInicial,
-      saldoBancos: saldoBancos,
       onChanged: onChanged,
     );
   } catch (e) {
@@ -179,7 +179,6 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
   String _filtro = 'todos';
   bool _loading = true;
   bool _exportingPdf = false;
-  double _saldoBancos = 0;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _docs = const [];
 
   @override
@@ -218,13 +217,6 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
         _docs = filtered;
         _loading = false;
       });
-      try {
-        final saldoBancos = await fornecedorFinanceLoadSaldoBancos(
-          tid,
-          forceRefresh: force,
-        );
-        if (mounted) setState(() => _saldoBancos = saldoBancos);
-      } catch (_) {}
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -416,7 +408,6 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
               child: ControleTotalSupplierFinanceCard(
                 title: 'Financeiro do fornecedor',
                 subtitle: '${_visible.length} lançamento(s) vinculado(s)',
-                saldoBancos: money.format(_saldoBancos),
                 despesas: money.format(totals.despesas),
                 receitas: money.format(totals.receitas),
                 saldo: money.format(totals.saldo),
@@ -587,7 +578,6 @@ class _FornecedoresFinanceModuloTabState
   bool _loading = true;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _finance = const [];
   Map<String, String> _nomes = const {};
-  double _saldoBancos = 0;
 
   String _nomeFornecedor(String fid) {
     final id = fid.trim();
@@ -643,11 +633,6 @@ class _FornecedoresFinanceModuloTabState
         forceServer: force,
       ).timeout(PanelResilientLoad.queryCap);
 
-      final contasFuture = ChurchFinanceLoadService.loadContas(
-        seedTenantId: tid,
-        forceRefresh: force,
-      ).timeout(PanelResilientLoad.queryCap);
-
       // Cadastros em paralelo; UI não espera isto para sair do skeleton.
       final fnFuture = ChurchFornecedoresLoadService.load(
         seedTenantId: tid,
@@ -686,21 +671,6 @@ class _FornecedoresFinanceModuloTabState
         _finance = linked;
         _loading = false;
       });
-
-      try {
-        final contas = await contasFuture;
-        final contaIds = contas.docs
-            .map((d) => d.id)
-            .where((id) => id.trim().isNotEmpty)
-            .toSet();
-        final saldoMap = financeSaldoPorContaAteInclusive(
-          contaIdsAtivas: contaIds,
-          lancamentos: fin.docs.map((d) => d.data()),
-          ateInclusive: DateTime.now(),
-        );
-        final saldoBancos = saldoMap.values.fold<double>(0, (a, b) => a + b);
-        if (mounted) setState(() => _saldoBancos = saldoBancos);
-      } catch (_) {}
 
       try {
         final fn = await fnFuture;
@@ -837,7 +807,6 @@ class _FornecedoresFinanceModuloTabState
               child: ControleTotalSupplierFinanceCard(
                 title: 'Financeiro por fornecedor',
                 subtitle: '${porFn.length} com movimentação',
-                saldoBancos: money.format(_saldoBancos),
                 despesas: money.format(totalD),
                 receitas: money.format(totalR),
                 saldo: money.format(totalR - totalD),

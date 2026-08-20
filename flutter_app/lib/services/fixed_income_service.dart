@@ -196,7 +196,9 @@ class FixedIncomeService {
       await _updateFuturePendingCalendarFlags(
         uid,
         id,
-        addToCalendar ?? true,
+        // `?? true` ligava o calendario nos pendentes futuros quando so a COR
+        // tinha sido alterada. Desligado por defeito, como no formulario.
+        addToCalendar ?? false,
         calendarColorHex,
       );
     }

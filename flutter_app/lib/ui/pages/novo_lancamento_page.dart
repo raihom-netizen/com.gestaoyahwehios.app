@@ -2058,8 +2058,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                       ],
                       onChanged: (v) => setState(() {
                         _status = v ?? 'paid';
-                        // Pendente: por padrão aparece no calendário Agenda/Escala.
-                        if (_status == 'pending') _addToCalendar = true;
+                        // O calendário fica DESLIGADO por padrão, também em
+                        // «Pendente». Antes, escolher Pendente religava o
+                        // interruptor por cima da escolha do utilizador: o
+                        // padrão `false` do campo não valia nada, porque quase
+                        // todo lançamento pendente passa por aqui.
                       }),
                     ),
             ),

@@ -318,7 +318,7 @@ class ControleTotalSupplierFinanceCard extends StatelessWidget {
     super.key,
     required this.title,
     required this.subtitle,
-    required this.saldoBancos,
+    this.saldoBancos,
     required this.despesas,
     required this.receitas,
     required this.saldo,
@@ -330,7 +330,12 @@ class ControleTotalSupplierFinanceCard extends StatelessWidget {
 
   final String title;
   final String subtitle;
-  final String saldoBancos;
+  /// Saldo global dos bancos da igreja.
+  ///
+  /// `null` no cartão de um fornecedor: o saldo da igreja não diz nada sobre
+  /// aquele fornecedor, e o utilizador estava a lê-lo como se fosse dívida
+  /// àquele fornecedor. Aqui a conta é só dele.
+  final String? saldoBancos;
   final String despesas;
   final String receitas;
   final String saldo;
@@ -373,8 +378,10 @@ class ControleTotalSupplierFinanceCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          _lineCard('Saldo bancos', saldoBancos, const Color(0xFF1D4ED8)),
-          const SizedBox(height: 8),
+          if (saldoBancos != null) ...[
+            _lineCard('Saldo bancos', saldoBancos!, const Color(0xFF1D4ED8)),
+            const SizedBox(height: 8),
+          ],
           Row(
             children: [
               Expanded(child: _miniCard('Despesas', despesas, const Color(0xFF991B1B))),
