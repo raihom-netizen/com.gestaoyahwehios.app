@@ -1142,11 +1142,31 @@ Future<bool> showFinanceTransactionEditDialog({
 
   updateData.addAll(vinculo.paraFirestore());
 
+  // A conta tem de ser escrita nos TRES campos.
+  //
+  // O saldo por banco (`financeSaldoPorContaAteInclusive`) nao olha para
+  // `financeAccountId`: le `contaDestinoId` na receita e `contaOrigemId` na
+  // despesa. Como o editor so gravava `financeAccountId`, trocar a conta de um
+  // lancamento nao mexia em saldo nenhum — e pior, o `contaOrigemId` antigo
+  // ficava la e o dinheiro continuava a ser descontado do banco errado.
+  // (Na criacao isto ja era feito pelo `TransactionSaveService`.)
   final aid = selectedFinanceAccountId?.trim() ?? '';
+  final ehReceita = type == 'income';
   if (aid.isEmpty) {
     updateData['financeAccountId'] = YahwehFv.deleteField;
+    updateData['contaOrigemId'] = YahwehFv.deleteField;
+    updateData['contaDestinoId'] = YahwehFv.deleteField;
+    updateData['contaId'] = YahwehFv.deleteField;
   } else {
     updateData['financeAccountId'] = aid;
+    updateData['contaId'] = aid;
+    if (ehReceita) {
+      updateData['contaDestinoId'] = aid;
+      updateData['contaOrigemId'] = YahwehFv.deleteField;
+    } else {
+      updateData['contaOrigemId'] = aid;
+      updateData['contaDestinoId'] = YahwehFv.deleteField;
+    }
   }
 
   if (status == 'pending') {

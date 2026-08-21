@@ -5,6 +5,7 @@
 /// novo módulo financeiro veio do Controle Total App.
 library;
 
+import 'package:gestao_yahweh/services/transaction_save_service.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
 import 'package:gestao_yahweh/ui/pages/novo_lancamento_page.dart';
 import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
@@ -359,6 +360,74 @@ Future<UserProfile?> _perfilParaEditorCompleto(String uid, {String? panelRole}) 
   );
 }
 
+/// Abre a tela de lançamento do Financeiro **e grava o resultado**.
+///
+/// [NovoLancamentoPage] não escreve no Firestore: devolve um mapa e quem a
+/// abriu é que chama [TransactionSaveService.saveFromNovoLancamentoResult].
+/// Quem se esquecer disso vê a tela fechar sem erro e o lançamento nunca
+/// chega ao banco — foi o que aconteceu ao lançar a partir da ficha de um
+/// membro. Por isso existe este único ponto de entrada.
+Future<bool> criarLancamentoComTelaDoFinanceiro(
+  BuildContext context, {
+  required String tenantId,
+  required bool receita,
+  FinanceVinculo? vinculoFixo,
+  bool travarVinculo = false,
+  String? panelRole,
+}) async {
+  final churchId =
+      ChurchContextService.panelChurchId(ChurchRepository.churchId(tenantId));
+  if (churchId.isEmpty) return false;
+  final perfil = await _perfilParaEditorCompleto(churchId, panelRole: panelRole);
+  if (!context.mounted) return false;
+
+  final resultado = await Navigator.of(context).push<Map<String, dynamic>>(
+    MaterialPageRoute<Map<String, dynamic>>(
+      fullscreenDialog: true,
+      builder: (_) => NovoLancamentoPage(
+        uid: churchId,
+        initialType: receita ? 'income' : 'expense',
+        hasActiveLicense: perfil?.hasActiveLicense ?? true,
+        vinculoFixo: vinculoFixo,
+        travarVinculo: travarVinculo,
+      ),
+    ),
+  );
+  if (resultado == null || !context.mounted) return false;
+
+  try {
+    final salvo = await TransactionSaveService.saveFromNovoLancamentoResult(
+      uid: churchId,
+      data: resultado,
+      context: context,
+    );
+    if (salvo == null) return false;
+    final data = resultado['date'] is DateTime
+        ? resultado['date'] as DateTime
+        : DateTime.now();
+    FinanceTransactionsHub.notifyMutated(
+      uid: churchId,
+      effectiveDate:
+          FinanceLineOpening.effectiveDateTimeFromMap(resultado) ?? data,
+    );
+    return true;
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Erro ao salvar lançamento: '
+            '${e.toString().replaceFirst(RegExp(r'^Exception:?\s*'), '')}',
+          ),
+          backgroundColor: ThemeCleanPremium.error,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+    return false;
+  }
+}
+
 Future<bool> showFinanceLancamentoEditorForTenant(
   BuildContext context, {
   required String tenantId,
@@ -435,38 +504,24 @@ Future<bool> showFinanceLancamentoEditorForTenant(
   // Transferência continua na folha curta: não é receita nem despesa e a
   // [NovoLancamentoPage] não a trata.
   if (!isEdit && presetNovoTipo != 'transferencia') {
-    final perfil = await _perfilParaEditorCompleto(
-      effectiveTenantId,
+    final fid = (presetFornecedorId ?? '').trim();
+    final criado = await criarLancamentoComTelaDoFinanceiro(
+      context,
+      tenantId: effectiveTenantId,
+      receita: presetNovoTipo != 'saida',
       panelRole: panelRole,
+      vinculoFixo: fid.isEmpty
+          ? null
+          : FinanceVinculo(
+              tipo: 'fornecedor',
+              id: fid,
+              nome: (presetFornecedorNome ?? '').trim().isEmpty
+                  ? fid
+                  : presetFornecedorNome!.trim(),
+            ),
+      travarVinculo: fid.isNotEmpty && lockFornecedor,
     );
-    if (context.mounted) {
-      final fid = (presetFornecedorId ?? '').trim();
-      final salvo = await Navigator.of(context).push<bool>(
-        MaterialPageRoute<bool>(
-          fullscreenDialog: true,
-          builder: (_) => NovoLancamentoPage(
-            uid: effectiveTenantId,
-            initialType:
-                presetNovoTipo == 'saida' ? 'expense' : 'income',
-            hasActiveLicense: perfil?.hasActiveLicense ?? true,
-            vinculoFixo: fid.isEmpty
-                ? null
-                : FinanceVinculo(
-                    tipo: 'fornecedor',
-                    id: fid,
-                    nome: (presetFornecedorNome ?? '').trim().isEmpty
-                        ? fid
-                        : presetFornecedorNome!.trim(),
-                  ),
-            travarVinculo: fid.isNotEmpty && lockFornecedor,
-          ),
-        ),
-      );
-      if (salvo == true) {
-        FinanceTransactionsHub.notifyMutated(uid: effectiveTenantId);
-      }
-      return salvo == true;
-    }
+    return criado;
   }
 
   final financeCol = ChurchUiCollections.financeiro(effectiveTenantId);

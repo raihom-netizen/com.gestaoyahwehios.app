@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/ui/pages/membros_financeiro_geral_page.dart';
 import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:gestao_yahweh/ui/pages/finance_vinculo_extrato_page.dart';
 import 'dart:async';
@@ -2460,7 +2461,14 @@ class _MembersPageState extends State<MembersPage> {
   bool get _canOpenFinanceiroDoMembro => widget.role.canViewChurchFinance;
 
   String _nomeCompletoDoMembro(Map<String, dynamic> d) {
-    for (final k in ['NOME', 'nome', 'name', 'nomeCompleto', 'displayName']) {
+    for (final k in [
+      'NOME_COMPLETO',
+      'nomeCompleto',
+      'NOME',
+      'nome',
+      'name',
+      'displayName',
+    ]) {
       final v = (d[k] ?? '').toString().trim();
       if (v.isNotEmpty) return v;
     }
@@ -2474,6 +2482,15 @@ class _MembersPageState extends State<MembersPage> {
     }
     return '';
   }
+
+  Future<void> _abrirFinanceiroGeral() => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => MembrosFinanceiroGeralPage(
+            tenantId: _effectiveTenantId,
+            panelRole: widget.role,
+          ),
+        ),
+      );
 
   Future<void> _abrirFinanceiroDoMembro(_MemberDoc member) =>
       abrirExtratoFinanceiroDoVinculo(
@@ -8573,6 +8590,21 @@ class _MembersPageState extends State<MembersPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // Visao de cima do dinheiro dos membros — fica ACIMA
+                      // do cadastro porque e consulta diaria da tesouraria,
+                      // enquanto cadastrar e ocasional.
+                      if (!_selfOnlyMemberList && _canOpenFinanceiroDoMembro)
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            padding.left,
+                            0,
+                            padding.right,
+                            10,
+                          ),
+                          child: _MembersFinanceiroGeralCta(
+                            onTap: _abrirFinanceiroGeral,
+                          ),
+                        ),
                       // CTA principal do módulo: cadastrar membro sem procurar
                       // o ícone pequeno da barra de ações.
                       if (!_selfOnlyMemberList)
@@ -12012,4 +12044,71 @@ class _EmptySnapshotMetadata implements SnapshotMetadata {
   bool get hasPendingWrites => false;
   @override
   bool get isFromCache => false;
+}
+
+/// Atalho para o quadro financeiro de todos os membros.
+///
+/// Verde, para nao competir com o azul do cadastro: sao duas acoes diferentes
+/// e a tesouraria tem de as distinguir de relance.
+class _MembersFinanceiroGeralCta extends StatelessWidget {
+  const _MembersFinanceiroGeralCta({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const verde = Color(0xFF047857);
+    return Semantics(
+      button: true,
+      label: 'Financeiro geral dos membros',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: const LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [verde, Color(0xFF10B981)],
+          ),
+          boxShadow: ThemeCleanPremium.softUiCardShadow,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(18),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 15,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.insights_rounded,
+                    size: 22,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      'FINANCEIRO GERAL',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

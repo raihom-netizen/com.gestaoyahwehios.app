@@ -57,6 +57,10 @@ const List<FinanceQuickCategoryPreset> kFinanceExpenseQuickPresets = [
 ];
 
 /// Seis atalhos — nomes coincidem com [kDefaultIncomeCategories].
+///
+/// Dízimos e Ofertas vem primeiro depois de Salários: numa igreja e o que
+/// se lanca todos os dias. Os atalhos de app de financas pessoais
+/// (Freelance, Investimentos) sairam — nunca eram tocados.
 const List<FinanceQuickCategoryPreset> kFinanceIncomeQuickPresets = [
   FinanceQuickCategoryPreset(
     categoryName: 'Salários',
@@ -65,15 +69,15 @@ const List<FinanceQuickCategoryPreset> kFinanceIncomeQuickPresets = [
     color: Color(0xFF2E7D32),
   ),
   FinanceQuickCategoryPreset(
-    categoryName: 'Freelance',
-    suggestedDescription: 'Serviço freelance',
-    icon: Icons.work_outline_rounded,
+    categoryName: 'Dízimos',
+    suggestedDescription: 'Dízimo',
+    icon: Icons.volunteer_activism_rounded,
     color: Color(0xFF1565C0),
   ),
   FinanceQuickCategoryPreset(
-    categoryName: 'Investimentos',
-    suggestedDescription: 'Rendimento / investimento',
-    icon: Icons.trending_up_rounded,
+    categoryName: 'Ofertas Missionárias',
+    suggestedDescription: 'Oferta',
+    icon: Icons.favorite_rounded,
     color: Color(0xFF00897B),
   ),
   FinanceQuickCategoryPreset(

@@ -398,26 +398,23 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
   /// e travado — quem lanca a partir da ficha de um membro nao devia ter de o
   /// procurar outra vez numa lista de centenas de nomes.
   Future<void> _novoLancamento({required bool receita}) async {
-    final perfil = _perfil ??
-        await perfilParaEditorFinanceiro(_tid, panelRole: widget.panelRole);
-    if (!mounted) return;
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        fullscreenDialog: true,
-        builder: (_) => NovoLancamentoPage(
-          uid: _tid,
-          initialType: receita ? 'income' : 'expense',
-          hasActiveLicense: perfil?.hasActiveLicense ?? true,
-          vinculoFixo: FinanceVinculo(
-            tipo: widget.tipo,
-            id: widget.vinculoId,
-            nome: widget.nome,
-          ),
-          travarVinculo: true,
-        ),
+    // Ponto unico que abre a tela do Financeiro E grava — ver
+    // [criarLancamentoComTelaDoFinanceiro]. Antes daqui saia um `push` que
+    // deitava fora o mapa devolvido pela tela: o utilizador confirmava e nada
+    // chegava ao banco.
+    final criado = await criarLancamentoComTelaDoFinanceiro(
+      context,
+      tenantId: widget.tenantId,
+      receita: receita,
+      panelRole: widget.panelRole,
+      vinculoFixo: FinanceVinculo(
+        tipo: widget.tipo,
+        id: widget.vinculoId,
+        nome: widget.nome,
       ),
+      travarVinculo: true,
     );
-    if (mounted) {
+    if (criado && mounted) {
       await _carregar(force: true);
       widget.onChanged?.call();
     }
@@ -478,8 +475,8 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
                   ),
                   Text(
                     widget.ehMembro
-                        ? 'Extrato do membro'
-                        : 'Extrato do fornecedor',
+                        ? 'Extrato financeiro do membro'
+                        : 'Extrato financeiro do fornecedor',
                     style: const TextStyle(
                       fontSize: 11.5,
                       fontWeight: FontWeight.w600,

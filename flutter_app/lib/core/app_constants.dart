@@ -62,15 +62,19 @@ class AppConstants {
     return gestaoYahwehTestFlightUrl;
   }
 
-  /// `config/appDownloads` — Windows: `windowsUrl` (zip do executável no Storage).
-  /// Sem loja/fallback: vazio = botão Windows escondido.
-  static const String gestaoYahwehWindowsInstallerUrl =
-      'https://firebasestorage.googleapis.com/v0/b/gestaoyahweh-21e23.firebasestorage.app/o/downloads%2Fwindows%2FGestaoYahweh-Setup-11.2.305-2199.exe?alt=media&token=185078c5-0cf1-488e-a824-bd368101cbf9';
-
-  static String effectiveAppDownloadsWindowsUrl(Map<String, dynamic>? data) {
-    final configured = (data?['windowsUrl'] ?? '').toString().trim();
-    return configured.isNotEmpty ? configured : gestaoYahwehWindowsInstallerUrl;
-  }
+  /// Windows **descontinuado** — o produto passa a ser iOS, Android e Web.
+  ///
+  /// O executavel nunca chegou a abrir de forma fiavel: as medicoes
+  /// (`scripts/medir_windows_app.ps1`) davam sempre «nao responde», com
+  /// APPCRASH registado pelo Windows. Deixar o botao no site so leva o
+  /// utilizador a descarregar algo que nao funciona.
+  ///
+  /// Devolve sempre vazio, e os botoes de download ja se escondem sozinhos com
+  /// URL vazia — por isso nao e preciso mexer no layout do site. Para voltar a
+  /// distribuir, basta repor a leitura de `config/appDownloads.windowsUrl`
+  /// **depois** de a medicao dar «responde = SIM».
+  static String effectiveAppDownloadsWindowsUrl(Map<String, dynamic>? data) =>
+      '';
 
   /// Base https normalizada (sem path final). [raw] pode ser `dominio.com` ou URL completa.
   static String? normalizePublicSiteBaseUrl(String? raw) {

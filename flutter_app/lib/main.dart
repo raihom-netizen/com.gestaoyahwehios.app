@@ -438,20 +438,38 @@ void main() async {
   // Inicialização limitada por tempo: o Web não pode ficar preso na tela de loading
   // quando uma sonda Firebase/Firestore fica pendente por rede, service worker ou sessão.
   late FirebaseBootstrapResult firebaseBoot;
-  try {
+  // Arranque a frio na web: o browser tem de descarregar ~18 MB de
+  // `main.dart.js` MAIS os SDKs do Firebase, e logo depois de um deploy ainda
+  // por cima do service worker a atualizar-se. Com 10 s, uma ligacao normal
+  // estourava o prazo e o utilizador levava com a tela «A ligar aos
+  // servicos… TimeoutException» — carregar em «Tentar de novo» funcionava,
+  // o que e a prova de que era so tempo a mais, nao falha real.
+  //
+  // Prazos folgados + UMA repeticao silenciosa antes de desistir. A barra de
+  // progresso ja esta na tela; esperar mais e melhor do que dar erro a quem
+  // so tem a rede lenta. (Nao ha reload de pagina nenhum aqui.)
+  Future<FirebaseBootstrapResult> arrancarFirebase() async {
     await FirebaseBootstrap.ensureInitialized().timeout(
-      const Duration(seconds: 10),
+      const Duration(seconds: 30),
     );
     FirebaseBootstrapService.refreshCachedApp();
-    firebaseBoot = await FirebaseBootstrapService.initialize().timeout(
-      const Duration(seconds: 15),
+    return FirebaseBootstrapService.initialize().timeout(
+      const Duration(seconds: 45),
       onTimeout: () => FirebaseBootstrapResult.unavailable(
         TimeoutException('Firebase Web não respondeu durante a inicialização.'),
         StackTrace.current,
       ),
     );
-  } catch (e, st) {
-    firebaseBoot = FirebaseBootstrapResult.unavailable(e, st);
+  }
+
+  try {
+    firebaseBoot = await arrancarFirebase();
+  } catch (_) {
+    try {
+      firebaseBoot = await arrancarFirebase();
+    } catch (e, st) {
+      firebaseBoot = FirebaseBootstrapResult.unavailable(e, st);
+    }
   }
 
   if (firebaseBoot.isReady) {
