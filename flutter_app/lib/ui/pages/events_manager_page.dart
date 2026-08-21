@@ -15864,8 +15864,9 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                                 ),
                                               );
                                               if (ok == true) {
-                                                await docs[i].reference
-                                                    .delete();
+                                                await YahwehDocWrite.delete(
+                                                  docs[i].reference,
+                                                );
                                               }
                                             },
                                             tooltip: 'Excluir comentário',

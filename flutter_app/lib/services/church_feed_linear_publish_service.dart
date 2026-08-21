@@ -1,3 +1,4 @@
+import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'dart:async';
 import 'dart:io' show File;
 import 'dart:typed_data';
@@ -645,12 +646,15 @@ abstract final class ChurchFeedLinearPublishService {
     required Map<String, dynamic> payload,
   }) async {
     try {
-      await firebaseDefaultFirestore
-          .collection(ChurchDataPaths.rootCollection)
-          .doc(churchId)
-          .collection(ChurchDataPaths.legacyEventosEn)
-          .doc(docId)
-          .set(Map<String, dynamic>.from(payload), SetOptions(merge: true));
+      await YahwehDocWrite.set(
+        firebaseDefaultFirestore
+            .collection(ChurchDataPaths.rootCollection)
+            .doc(churchId)
+            .collection(ChurchDataPaths.legacyEventosEn)
+            .doc(docId),
+        Map<String, dynamic>.from(payload),
+        merge: true,
+      );
     } catch (e) {
       debugPrint('EVENTOS mirror legacy events failed: $e');
     }

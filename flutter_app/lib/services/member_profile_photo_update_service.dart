@@ -455,10 +455,9 @@ class MemberProfilePhotoUpdateService {
     final futures = <Future<void>>[];
     if (authUid.isNotEmpty) {
       futures.add(
-        firebaseDefaultFirestore
-            .collection('users')
-            .doc(authUid)
-            .set({
+        YahwehDocWrite.set(
+            firebaseDefaultFirestore.collection('users').doc(authUid),
+            {
               if (photoUrl.isNotEmpty) ...{
                 'fotoUrl': photoUrl,
                 'photoUrl': photoUrl,
@@ -472,10 +471,11 @@ class MemberProfilePhotoUpdateService {
               'fotoPath': result.storagePath,
               'fotoThumbPath': result.thumbStoragePath,
               'fotoUrlCacheRevision': result.cacheRevision,
-            }, SetOptions(merge: true))
-            .catchError((e, st) {
-              YahwehFlowLog.error('MEMBROS', e, st);
-            }),
+            },
+            merge: true,
+          ).catchError((e, st) {
+            YahwehFlowLog.error('MEMBROS', e, st);
+          }),
       );
       if (firebaseDefaultAuth.currentUser?.uid == authUid &&
           photoUrl.isNotEmpty) {
@@ -682,10 +682,13 @@ class MemberProfilePhotoUpdateService {
         tenantIds.map((tid) async {
           try {
             final churchId = ChurchRepository.churchId(tid.trim());
-            await ChurchUiCollections.churchDoc(churchId)
-                .collection('chat_peer_profiles')
-                .doc(authUid)
-                .set(peerPayload, SetOptions(merge: true));
+            await YahwehDocWrite.set(
+              ChurchUiCollections.churchDoc(churchId)
+                  .collection('chat_peer_profiles')
+                  .doc(authUid),
+              peerPayload,
+              merge: true,
+            );
           } catch (_) {}
         }),
       ),
