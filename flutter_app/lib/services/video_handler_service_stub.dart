@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:image_picker/image_picker.dart';
@@ -10,9 +9,8 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'firebase_storage_cleanup_service.dart';
 import 'media_upload_service.dart';
 import 'video_handler_service_types.dart';
-import 'video_thumb_capture.dart';
 
-/// Web: upload + miniatura via primeiro frame (canvas). Demais plataformas: [video_handler_service_io].
+/// Web: envio direto do vídeo ao Storage, sem criar arquivo de capa.
 class VideoHandlerService implements IVideoHandlerService {
   VideoHandlerService._();
   static final VideoHandlerService instance = VideoHandlerService._();
@@ -57,44 +55,18 @@ class VideoHandlerService implements IVideoHandlerService {
             eventPostDocId,
             slot,
           );
-    final thumbPath = ChurchStorageLayout.eventHostedVideoThumbPath(
-      tenantId,
-      eventPostDocId,
-      slot,
-    );
-
-    final videoFuture = MediaUploadService.uploadBytesWithRetry(
+    final videoUrl = await MediaUploadService.uploadBytesWithRetry(
       storagePath: videoPath,
       bytes: bytes,
       contentType: mime,
       onProgress: onUploadProgress,
     );
-    final thumbBytesFuture =
-        (precomputedThumbBytes != null && precomputedThumbBytes.isNotEmpty)
-        ? Future<Uint8List?>.value(precomputedThumbBytes)
-        : kIsWeb
-        ? captureVideoFirstFrameJpeg(bytes, mimeType: mime)
-        : Future<Uint8List?>.value(null);
-    final done = await Future.wait<Object?>([videoFuture, thumbBytesFuture]);
-    final videoUrl = done[0]! as String;
-    final thumbBytes = done[1] as Uint8List?;
-
-    String thumbUrl = '';
-    if (thumbBytes != null && thumbBytes.isNotEmpty) {
-      try {
-        thumbUrl = await MediaUploadService.uploadBytesWithRetry(
-          storagePath: thumbPath,
-          bytes: thumbBytes,
-          contentType: 'image/jpeg',
-        );
-      } catch (_) {}
-    }
 
     return VideoUploadResult(
       videoUrl: videoUrl,
-      thumbUrl: thumbUrl,
+      thumbUrl: '',
       videoStoragePath: videoPath,
-      thumbStoragePath: thumbPath,
+      thumbStoragePath: '',
     );
   }
 

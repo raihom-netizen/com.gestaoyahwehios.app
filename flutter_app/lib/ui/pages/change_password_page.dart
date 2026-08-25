@@ -1,5 +1,7 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 
 class ChangePasswordPage extends StatefulWidget {
@@ -53,8 +55,8 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
     final newPass = _newCtrl.text;
     final confirm = _confirmCtrl.text;
 
-    if (newPass.length < 6) {
-      _snack('Nova senha deve ter pelo menos 6 caracteres.');
+    if (!RegExp(r'^\d{6}$').hasMatch(newPass)) {
+      _snack('A nova senha deve ter exatamente 6 dígitos.');
       return;
     }
     if (newPass != confirm) {
@@ -71,9 +73,29 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
       await user.updatePassword(newPass);
 
       // Marca MUST_CHANGE_PASS = false
-      await firebaseDefaultFirestore.collection('users').doc(user.uid).update({
+      await firebaseDefaultFirestore.collection('users').doc(user.uid).set({
         'mustChangePass': false,
-      });
+      }, SetOptions(merge: true));
+
+      final tenantId = widget.tenantId.trim();
+      if (tenantId.isNotEmpty) {
+        try {
+          await firebaseDefaultFirestore
+              .collection('igrejas')
+              .doc(tenantId)
+              .collection('users')
+              .doc(user.uid)
+              .set({'mustChangePass': false}, SetOptions(merge: true));
+        } catch (_) {}
+        try {
+          await firebaseDefaultFirestore
+              .collection('igrejas')
+              .doc(tenantId)
+              .collection('membros')
+              .doc(user.uid)
+              .set({'mustChangePass': false}, SetOptions(merge: true));
+        } catch (_) {}
+      }
 
       if (!mounted) return;
 
@@ -132,8 +154,13 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                 TextField(
                   controller: _newCtrl,
                   obscureText: _obscure2,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(6),
+                  ],
                   decoration: InputDecoration(
-                    labelText: 'Nova senha',
+                    labelText: 'Nova senha (6 dígitos)',
                     border: const OutlineInputBorder(),
                     suffixIcon: IconButton(
                       icon: Icon(_obscure2 ? Icons.visibility : Icons.visibility_off),
@@ -145,8 +172,13 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                 TextField(
                   controller: _confirmCtrl,
                   obscureText: _obscure3,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(6),
+                  ],
                   decoration: InputDecoration(
-                    labelText: 'Confirmar nova senha',
+                    labelText: 'Confirmar os 6 dígitos',
                     border: const OutlineInputBorder(),
                     suffixIcon: IconButton(
                       icon: Icon(_obscure3 ? Icons.visibility : Icons.visibility_off),

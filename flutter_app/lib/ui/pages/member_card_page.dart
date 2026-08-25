@@ -132,6 +132,20 @@ class _MemberCardPageState extends State<MemberCardPage>
   MemberCardLoadPayload? _cardPayload;
   bool _loadingCard = false;
   Object? _cardError;
+
+  /// Multiplicador do preview do cartão. 1.0 = o tamanho que cabe na tela;
+  /// não mexe na captura (PNG/PDF saem sempre na medida canônica).
+  double _previewZoom = 1;
+
+  static const double _zoomMin = 0.6;
+  static const double _zoomMax = 3;
+  static const double _zoomPasso = 1.2;
+
+  void _ajustarZoom(double fator) {
+    final novo = (_previewZoom * fator).clamp(_zoomMin, _zoomMax).toDouble();
+    if ((novo - _previewZoom).abs() < 0.001) return;
+    setState(() => _previewZoom = novo);
+  }
   late final VoidCallback _photoSyncListener;
 
   final ScreenshotController _shotCtrl = ScreenshotController();
@@ -2104,6 +2118,91 @@ class _MemberCardPageState extends State<MemberCardPage>
     );
   }
 
+  /// Controlo de zoom do cartão: menos, percentagem, mais e voltar ao normal.
+  ///
+  /// O cartão é um documento — as pessoas querem lê-lo de perto (conferir CPF,
+  /// data de admissão, assinatura) sem ter de exportar o PNG primeiro.
+  Widget _barraZoom({required bool webDesktop}) {
+    final claro = webDesktop || _isRestricted || widget.cnhFullscreenOnly;
+    final corIcone = claro ? Colors.white : const Color(0xFF334155);
+    final fundo = claro
+        ? Colors.white.withValues(alpha: 0.10)
+        : const Color(0xFFF1F5F9);
+    final borda = claro
+        ? Colors.white.withValues(alpha: 0.16)
+        : const Color(0xFFE2E8F0);
+
+    Widget botao({
+      required IconData icone,
+      required String dica,
+      required VoidCallback? aoTocar,
+    }) {
+      return IconButton(
+        tooltip: dica,
+        onPressed: aoTocar,
+        icon: Icon(icone, size: 20),
+        color: corIcone,
+        disabledColor: corIcone.withValues(alpha: 0.35),
+        visualDensity: VisualDensity.compact,
+      );
+    }
+
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: fundo,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: borda),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            botao(
+              icone: Icons.zoom_out_rounded,
+              dica: 'Diminuir',
+              aoTocar: _previewZoom <= _zoomMin
+                  ? null
+                  : () => _ajustarZoom(1 / _zoomPasso),
+            ),
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 54),
+              child: Text(
+                '${(_previewZoom * 100).round()}%',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                  color: corIcone,
+                ),
+              ),
+            ),
+            botao(
+              icone: Icons.zoom_in_rounded,
+              dica: 'Ampliar',
+              aoTocar: _previewZoom >= _zoomMax
+                  ? null
+                  : () => _ajustarZoom(_zoomPasso),
+            ),
+            Container(
+              width: 1,
+              height: 20,
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              color: borda,
+            ),
+            botao(
+              icone: Icons.fit_screen_rounded,
+              dica: 'Tamanho normal',
+              aoTocar: _previewZoom == 1
+                  ? null
+                  : () => setState(() => _previewZoom = 1),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildCardBody(BuildContext context) {
     if (_loadingCard) {
       return const Center(child: CircularProgressIndicator());
@@ -2140,136 +2239,199 @@ class _MemberCardPageState extends State<MemberCardPage>
             memberPhotoRef!,
             payload.member,
           );
-    // Cartão inteiro visível sem rolar — celular, web, iOS e Android.
-    //
-    // O cartão tem largura lógica fixa (380) e altura ditada pelo conteúdo, o
-    // que o fazia passar da tela num telemóvel. `scaleDown` encolhe-o só
-    // quando não cabe; em ecrã grande fica no tamanho natural. A escala fica
-    // ACIMA do [Screenshot], por isso a exportação em PNG/PDF continua a sair
-    // na resolução original.
-    final alturaLivre = (MediaQuery.sizeOf(context).height - 300).clamp(
-      360.0,
-      1100.0,
+    // O cartão tem largura lógica fixa (380) e altura ditada pelo conteúdo.
+    // O preview escala essa árvore inteira — a escala fica ACIMA do
+    // [Screenshot], por isso PNG/PDF continuam na resolução e proporção
+    // canônicas por mais que se amplie na tela.
+    final viewport = MediaQuery.sizeOf(context);
+    final webDesktop = kIsWeb && viewport.width >= 900;
+
+    final cardCapture = SizedBox(
+      width: MemberCardCnhLayout.captureLogicalWidth,
+      child: Screenshot(
+        controller: _shotCtrl,
+        child: MemberCardCnhDigital(
+          data: view,
+          maxWidth: MemberCardCnhLayout.captureLogicalWidth,
+          // 320 px (e decode a 640) em vez de 56: o mesmo widget
+          // serve o brasão do topo e a marca-d'água grande ao centro.
+          logoSlot: StableChurchLogo(
+            tenantId: payload.igrejaDocId,
+            imageUrl: logoUrl,
+            width: 320,
+            height: 320,
+            memCacheWidth: 640,
+            memCacheHeight: 640,
+          ),
+          photoSlot: SafeMemberProfilePhoto(
+            imageUrl: memberPhotoUrl,
+            tenantId: payload.igrejaDocId,
+            memberId: payload.memberId,
+            authUid:
+                (payload.member['authUid'] ??
+                        payload.member['firebaseUid'] ??
+                        '')
+                    .toString()
+                    .trim()
+                    .isEmpty
+                ? null
+                : (payload.member['authUid'] ?? payload.member['firebaseUid'])
+                      .toString()
+                      .trim(),
+            memberFirestoreHint: payload.member,
+            width: 88,
+            height: 88,
+            imageCacheRevision: memberPhotoDisplayCacheRevision(payload.member),
+            preferListThumbnail: false,
+          ),
+        ),
+      ),
     );
-    return SingleChildScrollView(
-      padding: ThemeCleanPremium.pagePadding(context),
-      child: Column(
-        children: [
-          ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: alturaLivre),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.topCenter,
+
+    // Largura do preview a 100%. Na web o cartão saía com os 380px lógicos da
+    // captura — um selo perdido no meio de um monitor de 1920. Agora parte de
+    // ~45% da largura útil e o zoom leva o resto.
+    final larguraBase = webDesktop
+        ? (viewport.width * 0.45).clamp(520.0, 900.0).toDouble()
+        : (viewport.width - 28)
+              .clamp(280.0, MemberCardCnhLayout.captureLogicalWidth + 60)
+              .toDouble();
+    final larguraAlvo = (larguraBase * _previewZoom).clamp(240.0, 2600.0);
+
+    final preview = Column(
+      children: [
+        // Ampliado, o cartão passa da largura da janela — daí o scroll
+        // horizontal. A escala fica ACIMA do [Screenshot]: PNG e PDF
+        // continuam a sair na resolução canônica.
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const ClampingScrollPhysics(),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
               child: SizedBox(
-                width: MemberCardCnhLayout.captureLogicalWidth,
-                child: Screenshot(
-                  controller: _shotCtrl,
-                  child: MemberCardCnhDigital(
-                    data: view,
-                    maxWidth: MemberCardCnhLayout.captureLogicalWidth,
-                    // 320 px (e decode a 640) em vez de 56: o mesmo widget
-                    // serve o brasão do topo e a marca-d'água grande ao
-                    // centro. A 56 px era ampliado ~5× e saía borrado.
-                    logoSlot: StableChurchLogo(
-                      tenantId: payload.igrejaDocId,
-                      imageUrl: logoUrl,
-                      width: 320,
-                      height: 320,
-                      memCacheWidth: 640,
-                      memCacheHeight: 640,
-                    ),
-                    photoSlot: SafeMemberProfilePhoto(
-                      imageUrl: memberPhotoUrl,
-                      tenantId: payload.igrejaDocId,
-                      memberId: payload.memberId,
-                      authUid:
-                          (payload.member['authUid'] ??
-                                  payload.member['firebaseUid'] ??
-                                  '')
-                              .toString()
-                              .trim()
-                              .isEmpty
-                          ? null
-                          : (payload.member['authUid'] ??
-                                    payload.member['firebaseUid'])
-                                .toString()
-                                .trim(),
-                      memberFirestoreHint: payload.member,
-                      width: 88,
-                      height: 88,
-                      imageCacheRevision: memberPhotoDisplayCacheRevision(
-                        payload.member,
-                      ),
-                      preferListThumbnail: false,
-                    ),
-                  ),
+                width: larguraAlvo,
+                child: FittedBox(
+                  fit: BoxFit.fitWidth,
+                  alignment: Alignment.topCenter,
+                  child: cardCapture,
                 ),
               ),
             ),
           ),
+        ),
+        const SizedBox(height: 12),
+        _barraZoom(webDesktop: webDesktop),
+      ],
+    );
+    return SingleChildScrollView(
+      padding: webDesktop
+          ? const EdgeInsets.fromLTRB(32, 20, 32, 28)
+          : ThemeCleanPremium.pagePadding(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          preview,
           const SizedBox(height: 16),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            alignment: WrapAlignment.center,
-            children: [
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: _gradB,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                onPressed: () => unawaited(_exportPng()),
-                icon: const Icon(Icons.image_rounded),
-                label: const Text('Exportar PNG'),
-              ),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: _gradA,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                onPressed: () => openMemberCardCnhFullscreen(
-                  context,
-                  tenantId: widget.tenantId,
-                  role: widget.role,
-                  memberId: payload.memberId,
-                  cpf: widget.cpf,
-                  memberSeedData: payload.member,
-                ),
-                icon: const Icon(Icons.fullscreen_rounded),
-                label: const Text('Tela cheia'),
-              ),
-              if (_canManage)
-                FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _gradC,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+          Center(
+            child: Container(
+              padding: webDesktop
+                  ? const EdgeInsets.all(10)
+                  : EdgeInsets.zero,
+              decoration: webDesktop
+                  ? BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.12),
+                      ),
+                    )
+                  : null,
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                alignment: WrapAlignment.center,
+                children: [
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _gradB,
+                      padding: webDesktop
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 22,
+                              vertical: 17,
+                            )
+                          : null,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
+                    onPressed: () => unawaited(_exportPng()),
+                    icon: const Icon(Icons.image_rounded),
+                    label: const Text('Exportar PNG'),
                   ),
-                  onPressed: () => unawaited(_signSelected(context)),
-                  icon: const Icon(Icons.draw_rounded),
-                  label: const Text('Assinar'),
-                ),
-              if (_canManage &&
-                  _canClearSignature &&
-                  (_previewMember?.isSigned ?? false))
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red.shade600,
-                    side: BorderSide(color: Colors.red.shade300),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _gradA,
+                      padding: webDesktop
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 22,
+                              vertical: 17,
+                            )
+                          : null,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
+                    onPressed: () => openMemberCardCnhFullscreen(
+                      context,
+                      tenantId: widget.tenantId,
+                      role: widget.role,
+                      memberId: payload.memberId,
+                      cpf: widget.cpf,
+                      memberSeedData: payload.member,
+                    ),
+                    icon: const Icon(Icons.fullscreen_rounded),
+                    label: const Text('Tela cheia'),
                   ),
-                  onPressed: () => unawaited(_clearSignSelected(context)),
-                  icon: const Icon(Icons.remove_circle_outline_rounded),
-                  label: const Text('Limpar assinatura'),
-                ),
-            ],
+                  if (_canManage)
+                    FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: _gradC,
+                        padding: webDesktop
+                            ? const EdgeInsets.symmetric(
+                                horizontal: 22,
+                                vertical: 17,
+                              )
+                            : null,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: () => unawaited(_signSelected(context)),
+                      icon: const Icon(Icons.draw_rounded),
+                      label: const Text('Assinar'),
+                    ),
+                  if (_canManage &&
+                      _canClearSignature &&
+                      (_previewMember?.isSigned ?? false))
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: webDesktop
+                            ? Colors.red.shade300
+                            : Colors.red.shade600,
+                        side: BorderSide(color: Colors.red.shade300),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: () =>
+                          unawaited(_clearSignSelected(context)),
+                      icon: const Icon(Icons.remove_circle_outline_rounded),
+                      label: const Text('Limpar assinatura'),
+                    ),
+                ],
+              ),
+            ),
           ),
         ],
       ),

@@ -1,4 +1,4 @@
-﻿import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import 'package:gestao_yahweh/constants/currency_formats.dart';
@@ -7,13 +7,16 @@ import 'package:gestao_yahweh/models/finance_account.dart';
 import 'package:gestao_yahweh/models/user_profile.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
-import 'package:gestao_yahweh/utils/anexo_viewer_helper.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/utils/finance_line_opening.dart';
 import 'package:gestao_yahweh/utils/premium_upgrade.dart';
 
 /// Evita chip/valor duplicados quando a descrição já inclui o sufixo «· N/Total» (despesas fixas por parcelas).
 bool financeDescriptionEndsWithParcelSuffix(
-    String description, int index, int total) {
+  String description,
+  int index,
+  int total,
+) {
   if (total <= 1) return false;
   final t = description.trim();
   final m = RegExp(r'·\s*(\d+)/(\d+)\s*$').firstMatch(t);
@@ -24,7 +27,9 @@ bool financeDescriptionEndsWithParcelSuffix(
 }
 
 String? financeAccountLabelForTx(
-    List<FinanceAccount> accounts, Map<String, dynamic> d) {
+  List<FinanceAccount> accounts,
+  Map<String, dynamic> d,
+) {
   final aid = (d['financeAccountId'] ?? '').toString().trim();
   if (aid.isEmpty) return null;
   for (final a in accounts) {
@@ -42,13 +47,18 @@ class FinanceTransactionListTile extends StatelessWidget {
   final bool gridSelectionMode;
   final bool isSelected;
   final Set<String> optimisticPaidIds;
-  final Future<void> Function(BuildContext context, String docId,
-      Map<String, dynamic> data, String type) onEdit;
+  final Future<void> Function(
+    BuildContext context,
+    String docId,
+    Map<String, dynamic> data,
+    String type,
+  )
+  onEdit;
   final Future<void> Function(BuildContext context, String docId) onDelete;
   final Future<void> Function(BuildContext context, String docId)
-      onConfirmPayment;
+  onConfirmPayment;
   final Future<void> Function(BuildContext context, String docId)
-      onAttachReceipt;
+  onAttachReceipt;
 
   /// No modo seleção, alterna inclusão deste lançamento na seleção múltipla.
   final VoidCallback? onToggleSelection;
@@ -80,41 +90,32 @@ class FinanceTransactionListTile extends StatelessWidget {
     final isIncome = d['type'] == 'income';
     final status =
         optimisticPaidIds.contains(id) || (d['status'] ?? 'paid') == 'paid'
-            ? 'Pago'
-            : 'Pendente';
-    final postedAt = FinanceLineOpening.effectiveDateTimeFromMap(d) ??
+        ? 'Pago'
+        : 'Pendente';
+    final postedAt =
+        FinanceLineOpening.effectiveDateTimeFromMap(d) ??
         (d['date'] as Timestamp?)?.toDate();
     final amount = (d['amount'] ?? 0).toDouble();
     final installmentIndex = (d['installmentIndex'] as num?)?.toInt() ?? 1;
     final installmentCount = (d['installmentCount'] as num?)?.toInt() ?? 1;
     final category = (d['category'] ?? '').toString();
     final description = (d['description'] ?? '').toString();
-    final descHasParcelSuffix = installmentCount > 1 &&
+    final descHasParcelSuffix =
+        installmentCount > 1 &&
         financeDescriptionEndsWithParcelSuffix(
-            description, installmentIndex, installmentCount);
+          description,
+          installmentIndex,
+          installmentCount,
+        );
     final parcelInfo = installmentCount > 1 && !descHasParcelSuffix
         ? ' $installmentIndex/$installmentCount'
         : '';
     final financeAccLabel = financeAccountLabelForTx(financeAccounts, d);
 
-    final receipt = Map<String, dynamic>.from(d['receipt'] ?? {});
-    // Legado (`receipt.*`) OU canônico (`comprovanteUrl`/`comprovanteLink`)
-    // — o botão de olho não pode depender só do formato legado.
-    final link = (receipt['webViewLink'] ??
-            receipt['webContentLink'] ??
-            receipt['downloadUrl'] ??
-            d['comprovanteUrl'] ??
-            d['comprovanteLink'] ??
-            '')
-        .toString();
-    final receiptNameRaw =
-        (receipt['name'] ?? receipt['originalName'] ?? 'Comprovante')
-            .toString()
-            .trim();
-    final receiptFileName =
-        receiptNameRaw.isEmpty ? 'Comprovante' : receiptNameRaw;
-    final accent =
-        isIncome ? AppColors.financeReceita : AppColors.financeDespesa;
+    final hasReceipt = FinanceComprovanteAttachService.hasComprovanteInDoc(d);
+    final accent = isIncome
+        ? AppColors.financeReceita
+        : AppColors.financeDespesa;
 
     // RepaintBoundary isola o repaint deste card do resto da lista: rolagem mais leve no Android.
     return RepaintBoundary(
@@ -126,10 +127,12 @@ class FinanceTransactionListTile extends StatelessWidget {
           border: Border(left: BorderSide(color: accent, width: 4)),
           boxShadow: [
             BoxShadow(
-                color: Colors.black
-                    .withValues(alpha: context.isDarkMode ? 0.35 : 0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 3)),
+              color: Colors.black.withValues(
+                alpha: context.isDarkMode ? 0.35 : 0.04,
+              ),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
           ],
         ),
         child: Material(
@@ -185,7 +188,9 @@ class FinanceTransactionListTile extends StatelessWidget {
                             children: [
                               Container(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 3),
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
                                 decoration: BoxDecoration(
                                   color: accent.withValues(alpha: 0.14),
                                   borderRadius: BorderRadius.circular(8),
@@ -193,9 +198,10 @@ class FinanceTransactionListTile extends StatelessWidget {
                                 child: Text(
                                   isIncome ? 'Receita' : 'Despesa',
                                   style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w800,
-                                      color: accent),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: accent,
+                                  ),
                                 ),
                               ),
                               Text(
@@ -203,9 +209,10 @@ class FinanceTransactionListTile extends StatelessWidget {
                                     ? category
                                     : (isIncome ? 'Receita' : 'Despesa'),
                                 style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 15,
-                                    color: context.appTextPrimary),
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 15,
+                                  color: context.appTextPrimary,
+                                ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -215,16 +222,20 @@ class FinanceTransactionListTile extends StatelessWidget {
                             SizedBox(height: 6),
                             Row(
                               children: [
-                                Icon(Icons.account_balance_wallet_rounded,
-                                    size: 14, color: AppColors.primary),
+                                Icon(
+                                  Icons.account_balance_wallet_rounded,
+                                  size: 14,
+                                  color: AppColors.primary,
+                                ),
                                 SizedBox(width: 4),
                                 Expanded(
                                   child: Text(
                                     financeAccLabel,
                                     style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.primary),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.primary,
+                                    ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -237,9 +248,10 @@ class FinanceTransactionListTile extends StatelessWidget {
                             Text(
                               description,
                               style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                  color: context.appTextSecondary),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: context.appTextSecondary,
+                              ),
                               maxLines: 6,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -248,20 +260,24 @@ class FinanceTransactionListTile extends StatelessWidget {
                             SizedBox(height: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 5),
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
                               decoration: BoxDecoration(
                                 color: accent.withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                    color: accent.withValues(alpha: 0.22)),
+                                  color: accent.withValues(alpha: 0.22),
+                                ),
                               ),
                               child: Text(
                                 '$installmentIndex/$installmentCount',
                                 style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                    color: accent,
-                                    letterSpacing: 0.2),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: accent,
+                                  letterSpacing: 0.2,
+                                ),
                               ),
                             ),
                           ],
@@ -271,13 +287,17 @@ class FinanceTransactionListTile extends StatelessWidget {
                             children: [
                               Container(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 3),
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
                                 decoration: BoxDecoration(
                                   color: status == 'Pago'
-                                      ? AppColors.financeReceita
-                                          .withValues(alpha: 0.15)
-                                      : AppColors.financePendente
-                                          .withValues(alpha: 0.15),
+                                      ? AppColors.financeReceita.withValues(
+                                          alpha: 0.15,
+                                        )
+                                      : AppColors.financePendente.withValues(
+                                          alpha: 0.15,
+                                        ),
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
@@ -295,7 +315,8 @@ class FinanceTransactionListTile extends StatelessWidget {
                                 SizedBox(height: 4),
                                 Text(
                                   DateTimeFormats.formatDateTimeMinute(
-                                      postedAt),
+                                    postedAt,
+                                  ),
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: context.appTextMuted,
@@ -322,9 +343,10 @@ class FinanceTransactionListTile extends StatelessWidget {
                         Text(
                           '${isIncome ? '+ ' : ''}${isIncome ? CurrencyFormats.formatBRL(amount) : CurrencyFormats.formatBRL(-amount.abs())}$parcelInfo',
                           style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: accent),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            color: accent,
+                          ),
                           textAlign: TextAlign.end,
                         ),
                         SizedBox(height: 6),
@@ -339,45 +361,61 @@ class FinanceTransactionListTile extends StatelessWidget {
                                 FilledButton.icon(
                                   onPressed: () =>
                                       onConfirmPayment(context, id),
-                                  icon: Icon(Icons.check_circle_rounded,
-                                      size: 18),
-                                  label: Text('Pagar',
-                                      style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600)),
+                                  icon: Icon(
+                                    Icons.check_circle_rounded,
+                                    size: 18,
+                                  ),
+                                  label: Text(
+                                    'Pagar',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                   style: FilledButton.styleFrom(
                                     padding: const EdgeInsets.symmetric(
-                                        horizontal: 10, vertical: 8),
+                                      horizontal: 10,
+                                      vertical: 8,
+                                    ),
                                     minimumSize: const Size(44, 44),
                                     tapTargetSize: MaterialTapTargetSize.padded,
                                     backgroundColor: AppColors.success
                                         .withValues(alpha: 0.15),
                                     foregroundColor: AppColors.success,
                                     shape: RoundedRectangleBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(12)),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
                                   ),
                                 ),
                                 OutlinedButton.icon(
                                   onPressed: () => onDelete(context, id),
-                                  icon: Icon(Icons.delete_outline_rounded,
-                                      size: 16),
-                                  label: Text('Excluir',
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w600)),
+                                  icon: Icon(
+                                    Icons.delete_outline_rounded,
+                                    size: 16,
+                                  ),
+                                  label: Text(
+                                    'Excluir',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                   style: OutlinedButton.styleFrom(
                                     padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 6),
+                                      horizontal: 8,
+                                      vertical: 6,
+                                    ),
                                     minimumSize: const Size(44, 44),
                                     tapTargetSize: MaterialTapTargetSize.padded,
                                     foregroundColor: AppColors.error,
                                     side: BorderSide(
-                                        color: AppColors.error
-                                            .withValues(alpha: 0.5)),
+                                      color: AppColors.error.withValues(
+                                        alpha: 0.5,
+                                      ),
+                                    ),
                                     shape: RoundedRectangleBorder(
-                                        borderRadius:
-                                            BorderRadius.circular(12)),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
                                   ),
                                 ),
                               ],
@@ -392,98 +430,139 @@ class FinanceTransactionListTile extends StatelessWidget {
                                 onPressed: profile.temAcessoPremium
                                     ? () => onAttachReceipt(context, id)
                                     : () => mostrarAvisoSeLicencaInativa(
-                                        context, profile),
+                                        context,
+                                        profile,
+                                      ),
                                 tooltip: 'Anexar comprovante',
                                 style: IconButton.styleFrom(
-                                    minimumSize: const Size(44, 44),
-                                    tapTargetSize:
-                                        MaterialTapTargetSize.padded),
+                                  minimumSize: const Size(44, 44),
+                                  tapTargetSize: MaterialTapTargetSize.padded,
+                                ),
                               ),
-                              if (link.isNotEmpty && profile.temAcessoPremium)
+                              if (hasReceipt && profile.temAcessoPremium)
                                 IconButton(
-                                  icon: Icon(Icons.visibility_rounded,
-                                      size: 20, color: AppColors.primary),
+                                  icon: Icon(
+                                    Icons.visibility_rounded,
+                                    size: 20,
+                                    color: AppColors.primary,
+                                  ),
                                   tooltip: 'Ver comprovante',
-                                  onPressed: () => mostrarAnexoNaMesmaTela(
-                                      context,
-                                      url: link,
-                                      fileName: receiptFileName),
+                                  onPressed: () =>
+                                      FinanceComprovanteAttachService.viewFromDoc(
+                                        context,
+                                        d,
+                                      ),
                                   style: IconButton.styleFrom(
-                                      minimumSize: const Size(44, 44),
-                                      tapTargetSize:
-                                          MaterialTapTargetSize.padded),
+                                    minimumSize: const Size(44, 44),
+                                    tapTargetSize: MaterialTapTargetSize.padded,
+                                  ),
                                 ),
                               PopupMenuButton<String>(
                                 icon: SizedBox(
                                   width: 44,
                                   height: 44,
                                   child: Center(
-                                      child: Icon(Icons.more_vert_rounded,
-                                          size: 22,
-                                          color: context.appTextSecondary)),
+                                    child: Icon(
+                                      Icons.more_vert_rounded,
+                                      size: 22,
+                                      color: context.appTextSecondary,
+                                    ),
+                                  ),
                                 ),
                                 padding: EdgeInsets.zero,
                                 onSelected: (v) async {
-                                  if (v == 'edit') {
-                                    await onEdit(context, id, d,
-                                        isIncome ? 'income' : 'expense');
-                                  }
-                                  if (v == 'view') {
-                                    if (link.isNotEmpty) {
-                                      mostrarAnexoNaMesmaTela(context,
-                                          url: link, fileName: receiptFileName);
-                                    } else if (context.mounted) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(const SnackBar(
-                                              content: Text(
-                                                  'Não há comprovante anexado.')));
-                                    }
-                                  }
-                                  if (v == 'delete') {
-                                    await onDelete(context, id);
-                                  }
-                                  if (v == 'attach' &&
-                                      profile.temAcessoPremium) {
-                                    await onAttachReceipt(context, id);
-                                  }
-                                  if (v == 'attach' &&
-                                      !profile.temAcessoPremium) {
-                                    mostrarAvisoSeLicencaInativa(
-                                        context, profile);
+                                  switch (v) {
+                                    case 'edit':
+                                      await onEdit(
+                                        context,
+                                        id,
+                                        d,
+                                        isIncome ? 'income' : 'expense',
+                                      );
+                                      return;
+                                    case 'view':
+                                      if (hasReceipt) {
+                                        await FinanceComprovanteAttachService.viewFromDoc(
+                                          context,
+                                          d,
+                                        );
+                                      } else {
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Não há comprovante anexado.',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                      return;
+                                    case 'delete':
+                                      await onDelete(context, id);
+                                      return;
+                                    case 'attach':
+                                      if (profile.temAcessoPremium) {
+                                        await onAttachReceipt(context, id);
+                                      } else {
+                                        mostrarAvisoSeLicencaInativa(
+                                          context,
+                                          profile,
+                                        );
+                                      }
+                                      return;
                                   }
                                 },
                                 itemBuilder: (_) => const [
                                   PopupMenuItem(
-                                      value: 'edit',
-                                      child: Row(children: [
+                                    value: 'edit',
+                                    child: Row(
+                                      children: [
                                         Icon(Icons.edit_rounded, size: 20),
                                         SizedBox(width: 8),
-                                        Text('Editar')
-                                      ])),
+                                        Text('Editar'),
+                                      ],
+                                    ),
+                                  ),
                                   PopupMenuItem(
-                                      value: 'view',
-                                      child: Row(children: [
-                                        Icon(Icons.visibility_rounded,
-                                            size: 20),
+                                    value: 'view',
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.visibility_rounded,
+                                          size: 20,
+                                        ),
                                         SizedBox(width: 8),
-                                        Text('Ver anexo')
-                                      ])),
+                                        Text('Ver anexo'),
+                                      ],
+                                    ),
+                                  ),
                                   PopupMenuItem(
-                                      value: 'attach',
-                                      child: Row(children: [
-                                        Icon(Icons.attach_file_rounded,
-                                            size: 20),
+                                    value: 'attach',
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.attach_file_rounded,
+                                          size: 20,
+                                        ),
                                         SizedBox(width: 8),
-                                        Text('Trocar comprovante')
-                                      ])),
+                                        Text('Trocar comprovante'),
+                                      ],
+                                    ),
+                                  ),
                                   PopupMenuItem(
-                                      value: 'delete',
-                                      child: Row(children: [
-                                        Icon(Icons.delete_outline_rounded,
-                                            size: 20),
+                                    value: 'delete',
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.delete_outline_rounded,
+                                          size: 20,
+                                        ),
                                         SizedBox(width: 8),
-                                        Text('Excluir')
-                                      ])),
+                                        Text('Excluir'),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                               ),
                             ],

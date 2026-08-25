@@ -5613,7 +5613,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
     if (mounted) {
       setState(() {
         final prev = _optimisticEditedTxById[txId];
-        _optimisticEditedTxById[txId] = {...?prev, 'hasReceipt': true};
+        _optimisticEditedTxById[txId] = {
+          ...?prev,
+          'hasReceipt': true,
+          'hasComprovante': true,
+          'receiptPendingUpload': false,
+        };
       });
     }
   }

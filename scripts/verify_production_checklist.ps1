@@ -41,9 +41,12 @@ Write-Host "`n[1/6] Firebase - bootstrap unico..." -ForegroundColor Yellow
 Test-FileExists "flutter_app\lib\core\firebase_bootstrap_service.dart" "Firebase init"
 Test-FileContains "flutter_app\lib\main.dart" "FirebaseBootstrapService\.initialize" "Firebase init main"
 
-Write-Host "`n[2/6] Regras Firestore - chat..." -ForegroundColor Yellow
-Test-FileContains "firestore.rules" "match /chats/" "Chat rules"
-Test-FileContains "firestore.rules" "canReadChatThreadDoc" "Chat read helper"
+Write-Host "`n[2/6] Regras Firestore - chat/deny-by-default..." -ForegroundColor Yellow
+# O chat foi removido do produto. O gate antigo ainda exigia helpers de uma
+# funcionalidade inexistente e bloqueava releases seguros. Validar agora a
+# decisão vigente: nenhuma regra de chat e fallback global fechado.
+Test-FileContains "firestore.rules" "Chat REMOVIDO" "Chat removido explicitamente"
+Test-FileContains "firestore.rules" "match /\{document=\*\*\} \{ allow read, write: if false; \}" "Deny-by-default global"
 
 Write-Host "`n[3/7] Modulos criticos (offline, publicacao, saude, QA)..." -ForegroundColor Yellow
 $required = @(

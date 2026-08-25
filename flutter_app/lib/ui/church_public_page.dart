@@ -5733,6 +5733,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                               final hasVideo =
                                   (vidFile != null && vidFile.isNotEmpty) ||
                                   (extVid != null && extVid.isNotEmpty);
+                              var renderedUnifiedMedia = false;
 
                               Future<void> openEventoVideo() async {
                                 final raw =
@@ -5777,10 +5778,11 @@ class _ChurchTenantFallback extends StatelessWidget {
                                     ),
                                   ),
                                 );
-                              } else if (eventNoticiaPostHasFeedCoverRow(
-                                p,
-                                docIdHint: d.id,
-                              )) {
+                              } else if (hasVideo ||
+                                  eventNoticiaPostHasFeedCoverRow(
+                                    p,
+                                    docIdHint: d.id,
+                                  )) {
                                 // TODAS as fotos e o vídeo no mesmo carrossel.
                                 // O site mostrava só a primeira foto e um texto
                                 // «+ N foto(s) no app da igreja» — o visitante
@@ -5805,6 +5807,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                                   ),
                                 );
                                 if (items.isNotEmpty) {
+                                  renderedUnifiedMedia = true;
                                   media.add(
                                     Padding(
                                       padding: const EdgeInsets.only(top: 10),
@@ -5822,7 +5825,8 @@ class _ChurchTenantFallback extends StatelessWidget {
 
                               if (photos.isEmpty &&
                                   cover.isNotEmpty &&
-                                  hasVideo) {
+                                  hasVideo &&
+                                  !renderedUnifiedMedia) {
                                 final cov = sanitizeImageUrl(cover);
                                 final vPlay = vidFile != null
                                     ? sanitizeImageUrl(vidFile)
@@ -5965,7 +5969,8 @@ class _ChurchTenantFallback extends StatelessWidget {
                                 }
                               } else if (photos.isEmpty &&
                                   hasVideo &&
-                                  cover.isEmpty) {
+                                  cover.isEmpty &&
+                                  !renderedUnifiedMedia) {
                                 if (vidFile != null && vidFile.isNotEmpty) {
                                   final v0 = sanitizeImageUrl(vidFile);
                                   if (kIsWeb &&

@@ -137,39 +137,39 @@ class ChurchTenantOfflineWarmupService {
       final avisosLimit = light ? 20 : 50;
       final eventosLimit = light ? 20 : 60;
 
-      final tasks = <Future<void>>[
-        safe('igreja_doc', () => ChurchTenantResilientReads.churchDocument(tenantId)),
-        safe('panel_cache', () => ChurchTenantResilientReads.panelCacheSummary(tenantId)),
-        safe(
+      final tasks = <Future<void> Function()>[
+        () => safe('igreja_doc', () => ChurchTenantResilientReads.churchDocument(tenantId)),
+        () => safe('panel_cache', () => ChurchTenantResilientReads.panelCacheSummary(tenantId)),
+        () => safe(
           'panel_statistics',
           () => ChurchTenantResilientReads.panelStatisticsSummary(tenantId),
         ),
-        safe(
+        () => safe(
           'panel_public_site',
           () => ChurchTenantResilientReads.panelPublicSiteCache(tenantId),
         ),
-        safe(
+        () => safe(
           'membros',
           () => ChurchTenantResilientReads.membrosRecent(
             tenantId,
             limit: membrosLimit,
           ),
         ),
-        safe(
+        () => safe(
           'avisos',
           () => ChurchTenantResilientReads.avisosFeed(
             tenantId,
             limit: avisosLimit,
           ),
         ),
-        safe(
+        () => safe(
           'noticias',
           () => ChurchTenantResilientReads.noticiasByStartAt(
             tenantId,
             limit: eventosLimit,
           ),
         ),
-        safe(
+        () => safe(
           'event_templates',
           () => ChurchTenantResilientReads.eventTemplates(tenantId),
         ),
@@ -177,19 +177,19 @@ class ChurchTenantOfflineWarmupService {
 
       if (!light) {
         tasks.addAll([
-          safe('departamentos', () => ChurchTenantResilientReads.departamentos(tenantId)),
-          safe('visitantes', () => ChurchTenantResilientReads.visitantes(tenantId)),
-          safe('pedidos_oracao', () => ChurchTenantResilientReads.pedidosOracao(tenantId)),
-          safe('event_categories', () => ChurchTenantResilientReads.eventCategories(tenantId)),
-          safe('finance', () => ChurchTenantResilientReads.financeRecent(tenantId)),
-          safe('contas', () => ChurchTenantResilientReads.contas(tenantId)),
-          safe('despesas_fixas', () => ChurchTenantResilientReads.despesasFixas(tenantId)),
-          safe('patrimonio', () => ChurchTenantResilientReads.patrimonio(tenantId)),
-          safe('fornecedores', () => ChurchTenantResilientReads.fornecedores(tenantId)),
-          safe('cargos', () => ChurchTenantResilientReads.cargos(tenantId)),
-          safe('escala_templates', () => ChurchTenantResilientReads.escalaTemplates(tenantId)),
-          safe('escalas', () => ChurchTenantResilientReads.escalasRecent(tenantId)),
-          safe('users_tenant', () async {
+          () => safe('departamentos', () => ChurchTenantResilientReads.departamentos(tenantId)),
+          () => safe('visitantes', () => ChurchTenantResilientReads.visitantes(tenantId)),
+          () => safe('pedidos_oracao', () => ChurchTenantResilientReads.pedidosOracao(tenantId)),
+          () => safe('event_categories', () => ChurchTenantResilientReads.eventCategories(tenantId)),
+          () => safe('finance', () => ChurchTenantResilientReads.financeRecent(tenantId)),
+          () => safe('contas', () => ChurchTenantResilientReads.contas(tenantId)),
+          () => safe('despesas_fixas', () => ChurchTenantResilientReads.despesasFixas(tenantId)),
+          () => safe('patrimonio', () => ChurchTenantResilientReads.patrimonio(tenantId)),
+          () => safe('fornecedores', () => ChurchTenantResilientReads.fornecedores(tenantId)),
+          () => safe('cargos', () => ChurchTenantResilientReads.cargos(tenantId)),
+          () => safe('escala_templates', () => ChurchTenantResilientReads.escalaTemplates(tenantId)),
+          () => safe('escalas', () => ChurchTenantResilientReads.escalasRecent(tenantId)),
+          () => safe('users_tenant', () async {
             await firebaseDefaultFirestore
                 .collection('users')
                 .where(Filter.or(
@@ -213,16 +213,16 @@ class ChurchTenantOfflineWarmupService {
           (defaultTargetPlatform == TargetPlatform.windows ||
               defaultTargetPlatform == TargetPlatform.linux ||
               defaultTargetPlatform == TargetPlatform.macOS);
-      if (desktop) {
-        const lote = 3;
-        for (var i = 0; i < tasks.length; i += lote) {
-          final fim = (i + lote) > tasks.length ? tasks.length : i + lote;
-          await Future.wait(tasks.sublist(i, fim));
-          // Devolve a vez a thread de plataforma entre lotes.
-          await Future<void>.delayed(const Duration(milliseconds: 120));
+      final lote = desktop ? 3 : (kIsWeb ? 3 : 4);
+      final pausa = desktop
+          ? const Duration(milliseconds: 120)
+          : const Duration(milliseconds: 35);
+      for (var i = 0; i < tasks.length; i += lote) {
+        final fim = (i + lote) > tasks.length ? tasks.length : i + lote;
+        await Future.wait(tasks.sublist(i, fim).map((task) => task()));
+        if (fim < tasks.length) {
+          await Future<void>.delayed(pausa);
         }
-      } else {
-        await Future.wait(tasks);
       }
       // Não disparar full prefetch aqui — já coberto por scheduleCriticalPrefetch.
     } finally {

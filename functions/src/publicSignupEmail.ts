@@ -68,7 +68,7 @@ export async function trySendPublicSignupConfirmationEmail(opts: {
     <p style="margin:0 0 20px;"><a href="${trackUrl}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 20px;border-radius:12px;font-weight:600;font-size:14px;">Acompanhar meu cadastro</a></p>
     <p style="margin:0;font-size:12px;color:#9ca3af;word-break:break-all;">${escapeHtml(trackUrl)}</p>
     <hr style="border:none;border-top:1px solid #e5e7eb;margin:20px 0;"/>
-    <p style="margin:0;font-size:12px;color:#9ca3af;">Quando aprovado, o gestor poderá liberar seu acesso ao sistema (senha inicial costuma ser <strong>123456</strong>, salvo orientação da igreja).</p>
+    <p style="margin:0;font-size:12px;color:#9ca3af;">Após a aprovação, você receberá outro e-mail com seu login e uma senha provisória de 6 dígitos para o primeiro acesso.</p>
     <p style="margin:12px 0 0;font-size:11px;color:#d1d5db;">Gestão YAHWEH — mensagem automática</p>
     </div>
   </div>

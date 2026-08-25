@@ -428,7 +428,7 @@ class PdfSuperPremiumTheme {
       cityLine = uf;
     }
     if (cep.isNotEmpty) {
-      cityLine = cityLine.isEmpty ? 'CEP $cep' : '$cityLine ? CEP $cep';
+      cityLine = cityLine.isEmpty ? 'CEP $cep' : '$cityLine, CEP $cep';
     }
 
     final addrParts = <String>[
@@ -475,7 +475,7 @@ class PdfSuperPremiumTheme {
                   else ...[
                     if (addrParts.isNotEmpty)
                       pw.Text(
-                        pdfSafeText(addrParts.join(' ? ')),
+                        pdfSafeText(addrParts.join(', ')),
                         style: pw.TextStyle(fontSize: 9.2, color: _muted),
                       ),
                     if (cityLine.isNotEmpty) ...[
@@ -615,14 +615,14 @@ class PdfSuperPremiumTheme {
                   ),
                 ),
                 pw.Text(
-                  'Sistema de gestão ministerial ? Autoria oficial',
+                  'Sistema de gestão ministerial — Autoria oficial',
                   style: pw.TextStyle(fontSize: 6.8, color: muted),
                 ),
               ],
             ),
           ),
           pw.Text(
-            'Emitido $emitido  ?  Pag. ${context.pageNumber}/${context.pagesCount}',
+            'Emitido $emitido  |  Pág. ${context.pageNumber}/${context.pagesCount}',
             style: pw.TextStyle(fontSize: 7.2, color: muted),
           ),
         ],

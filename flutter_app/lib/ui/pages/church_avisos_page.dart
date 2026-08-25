@@ -26,6 +26,7 @@ import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 import 'package:gestao_yahweh/ui/widgets/church_avisos_carousel.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_media_carousel.dart';
+import 'package:gestao_yahweh/ui/widgets/color_palette_tabs_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_wisdom_visual_kit.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
@@ -130,6 +131,30 @@ class ChurchAvisosPage extends StatefulWidget {
   @override
   State<ChurchAvisosPage> createState() => _ChurchAvisosPageState();
 }
+
+/// Abre o editor completo de Avisos a partir de outros módulos (ex.: Agenda),
+/// sem duplicar formulário, upload de fotos/vídeos ou regra de publicação.
+Future<dynamic> openChurchAvisoEditor({
+  required BuildContext context,
+  required String tenantId,
+  required String role,
+  List<String> permissions = const [],
+  DateTime? initialDate,
+}) =>
+    // Tela CHEIA, como Evento/Culto e Reunião — os três caminhos da Agenda
+    // abrem agora o mesmo tipo de editor.
+    Navigator.of(context).push<dynamic>(
+      MaterialPageRoute<dynamic>(
+        fullscreenDialog: true,
+        builder: (_) => _ChurchAvisoEditorSheet(
+          tenantId: tenantId,
+          role: role,
+          permissions: permissions,
+          initialDate: initialDate,
+          fullPage: true,
+        ),
+      ),
+    );
 
 /// Filtros da lista de avisos (só lista — sem grid).
 enum _AvisoListFilter {
@@ -326,14 +351,17 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
   }
 
   Future<void> _openCreateSheet() async {
-    final created = await showModalBottomSheet<dynamic>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _ChurchAvisoEditorSheet(
-        tenantId: widget.tenantId,
-        role: widget.role,
-        permissions: widget.permissions,
+    // Tela cheia também aqui: o mesmo editor não pode ser folha num sítio e
+    // página noutro.
+    final created = await Navigator.of(context).push<dynamic>(
+      MaterialPageRoute<dynamic>(
+        fullscreenDialog: true,
+        builder: (ctx) => _ChurchAvisoEditorSheet(
+          tenantId: widget.tenantId,
+          role: widget.role,
+          permissions: widget.permissions,
+          fullPage: true,
+        ),
       ),
     );
     if (created == true) {
@@ -351,15 +379,16 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
   }
 
   Future<void> _openEditSheet(ChurchAvisoItem item) async {
-    final updated = await showModalBottomSheet<dynamic>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _ChurchAvisoEditorSheet(
-        tenantId: widget.tenantId,
-        role: widget.role,
-        permissions: widget.permissions,
-        initialItem: item,
+    final updated = await Navigator.of(context).push<dynamic>(
+      MaterialPageRoute<dynamic>(
+        fullscreenDialog: true,
+        builder: (ctx) => _ChurchAvisoEditorSheet(
+          tenantId: widget.tenantId,
+          role: widget.role,
+          permissions: widget.permissions,
+          initialItem: item,
+          fullPage: true,
+        ),
       ),
     );
     if (updated == true) {
@@ -2001,12 +2030,18 @@ class _ChurchAvisoEditorSheet extends StatefulWidget {
     required this.role,
     required this.permissions,
     this.initialItem,
+    this.initialDate,
+    this.fullPage = false,
   });
 
   final String tenantId;
   final String role;
   final List<String> permissions;
   final ChurchAvisoItem? initialItem;
+  final DateTime? initialDate;
+
+  /// Abre como página inteira (padrão Evento/Reunião) em vez de cartão.
+  final bool fullPage;
 
   @override
   State<_ChurchAvisoEditorSheet> createState() =>
@@ -2020,6 +2055,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   final _instagramCtrl = TextEditingController();
   bool _permanent = true;
   bool _publicSite = true;
+  String _agendaColorHex = '#F59E0B';
   DateTime _expiresAt = DateTime.now().add(const Duration(days: 7));
   final List<String> _existingImageUrls = [];
   final List<Uint8List> _photos = [];
@@ -2045,6 +2081,16 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialItem == null && widget.initialDate != null) {
+      _permanent = false;
+      _expiresAt = DateTime(
+        widget.initialDate!.year,
+        widget.initialDate!.month,
+        widget.initialDate!.day,
+        23,
+        59,
+      );
+    }
     if (widget.initialItem == null) {
       try {
         _reservedPostId = ChurchAvisosService.reserveNewPostId(widget.tenantId);
@@ -2058,6 +2104,13 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     _bodyCtrl.text = item.body;
     _permanent = item.permanent;
     _publicSite = item.rawData['publicSite'] != false;
+    final savedColor = (item.rawData['agendaColorHex'] ??
+            item.rawData['colorHex'] ??
+            item.rawData['color'] ??
+            '')
+        .toString()
+        .trim();
+    if (savedColor.isNotEmpty) _agendaColorHex = savedColor;
     _expiresAt = item.expiresAt ?? DateTime.now().add(const Duration(days: 7));
     _existingImageUrls.addAll(item.imageUrls);
     if (item.youtubeVideoId.isNotEmpty) {
@@ -2408,6 +2461,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
               youtubeUrl: yt,
               instagramUrl: _instagramCtrl.text,
               publicSite: _publicSite,
+              agendaColorHex: _agendaColorHex,
               videoLocalPath: localVideo,
               clearVideo: _clearVideo && yt.isEmpty && localVideo == null,
               role: widget.role,
@@ -2425,6 +2479,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
               youtubeUrl: yt,
               instagramUrl: _instagramCtrl.text,
               publicSite: _publicSite,
+              agendaColorHex: _agendaColorHex,
               videoLocalPath: localVideo,
               postIdHint: _reservedPostId,
               role: widget.role,
@@ -2465,6 +2520,57 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
+
+    // Tela cheia — mesmo formato de Evento/Culto e Reunião. Em cartão flutuante
+    // o aviso ficava com metade do ecrã e o teclado tapava os campos de baixo,
+    // enquanto os irmãos dele abriam a página toda.
+    if (widget.fullPage) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF1F5F9),
+        appBar: AppBar(
+          foregroundColor: Colors.white,
+          elevation: 0,
+          leading: IconButton(
+            tooltip: 'Voltar',
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: Text(
+            _isEdit ? 'Editar aviso' : 'Novo aviso',
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          flexibleSpace: const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Color(0xFF2563EB),
+                  Color(0xFF7C3AED),
+                  Color(0xFFDB2777),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+          ),
+        ),
+        body: SafeArea(
+          top: false,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 860),
+              child: SingleChildScrollView(
+                padding: EdgeInsets.only(bottom: bottom),
+                child: _corpoFormulario(),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: EdgeInsets.only(bottom: bottom),
       child: Container(
@@ -2515,363 +2621,399 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    TextField(
-                      controller: _titleCtrl,
-                      decoration: const InputDecoration(
-                        labelText:
-                            'Título',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.all(Radius.circular(14)),
-                        ),
-                        prefixIcon: Icon(Icons.title_rounded),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _bodyCtrl,
-                      minLines: 3,
-                      maxLines: 6,
-                      decoration: InputDecoration(
-                        labelText: 'Mensagem (opcional)',
-                        border: const OutlineInputBorder(
-                          borderRadius: BorderRadius.all(Radius.circular(14)),
-                        ),
-                        prefixIcon: const Icon(Icons.article_outlined),
-                        suffixIcon: _avisosCopyPasteFieldButtons(
-                          _bodyCtrl,
-                          ThemeCleanPremium.primary,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: Column(
-                        children: [
-                          SwitchListTile.adaptive(
-                            contentPadding: EdgeInsets.zero,
-                            value: _permanent,
-                            onChanged: (v) => setState(() => _permanent = v),
-                            secondary: const Icon(Icons.all_inclusive_rounded),
-                            title: const Text('Aviso permanente'),
-                            subtitle: Text(
-                              _permanent
-                                  ? 'Fica ativo sem data de vencimento.'
-                                  : 'Usa a data abaixo para vencimento do aviso.',
-                            ),
-                          ),
-                          SwitchListTile.adaptive(
-                            contentPadding: EdgeInsets.zero,
-                            value: _publicSite,
-                            onChanged: (v) => setState(() => _publicSite = v),
-                            secondary: const Icon(
-                              Icons.public_rounded,
-                              color: Color(0xFF2563EB),
-                            ),
-                            title: const Text('Publicar no site público'),
-                            subtitle: const Text(
-                              'Desative para manter somente no painel e no push.',
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          OutlinedButton.icon(
-                            onPressed: _pickExpiry,
-                            icon: const Icon(
-                              Icons.calendar_month_rounded,
-                              size: 18,
-                            ),
-                            label: Text(
-                              _permanent
-                                  ? 'Data do aviso: ${_formatDateBr(_expiresAt)} (informativo)'
-                                  : 'Data de vencimento: ${_formatDateBr(_expiresAt)}',
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(double.infinity, 48),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _pickExpiry,
-                      icon: const Icon(Icons.calendar_month_rounded, size: 18),
-                      label: Text(
-                        _permanent
-                            ? 'Data do aviso: ${_formatDateBr(_expiresAt)} (informativo)'
-                            : 'Data de vencimento: ${_formatDateBr(_expiresAt)}',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(0, 48),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _youtubeCtrl,
-                      decoration: InputDecoration(
-                        labelText: 'YouTube (opcional)',
-                        hintText: 'Cole o link do YouTube',
-                        prefixIcon: const Icon(
-                          Icons.play_circle_fill_rounded,
-                          color: Color(0xFFFF0000),
-                        ),
-                        suffixIcon: _avisosCopyPasteFieldButtons(
-                          _youtubeCtrl,
-                          const Color(0xFFFF0000),
-                          onPasted: () {
-                            if (_youtubeCtrl.text.trim().isNotEmpty) {
-                              setState(() {
-                                _localVideoPath = null;
-                                _clearVideo = false;
-                              });
-                            }
-                          },
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        filled: true,
-                        fillColor: const Color(0xFFF8FAFC),
-                      ),
-                      onChanged: (_) {
-                        if (_youtubeCtrl.text.trim().isNotEmpty) {
-                          setState(() {
-                            _localVideoPath = null;
-                            _clearVideo = false;
-                          });
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _instagramCtrl,
-                      keyboardType: TextInputType.url,
-                      decoration: InputDecoration(
-                        labelText: 'Instagram (opcional)',
-                        hintText: 'Cole o link do perfil, post ou reel',
-                        prefixIcon: const Icon(
-                          Icons.camera_alt_rounded,
-                          color: Color(0xFFDB2777),
-                        ),
-                        suffixIcon: _avisosCopyPasteFieldButtons(
-                          _instagramCtrl,
-                          const Color(0xFFDB2777),
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        filled: true,
-                        fillColor: const Color(0xFFF8FAFC),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _publishing
-                                ? null
-                                : () => unawaited(_pickVideo()),
-                            icon: const Icon(
-                              Icons.video_library_rounded,
-                              size: 18,
-                            ),
-                            label: Text(
-                              _localVideoPath != null
-                                  ? 'Vídeo anexado'
-                                  : (_existingVideoUrl != null && !_clearVideo
-                                        ? 'Trocar vídeo'
-                                        : 'Upload vídeo'),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              minimumSize: const Size(0, 48),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (_localVideoPath != null ||
-                            (_existingVideoUrl != null && !_clearVideo)) ...[
-                          const SizedBox(width: 8),
-                          IconButton.filledTonal(
-                            tooltip:
-                                'Remover vídeo',
-                            onPressed: () => setState(() {
-                              _localVideoPath = null;
-                              _existingVideoUrl = null;
-                              _clearVideo = true;
-                            }),
-                            icon: const Icon(Icons.delete_outline_rounded),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      'Fotos (${_existingImageUrls.length + _photos.length}/${ChurchAvisosService.kMaxPhotos})',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (var i = 0; i < _existingImageUrls.length; i++)
-                          Stack(
-                            children: [
-                              GestureDetector(
-                                onTap: () => _openAvisoPhotoZoom(
-                                  url: _existingImageUrls[i],
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: SafeNetworkImage(
-                                    imageUrl: _existingImageUrls[i],
-                                    width: 200,
-                                    height: 200,
-                                    fit: BoxFit.contain,
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                top: 4,
-                                right: 4,
-                                child: _avisoRemoveButton(
-                                  onRemove: () => setState(
-                                    () => _existingImageUrls.removeAt(i),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        for (var i = 0; i < _photos.length; i++)
-                          Stack(
-                            children: [
-                              GestureDetector(
-                                onTap: () =>
-                                    _openAvisoPhotoZoom(bytes: _photos[i]),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: Image.memory(
-                                    _photos[i],
-                                    width: 200,
-                                    height: 200,
-                                    fit: BoxFit.contain,
-                                    cacheWidth: 400,
-                                    cacheHeight: 400,
-                                    gaplessPlayback: true,
-                                    filterQuality: FilterQuality.low,
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                bottom: 4,
-                                left: 4,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black54,
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    ImmediateMediaAttachFeedback.formatBytes(
-                                      _photos[i].length,
-                                    ),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              Positioned(
-                                top: 4,
-                                right: 4,
-                                child: _avisoRemoveButton(
-                                  onRemove: () =>
-                                      setState(() => _photos.removeAt(i)),
-                                ),
-                              ),
-                            ],
-                          ),
-                        if ((_existingImageUrls.length + _photos.length) <
-                            ChurchAvisosService.kMaxPhotos)
-                          InkWell(
-                            onTap: _publishing ? null : _pickPhotos,
-                            borderRadius: BorderRadius.circular(16),
-                            child: Container(
-                              width: 200,
-                              height: 200,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: Colors.grey.shade300),
-                                color: Colors.grey.shade50,
-                              ),
-                              child: const Icon(
-                                Icons.add_a_photo_outlined,
-                                size: 34,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton(
-                      onPressed: _publishing ? null : _publish,
-                      style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        backgroundColor: YahwehWisdomVisualKit.navyMid,
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size(48, 48),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: _publishing
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.4,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text(
-                              _isEdit
-                                  ? 'Salvar alterações'
-                                  : 'Publicar aviso',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                    ),
-                  ],
-                ),
-              ),
+              _corpoFormulario(),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Corpo do formulário — partilhado pelo cartão e pela tela cheia.
+  Widget _corpoFormulario() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _titleCtrl,
+            decoration: const InputDecoration(
+              labelText:
+                  'Título',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(14)),
+              ),
+              prefixIcon: Icon(Icons.title_rounded),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _bodyCtrl,
+            minLines: 3,
+            maxLines: 6,
+            decoration: InputDecoration(
+              labelText: 'Mensagem (opcional)',
+              border: const OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(14)),
+              ),
+              prefixIcon: const Icon(Icons.article_outlined),
+              suffixIcon: _avisosCopyPasteFieldButtons(
+                _bodyCtrl,
+                ThemeCleanPremium.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              children: [
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _permanent,
+                  onChanged: (v) => setState(() => _permanent = v),
+                  secondary: const Icon(Icons.all_inclusive_rounded),
+                  title: const Text('Aviso permanente'),
+                  subtitle: Text(
+                    _permanent
+                        ? 'Fica ativo sem data de vencimento.'
+                        : 'Usa a data abaixo para vencimento do aviso.',
+                  ),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  value: _publicSite,
+                  onChanged: (v) => setState(() => _publicSite = v),
+                  secondary: const Icon(
+                    Icons.public_rounded,
+                    color: Color(0xFF2563EB),
+                  ),
+                  title: const Text('Publicar no site público'),
+                  subtitle: const Text(
+                    'Desative para manter somente no painel e no push.',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    backgroundColor: ColorPaletteTabsDialog.corDeHex(
+                      _agendaColorHex,
+                    ),
+                    child: const Icon(
+                      Icons.palette_rounded,
+                      color: Colors.white,
+                    ),
+                  ),
+                  title: const Text(
+                    'Visual agenda',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: const Text(
+                    'Escolha a cor que aparecerá no calendário.',
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () async {
+                    final selected = await mostrarSeletorDeCores(
+                      context,
+                      titulo: 'Cor no calendário',
+                      selecionadaHex: _agendaColorHex,
+                    );
+                    if (selected != null && mounted) {
+                      setState(() => _agendaColorHex = selected);
+                    }
+                  },
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _pickExpiry,
+                  icon: const Icon(
+                    Icons.calendar_month_rounded,
+                    size: 18,
+                  ),
+                  label: Text(
+                    _permanent
+                        ? 'Data do aviso: ${_formatDateBr(_expiresAt)} (informativo)'
+                        : 'Data de vencimento: ${_formatDateBr(_expiresAt)}',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 48),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          OutlinedButton.icon(
+            onPressed: _pickExpiry,
+            icon: const Icon(Icons.calendar_month_rounded, size: 18),
+            label: Text(
+              _permanent
+                  ? 'Data do aviso: ${_formatDateBr(_expiresAt)} (informativo)'
+                  : 'Data de vencimento: ${_formatDateBr(_expiresAt)}',
+              overflow: TextOverflow.ellipsis,
+            ),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(0, 48),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _youtubeCtrl,
+            decoration: InputDecoration(
+              labelText: 'YouTube (opcional)',
+              hintText: 'Cole o link do YouTube',
+              prefixIcon: const Icon(
+                Icons.play_circle_fill_rounded,
+                color: Color(0xFFFF0000),
+              ),
+              suffixIcon: _avisosCopyPasteFieldButtons(
+                _youtubeCtrl,
+                const Color(0xFFFF0000),
+                onPasted: () {
+                  if (_youtubeCtrl.text.trim().isNotEmpty) {
+                    setState(() {
+                      _localVideoPath = null;
+                      _clearVideo = false;
+                    });
+                  }
+                },
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+            ),
+            onChanged: (_) {
+              if (_youtubeCtrl.text.trim().isNotEmpty) {
+                setState(() {
+                  _localVideoPath = null;
+                  _clearVideo = false;
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _instagramCtrl,
+            keyboardType: TextInputType.url,
+            decoration: InputDecoration(
+              labelText: 'Instagram (opcional)',
+              hintText: 'Cole o link do perfil, post ou reel',
+              prefixIcon: const Icon(
+                Icons.camera_alt_rounded,
+                color: Color(0xFFDB2777),
+              ),
+              suffixIcon: _avisosCopyPasteFieldButtons(
+                _instagramCtrl,
+                const Color(0xFFDB2777),
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _publishing
+                      ? null
+                      : () => unawaited(_pickVideo()),
+                  icon: const Icon(
+                    Icons.video_library_rounded,
+                    size: 18,
+                  ),
+                  label: Text(
+                    _localVideoPath != null
+                        ? 'Vídeo anexado'
+                        : (_existingVideoUrl != null && !_clearVideo
+                              ? 'Trocar vídeo'
+                              : 'Upload vídeo'),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+              if (_localVideoPath != null ||
+                  (_existingVideoUrl != null && !_clearVideo)) ...[
+                const SizedBox(width: 8),
+                IconButton.filledTonal(
+                  tooltip:
+                      'Remover vídeo',
+                  onPressed: () => setState(() {
+                    _localVideoPath = null;
+                    _existingVideoUrl = null;
+                    _clearVideo = true;
+                  }),
+                  icon: const Icon(Icons.delete_outline_rounded),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Fotos (${_existingImageUrls.length + _photos.length}/${ChurchAvisosService.kMaxPhotos})',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (var i = 0; i < _existingImageUrls.length; i++)
+                Stack(
+                  children: [
+                    GestureDetector(
+                      onTap: () => _openAvisoPhotoZoom(
+                        url: _existingImageUrls[i],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: SafeNetworkImage(
+                          imageUrl: _existingImageUrls[i],
+                          width: 200,
+                          height: 200,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: _avisoRemoveButton(
+                        onRemove: () => setState(
+                          () => _existingImageUrls.removeAt(i),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              for (var i = 0; i < _photos.length; i++)
+                Stack(
+                  children: [
+                    GestureDetector(
+                      onTap: () =>
+                          _openAvisoPhotoZoom(bytes: _photos[i]),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Image.memory(
+                          _photos[i],
+                          width: 200,
+                          height: 200,
+                          fit: BoxFit.contain,
+                          cacheWidth: 400,
+                          cacheHeight: 400,
+                          gaplessPlayback: true,
+                          filterQuality: FilterQuality.low,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 4,
+                      left: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          ImmediateMediaAttachFeedback.formatBytes(
+                            _photos[i].length,
+                          ),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: _avisoRemoveButton(
+                        onRemove: () =>
+                            setState(() => _photos.removeAt(i)),
+                      ),
+                    ),
+                  ],
+                ),
+              if ((_existingImageUrls.length + _photos.length) <
+                  ChurchAvisosService.kMaxPhotos)
+                InkWell(
+                  onTap: _publishing ? null : _pickPhotos,
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    width: 200,
+                    height: 200,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade300),
+                      color: Colors.grey.shade50,
+                    ),
+                    child: const Icon(
+                      Icons.add_a_photo_outlined,
+                      size: 34,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: _publishing ? null : _publish,
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              backgroundColor: YahwehWisdomVisualKit.navyMid,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(48, 48),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            child: _publishing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.4,
+                      color: Colors.white,
+                    ),
+                  )
+                : Text(
+                    _isEdit
+                        ? 'Salvar alterações'
+                        : 'Publicar aviso',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+          ),
+        ],
       ),
     );
   }

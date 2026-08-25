@@ -158,6 +158,7 @@ List<String> digitalStampRightColumnLines(PdfDigitalStampInput input) =>
 pw.Widget pdfDigitalCertificateStampBlock(
   PdfDigitalStampInput input, {
   double maxWidth = 248,
+  bool transparentBackground = false,
 }) {
   final left = _leftColumnLines(input);
   final right = _rightColumnLines(input);
@@ -196,14 +197,16 @@ pw.Widget pdfDigitalCertificateStampBlock(
   return pw.Container(
     width: maxWidth,
     padding: pw.EdgeInsets.symmetric(horizontal: pad, vertical: pad - 1),
-    decoration: pw.BoxDecoration(
-      color: PdfColor.fromInt(0xFFF8FAFC),
-      borderRadius: pw.BorderRadius.circular(4),
-      border: pw.Border.all(
-        color: PdfColor.fromInt(0xFFE2E8F0),
-        width: 0.65,
-      ),
-    ),
+    decoration: transparentBackground
+        ? null
+        : pw.BoxDecoration(
+            color: PdfColor.fromInt(0xFFF8FAFC),
+            borderRadius: pw.BorderRadius.circular(4),
+            border: pw.Border.all(
+              color: PdfColor.fromInt(0xFFE2E8F0),
+              width: 0.65,
+            ),
+          ),
     child: pw.Row(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [

@@ -299,6 +299,35 @@ function normalizeDonationKind(raw) {
 function categoriaForDonationKind(kind) {
     return kind === "dizimo" ? "Dízimos" : "Ofertas Missionárias";
 }
+/**
+ * Categoria da taxa do Mercado Pago no Financeiro.
+ *
+ * Nome fixo para as taxas de todas as doacoes cairem juntas — e assim
+ * «quanto pagamos de taxa este ano» e uma linha do relatorio, nao uma conta a
+ * mao. O modulo cria a categoria sozinho ao ver o primeiro lancamento.
+ */
+const CATEGORIA_TAXA_MP = "Taxas e tarifas";
+/**
+ * A igreja quer a taxa como despesa separada?
+ *
+ * Desligado por defeito: ligar muda o valor da receita (passa a ser o BRUTO) e
+ * isso mexe em numeros que a tesouraria ja conferiu. Quem quiser liga em
+ * `igrejas/{id}/config/mercado_pago`.
+ */
+async function lancarTaxaComoDespesa(tenantId) {
+    try {
+        const snap = await fs()
+            .collection("igrejas")
+            .doc(tenantId)
+            .collection("config")
+            .doc("mercado_pago")
+            .get();
+        return snap.exists && snap.data()?.lancarTaxaComoDespesa === true;
+    }
+    catch {
+        return false;
+    }
+}
 function labelForDonationKind(kind) {
     return kind === "dizimo" ? "Dízimo" : "Oferta Missionária";
 }
@@ -627,11 +656,15 @@ async function tryHandleChurchDonationPayment(payment) {
             /* ignore */
         }
     }
+    // Com a taxa lancada a parte, a receita passa a ser o BRUTO — senao a taxa
+    // seria descontada duas vezes (uma no liquido, outra na despesa).
+    const taxaSeparada = fee > 0 && (await lancarTaxaComoDespesa(tenantId));
+    const valorReceita = taxaSeparada ? gross : net;
     await ref.set({
         type: "entrada",
         tipo: "entrada",
-        amount: net,
-        valor: net,
+        amount: valorReceita,
+        valor: valorReceita,
         grossAmount: gross,
         mpFees: fee,
         netAmount: net,
@@ -662,6 +695,39 @@ async function tryHandleChurchDonationPayment(payment) {
         conciliado: true,
         conciliacaoOrigem: "mp_webhook_auto",
     });
+    if (taxaSeparada) {
+        // Id derivado do pagamento: se o webhook repetir (o MP reenvia), a taxa e
+        // reescrita no mesmo documento em vez de duplicar.
+        await fs()
+            .collection("igrejas")
+            .doc(tenantId)
+            .collection("finance")
+            .doc(`${pid}_taxa_mp`)
+            .set({
+            type: "saida",
+            tipo: "saida",
+            amount: fee,
+            valor: fee,
+            descricao: `Taxa Mercado Pago — ${tipoLabel}`,
+            categoria: CATEGORIA_TAXA_MP,
+            category: CATEGORIA_TAXA_MP,
+            contaOrigemId: contaDestinoId || null,
+            contaOrigemNome: contaDestinoNome || null,
+            contaId: contaDestinoId || null,
+            pago: true,
+            pagamentoConfirmado: true,
+            status: "paid",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            date: ts,
+            dataCompetencia: ts,
+            mpPaymentId: pid,
+            mpFeeOf: pid,
+            paymentMethod: payment.payment_type_id || payment.payment_method_id || "pix",
+            origem: "mercado_pago_taxa",
+            conciliado: true,
+            conciliacaoOrigem: "mp_webhook_auto",
+        });
+    }
     /** Histórico leve para o painel (dízimos/ofertas) — retenção ~5 meses via prune agendado. */
     const ptRaw = String(payment.payment_type_id || payment.payment_method_id || "").toLowerCase();
     let methodKey = "outro";

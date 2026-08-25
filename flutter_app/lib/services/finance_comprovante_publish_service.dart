@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_flow_log.dart';
 import 'package:gestao_yahweh/core/yahweh_media_cache_bust.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/finance_lancamento_write_service.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/services/church_unified_photo_upload.dart';
@@ -279,11 +280,12 @@ abstract final class FinanceComprovantePublishService {
   }
 
   static Future<String> resolveComprovanteUrl(Map<String, dynamic> data) async {
+    final ref = ChurchCanonicalMediaContract.resolveFinanceComprovante(data);
     final cached = YahwehMediaCacheBust.applyFromDocRevision(
-      (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '').toString(),
+      ref.downloadUrl,
       data,
     );
-    final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
+    final path = ref.storagePath.trim();
     if (path.isEmpty) return cached;
     try {
       await ensureFirebaseCore(requireAuth: false);
@@ -496,8 +498,10 @@ abstract final class FinanceComprovantePublishService {
     if (rawBytes.isEmpty) {
       throw StateError('Arquivo vazio — selecione outra imagem ou PDF.');
     }
+    FinanceComprovanteAttachService.assertSupportedPayload(rawBytes);
     final mt = mimeType.toLowerCase();
-    if (mt.startsWith('video/')) {
+    if (mt.startsWith('video/') ||
+        (!mt.startsWith('image/') && !mt.contains('pdf'))) {
       throw StateError('V+?deo n+?o permitido. Use JPEG, PNG ou PDF.');
     }
     ChurchCentralStorageUpload.assertPayloadWithinRules(

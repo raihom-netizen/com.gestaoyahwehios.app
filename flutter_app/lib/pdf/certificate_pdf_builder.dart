@@ -521,6 +521,9 @@ pw.Widget _certPdfAssinaturaColumnaLimpa({
 
   final digital = input.useDigitalSignatureStamp;
   final showRasterSig = !digital && signatureImage != null;
+  final transparentDigitalStamp =
+      input.visualTemplateId == 'classico_dourado' ||
+      input.visualTemplateId == 'pergaminho';
 
   final children = <pw.Widget>[
     if (digital) ...[
@@ -535,6 +538,7 @@ pw.Widget _certPdfAssinaturaColumnaLimpa({
             compact: compact,
           ),
           maxWidth: maxSigBlockPt,
+          transparentBackground: transparentDigitalStamp,
         ),
       ),
       pw.SizedBox(height: compact ? 5.0 : 7.0),

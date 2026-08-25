@@ -311,6 +311,30 @@ class AppConstants {
     return d.isNotEmpty && d == productMasterCpfDigits;
   }
 
+  /// Identifica um cadastro interno das contas Master em listas tenant.
+  /// Esses operadores podem prestar suporte às igrejas, mas não são membros
+  /// nem gestores locais e não devem ficar visíveis nos dados da igreja.
+  static bool isProductMasterRecord(
+    Map<String, dynamic> data, {
+    String? documentId,
+  }) {
+    String first(List<String> keys) {
+      for (final key in keys) {
+        final value = (data[key] ?? '').toString().trim();
+        if (value.isNotEmpty) return value;
+      }
+      return '';
+    }
+
+    return isProductMasterAccount(
+      uid: first(['authUid', 'firebaseUid', 'uid', 'userId', 'memberId']),
+      email: first(['email', 'EMAIL', 'emailLower']),
+      cpfDigitsOrRaw: first(['cpf', 'CPF']).isNotEmpty
+          ? first(['cpf', 'CPF'])
+          : documentId,
+    );
+  }
+
   // ??? Limite de membros por plano ???
   /// Toler?ncia de até três membros excedentes após o limite do plano antes de bloquear novas inclus?es.
   static const int membersGraceOverLimit = 3;

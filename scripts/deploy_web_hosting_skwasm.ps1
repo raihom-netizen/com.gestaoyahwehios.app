@@ -9,7 +9,7 @@ Push-Location (Join-Path $root "flutter_app")
 try {
   flutter pub get
   Write-Host "`n=== flutter build web --release (Skwasm) ===" -ForegroundColor Cyan
-  flutter build web --release --no-tree-shake-icons --pwa-strategy=none `
+  flutter build web --release --pwa-strategy=none `
     --dart-define=FLUTTER_WEB_USE_SKIA=false `
     --dart-define=FLUTTER_WEB_USE_SKWASM=true
 }

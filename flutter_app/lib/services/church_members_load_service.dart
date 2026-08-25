@@ -12,6 +12,7 @@ import 'package:gestao_yahweh/core/models/blind_member_doc.dart';
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
@@ -20,15 +21,31 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Resultado da carga de membros — `igrejas/{churchId}/membros`.
 class ChurchMembersLoadResult {
-  const ChurchMembersLoadResult({
+  ChurchMembersLoadResult({
     required this.churchId,
-    required this.docs,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     required this.readSource,
     required this.collectionPath,
     this.softError,
     this.fromCache = false,
-    this.directoryEntries = const [],
-  });
+    List<MemberDirectoryEntry> directoryEntries = const [],
+  })  : docs = docs
+            .where(
+              (doc) => !AppConstants.isProductMasterRecord(
+                doc.data(),
+                documentId: doc.id,
+              ),
+            )
+            .toList(growable: false),
+        directoryEntries = directoryEntries
+            .where(
+              (entry) => !AppConstants.isProductMasterAccount(
+                uid: entry.authUid,
+                email: entry.email,
+                cpfDigitsOrRaw: entry.cpfDigits,
+              ),
+            )
+            .toList(growable: false);
 
   final String churchId;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
@@ -184,7 +201,7 @@ abstract final class ChurchMembersLoadService {
   }) async {
     final churchId = _resolve(seedTenantId);
     if (churchId.isEmpty) {
-      return const ChurchMembersLoadResult(
+      return ChurchMembersLoadResult(
         churchId: '',
         docs: [],
         readSource: 'empty_id',

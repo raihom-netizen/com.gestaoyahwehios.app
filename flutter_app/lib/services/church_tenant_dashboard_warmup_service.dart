@@ -63,8 +63,12 @@ abstract final class ChurchTenantDashboardWarmupService {
     var tenantId = ChurchPanelTenant.resolve(tenantIdRaw);
 
     // 1) Cache Firestore local primeiro (líderes/membros/avisos aparecem já).
-    final panel = await PanelDashboardSnapshotService.readOnce(tenantId);
-    final membersDir = await MembersDirectorySnapshotService.readOnce(tenantId);
+    final snapshots = await Future.wait([
+      PanelDashboardSnapshotService.readOnce(tenantId),
+      MembersDirectorySnapshotService.readOnce(tenantId),
+    ]);
+    final panel = snapshots[0] as PanelDashboardSnapshot;
+    final membersDir = snapshots[1] as MembersDirectorySnapshot;
     if (!context.mounted) return;
 
     // Web: não aquecer dezenas de fotos legadas no 1.? frame (evita 1000+ 404 Storage).
@@ -122,10 +126,13 @@ abstract final class ChurchTenantDashboardWarmupService {
   }
 
   static Future<void> _warmPerformanceCaches(String tenantId) async {
-    final feed = await ChurchPerformanceCacheService.readPublicFeedOnce(tenantId);
-    final birthdays =
-        await ChurchPerformanceCacheService.readBirthdaysOnce(tenantId);
-    await MembersDirectorySnapshotService.warmFromCallableIfStale(tenantId);
+    final loaded = await Future.wait([
+      ChurchPerformanceCacheService.readPublicFeedOnce(tenantId),
+      ChurchPerformanceCacheService.readBirthdaysOnce(tenantId),
+      MembersDirectorySnapshotService.warmFromCallableIfStale(tenantId),
+    ]);
+    final feed = loaded[0] as List<Map<String, dynamic>>;
+    final birthdays = loaded[1] as List<Map<String, dynamic>>;
     final membersDir =
         await MembersDirectorySnapshotService.readOnce(tenantId);
     final memberMaps = membersDir.entries

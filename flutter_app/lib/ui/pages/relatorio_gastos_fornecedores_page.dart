@@ -262,7 +262,7 @@ class _RelatorioGastosFornecedoresPageState
     if (!mounted) return null;
     String? leftId;
     String? rightId;
-    var showDigital = false;
+    var showDigital = true;
     return showDialog<
         ({
           String leftName,
@@ -354,6 +354,21 @@ class _RelatorioGastosFornecedoresPageState
             TextButton(
               onPressed: () => Navigator.pop(ctx),
               child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(
+                ctx,
+                (
+                  leftName: '',
+                  rightName: '',
+                  leftSig: null,
+                  rightSig: null,
+                  showDigital: false,
+                  leftDigitalStamp: null,
+                  rightDigitalStamp: null,
+                ),
+              ),
+              child: const Text('Emitir sem assinatura'),
             ),
             FilledButton(
               onPressed: () async {
@@ -502,19 +517,22 @@ class _RelatorioGastosFornecedoresPageState
                 1: pw.Alignment.centerRight,
               },
             ),
-            pw.SizedBox(height: 20),
-            PdfSuperPremiumTheme.reportDualSignatureAttestation(
-              accent: branding.accent,
-              leftTitle: 'Conferência financeira',
-              rightTitle: 'Conferência pastoral',
-              leftSignerName: signerCfg.leftName,
-              rightSignerName: signerCfg.rightName,
-              leftSignatureImageBytes: signerCfg.leftSig,
-              rightSignatureImageBytes: signerCfg.rightSig,
-              showDigitalSignatures: signerCfg.showDigital,
-              leftDigitalStamp: signerCfg.leftDigitalStamp,
-              rightDigitalStamp: signerCfg.rightDigitalStamp,
-            ),
+            if (signerCfg.leftName.isNotEmpty ||
+                signerCfg.rightName.isNotEmpty) ...[
+              pw.SizedBox(height: 20),
+              PdfSuperPremiumTheme.reportDualSignatureAttestation(
+                accent: branding.accent,
+                leftTitle: 'Conferência financeira',
+                rightTitle: 'Conferência pastoral',
+                leftSignerName: signerCfg.leftName,
+                rightSignerName: signerCfg.rightName,
+                leftSignatureImageBytes: signerCfg.leftSig,
+                rightSignatureImageBytes: signerCfg.rightSig,
+                showDigitalSignatures: signerCfg.showDigital,
+                leftDigitalStamp: signerCfg.leftDigitalStamp,
+                rightDigitalStamp: signerCfg.rightDigitalStamp,
+              ),
+            ],
           ],
         ),
       );

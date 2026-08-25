@@ -18,6 +18,7 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/ui/widgets/lazy_load_more_footer.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_utils.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_rich_text_viewer.dart';
+import 'package:gestao_yahweh/ui/widgets/color_palette_tabs_dialog.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/shared/widgets/app_publish_footer.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
@@ -44,6 +45,8 @@ import 'package:gestao_yahweh/core/cache/yahweh_module_caches.dart';
 import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
 import 'package:gestao_yahweh/services/church_event_categories_load_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_address_service.dart';
+import 'package:gestao_yahweh/services/church_departments_load_service.dart';
+import 'package:gestao_yahweh/ui/widgets/agenda_responsible_picker.dart';
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
@@ -117,8 +120,6 @@ import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
 import 'package:gestao_yahweh/services/media_handler_service.dart';
 import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
-import 'package:gestao_yahweh/services/media_service.dart';
-import 'package:gestao_yahweh/services/video_thumb_capture.dart';
 import 'package:gestao_yahweh/services/video_duration.dart';
 import 'package:gestao_yahweh/services/feed_media_publish_service.dart';
 import 'package:gestao_yahweh/services/mural_post_media_payload.dart';
@@ -247,6 +248,29 @@ class EventsManagerPage extends StatefulWidget {
 
   @override
   State<EventsManagerPage> createState() => _EventsManagerPageState();
+}
+
+/// Abre o formulário completo de Eventos/Cultos a partir da Agenda.
+/// Mantém o mesmo pipeline de galeria, vídeo, Storage e publicação no mural.
+Future<dynamic> openChurchEventEditor({
+  required BuildContext context,
+  required String tenantId,
+  DateTime? initialDate,
+  bool meetingMode = false,
+}) {
+  final churchId = ChurchRepository.churchId(tenantId);
+  return Navigator.of(context).push<dynamic>(
+    MaterialPageRoute<dynamic>(
+      fullscreenDialog: true,
+      builder: (_) => _EventoFormPage(
+        tenantId: tenantId,
+        resolvedTenantId: churchId,
+        noticias: ChurchUiCollections.eventos(churchId),
+        initialDate: initialDate,
+        meetingMode: meetingMode,
+      ),
+    ),
+  );
 }
 
 /// Cache RAM — eventos/notícias instantâneo ao reabrir Feed/Galeria/Dashboard.
@@ -7959,11 +7983,15 @@ class _EventoFormPage extends StatefulWidget {
   final String resolvedTenantId;
   final CollectionReference<Map<String, dynamic>> noticias;
   final DocumentSnapshot<Map<String, dynamic>>? doc;
+  final DateTime? initialDate;
+  final bool meetingMode;
   const _EventoFormPage({
     required this.tenantId,
     required this.resolvedTenantId,
     required this.noticias,
     this.doc,
+    this.initialDate,
+    this.meetingMode = false,
   });
 
   @override
@@ -7988,6 +8016,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   int _inFlightPhotoUploads = 0;
   bool _eventDraftEnsured = false;
   final ValueNotifier<int> _addressPreviewTick = ValueNotifier(0);
+  Set<String> _meetingResponsibleIds = <String>{};
+  List<String> _meetingResponsibleNames = <String>[];
+  List<String> _meetingDepartments = const [];
+  final Set<String> _selectedMeetingDepartments = <String>{};
 
   void _notifyAddressPreview() => _addressPreviewTick.value++;
 
@@ -8431,6 +8463,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   TimeOfDay _recorrenteStartTime = const TimeOfDay(hour: 19, minute: 30);
   TimeOfDay _recorrenteEndTime = const TimeOfDay(hour: 21, minute: 0);
   String? _eventCategoryId;
+  String? _customAgendaColorHex;
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _categoryDocs = [];
   bool _loadingCategories = false;
   bool _firebaseBootstrapReady = false;
@@ -8782,6 +8815,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   @override
   void initState() {
     super.initState();
+    if (widget.doc == null && widget.initialDate != null) {
+      final d = widget.initialDate!;
+      _date = DateTime(d.year, d.month, d.day, 19, 30);
+      _endDateTime = _date.add(const Duration(hours: 2));
+      _allDayEndDate = DateTime(d.year, d.month, d.day);
+    }
     _operationalTenantId = ChurchRepository.churchId(
       widget.resolvedTenantId,
     ).trim();
@@ -8789,7 +8828,35 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     _seedEventCategoriesSync();
     unawaited(_loadCategories());
     unawaited(_bootstrapEventForm());
+    if (widget.meetingMode) unawaited(_loadMeetingDepartments());
     final data = widget.doc?.data() ?? {};
+    final savedAgendaColor = (data['agendaColorHex'] ??
+            data['colorHex'] ??
+            data['calendarColorHex'] ??
+            data['color'] ??
+            '')
+        .toString()
+        .trim();
+    if (savedAgendaColor.isNotEmpty) {
+      _customAgendaColorHex = savedAgendaColor;
+    }
+    if (widget.meetingMode) {
+      final responsibleIds = data['responsavelIds'];
+      final responsibleNames = data['responsaveis'];
+      final departments = data['departamentos'];
+      if (responsibleIds is List) {
+        _meetingResponsibleIds = responsibleIds.map((e) => e.toString()).toSet();
+      }
+      if (responsibleNames is List) {
+        _meetingResponsibleNames =
+            responsibleNames.map((e) => e.toString()).toList();
+      }
+      if (departments is List) {
+        _selectedMeetingDepartments.addAll(
+          departments.map((e) => e.toString()),
+        );
+      }
+    }
     _title = TextEditingController(text: (data['title'] ?? '').toString());
     _bodyDescription = TextEditingController(text: churchPostPlainText(data));
     _videoUrl = TextEditingController(
@@ -8889,6 +8956,23 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     _publicSite = data['publicSite'] != false;
   }
 
+  Future<void> _loadMeetingDepartments() async {
+    try {
+      final result = await ChurchDepartmentsLoadService.load(
+        seedTenantId: widget.tenantId,
+      );
+      final names = <String>[];
+      for (final doc in result.docs) {
+        final d = doc.data();
+        final name = (d['label'] ?? d['nome'] ?? d['name'] ?? d['titulo'] ?? '')
+            .toString()
+            .trim();
+        if (name.isNotEmpty && !names.contains(name)) names.add(name);
+      }
+      if (mounted) setState(() => _meetingDepartments = names);
+    } catch (_) {}
+  }
+
   void _seedEventCategoriesSync() {
     final ram = ChurchEventCategoriesLoadService.peekRam(_editorTenantId);
     if (ram != null && ram.isNotEmpty) {
@@ -8930,6 +9014,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   String _agendaCategoryKeyFromEvent() {
+    if (widget.meetingMode) return 'lideranca';
     for (final c in _categoryDocs) {
       if (c.id == _eventCategoryId) {
         final nome = (c.data()['nome'] ?? '').toString().toLowerCase();
@@ -8951,6 +9036,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   }
 
   String _agendaColorHexForCategory() {
+    final custom = (_customAgendaColorHex ?? '').trim();
+    if (custom.isNotEmpty) return custom;
+    if (widget.meetingMode) return '#2563EB';
     for (final c in _categoryDocs) {
       if (c.id == _eventCategoryId) {
         final cor = c.data()['cor'];
@@ -8979,6 +9067,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'noticiaId': noticiaId,
       'category': cat,
       'color': colorHex,
+      'colorHex': colorHex,
       'location': _localSalvo(),
       'updatedAt': YahwehFv.serverTimestamp,
     };
@@ -9602,34 +9691,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         );
       }
       if (!mounted) return;
-      Uint8List? thumbBytes;
-      try {
-        if (kIsWeb) {
-          final bytes = await xfile.readAsBytes();
-          thumbBytes = await captureVideoFirstFrameJpeg(
-            bytes,
-            mimeType: xfile.mimeType ?? 'video/mp4',
-          ).timeout(const Duration(seconds: 12), onTimeout: () => null);
-        } else {
-          final thumbFile = await MediaService.getVideoThumbnail(
-            File(localPath),
-          ).timeout(const Duration(seconds: 12), onTimeout: () => null);
-          if (thumbFile != null && thumbFile.existsSync()) {
-            thumbBytes = await thumbFile.readAsBytes();
-          }
-        }
-      } catch (_) {}
-      if (!mounted) return;
       final isFirstVideo = _eventVideos.isEmpty;
       setState(() {
-        _eventVideos.add({
-          'localPath': localPath,
-          if (thumbBytes != null && thumbBytes.isNotEmpty)
-            'thumbBytes': thumbBytes,
-        });
+        _eventVideos.add({'localPath': localPath});
       });
       // Só o 1.º vídeo é o que a publicação envia (slot 0).
-      if (isFirstVideo) _startEventVideoPreupload(localPath, thumbBytes);
+      if (isFirstVideo) _startEventVideoPreupload(localPath, null);
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
           isFirstVideo
@@ -9919,7 +9986,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         : null;
 
     final payload = <String, dynamic>{
-      'type': 'evento',
+      'type': widget.meetingMode ? 'reuniao' : 'evento',
+      'tipo': widget.meetingMode ? 'reuniao' : 'evento',
       'title': _title.text.trim(),
       ..._eventBodyFirestoreFields(),
       'videoUrl': firstVideoUrl,
@@ -9951,6 +10019,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         hasVideo: hasVideo,
         allowDeleteSentinels: !isNewDoc,
       ),
+      if (widget.meetingMode) ...{
+        'responsavelIds': _meetingResponsibleIds.toList(),
+        'responsaveis': _meetingResponsibleNames,
+        'departamentos': _selectedMeetingDepartments.toList(),
+        'meetingMode': true,
+      },
     };
     if (_validUntil != null) {
       payload['validUntil'] = Timestamp.fromDate(_validUntil!);
@@ -10836,6 +10910,87 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
+  Widget _meetingPeopleAndDepartments() {
+    const purple = Color(0xFF7C3AED);
+    final allSelected = _meetingDepartments.isNotEmpty &&
+        _selectedMeetingDepartments.length == _meetingDepartments.length;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: purple.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: purple.withValues(alpha: 0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Responsáveis',
+              style: TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          AgendaResponsiblePicker(
+            tenantId: widget.tenantId,
+            selectedIds: _meetingResponsibleIds,
+            onChanged: (ids, names) => setState(() {
+              _meetingResponsibleIds = ids;
+              _meetingResponsibleNames = names;
+            }),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Expanded(
+                child: Text('Departamentos',
+                    style: TextStyle(fontWeight: FontWeight.w800)),
+              ),
+              TextButton.icon(
+                onPressed: _meetingDepartments.isEmpty
+                    ? null
+                    : () => setState(() {
+                        if (allSelected) {
+                          _selectedMeetingDepartments.clear();
+                        } else {
+                          _selectedMeetingDepartments
+                            ..clear()
+                            ..addAll(_meetingDepartments);
+                        }
+                      }),
+                icon: Icon(allSelected
+                    ? Icons.remove_done_rounded
+                    : Icons.done_all_rounded),
+                label: Text(allSelected ? 'Desmarcar todos' : 'Marcar todos'),
+              ),
+            ],
+          ),
+          if (_meetingDepartments.isEmpty)
+            const Text('Nenhum departamento cadastrado.',
+                style: TextStyle(color: Color(0xFF64748B), fontSize: 12.5))
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final department in _meetingDepartments)
+                  FilterChip(
+                    selected: _selectedMeetingDepartments.contains(department),
+                    label: Text(department),
+                    avatar: const Icon(Icons.groups_rounded, size: 17),
+                    selectedColor: purple.withValues(alpha: 0.16),
+                    checkmarkColor: purple,
+                    onSelected: (selected) => setState(() {
+                      if (selected) {
+                        _selectedMeetingDepartments.add(department);
+                      } else {
+                        _selectedMeetingDepartments.remove(department);
+                      }
+                    }),
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final allPreviews = <Widget>[];
@@ -10995,7 +11150,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           style: IconButton.styleFrom(minimumSize: Size(minTouch, minTouch)),
         ),
         title: Text(
-          widget.doc != null ? 'Editar Evento' : 'Novo Evento',
+          widget.doc != null
+              ? (widget.meetingMode ? 'Editar Reunião' : 'Editar Evento')
+              : (widget.meetingMode ? 'Nova Reunião' : 'Novo Evento'),
           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
         ),
       ),
@@ -11128,6 +11285,42 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             ],
             const SizedBox(height: 10),
             // Mídia no topo (fotos + vídeos antes dos campos de texto).
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: CircleAvatar(
+                  backgroundColor: ColorPaletteTabsDialog.corDeHex(
+                    _agendaColorHexForCategory(),
+                  ),
+                  child: const Icon(Icons.palette_rounded, color: Colors.white),
+                ),
+                title: const Text(
+                  'Visual agenda',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: const Text(
+                  'Escolha a cor que aparecerá no calendário.',
+                ),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () async {
+                  final selected = await mostrarSeletorDeCores(
+                    context,
+                    titulo: 'Cor no calendário',
+                    selecionadaHex: _agendaColorHexForCategory(),
+                  );
+                  if (selected != null && mounted) {
+                    setState(() => _customAgendaColorHex = selected);
+                  }
+                },
+              ),
+            ),
+            const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -11316,6 +11509,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                           ),
                         ),
                       ),
+                      if (widget.meetingMode) ...[
+                        const SizedBox(height: 16),
+                        _meetingPeopleAndDepartments(),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 14),

@@ -527,13 +527,20 @@ void main() async {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
-  await Future.wait<void>([
-    LoginPreferences.warmUpForStartup(),
-    LoginCredentialsCache.warmUpForStartup(),
-    AppShellSessionCache.warmUp(),
-    AuthProfileCacheService.warmUpForStartup(),
-    YahwehCacheBootstrap.warmUpPrefs(),
-  ]).timeout(const Duration(seconds: 4), onTimeout: () => <void>[]);
+  // Estes caches melhoram o segundo frame, mas não são pré-requisito para
+  // pintar a aplicação. Executá-los em background elimina até 4 s do caminho
+  // crítico em Web/Android/iOS com armazenamento local lento.
+  unawaited(
+    Future<void>.delayed(const Duration(milliseconds: 250), () async {
+      await Future.wait<void>([
+        LoginPreferences.warmUpForStartup(),
+        LoginCredentialsCache.warmUpForStartup(),
+        AppShellSessionCache.warmUp(),
+        AuthProfileCacheService.warmUpForStartup(),
+        YahwehCacheBootstrap.warmUpPrefs(),
+      ]).timeout(const Duration(seconds: 4), onTimeout: () => <void>[]);
+    }).catchError((_) {}),
+  );
 
   if (!firebaseBoot.isReady) {
     runApp(

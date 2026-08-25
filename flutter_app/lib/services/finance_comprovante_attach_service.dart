@@ -51,9 +51,11 @@ abstract final class FinanceComprovanteAttachService {
   }
 
   static String displayNameFromDoc(Map<String, dynamic> data) {
-    final name = (data['comprovanteFileName'] ?? '').toString().trim();
+    final resolved =
+        ChurchCanonicalMediaContract.resolveFinanceComprovante(data);
+    final name = resolved.fileName.trim();
     if (name.isNotEmpty) return name;
-    final path = (data['comprovanteStoragePath'] ?? '').toString().trim();
+    final path = resolved.storagePath.trim();
     if (path.contains('/')) {
       return path.split('/').last;
     }
@@ -61,7 +63,9 @@ abstract final class FinanceComprovanteAttachService {
   }
 
   static String mimeFromDoc(Map<String, dynamic> data) {
-    final mime = (data['comprovanteMimeType'] ?? '').toString().trim();
+    final mime = ChurchCanonicalMediaContract.resolveFinanceComprovante(data)
+        .mimeType
+        .trim();
     if (mime.isNotEmpty) return mime;
     final name = displayNameFromDoc(data).toLowerCase();
     if (name.endsWith('.pdf')) return 'application/pdf';
@@ -99,6 +103,36 @@ abstract final class FinanceComprovanteAttachService {
         bytes[1] == 0x50 &&
         bytes[2] == 0x4E &&
         bytes[3] == 0x47;
+  }
+
+  static bool _isJpegBytes(Uint8List bytes) =>
+      bytes.length >= 3 &&
+      bytes[0] == 0xFF &&
+      bytes[1] == 0xD8 &&
+      bytes[2] == 0xFF;
+
+  static bool _isPdfBytes(Uint8List bytes) =>
+      bytes.length >= 5 &&
+      bytes[0] == 0x25 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x44 &&
+      bytes[3] == 0x46 &&
+      bytes[4] == 0x2D;
+
+  /// Valida o conteúdo real, não apenas a extensão informada pelo navegador.
+  static String? supportedMimeFromBytes(Uint8List bytes) {
+    if (_isPdfBytes(bytes)) return 'application/pdf';
+    if (_isPngBytes(bytes)) return 'image/png';
+    if (_isJpegBytes(bytes)) return 'image/jpeg';
+    return null;
+  }
+
+  static void assertSupportedPayload(Uint8List bytes) {
+    if (supportedMimeFromBytes(bytes) == null) {
+      throw StateError(
+        'Formato inválido. Use somente PDF, JPG, JPEG ou PNG. Vídeos não são permitidos.',
+      );
+    }
   }
 
   static String _ensureExtension(String fileName, String ext) {
@@ -187,6 +221,16 @@ abstract final class FinanceComprovanteAttachService {
         return null;
       }
 
+      final detectedMime = supportedMimeFromBytes(bytes);
+      if (detectedMime == null ||
+          (ext == 'pdf' && detectedMime != 'application/pdf') ||
+          (ext != 'pdf' && !detectedMime.startsWith('image/'))) {
+        _showSnack(
+          context,
+          'Formato inválido. Use apenas JPEG, PNG ou PDF (sem vídeo).',
+        );
+        return null;
+      }
       final mime = _mimeFromExtension(ext);
       if (mime.contains('pdf')) {
         return FinanceComprovanteAttachment(

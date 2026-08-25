@@ -2126,7 +2126,10 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   /// Ficha completa do Firestore (filição, endereço, etc.) — doc directo `igrejas/{churchId}/membros`.
-  Future<_MemberDoc> _hydrateMemberDocFull(_MemberDoc member) async {
+  Future<_MemberDoc> _hydrateMemberDocFull(
+    _MemberDoc member, {
+    bool forceServer = false,
+  }) async {
     var m = _memberWithOptimisticOverlay(member);
     final churchId = ChurchRepository.churchId(_effectiveTenantId);
     if (churchId.isEmpty) return m;
@@ -2159,15 +2162,41 @@ class _MembersPageState extends State<MembersPage> {
         return _MemberDoc(snap.id, {...m.data, ...fresh});
       }
 
-      var merged = await tryMerge(m.id, Source.cache);
-      merged ??= await tryMerge(m.id, Source.serverAndCache);
+      _MemberDoc? cached;
+      try {
+        cached = await tryMerge(m.id, Source.cache);
+      } catch (_) {
+        // Cache vazio e normal logo depois da aprovação/migração para o UID.
+      }
+      var merged = cached;
+      // A lista usa um snapshot leve e pode conter apenas nome, foto e status.
+      // Ao editar, consulte sempre o documento permanente: aceitar o primeiro
+      // resumo do cache fazia filiação, profissão e endereço aparecerem vazios.
+      if (forceServer || merged == null) {
+        try {
+          merged = await tryMerge(m.id, Source.serverAndCache) ?? merged;
+        } catch (_) {
+          merged ??= cached;
+        }
+      }
       if (merged != null) {
         m = merged;
       } else {
         final cpf = _str(m.data, 'CPF', 'cpf').replaceAll(RegExp(r'\D'), '');
         if (cpf.length == 11 && cpf != m.id) {
-          merged = await tryMerge(cpf, Source.cache);
-          merged ??= await tryMerge(cpf, Source.serverAndCache);
+          _MemberDoc? cachedByCpf;
+          try {
+            cachedByCpf = await tryMerge(cpf, Source.cache);
+          } catch (_) {}
+          merged = cachedByCpf;
+          if (forceServer || merged == null) {
+            try {
+              merged =
+                  await tryMerge(cpf, Source.serverAndCache) ?? merged;
+            } catch (_) {
+              merged ??= cachedByCpf;
+            }
+          }
           if (merged != null) m = merged;
         }
       }
@@ -3537,7 +3566,8 @@ class _MembersPageState extends State<MembersPage> {
     try {
       member = await _hydrateMemberDocFull(
         member,
-      ).timeout(const Duration(milliseconds: 1200), onTimeout: () => member);
+        forceServer: true,
+      ).timeout(const Duration(seconds: 10), onTimeout: () => member);
     } catch (_) {}
     if (!mounted) return;
     final selfOnly = !staffEdit;

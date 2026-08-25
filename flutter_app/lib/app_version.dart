@@ -1,4 +1,15 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2230: Deploy completo — relatórios financeiros no padrão premium
+/// (extrato do membro, financeiro por membro e histórico do fornecedor: nome em
+/// destaque, indicadores, colunas medidas para a data não partir); Financeiro
+/// geral responsivo na web (grade 1/2/3 colunas, largura máxima); carteira do
+/// membro maior na web com zoom; Fornecedores — «Erro ao gerar PDF»
+/// (INTERNAL ASSERTION) curado pelo gateway REST + painel com largura máxima;
+/// Agenda — ver/alterar/excluir no resumo do dia, exclusão com confirmação e
+/// limpeza total (Firestore + Storage), prévia do dia em tela cheia com
+/// Retornar/Cancelar, card de feriados do mês, aviso em tela cheia e «Novo»/
+/// «Adicionar» a abrir o mesmo editor do toque no dia; regras/índices/functions/
+/// web/AAB/iOS + force update.
 /// 11.2.305+2204: Recuperação total da acentuação (207 arquivos ASCII-ficados por
 /// script) — corrige o RegExp partido em utf8_mojibake_fix.dart que derrubava
 /// TODO módulo que lê Firestore (Membros, Departamentos). Botão «Cadastrar novo
@@ -505,7 +516,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2226';
+const String appBuildNumber = '2230';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

@@ -336,8 +336,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   final Set<int> _shellPrefetchDone = {};
 
   /// Ícones **Material `*_rounded`**. Na web (release), o subset da fonte pode
-  /// omitir glifos — [kChurchShellNavEntries] + [_ChurchShellNavMaterialIconsKeepalive]
-  /// e `--no-tree-shake-icons` nos scripts.
+  /// omitir glifos — [kChurchShellNavEntries] +
+  /// [_ChurchShellNavMaterialIconsKeepalive] mantêm somente os glifos usados.
   late final List<_NavItem> _items = [
     for (final e in kChurchShellNavEntries)
       _NavItem(e.icon, e.label, e.accent, e.subtitle),
@@ -731,7 +731,13 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   void initState() {
     super.initState();
     _footerScrollController = ScrollController()..addListener(_onFooterScroll);
-    final hint = _forceCanonicalTenantId(widget.tenantId);
+    // A seleção Master já é restaurada antes de montar o app. O primeiro bind
+    // do shell precisa nascer diretamente nela; vincular primeiro a igreja do
+    // perfil fazia cabeçalho e módulos aquecerem caches do tenant anterior.
+    final selectedMaster = MasterTenantOverrideService.tenantId?.trim() ?? '';
+    final hint = _forceCanonicalTenantId(
+      selectedMaster.isNotEmpty ? selectedMaster : widget.tenantId,
+    );
     if (hint.isNotEmpty) {
       final canonical = ChurchPanelTenant.resolve(hint);
       _operationalTenantId = canonical;
@@ -975,6 +981,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   /// tudo (membros, financeiro, agenda…) recarregar na base escolhida.
   void _onMasterTenantChanged() {
     if (!mounted) return;
+    final anterior = ChurchContextService.currentChurchId?.trim() ?? '';
     final alvo = MasterTenantOverrideService.tenantId;
     final destino = (alvo ?? _forceCanonicalTenantId(widget.tenantId)).trim();
     final canonical = ChurchPanelTenant.resolve(destino);
@@ -986,7 +993,10 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     // Os caches em RAM nao sao limpos por `ChurchContextService.clear()` — e
     // eram eles que devolviam os dados da igreja anterior mesmo depois do id
     // ja ter mudado (ver [ChurchTenantSwitchPurge]).
-    ChurchTenantSwitchPurge.purgarTudo();
+    ChurchTenantSwitchPurge.purgarTudo(
+      previousTenant: anterior,
+      nextTenant: canonical,
+    );
     if (canonical.isNotEmpty) {
       ChurchContextService.bindPanelIdImmediate(
         seed: destino,
@@ -1014,18 +1024,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       ChurchSessionRestart.reiniciar();
     });
 
-    unawaited(
-      _warmTenantDocFromLocalCacheFirst().whenComplete(() {
-        if (!mounted) return;
-        setState(() => _tenantResolveComplete = true);
-        // Rebind completo na igreja escolhida, **depois** do warm (o
-        // `forceRefresh` limpa o contexto, e em paralelo apagaria o que o warm
-        // acabou de pôr lá). Sem este passo o contexto ficava só com o id e o
-        // perfil — nome, slug, logo, links públicos — continuava a ser o da
-        // igreja anterior até algum módulo o carregar por acidente.
-        unawaited(_resolveOperationalTenant(forceRefresh: true));
-      }),
-    );
+    // A arvore atual sera descartada no proximo frame. Nao deixe um warm da
+    // sessao antiga competir com o bootstrap completo da igreja escolhida.
   }
 
   Future<void> _bindHomeWidgetLaunchListener() async {

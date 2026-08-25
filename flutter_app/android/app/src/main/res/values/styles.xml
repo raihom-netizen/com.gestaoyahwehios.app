@@ -15,13 +15,16 @@
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">@color/splash_background</item>
     </style>
-    <!-- image_cropper (uCrop): barra de estado opaca = toolbar não fica sob o relógio/recorte;
-         cor alinhada a [AndroidUiSettings] no Flutter (#1E40AF / slate escuro). -->
+    <!-- image_cropper (uCrop) — ponta a ponta.
+         `statusBarColor`/`navigationBarColor` opacos são **ignorados** a partir
+         do SDK 35 e são exactamente o que a Play assinala em «apps com o SDK 35
+         são mostrados de ponta a ponta por defeito». Tirados: o sistema desenha
+         as barras e o conteúdo passa por baixo. Fica só o contraste dos ícones,
+         que continua válido. -->
     <style name="Theme.Yahweh.UCrop" parent="Theme.AppCompat.Light.NoActionBar">
-        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
-        <item name="android:statusBarColor">#FF1E40AF</item>
-        <item name="android:navigationBarColor">#FF0F172A</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
     </style>
 </resources>

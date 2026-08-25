@@ -1,12 +1,14 @@
 import * as functions from "firebase-functions/v1";
 import { defineString } from "firebase-functions/params";
 import * as admin from "firebase-admin";
+import { randomInt } from "crypto";
 import { getFirestore, type DocumentReference, type DocumentData } from "firebase-admin/firestore";
 import { ensureChurchWelcomeSeed } from "./churchWelcomeSeed";
 import { trySendPublicSignupConfirmationEmail } from "./publicSignupEmail";
 import { topicPushNovo, sendGyTopicPush } from "./pushNovoConteudo";
 import { notifyGestoresNewMember } from "./memberRegistrationNotify";
 import { notifyGestoresNewVisitor } from "./visitorRegistrationNotify";
+import { sendGestaoYahwehHtmlEmail } from "./memberNotificationEmail";
 import { buildGyTopicMessage } from "./notificationBranding";
 import { gerarReceitasRecorrentesPendentesForTenant } from "./receitasRecorrentesScheduled";
 import { fetchPaymentForWebhook, tryHandleChurchDonationPayment } from "./churchMercadoPago";
@@ -3681,6 +3683,15 @@ export const syncGestorBrasilParaCristo = functions
 const MEMBER_DEFAULT_PASSWORD = "123456";
 const MEMBRO_EMAIL_DOMAIN = "membro.gestaoyahweh.com.br";
 
+function escapeMemberCredentialHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /** Copia objetos em `igrejas/{tid}/membros/{from}/**` para `.../membros/{to}/**` (foto, assinatura…). */
 async function copyIgrejaMembroStorageFolder(
   tenantId: string,
@@ -3990,7 +4001,8 @@ async function ensureMemberFirebaseAuth(
   tenantId: string,
   memberId: string,
   memberRef: DocumentReference,
-  memberData: DocumentData
+  memberData: DocumentData,
+  initialPassword: string = MEMBER_DEFAULT_PASSWORD
 ): Promise<{
   uid: string;
   email: string;
@@ -4057,7 +4069,7 @@ async function ensureMemberFirebaseAuth(
   try {
     authUser = await admin.auth().createUser({
       email,
-      password: MEMBER_DEFAULT_PASSWORD,
+      password: initialPassword,
       displayName: nome || undefined,
       emailVerified: false,
     });
@@ -4065,7 +4077,7 @@ async function ensureMemberFirebaseAuth(
     const anyErr = err as { code?: string; message?: string };
     if (anyErr?.code === "auth/email-already-exists") {
       authUser = await admin.auth().getUserByEmail(email);
-      await admin.auth().updateUser(authUser.uid, { password: MEMBER_DEFAULT_PASSWORD });
+      await admin.auth().updateUser(authUser.uid, { password: initialPassword });
     } else {
       throw new functions.https.HttpsError(
         "internal",
@@ -4229,16 +4241,18 @@ export const createMemberLoginFromPublic = functions
     if (status === "reprovado") {
       throw new functions.https.HttpsError("failed-precondition", "Cadastro reprovado.");
     }
-    /** Cadastro público pendente: Auth + senha 123456 só após o gestor aprovar (`setMemberApproved`). */
+    /** Cadastro público nunca cria credencial. Aprovação promove apenas ficha e foto. */
     const publicSignup =
       memberData.PUBLIC_SIGNUP === true || memberData.public_signup === true;
-    if (publicSignup && status === "pendente") {
+    if (publicSignup) {
       return {
         ok: true,
         deferredUntilApproval: true,
+        loginCreated: false,
         membroFirestoreId: found.ref.id,
-        message:
-          "Cadastro recebido. O login será criado quando o gestor aprovar (senha inicial 123456).",
+        message: status === "pendente"
+          ? "Cadastro recebido. A ficha e a foto serão promovidas após aprovação; nenhuma senha será criada."
+          : "Cadastro público aprovado sem criação de senha ou conta de acesso.",
       };
     }
     const result = await ensureMemberFirebaseAuth(tenantId, memberId, found.ref, memberData);
@@ -5025,6 +5039,171 @@ export const setMemberApproved = functions
     }
     const memberRef = found.ref;
     const memberData = { ...found.data, STATUS: "ativo", status: "ativo" };
+    const publicSignup =
+      found.data.PUBLIC_SIGNUP === true || found.data.public_signup === true;
+    if (publicSignup) {
+      const pendingPhotoPath = String(
+        found.data.photoStoragePath || found.data.fotoPath || ""
+      ).trim();
+      const permanentPhotoPath =
+        `igrejas/${tenantId}/membros/${memberRef.id}/foto_perfil.jpg`;
+      const photoUpdates: Record<string, unknown> = {};
+      if (pendingPhotoPath.includes("/pending_member_signups/")) {
+        try {
+          const bucket = admin.storage().bucket();
+          await bucket.file(pendingPhotoPath).copy(bucket.file(permanentPhotoPath));
+          await bucket.file(pendingPhotoPath).delete({ ignoreNotFound: true });
+          photoUpdates.photoStoragePath = permanentPhotoPath;
+          photoUpdates.photoThumbStoragePath = permanentPhotoPath;
+          photoUpdates.fotoPath = permanentPhotoPath;
+          photoUpdates.fotoThumbPath = permanentPhotoPath;
+        } catch (photoErr) {
+          console.error("setMemberApproved promote public photo", {
+            tenantId,
+            memberId,
+            pendingPhotoPath,
+            photoErr,
+          });
+          throw new functions.https.HttpsError(
+            "internal",
+            "Não foi possível tornar a foto do perfil permanente. Tente aprovar novamente."
+          );
+        }
+      }
+      await memberRef.set(
+        {
+          STATUS: "ativo",
+          status: "ativo",
+          aprovadoEm: admin.firestore.FieldValue.serverTimestamp(),
+          permanentMember: true,
+          ...photoUpdates,
+        },
+        { merge: true }
+      );
+      try {
+        await ensureCodigoMembroOnMember(
+          tenantId,
+          memberRef.id,
+          found.data as Record<string, unknown>
+        );
+      } catch (codErr) {
+        console.warn("setMemberApproved public codigoMembro", codErr);
+      }
+      const cpf = String(found.data.CPF || found.data.cpf || "").replace(/\D/g, "");
+      const emailNorm = String(found.data.EMAIL || found.data.email || "")
+        .trim()
+        .toLowerCase();
+      if (!emailNorm || !emailNorm.includes("@")) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "O cadastro precisa ter um e-mail válido para gerar e enviar o acesso."
+        );
+      }
+      const temporaryPassword = randomInt(0, 1000000)
+        .toString()
+        .padStart(6, "0");
+      const authResult = await ensureMemberFirebaseAuth(
+        tenantId,
+        memberRef.id,
+        memberRef,
+        { ...memberData, ...photoUpdates },
+        temporaryPassword
+      );
+      // Também cobre cadastro público legado que já possuía authUid.
+      await admin.auth().updateUser(authResult.uid, {
+        password: temporaryPassword,
+      });
+      const finalMemberId = authResult.membroFirestoreId || authResult.uid;
+      const finalMemberRef = churchDocRef(db, tenantId)
+        .collection("membros")
+        .doc(finalMemberId);
+      const credentialFlags = {
+        mustChangePass: true,
+        temporaryCredentialIssuedAt:
+          admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+      await Promise.all([
+        finalMemberRef.set(credentialFlags, { merge: true }),
+        db.collection("users").doc(authResult.uid).set(credentialFlags, {
+          merge: true,
+        }),
+        churchDocRef(db, tenantId)
+          .collection("users")
+          .doc(authResult.uid)
+          .set(credentialFlags, { merge: true }),
+      ]);
+      await closeDuplicatePendingMembers(
+        tenantId,
+        finalMemberId,
+        cpf,
+        emailNorm
+      );
+      const memberName = String(
+        found.data.NOME_COMPLETO || found.data.nome || found.data.name || "Membro"
+      ).trim();
+      const churchSnap = await churchDocRef(db, tenantId).get();
+      const churchData = churchSnap.data() || {};
+      const churchName = String(
+        churchData.nome || churchData.name || churchData.razaoSocial || "Gestão YAHWEH"
+      ).trim();
+      const churchSlug = String(
+        churchData.slug || churchData.alias || tenantId
+      ).trim();
+      const safeName = escapeMemberCredentialHtml(memberName);
+      const safeChurch = escapeMemberCredentialHtml(churchName);
+      const safeEmail = escapeMemberCredentialHtml(authResult.email || emailNorm);
+      const safePassword = escapeMemberCredentialHtml(temporaryPassword);
+      let emailSent = false;
+      try {
+        emailSent = await sendGestaoYahwehHtmlEmail({
+          to: authResult.email || emailNorm,
+          subject: `Seu acesso provisório — ${churchName}`,
+          html: `
+            <div style="margin:0;padding:28px;background:#f1f5f9;font-family:Arial,sans-serif;color:#0f172a">
+              <div style="max-width:560px;margin:auto;background:#fff;border-radius:22px;overflow:hidden;box-shadow:0 12px 35px rgba(15,23,42,.12)">
+                <div style="padding:26px;background:linear-gradient(135deg,#075985,#059669);color:#fff">
+                  <div style="font-size:13px;opacity:.9">CADASTRO APROVADO</div>
+                  <h1 style="margin:7px 0 0;font-size:25px">Bem-vindo(a), ${safeName}</h1>
+                  <div style="margin-top:8px;opacity:.92">${safeChurch}</div>
+                </div>
+                <div style="padding:28px">
+                  <p>Seu acesso ao Gestão YAHWEH está liberado.</p>
+                  <div style="padding:18px;border:1px solid #dbeafe;border-radius:16px;background:#f8fafc">
+                    <div style="font-size:12px;color:#64748b">E-MAIL</div>
+                    <div style="font-size:17px;font-weight:700;margin:4px 0 16px">${safeEmail}</div>
+                    <div style="font-size:12px;color:#64748b">SENHA PROVISÓRIA</div>
+                    <div style="font-size:30px;letter-spacing:8px;font-weight:800;color:#0369a1;margin-top:5px">${safePassword}</div>
+                  </div>
+                  <p style="margin-top:20px;color:#475569">No primeiro acesso, o sistema solicitará uma nova senha numérica de 6 dígitos. Você também poderá usar o login Google com este mesmo e-mail.</p>
+                </div>
+              </div>
+            </div>`,
+        });
+      } catch (emailError) {
+        console.error("setMemberApproved credential email", {
+          tenantId,
+          memberId: finalMemberId,
+          emailError,
+        });
+      }
+      return {
+        ok: true,
+        memberId: finalMemberId,
+        uid: authResult.uid,
+        memberName,
+        churchName,
+        churchSlug,
+        email: authResult.email || emailNorm,
+        temporaryPassword,
+        mustChangePass: true,
+        emailSent,
+        loginCreated: true,
+        message: emailSent
+          ? "Cadastro aprovado e senha provisória enviada por e-mail."
+          : "Cadastro aprovado. Mostre ou copie a senha provisória para o membro; o e-mail não pôde ser enviado agora.",
+      };
+    }
     await memberRef.set(
       {
         STATUS: "ativo",

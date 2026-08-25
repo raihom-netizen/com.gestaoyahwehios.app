@@ -553,6 +553,10 @@ abstract final class ChurchFeedLinearPublishService {
             title: (payload['title'] ?? '').toString(),
             description: (payload['text'] ?? '').toString(),
             referenceDate: refDate,
+            colorHex: (payload['agendaColorHex'] ??
+                    payload['colorHex'] ??
+                    '#F59E0B')
+                .toString(),
           ).catchError((Object e) {
             debugPrint('AVISOS calendar sync (background): $e');
           }),

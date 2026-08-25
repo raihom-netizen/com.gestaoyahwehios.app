@@ -189,6 +189,22 @@ class TransactionSaveService {
     putStr('scaleClosureDedupKey');
     putStr('scaleClosureGroupId');
     putStr('scaleClosureEmployerType');
+
+    // O editor financeiro devolve o vínculo já normalizado. Estes campos
+    // precisam atravessar o serviço de gravação; sem isso o documento era
+    // criado no Financeiro, mas ficava como "Sem vínculo" e não aparecia no
+    // extrato individual do membro/fornecedor.
+    for (final key in const [
+      'membroId',
+      'membroNome',
+      'memberId',
+      'fornecedorId',
+      'fornecedorNome',
+      'vinculoMultiplo',
+      'vinculos',
+    ]) {
+      if (data.containsKey(key)) o[key] = data[key];
+    }
     return o;
   }
 

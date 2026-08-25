@@ -66,10 +66,7 @@ function Remove-PathRobust {
         }
     }
 
-    try {
-        cmd /c "rmdir /s /q \"$PathToRemove\"" | Out-Null
-    }
-    catch {}
+    throw "Nao foi possivel limpar com seguranca: $PathToRemove"
 }
 
 $Project = "gestaoyahweh-21e23"

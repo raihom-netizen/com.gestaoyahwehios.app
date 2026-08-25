@@ -24,6 +24,8 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_month_calendar.dart';
+import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
+import 'package:gestao_yahweh/ui/widgets/color_palette_tabs_dialog.dart';
 import 'package:gestao_yahweh/services/member_schedule_availability_service.dart';
 import 'package:gestao_yahweh/services/schedule_intel_validators.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
@@ -3007,6 +3009,8 @@ class _SchedulesPageState extends State<SchedulesPage>
         'time': time,
         'departmentId': deptId,
         'departmentName': deptName,
+        'location': (tplData['location'] ?? tplData['local'] ?? '').toString(),
+        'colorHex': (tplData['colorHex'] ?? '#7C3AED').toString(),
         ...memberFields,
         'confirmations': {},
         'unavailabilityReasons': {},
@@ -6122,6 +6126,7 @@ class _SchedulesPageState extends State<SchedulesPage>
         if (!kIsWeb || !_isFirestoreClientBroken(e)) rethrow;
         await firestoreRestDeleteDoc(doc.reference.path);
       }
+      ChurchSchedulesLoadService.invalidateRam(_churchId);
       if (mounted) {
         _refreshInstances();
         ScaffoldMessenger.of(
@@ -8403,6 +8408,8 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
   late String _recurrence;
   late final TextEditingController _dayCtrl;
   late final TextEditingController _timeCtrl;
+  late final TextEditingController _locationCtrl;
+  late String _colorHex;
   String _departmentId = '';
   String _departmentName = '';
   List<_MemberSelect> _deptMembers = [];
@@ -8420,6 +8427,8 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
     _recurrence = (d['recurrence'] ?? 'weekly').toString();
     _dayCtrl = TextEditingController(text: (d['day'] ?? 'Domingo').toString());
     _timeCtrl = TextEditingController(text: (d['time'] ?? '19:00').toString());
+    _locationCtrl = TextEditingController(text: (d['location'] ?? d['local'] ?? '').toString());
+    _colorHex = (d['colorHex'] ?? '#7C3AED').toString();
     _departmentId = (d['departmentId'] ?? '').toString();
     _departmentName = (d['departmentName'] ?? '').toString();
     final existingCpfs = ((d['memberCpfs'] as List?) ?? [])
@@ -8442,6 +8451,7 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
     _titleCtrl.dispose();
     _dayCtrl.dispose();
     _timeCtrl.dispose();
+    _locationCtrl.dispose();
     super.dispose();
   }
 
@@ -8698,6 +8708,8 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
       'time': _timeCtrl.text.trim(),
       'departmentId': _departmentId,
       'departmentName': _departmentName,
+      'location': _locationCtrl.text.trim(),
+      'colorHex': _colorHex,
       'memberCpfs': _selectedCpfs.toList(),
       'memberNames': selectedNames,
       'active': true,
@@ -8853,6 +8865,32 @@ class _TemplateFormPageState extends State<_TemplateFormPage> {
                                     ],
                                   );
                                 },
+                              ),
+                              const SizedBox(height: 14),
+                              TextField(
+                                controller: _locationCtrl,
+                                decoration: const InputDecoration(
+                                  labelText: 'Local da escala',
+                                  prefixIcon: Icon(Icons.place_rounded),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  final picked = await mostrarSeletorDeCores(
+                                    context,
+                                    titulo: 'Cor da escala no calendário',
+                                    selecionadaHex: _colorHex,
+                                  );
+                                  if (picked != null && mounted) {
+                                    setState(() => _colorHex = picked);
+                                  }
+                                },
+                                icon: CircleAvatar(
+                                  radius: 8,
+                                  backgroundColor: AgendaVisualPalette.hexToColor(_colorHex) ?? AgendaVisualPalette.escala,
+                                ),
+                                label: const Text('Escolher cor no calendário'),
                               ),
                             ],
                           ),
@@ -9084,6 +9122,8 @@ class _GeneratedInstanceEditPageState
   late final TextEditingController _titleCtrl;
   late final TextEditingController _timeCtrl;
   late final TextEditingController _observationsCtrl;
+  late final TextEditingController _instanceLocationCtrl;
+  late String _instanceColorHex;
   late DateTime _selectedDate;
   String _departmentId = '';
   String _departmentName = '';
@@ -9118,6 +9158,10 @@ class _GeneratedInstanceEditPageState
     _observationsCtrl = TextEditingController(
       text: (d['observations'] ?? '').toString(),
     );
+    _instanceLocationCtrl = TextEditingController(
+      text: (d['location'] ?? d['local'] ?? '').toString(),
+    );
+    _instanceColorHex = (d['colorHex'] ?? '#7C3AED').toString();
     DateTime? dt;
     try {
       dt = (d['date'] as Timestamp?)?.toDate();
@@ -9180,6 +9224,7 @@ class _GeneratedInstanceEditPageState
     _titleCtrl.dispose();
     _timeCtrl.dispose();
     _observationsCtrl.dispose();
+    _instanceLocationCtrl.dispose();
     super.dispose();
   }
 
@@ -9489,6 +9534,8 @@ class _GeneratedInstanceEditPageState
         'memberCpfs': orderedCpfs,
         'memberNames': memberNames,
         'observations': _observationsCtrl.text.trim(),
+        'location': _instanceLocationCtrl.text.trim(),
+        'colorHex': _instanceColorHex,
         'confirmations': _remapCpfKeyedMap(oldConf, orderedCpfs),
         'unavailabilityReasons': _remapCpfKeyedMap(oldUnav, orderedCpfs),
         'updatedAt': Timestamp.now(),
@@ -9562,6 +9609,32 @@ class _GeneratedInstanceEditPageState
                                 'Observações (ex.: Escala de Verão, culto especial)',
                             prefixIcon: Icon(Icons.notes_rounded),
                           ),
+                        ),
+                        const SizedBox(height: 14),
+                        TextField(
+                          controller: _instanceLocationCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Local da escala',
+                            prefixIcon: Icon(Icons.place_rounded),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            final picked = await mostrarSeletorDeCores(
+                              context,
+                              titulo: 'Cor da escala no calendário',
+                              selecionadaHex: _instanceColorHex,
+                            );
+                            if (picked != null && mounted) {
+                              setState(() => _instanceColorHex = picked);
+                            }
+                          },
+                          icon: CircleAvatar(
+                            radius: 8,
+                            backgroundColor: AgendaVisualPalette.hexToColor(_instanceColorHex) ?? AgendaVisualPalette.escala,
+                          ),
+                          label: const Text('Escolher cor no calendário'),
                         ),
                         const SizedBox(height: 14),
                         if (isMobile) ...[

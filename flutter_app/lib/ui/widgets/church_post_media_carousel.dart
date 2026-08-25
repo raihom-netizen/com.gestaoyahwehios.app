@@ -202,10 +202,12 @@ class _ChurchPostMediaCarouselState extends State<ChurchPostMediaCarousel> {
                     _index = i;
                     _hintDismissed = true;
                   }),
-                  itemBuilder: (_, i) => GestureDetector(
-                    onTap: () => _open(i),
-                    child: _MediaPagePreview(item: items[i]),
-                  ),
+                  itemBuilder: (_, i) => items[i].isImage
+                      ? GestureDetector(
+                          onTap: () => _open(i),
+                          child: _MediaPagePreview(item: items[i]),
+                        )
+                      : _MediaPagePreview(item: items[i]),
                 ),
                 if (multiple)
                   Positioned(
@@ -292,80 +294,14 @@ class _MediaPagePreview extends StatelessWidget {
         child: SafeNetworkImage(imageUrl: item.url, fit: BoxFit.cover),
       );
     }
-    final thumb = item.thumbUrl;
     return ColoredBox(
       color: const Color(0xFF0F172A),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (thumb.isNotEmpty)
-            SafeNetworkImage(imageUrl: thumb, fit: BoxFit.cover),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withValues(alpha: 0.10),
-                  Colors.black.withValues(alpha: 0.45),
-                ],
-              ),
-            ),
-          ),
-          Center(
-            child: Container(
-              width: 74,
-              height: 74,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  colors: [
-                    Color(0xFFF58529),
-                    Color(0xFFDD2A7B),
-                    Color(0xFF8134AF),
-                  ],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.35),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.play_arrow_rounded,
-                color: Colors.white,
-                size: 42,
-              ),
-            ),
-          ),
-          const Positioned(
-            top: 10,
-            left: 10,
-            child: _Pill(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.movie_creation_rounded,
-                    color: Colors.white,
-                    size: 14,
-                  ),
-                  SizedBox(width: 5),
-                  Text(
-                    'Vídeo',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+      child: ChurchHostedVideoSurface(
+        videoUrl: item.url,
+        thumbnailUrl: item.thumbUrl.isEmpty ? null : item.thumbUrl,
+        autoPlay: false,
+        layoutAspectRatio: 4 / 5,
+        showFullscreenOverlay: true,
       ),
     );
   }

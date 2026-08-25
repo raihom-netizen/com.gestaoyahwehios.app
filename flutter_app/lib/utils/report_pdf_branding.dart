@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/services/firebase_storage_service.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/utils/pdf_digital_signature_stamp.dart';
 
 /// Dados visuais da igreja para PDFs de relatórios (logo + nome + cor de destaque).
@@ -117,8 +118,10 @@ Future<ReportPdfBranding> _loadReportPdfBrandingUncached(String seed) async {
       : tid.trim();
   Map<String, dynamic> tenant = {};
   try {
-    final snap = await ChurchRepository.churchDoc(op).get();
-    tenant = snap.data() ?? {};
+    final cadastro = await ChurchCadastroLoadService.load(
+      seedTenantId: op,
+    ).timeout(const Duration(seconds: 12));
+    tenant = cadastro.data;
   } catch (_) {}
 
   final name = churchTaxIdChurchNameFromMap(tenant);
@@ -171,9 +174,19 @@ Future<ReportPdfBranding> _loadReportPdfBrandingUncached(String seed) async {
   }
 
   Uint8List? bytes;
-  for (final raw in candidates) {
-    bytes = await _fetchOneLogoCandidate(raw);
-    if (bytes != null) break;
+  // Os cadastros antigos podem ter várias URLs/paths equivalentes. Consultar
+  // uma por vez fazia o relatório acumular timeouts. Resolve em pequenos lotes
+  // paralelos e conserva a prioridade da lista canônica.
+  for (var start = 0; start < candidates.length && bytes == null; start += 4) {
+    final end = start + 4 < candidates.length ? start + 4 : candidates.length;
+    final batch = candidates.sublist(start, end);
+    final resolved = await Future.wait(batch.map(_fetchOneLogoCandidate));
+    for (final candidate in resolved) {
+      if (candidate != null) {
+        bytes = candidate;
+        break;
+      }
+    }
   }
   if (bytes == null) {
     final url = await FirebaseStorageService.getChurchLogoDownloadUrl(

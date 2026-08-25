@@ -3,7 +3,6 @@ import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart' hide showDatePicker;
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
 import 'package:flutter/services.dart';
@@ -13,7 +12,7 @@ import 'package:gestao_yahweh/constants/currency_formats.dart';
 import 'package:gestao_yahweh/constants/finance_category_visuals.dart';
 import 'package:gestao_yahweh/models/finance_account.dart';
 import 'package:gestao_yahweh/models/user_profile.dart';
-import 'package:gestao_yahweh/ui/pages/anexo_viewer_page.dart';
+import 'package:gestao_yahweh/services/finance_comprovante_attach_service.dart';
 import 'package:gestao_yahweh/services/finance_accounts_service.dart';
 import 'package:gestao_yahweh/services/goal_deposit_service.dart';
 import 'package:gestao_yahweh/services/finance_receipt_upload_service.dart';
@@ -858,14 +857,8 @@ Future<bool> showFinanceTransactionEditDialog({
                                           size: 18),
                                       label: Text('Ver anexo'),
                                       onPressed: () async {
-                                        if (receiptLink.trim().isEmpty) return;
-                                        await Navigator.of(context).push(
-                                          MaterialPageRoute<void>(
-                                            builder: (_) => AnexoViewerScreen(
-                                                url: receiptLink,
-                                                fileName: 'Comprovante'),
-                                          ),
-                                        );
+                                        await FinanceComprovanteAttachService
+                                            .viewFromDoc(context, current);
                                       },
                                     ),
                                   ),
@@ -917,40 +910,20 @@ Future<bool> showFinanceTransactionEditDialog({
                                     : 'Anexar comprovante',
                               ),
                               onPressed: () async {
-                                final pick = await FilePicker.pickFiles(
-                                    withData: true);
-                                if (pick == null || pick.files.isEmpty) return;
-                                final f = pick.files.first;
-                                final bytes = f.bytes ?? Uint8List(0);
-                                final ext = (f.extension ?? '').toLowerCase();
-                                if (!['pdf', 'png', 'jpg', 'jpeg']
-                                    .contains(ext)) {
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                            content:
-                                                Text('Use PDF, PNG ou JPG.')));
-                                  }
-                                  return;
-                                }
-                                if (bytes.lengthInBytes > 5 * 1024 * 1024) {
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                            content: Text(
-                                                'Arquivo grande. Máx. 5 MB.')));
-                                  }
-                                  return;
-                                }
+                                final picked =
+                                    await FinanceComprovanteAttachService
+                                        .showPickSheet(
+                                  context,
+                                  title: hasExistingReceipt || hasNewReceipt
+                                      ? 'Trocar comprovante'
+                                      : 'Anexar comprovante',
+                                );
+                                if (picked == null) return;
                                 setState(() {
                                   removeReceipt = false;
-                                  newReceiptBytes = bytes;
-                                  newReceiptName = f.name;
-                                  newReceiptMime = ext == 'pdf'
-                                      ? 'application/pdf'
-                                      : (ext == 'png'
-                                          ? 'image/png'
-                                          : 'image/jpeg');
+                                  newReceiptBytes = picked.bytes;
+                                  newReceiptName = picked.fileName;
+                                  newReceiptMime = picked.mimeType;
                                 });
                               },
                             ),

@@ -172,6 +172,223 @@ void _prewarmRelatoriosData(String tenantId) {
   unawaited(ChurchRelatoriosLoadService.loadPatrimonioDocs(churchIdHint: tid));
 }
 
+typedef _ReportSignatureSelection = ({
+  String leftName,
+  String rightName,
+  Uint8List? leftSig,
+  Uint8List? rightSig,
+  bool showDigital,
+  PdfDigitalStampInput? leftDigitalStamp,
+  PdfDigitalStampInput? rightDigitalStamp,
+});
+
+const _ReportSignatureSelection _reportWithoutSignature = (
+  leftName: '',
+  rightName: '',
+  leftSig: null,
+  rightSig: null,
+  showDigital: false,
+  leftDigitalStamp: null,
+  rightDigitalStamp: null,
+);
+
+/// Seletor único para PDFs de relatórios: uma, duas ou nenhuma assinatura.
+Future<_ReportSignatureSelection?> _pickReportSignatures(
+  BuildContext context, {
+  required String tenantId,
+}) async {
+  var raw = _RelatoriosMembersDataCache.peek(tenantId) ?? const [];
+  if (raw.isEmpty) {
+    raw = await _RelatoriosMembersDataCache.fetch(tenantId, limit: 800);
+  }
+  final members = raw.map((m) {
+    final cpf = (m['CPF'] ?? m['cpf'] ?? '')
+        .toString()
+        .replaceAll(RegExp(r'\D'), '');
+    return (
+      id: (m['id'] ?? '').toString().trim(),
+      nome: (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '')
+          .toString()
+          .trim(),
+      cargo: (m['CARGO'] ?? m['FUNCAO'] ?? m['cargo'] ?? '')
+          .toString()
+          .trim(),
+      cpf: cpf,
+      assinatura:
+          (m['assinaturaUrl'] ?? m['assinatura_url'] ?? '').toString().trim(),
+    );
+  }).where((m) => m.id.isNotEmpty && m.nome.isNotEmpty).toList()
+    ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+  if (!context.mounted) return null;
+
+  String? leftId;
+  String? rightId;
+  var digital = true;
+  final choice = await showDialog<({String? left, String? right, bool digital})>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) {
+        Widget picker(String label, String? selected, ValueChanged<String?> set) {
+          final current = members.where((m) => m.id == selected).firstOrNull;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF64748B),
+                  )),
+              const SizedBox(height: 6),
+              ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: const BorderSide(color: Color(0xFFE2E8F0)),
+                ),
+                tileColor: const Color(0xFFF8FAFC),
+                leading: const Icon(Icons.draw_rounded),
+                title: Text(current?.nome ?? 'Escolher signatário'),
+                subtitle: current == null
+                    ? const Text('Toque para buscar nos membros')
+                    : Text(current.cargo.isEmpty ? 'Membro' : current.cargo),
+                trailing: current == null
+                    ? const Icon(Icons.chevron_right_rounded)
+                    : IconButton(
+                        tooltip: 'Remover',
+                        onPressed: () => set(null),
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                onTap: () async {
+                  final picked = await escolherMembroNaGrelha(
+                    dialogContext,
+                    tenantId: tenantId,
+                    selecionadoId: selected,
+                  );
+                  if (picked != null) set(picked.id);
+                },
+              ),
+            ],
+          );
+        }
+
+        return AlertDialog(
+          title: const Text('Assinaturas do relatório'),
+          content: SizedBox(
+            width: 540,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                picker('PRIMEIRA ASSINATURA', leftId,
+                    (v) => setDialogState(() => leftId = v)),
+                const SizedBox(height: 12),
+                picker('SEGUNDA ASSINATURA', rightId,
+                    (v) => setDialogState(() => rightId = v)),
+                const SizedBox(height: 8),
+                SwitchListTile.adaptive(
+                  value: digital,
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Selo de assinatura digital'),
+                  subtitle: const Text('Mesmo padrão usado nos certificados.'),
+                  onChanged: (v) => setDialogState(() => digital = v),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(
+                dialogContext,
+                (left: null, right: null, digital: false),
+              ),
+              child: const Text('Emitir sem assinatura'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(
+                dialogContext,
+                (left: leftId, right: rightId, digital: digital),
+              ),
+              child: const Text('Aplicar'),
+            ),
+          ],
+        );
+      },
+    ),
+  );
+  if (choice == null) return null;
+  if (choice.left == null && choice.right == null) {
+    return _reportWithoutSignature;
+  }
+
+  final left = members.where((m) => m.id == choice.left).firstOrNull;
+  final right = members.where((m) => m.id == choice.right).firstOrNull;
+  Map<String, dynamic> church = {};
+  if (choice.digital) {
+    try {
+      church = (await ChurchFirestoreAccess.getChurchRoot(churchId: tenantId))
+              .data() ??
+          {};
+    } catch (_) {}
+  }
+  Future<Uint8List?> signatureBytes(String url) async {
+    if (choice.digital || url.trim().isEmpty) return null;
+    return ImageHelper.getBytesFromUrlOrNull(
+      sanitizeImageUrl(url),
+      timeout: const Duration(seconds: 10),
+    );
+  }
+
+  final images = await Future.wait([
+    signatureBytes(left?.assinatura ?? ''),
+    signatureBytes(right?.assinatura ?? ''),
+  ]);
+  final churchName = churchTaxIdChurchNameFromMap(church);
+  PdfDigitalStampInput? stamp(dynamic signer) =>
+      !choice.digital || signer == null
+          ? null
+          : PdfDigitalStampInput.now(
+              signerName: signer.nome as String,
+              signerCpfDigits: (signer.cpf as String).length == 11
+                  ? signer.cpf as String
+                  : null,
+              churchName: churchName,
+              churchData: church,
+            );
+  return (
+    leftName: left?.nome ?? '',
+    rightName: right?.nome ?? '',
+    leftSig: images[0],
+    rightSig: images[1],
+    showDigital: choice.digital,
+    leftDigitalStamp: stamp(left),
+    rightDigitalStamp: stamp(right),
+  );
+}
+
+pw.Widget? _reportSignatureBlock(
+  _ReportSignatureSelection selection,
+  PdfColor accent, {
+  String leftTitle = 'Responsável',
+  String rightTitle = 'Responsável pastoral',
+}) {
+  if (selection.leftName.isEmpty && selection.rightName.isEmpty) return null;
+  return PdfSuperPremiumTheme.reportDualSignatureAttestation(
+    accent: accent,
+    leftTitle: leftTitle,
+    rightTitle: rightTitle,
+    leftSignerName: selection.leftName,
+    rightSignerName: selection.rightName,
+    leftSignatureImageBytes: selection.leftSig,
+    rightSignatureImageBytes: selection.rightSig,
+    showDigitalSignatures: selection.showDigital,
+    leftDigitalStamp: selection.leftDigitalStamp,
+    rightDigitalStamp: selection.rightDigitalStamp,
+  );
+}
+
 /// Fecha no máximo uma rota (relatório sobre o painel). Nunca usa rootNavigator.
 void _popUmaRotaRelatorio(BuildContext context) {
   final nav = Navigator.of(context);
@@ -832,8 +1049,12 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
   CollectionReference<Map<String, dynamic>> get _membersIgrejas => ChurchUiCollections.membros(_effectiveTenantId);
   CollectionReference<Map<String, dynamic>> get _membrosIgrejas => ChurchUiCollections.membros(_effectiveTenantId);
 
-  Future<List<Map<String, dynamic>>> _fetchMembers() =>
-      _RelatoriosMembersDataCache.fetch(_effectiveTenantId, limit: 800);
+  Future<List<Map<String, dynamic>>> _fetchMembers({bool forceRefresh = false}) =>
+      _RelatoriosMembersDataCache.fetch(
+        _effectiveTenantId,
+        limit: 800,
+        forceRefresh: forceRefresh,
+      );
 
   String _val(Map<String, dynamic> m, String key) {
     if (key == 'nome') return (m['NOME_COMPLETO'] ?? m['nome'] ?? m['name'] ?? '').toString();
@@ -914,11 +1135,16 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Selecione ao menos um campo.')));
       return;
     }
+    final signatures = await _pickReportSignatures(
+      context,
+      tenantId: _effectiveTenantId,
+    );
+    if (signatures == null) return;
     setState(() => _loading = true);
     YahwehFlowLog.relatorioStart();
     try {
       final prep = await Future.wait<dynamic>([
-        _fetchMembers(),
+        _fetchMembers(forceRefresh: true),
         _loadReportPdfBrandingFast(_effectiveTenantId),
       ]);
       var list = prep[0] as List<Map<String, dynamic>>;
@@ -949,6 +1175,11 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
         ];
       }).toList();
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
+      final signatureBlock = _reportSignatureBlock(
+        signatures,
+        branding.accent,
+        leftTitle: 'Responsável pelo relatório',
+      );
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
@@ -974,6 +1205,10 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
               columnWidths:
                   PdfSuperPremiumTheme.columnWidthsMemberReport(keys),
             ),
+            if (signatureBlock != null) ...[
+              pw.SizedBox(height: 20),
+              signatureBlock,
+            ],
           ],
         ),
       );
@@ -1269,20 +1504,33 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Defina o período (data início e fim).')));
       return;
     }
+    final signatures = await _pickReportSignatures(
+      context,
+      tenantId: _effectiveTenantId,
+    );
+    if (signatures == null) return;
     setState(() => _loading = true);
     try {
       final list = _listaAniversariantesFiltrada();
+      final reportYear = (_filtro == 3 && _dataInicio != null)
+          ? _dataInicio!.year
+          : DateTime.now().year;
       final titulo = _filtro == 0
-          ? 'Aniversariantes ? Hoje'
+          ? 'Aniversariantes — Hoje'
           : _filtro == 1
-              ? 'Aniversariantes ? Semana'
+              ? 'Aniversariantes — Semana'
               : _filtro == 2
                   ? 'Aniversariantes — Mês'
                   : _filtro == 4
-                      ? 'Aniversariantes ? Ano'
+                      ? 'Aniversariantes — Ano $reportYear'
                       : 'Aniversariantes — Período';
       final branding = await _loadReportPdfBrandingFast(_effectiveTenantId);
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
+      final signatureBlock = _reportSignatureBlock(
+        signatures,
+        branding.accent,
+        leftTitle: 'Responsável pela comunicação',
+      );
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
@@ -1353,6 +1601,10 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                   ),
                 );
               }
+              if (signatureBlock != null) {
+                blocks.add(pw.SizedBox(height: 20));
+                blocks.add(signatureBlock);
+              }
               return blocks;
             }
             return [
@@ -1375,6 +1627,10 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
                 columnWidths:
                     PdfSuperPremiumTheme.columnWidthsAniversariantesSimples,
               ),
+              if (signatureBlock != null) ...[
+                pw.SizedBox(height: 20),
+                signatureBlock,
+              ],
             ];
           },
         ),
@@ -2827,17 +3083,16 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
     });
   }
 
-  Future<List<Map<String, dynamic>>> _queryFinanceRows() async {
+  Future<Map<String, dynamic>> _loadFinanceSummary({bool forceRefresh = false}) async {
     final p = _periodoSelecionado();
-    return YahwehReportsEngineFetcher.fetchFinanceRowsForPeriod(
-      churchIdHint: _effectiveTenantId,
-      inicio: p.inicio,
-      fim: p.fim,
+    final rows = await financeFirestoreOpWithRetry(
+      () => YahwehReportsEngineFetcher.fetchFinanceRowsForPeriod(
+        churchIdHint: _effectiveTenantId,
+        inicio: p.inicio,
+        fim: p.fim,
+        forceRefresh: forceRefresh,
+      ),
     );
-  }
-
-  Future<Map<String, dynamic>> _loadFinanceSummary() async {
-    final rows = await financeFirestoreOpWithRetry(_queryFinanceRows);
     final contaLabels = <String, String>{
       for (final c in _contas) c.id: c.nome,
     };
@@ -2849,17 +3104,6 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
       'filtroStatusDespesa': _filtroStatusDespesa,
       'contaLabels': contaLabels,
     });
-  }
-
-  Future<Uint8List?> _loadSignerSignatureBytes(String rawUrl) async {
-    final url = sanitizeImageUrl(rawUrl.trim());
-    if (url.isEmpty) return null;
-    final b = await ImageHelper.getBytesFromUrlOrNull(
-      url,
-      timeout: const Duration(seconds: 14),
-    );
-    if (b == null || b.length < 24) return null;
-    return b;
   }
 
   Future<({
@@ -3179,7 +3423,7 @@ class RelatorioFinanceiroPageState extends State<RelatorioFinanceiroPage> {
       final tenant = tenantSnap.data() ?? <String, dynamic>{};
       final prep = await Future.wait<dynamic>([
         _loadReportPdfBrandingFast(widget.tenantId),
-        _loadFinanceSummary(),
+        _loadFinanceSummary(forceRefresh: true),
       ]);
       final branding = prep[0] as ReportPdfBranding;
       final summary = prep[1] as Map<String, dynamic>;
@@ -4892,8 +5136,20 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Selecione ao menos um campo para imprimir.')));
       return;
     }
+    final signatures = await _pickReportSignatures(
+      context,
+      tenantId: _effectiveTenantId,
+    );
+    if (signatures == null) return;
     setState(() => _exporting = true);
     try {
+      final freshDocs = await YahwehReportsEngineFetcher.fetchPatrimonioDocs(
+        churchIdHint: _effectiveTenantId,
+        forceRefresh: true,
+      );
+      if (mounted && freshDocs.isNotEmpty) {
+        setState(() => _docs = freshDocs);
+      }
       final docs = _filteredAndSortedDocs();
       if (docs.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nenhum item para exportar.')));
@@ -4920,6 +5176,11 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
         if (_filterStatus.isNotEmpty) 'Filtro: ${_statusLabel(_filterStatus)}',
       ];
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
+      final signatureBlock = _reportSignatureBlock(
+        signatures,
+        branding.accent,
+        leftTitle: 'Responsável pelo patrimônio',
+      );
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
@@ -4945,12 +5206,10 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
               columnWidths:
                   PdfSuperPremiumTheme.columnWidthsPatrimonioReport(keys),
             ),
-            pw.SizedBox(height: 18),
-            PdfSuperPremiumTheme.reportPastoralSignatureBox(
-              accent: branding.accent,
-              sectionTitle: 'Conferência e validação',
-              label: 'Assinatura do responsável pelo patrimônio ou pastor',
-            ),
+            if (signatureBlock != null) ...[
+              pw.SizedBox(height: 18),
+              signatureBlock,
+            ],
           ],
         ),
       );
@@ -5170,7 +5429,6 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
       _loading = true;
       _carregarError = null;
     });
-    _eventos = [];
     try {
       final now = DateTime.now();
       DateTime start;
@@ -5230,12 +5488,22 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Defina o período (data início e fim).')));
       return;
     }
+    final signatures = await _pickReportSignatures(
+      context,
+      tenantId: _effectiveTenantId,
+    );
+    if (signatures == null) return;
     setState(() => _loading = true);
     try {
-      await _carregar();
+      await _carregar(forceRefresh: true);
       final titulo = _tipo == 'dia' ? 'Relatório de Eventos — Dia' : _tipo == 'mes' ? 'Relatório de Eventos — Mês' : _tipo == 'anual' ? 'Relatório de Eventos — Ano' : 'Relatório de Eventos — Período';
       final branding = await _loadReportPdfBrandingFast(widget.tenantId);
       final format = _pdfLandscape ? PdfPageFormat.a4.landscape : PdfPageFormat.a4;
+      final signatureBlock = _reportSignatureBlock(
+        signatures,
+        branding.accent,
+        leftTitle: 'Responsável pelo evento',
+      );
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
@@ -5282,6 +5550,10 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
                 accent: branding.accent,
                 columnWidths: PdfSuperPremiumTheme.columnWidthsEventosReport,
               ),
+            if (signatureBlock != null) ...[
+              pw.SizedBox(height: 20),
+              signatureBlock,
+            ],
           ],
         ),
       );

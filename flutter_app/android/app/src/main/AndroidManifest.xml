@@ -95,10 +95,18 @@
         <meta-data
             android:name="google_analytics_adid_collection_enabled"
             android:value="true" />
-        <!-- image_cropper (uCrop): sem orientação fixa — tablets/dobráveis/Android 16+ -->
+        <!-- image_cropper (uCrop) — tablets/dobráveis/Android 16+.
+             `unspecified` + `tools:replace` é **explicito** de proposito: omitir
+             o atributo deixa o merger herdar o `portrait` que vem do manifesto
+             do plugin, e foi isso que a Play apontou no AAB anterior. Com
+             `resizeableActivity` o recorte acompanha janela dividida e dobravel. -->
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
-            android:theme="@style/Theme.Yahweh.UCrop" />
+            android:screenOrientation="unspecified"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density"
+            android:theme="@style/Theme.Yahweh.UCrop"
+            tools:replace="android:screenOrientation" />
         <!-- Home widgets — paridade Controle Total (3 tamanhos + sync meia-noite) -->
         <receiver
             android:name=".GestaoYahwehWidgetProvider"

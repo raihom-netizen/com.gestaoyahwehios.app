@@ -261,7 +261,7 @@ abstract final class MediaService {
       prepareVideoForUpload(
         inputPath,
         onCompressProgress: onCompressProgress,
-        generateThumbnail: true,
+        generateThumbnail: false,
         forceTranscode: true,
       );
 

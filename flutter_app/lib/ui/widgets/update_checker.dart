@@ -15,7 +15,9 @@ Future<void> showPremiumVersionUpdateDialog(
 ) async {
   final hasUrl = vr.updateUrl.isNotEmpty;
   // Web: force nunca tranca a UI (lançamentos estáveis).
-  final forced = vr.force && !kIsWeb;
+  // Atualização sempre opcional: a loja pode atualizar automaticamente em
+  // background e o utilizador também pode escolher o melhor momento.
+  const forced = false;
   await showDialog<void>(
     context: context,
     useRootNavigator: true,

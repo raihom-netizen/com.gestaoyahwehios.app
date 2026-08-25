@@ -52,8 +52,19 @@ abstract final class ChurchCanonicalMediaContract {
   ];
   static const chatLegacyUrlKeys = ['mediaUrl', 'fileUrl', 'downloadURL'];
 
-  static const financeUrlKeys = ['comprovanteUrl', 'comprovanteLink'];
-  static const financeStoragePathKeys = ['comprovanteStoragePath'];
+  static const financeUrlKeys = [
+    'comprovanteUrl',
+    'comprovanteLink',
+    'receiptUrl',
+    'receiptLink',
+    'anexoUrl',
+  ];
+  static const financeStoragePathKeys = [
+    'comprovanteStoragePath',
+    'comprovantePath',
+    'receiptStoragePath',
+    'receiptPath',
+  ];
 
   static const patrimonioUrlSlotKeys = [
     'foto01',
@@ -164,16 +175,46 @@ abstract final class ChurchCanonicalMediaContract {
     if (data == null) {
       return const ChurchCanonicalMediaRef();
     }
-    final url = sanitizeImageUrl(_firstString(data, financeUrlKeys));
-    final path = _normalizePath(
-      _firstString(data, financeStoragePathKeys),
+    final receipt = data['receipt'] is Map
+        ? Map<String, dynamic>.from(data['receipt'] as Map)
+        : const <String, dynamic>{};
+    final canonicalUrl = _firstString(data, financeUrlKeys);
+    final legacyUrl = _firstString(receipt, const [
+      'webViewLink',
+      'webContentLink',
+      'downloadUrl',
+      'url',
+      'link',
+    ]);
+    final url = sanitizeImageUrl(
+      canonicalUrl.isNotEmpty ? canonicalUrl : legacyUrl,
     );
-    var fileName = (data['comprovanteFileName'] ?? '').toString().trim();
+    final canonicalPath = _firstString(data, financeStoragePathKeys);
+    final legacyPath = _firstString(receipt, const [
+      'storagePath',
+      'path',
+      'fullPath',
+    ]);
+    final path = _normalizePath(
+      canonicalPath.isNotEmpty ? canonicalPath : legacyPath,
+    );
+    var fileName = (data['comprovanteFileName'] ??
+            receipt['name'] ??
+            receipt['originalName'] ??
+            receipt['fileName'] ??
+            '')
+        .toString()
+        .trim();
     if (fileName.isEmpty && path.contains('/')) {
       fileName = path.split('/').last;
     }
     if (fileName.isEmpty) fileName = 'Comprovante';
-    final mime = (data['comprovanteMimeType'] ?? '').toString().trim();
+    final mime = (data['comprovanteMimeType'] ??
+            receipt['mimeType'] ??
+            receipt['contentType'] ??
+            '')
+        .toString()
+        .trim();
     return ChurchCanonicalMediaRef(
       downloadUrl: url,
       storagePath: path,
@@ -185,8 +226,10 @@ abstract final class ChurchCanonicalMediaContract {
   static bool hasViewableFinanceComprovante(Map<String, dynamic>? data) {
     if (data == null) return false;
     final ref = resolveFinanceComprovante(data);
-    if (data['hasComprovante'] == true && ref.isResolvable) return true;
-    return ref.isResolvable;
+    if (ref.isResolvable) return true;
+    // Compatibilidade com lançamentos já confirmados pelo fluxo legado.
+    // Na fila offline ainda não há conteúdo visualizável no Storage.
+    return data['hasReceipt'] == true && data['receiptPendingUpload'] != true;
   }
 
   static String financeComprovanteViewUrl(Map<String, dynamic>? data) {
@@ -592,6 +635,7 @@ abstract final class ChurchCanonicalMediaContract {
 
   static Map<String, dynamic> comprovanteClearFirestorePatch() => {
         'hasComprovante': false,
+        'hasReceipt': false,
         'comprovanteUploadState': FieldValue.delete(),
         'comprovanteUrl': FieldValue.delete(),
         'comprovanteLink': FieldValue.delete(),
@@ -601,6 +645,13 @@ abstract final class ChurchCanonicalMediaContract {
         'comprovanteCacheRevision': FieldValue.delete(),
         'comprovanteUploadError': FieldValue.delete(),
         'comprovanteUpdatedAt': FieldValue.delete(),
+        'receipt': FieldValue.delete(),
+        'receiptUrl': FieldValue.delete(),
+        'receiptLink': FieldValue.delete(),
+        'receiptStoragePath': FieldValue.delete(),
+        'receiptPath': FieldValue.delete(),
+        'receiptPendingUpload': FieldValue.delete(),
+        'anexoUrl': FieldValue.delete(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
 

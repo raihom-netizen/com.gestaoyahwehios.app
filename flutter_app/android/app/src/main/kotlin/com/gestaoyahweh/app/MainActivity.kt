@@ -34,6 +34,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
     }
 
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -151,6 +152,7 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+
     }
 
     private fun extractPath(intent: Intent?): String? {

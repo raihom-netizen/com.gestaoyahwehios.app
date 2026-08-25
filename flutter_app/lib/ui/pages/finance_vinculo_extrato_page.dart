@@ -1,6 +1,5 @@
 import 'package:gestao_yahweh/core/performance/firebase_performance_limits.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
-import 'package:gestao_yahweh/ui/pages/novo_lancamento_page.dart';
 import 'package:gestao_yahweh/utils/yahweh_date_range_picker.dart';
 import 'dart:async';
 
@@ -166,7 +165,8 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
           contas = await FinanceAccountsService().listOnce(_tid);
         } catch (_) {}
       }
-      final perfil = _perfil ??
+      final perfil =
+          _perfil ??
           await perfilParaEditorFinanceiro(_tid, panelRole: widget.panelRole);
 
       if (!mounted) return;
@@ -195,15 +195,27 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
   bool _pertence(Map<String, dynamic> d) {
     if (d['vinculoMultiplo'] == true) return false;
     final alvo = widget.vinculoId.trim();
-    if (alvo.isEmpty) return false;
     final chaves = widget.ehMembro
-        ? const ['membroId', 'memberId']
-        : const ['fornecedorId'];
+        ? const ['membroId', 'memberId', 'membroCodigo', 'codigoMembro']
+        : const ['fornecedorId', 'supplierId', 'fornecedorCodigo'];
     for (final k in chaves) {
-      if ((d[k] ?? '').toString().trim() == alvo) return true;
+      if (alvo.isNotEmpty && (d[k] ?? '').toString().trim() == alvo) {
+        return true;
+      }
+    }
+    final nomeAlvo = _normalizarVinculo(widget.nome);
+    final nomes = widget.ehMembro
+        ? const ['membroNome', 'memberNome', 'memberName', 'donorName']
+        : const ['fornecedorNome', 'supplierName', 'vendorName'];
+    for (final k in nomes) {
+      final nome = _normalizarVinculo((d[k] ?? '').toString());
+      if (nomeAlvo.isNotEmpty && nome == nomeAlvo) return true;
     }
     return false;
   }
+
+  static String _normalizarVinculo(String value) =>
+      value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
   // ─────────────────────────────────────────────── período
 
@@ -229,8 +241,10 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
       case FinanceExtratoPeriodo.ano:
         return 'Ano de $_ano';
       case FinanceExtratoPeriodo.mes:
-        return DateFormat('MMMM \'de\' y', 'pt_BR')
-            .format(DateTime(_ano, _mes));
+        return DateFormat(
+          'MMMM \'de\' y',
+          'pt_BR',
+        ).format(DateTime(_ano, _mes));
       case FinanceExtratoPeriodo.intervalo:
         final r = _intervalo;
         if (r == null) return 'Período livre';
@@ -272,12 +286,18 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
   double get _totalReceitas => _doPeriodo
       .map((d) => d.data())
       .where(_ehEntrada)
-      .fold<double>(0, (a, d) => a + financeParseValorBr(d['amount'] ?? d['valor']));
+      .fold<double>(
+        0,
+        (a, d) => a + financeParseValorBr(d['amount'] ?? d['valor']),
+      );
 
   double get _totalDespesas => _doPeriodo
       .map((d) => d.data())
       .where(_ehSaida)
-      .fold<double>(0, (a, d) => a + financeParseValorBr(d['amount'] ?? d['valor']));
+      .fold<double>(
+        0,
+        (a, d) => a + financeParseValorBr(d['amount'] ?? d['valor']),
+      );
 
   /// Receitas e despesas mês a mês do ano em curso — base do gráfico.
   List<({int mes, double receitas, double despesas})> get _porMes {
@@ -302,9 +322,7 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
 
   // ─────────────────────────────────────────────── ações
 
-  Future<void> _editar(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  ) async {
+  Future<void> _editar(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
     // O documento vem da lista — nada de reler. A releitura crua podia falhar
     // na web e `existingDoc: null` abre o editor em modo CRIACAO, duplicando
     // o lancamento em vez de o alterar.
@@ -320,9 +338,7 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
     }
   }
 
-  Future<void> _excluir(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  ) async {
+  Future<void> _excluir(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
@@ -348,9 +364,9 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
       await excluirLancamentoFinanceiroComAuditoria(doc, _tid);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Não foi possível excluir: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Não foi possível excluir: $e')));
       }
     }
     if (mounted) {
@@ -363,6 +379,8 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
     if (_exportando) return;
     setState(() => _exportando = true);
     try {
+      await _carregar(force: true);
+      if (!mounted) return;
       final branding = await loadReportPdfBranding(_tid);
       final bytes = await buildFinanceVinculoExtratoPdf(
         branding: branding,
@@ -370,6 +388,7 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
         nome: widget.nome,
         lancamentos: _visiveis.map((d) => d.data()).toList(),
         periodoLabel: _periodoLabel,
+        filtroLabel: _filtroTipoLabel,
       );
       if (!mounted) return;
       final slug = widget.nome
@@ -383,12 +402,25 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erro ao gerar PDF: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao gerar PDF: $e')));
       }
     } finally {
       if (mounted) setState(() => _exportando = false);
+    }
+  }
+
+  String get _filtroTipoLabel {
+    switch (_filtroTipo) {
+      case 'receitas':
+        return 'Somente receitas';
+      case 'despesas':
+        return 'Somente despesas';
+      case 'pendentes':
+        return 'Somente pendentes';
+      default:
+        return 'Todos os lançamentos';
     }
   }
 
@@ -426,7 +458,8 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
       context,
       firstDate: DateTime(agora.year - 8),
       lastDate: DateTime(agora.year + 1, 12, 31),
-      initialDateRange: _intervalo ??
+      initialDateRange:
+          _intervalo ??
           DateTimeRange(
             start: DateTime(agora.year, agora.month, 1),
             end: agora,
@@ -568,8 +601,7 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
       for (final d in _todos)
         if (financeLancamentoDate(d.data()) != null)
           financeLancamentoDate(d.data())!.year,
-    }.toList()
-      ..sort((a, b) => b.compareTo(a));
+    }.toList()..sort((a, b) => b.compareTo(a));
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -590,8 +622,11 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
         children: [
           Row(
             children: [
-              Icon(Icons.filter_alt_rounded,
-                  size: 18, color: ThemeCleanPremium.primary),
+              Icon(
+                Icons.filter_alt_rounded,
+                size: 18,
+                color: ThemeCleanPremium.primary,
+              ),
               const SizedBox(width: 6),
               const Text(
                 'PERÍODO',
@@ -637,8 +672,10 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
                     decoration: const InputDecoration(
                       labelText: 'Ano',
                       border: OutlineInputBorder(),
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                     ),
                     items: [
                       for (final a in anos)
@@ -656,16 +693,20 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
                       decoration: const InputDecoration(
                         labelText: 'Mês',
                         border: OutlineInputBorder(),
-                        contentPadding:
-                            EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                       ),
                       items: [
                         for (var m = 1; m <= 12; m++)
                           DropdownMenuItem(
                             value: m,
                             child: Text(
-                              DateFormat('MMM', 'pt_BR')
-                                  .format(DateTime(2000, m)),
+                              DateFormat(
+                                'MMM',
+                                'pt_BR',
+                              ).format(DateTime(2000, m)),
                             ),
                           ),
                       ],
@@ -762,8 +803,11 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
         children: [
           Row(
             children: [
-              Icon(Icons.bar_chart_rounded,
-                  size: 18, color: ThemeCleanPremium.primary),
+              Icon(
+                Icons.bar_chart_rounded,
+                size: 18,
+                color: ThemeCleanPremium.primary,
+              ),
               const SizedBox(width: 6),
               const Text(
                 'MÊS A MÊS',
@@ -824,9 +868,10 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
                             ),
                             const SizedBox(height: 5),
                             Text(
-                              DateFormat('MMM', 'pt_BR')
-                                  .format(DateTime(2000, e.mes))
-                                  .substring(0, 3),
+                              DateFormat(
+                                'MMM',
+                                'pt_BR',
+                              ).format(DateTime(2000, e.mes)).substring(0, 3),
                               style: const TextStyle(
                                 fontSize: 8.5,
                                 fontWeight: FontWeight.w700,
@@ -872,7 +917,10 @@ class _FinanceVinculoExtratoPageState extends State<FinanceVinculoExtratoPage> {
             child: Row(
               children: [
                 chip('todos', 'Todos (${_doPeriodo.length})'),
-                chip('receitas', widget.ehMembro ? 'Contribuições' : 'Receitas'),
+                chip(
+                  'receitas',
+                  widget.ehMembro ? 'Contribuições' : 'Receitas',
+                ),
                 chip('despesas', 'Despesas'),
                 chip('pendentes', 'Pendentes'),
               ],
@@ -997,7 +1045,10 @@ class _CardTotal extends StatelessWidget {
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [cor.withValues(alpha: 0.18), cor.withValues(alpha: 0.06)],
+                colors: [
+                  cor.withValues(alpha: 0.18),
+                  cor.withValues(alpha: 0.06),
+                ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),

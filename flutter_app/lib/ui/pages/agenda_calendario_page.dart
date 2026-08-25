@@ -6,14 +6,26 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import 'package:gestao_yahweh/core/agenda_firestore_fields.dart';
-import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
+import 'package:gestao_yahweh/core/escala_member_payload.dart';
 import 'package:gestao_yahweh/services/cep_service.dart';
+import 'package:gestao_yahweh/core/repositories/church_repository.dart';
+import 'package:gestao_yahweh/services/church_avisos_service.dart';
+import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
+import 'package:gestao_yahweh/services/church_eventos_load_service.dart';
+import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_agenda_load_service.dart';
 import 'package:gestao_yahweh/services/church_departments_load_service.dart';
+import 'package:gestao_yahweh/services/church_schedules_load_service.dart';
+import 'package:gestao_yahweh/services/finance_month_cache.dart';
+import 'package:gestao_yahweh/ui/widgets/agenda_visual_palette.dart';
+import 'package:gestao_yahweh/ui/widgets/color_palette_tabs_dialog.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_month_calendar.dart';
+import 'package:gestao_yahweh/ui/widgets/agenda_feriados_mes_card.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_preview_actions.dart';
 import 'package:gestao_yahweh/ui/widgets/agenda_responsible_picker.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_multi_day_picker_page.dart';
+import 'package:gestao_yahweh/ui/pages/church_avisos_page.dart';
+import 'package:gestao_yahweh/ui/pages/events_manager_page.dart';
 
 /// Módulo Agenda — reescrito do zero no padrão Controle Total (Agenda/Escala):
 /// calendário mensal colorido, "Funções Calendário", Hoje/Sincronizar Google,
@@ -42,37 +54,57 @@ class AgendaCalendarioPage extends StatefulWidget {
 }
 
 /// Tipo canónico da agenda YAHWEH.
-enum AgKind { culto, evento, reuniao }
+enum AgKind { aviso, evento, culto, reuniao, escala, receita, despesa }
 
 extension _AgKindX on AgKind {
   String get id => switch (this) {
-    AgKind.culto => 'culto',
+    AgKind.aviso => 'aviso',
     AgKind.evento => 'evento',
+    AgKind.culto => 'culto',
     AgKind.reuniao => 'reuniao',
+    AgKind.escala => 'escala',
+    AgKind.receita => 'receita_pendente',
+    AgKind.despesa => 'despesa_pendente',
   };
 
   String get label => switch (this) {
-    AgKind.culto => 'Culto',
+    AgKind.aviso => 'Aviso',
     AgKind.evento => 'Evento',
-        AgKind.reuniao => 'Reunião',
+    AgKind.culto => 'Culto',
+    AgKind.reuniao => 'Reunião',
+    AgKind.escala => 'Escala',
+    AgKind.receita => 'Receita pendente',
+    AgKind.despesa => 'Despesa pendente',
   };
 
   String get labelPlural => switch (this) {
-    AgKind.culto => 'Cultos',
+    AgKind.aviso => 'Avisos',
     AgKind.evento => 'Eventos',
-        AgKind.reuniao => 'Reuniões',
+    AgKind.culto => 'Cultos',
+    AgKind.reuniao => 'Reuniões',
+    AgKind.escala => 'Escalas',
+    AgKind.receita => 'Receitas pendentes',
+    AgKind.despesa => 'Despesas pendentes',
   };
 
   Color get color => switch (this) {
-    AgKind.culto => const Color(0xFF2563EB), // azul
-    AgKind.evento => const Color(0xFFF97316), // laranja
-    AgKind.reuniao => const Color(0xFF7C3AED), // roxo
+    AgKind.aviso => AgendaVisualPalette.aviso,
+    AgKind.evento => AgendaVisualPalette.evento,
+    AgKind.culto => AgendaVisualPalette.culto,
+    AgKind.reuniao => AgendaVisualPalette.reuniao,
+    AgKind.escala => AgendaVisualPalette.escala,
+    AgKind.receita => AgendaVisualPalette.receitaPendente,
+    AgKind.despesa => AgendaVisualPalette.despesaPendente,
   };
 
   IconData get icon => switch (this) {
-    AgKind.culto => Icons.church_rounded,
+    AgKind.aviso => Icons.campaign_rounded,
     AgKind.evento => Icons.celebration_rounded,
+    AgKind.culto => Icons.church_rounded,
     AgKind.reuniao => Icons.groups_rounded,
+    AgKind.escala => Icons.badge_rounded,
+    AgKind.receita => Icons.south_west_rounded,
+    AgKind.despesa => Icons.north_east_rounded,
   };
 }
 
@@ -94,6 +126,13 @@ class _AgendaItem {
   final bool allDay;
   final DocumentReference<Map<String, dynamic>> ref;
   final Map<String, dynamic> data;
+
+  Color get color =>
+      AgendaVisualPalette.hexToColor(
+        (data['colorHex'] ?? data['color'] ?? data['calendarColorHex'])
+            ?.toString(),
+      ) ??
+      kind.color;
 }
 
 /// Ficha completa do compromisso (evento / culto / reunião).
@@ -119,7 +158,10 @@ Future<void> _showAgendaItemDetails(
     for (final k in keys) {
       final v = d[k];
       if (v is List && v.isNotEmpty) {
-        return v.map((e) => e.toString().trim()).where((e) => e.isNotEmpty).toList();
+        return v
+            .map((e) => e.toString().trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
       }
     }
     return const [];
@@ -130,17 +172,38 @@ Future<void> _showAgendaItemDetails(
       ? 'Dia inteiro'
       : DateFormat('HH:mm', 'pt_BR').format(item.when);
   final descricao = pick([
-    'description', 'descricao', 'text', 'body', 'mensagem', 'observacao', 'obs',
+    'description',
+    'descricao',
+    'text',
+    'body',
+    'mensagem',
+    'observacao',
+    'obs',
   ]);
   final local = pick([
-    'location', 'local', 'endereco', 'enderecoCompleto', 'localNome',
+    'location',
+    'local',
+    'endereco',
+    'enderecoCompleto',
+    'localNome',
   ]);
   final responsavel = pick([
-    'responsavel', 'responsavelNome', 'ministro', 'pregador', 'dirigente',
+    'responsavel',
+    'responsavelNome',
+    'ministro',
+    'pregador',
+    'dirigente',
   ]);
-  final departamento = pick(['departmentName', 'departamento', 'departamentoNome']);
+  final departamento = pick([
+    'departmentName',
+    'departamento',
+    'departamentoNome',
+  ]);
   final categoria = pick(['category', 'categoria', 'categoriaNome']);
-  final escalados = pickList(['memberNames', 'escalados', 'participantes']);
+  final parsedEscalados = EscalaMemberPayload.parseMembers(d);
+  final escalados = parsedEscalados.isNotEmpty
+      ? parsedEscalados.map((e) => e.name).where((e) => e.isNotEmpty).toList()
+      : pickList(['memberNames', 'participantes']);
 
   final linhas = <({IconData icon, String label, String value})>[
     (icon: Icons.event_rounded, label: 'Tipo', value: item.kind.label),
@@ -173,7 +236,7 @@ Future<void> _showAgendaItemDetails(
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [item.kind.color, item.kind.color.withValues(alpha: 0.72)],
+            colors: [item.color, item.color.withValues(alpha: 0.72)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -269,6 +332,35 @@ Future<void> _showAgendaItemDetails(
             icon: const Icon(Icons.edit_rounded, size: 18),
             label: const Text('Editar'),
           ),
+        if (escalados.isNotEmpty)
+          FilledButton.tonalIcon(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (listContext) => AlertDialog(
+                title: Text('Todos os escalados (${escalados.length})'),
+                content: SizedBox(
+                  width: 420,
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: escalados.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (_, i) => ListTile(
+                      leading: CircleAvatar(child: Text('${i + 1}')),
+                      title: Text(escalados[i]),
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(listContext),
+                    child: const Text('Fechar'),
+                  ),
+                ],
+              ),
+            ),
+            icon: const Icon(Icons.groups_rounded),
+            label: const Text('Ver todos os escalados'),
+          ),
       ],
     ),
   );
@@ -307,6 +399,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
   bool _loading = true;
   String? _softError;
   bool _funcoesOpen = false;
+  bool _showFinance = false;
 
   bool get _canEdit {
     final r = widget.role.toLowerCase();
@@ -339,8 +432,11 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
       data['kind'],
     ].map((e) => (e ?? '').toString().toLowerCase()).join(' ');
     final hay = '$raw ${title.toLowerCase()}';
+    if (hay.contains('aviso')) return AgKind.aviso;
     if (hay.contains('culto')) return AgKind.culto;
-    if (hay.contains('reuni')) return AgKind.reuniao;
+    if (hay.contains('reuni') || hay.contains('lideranca')) {
+      return AgKind.reuniao;
+    }
     return AgKind.evento;
   }
 
@@ -356,10 +452,19 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
     if (!mounted) return;
     setState(() => _loading = true);
     try {
-      final res = await ChurchAgendaLoadService.loadAll(
-        seedTenantId: widget.tenantId,
-        forceServer: forceServer,
-      );
+      final loads = await Future.wait([
+        ChurchAgendaLoadService.loadAll(
+          seedTenantId: widget.tenantId,
+          forceServer: forceServer,
+        ),
+        ChurchSchedulesLoadService.loadEscalas(
+          seedTenantId: widget.tenantId,
+          forceServer: forceServer,
+          limit: ChurchSchedulesLoadService.kEscalasDefaultLimit,
+        ),
+      ]);
+      final res = loads[0] as ChurchAgendaLoadResult;
+      final schedules = loads[1] as ChurchSchedulesLoadResult;
       final map = <String, List<_AgendaItem>>{};
       for (final doc in res.docs) {
         final data = doc.data();
@@ -377,6 +482,60 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
         );
         map.putIfAbsent(_keyFor(when), () => []).add(item);
       }
+      for (final doc in schedules.docs) {
+        final data = doc.data();
+        if (data['active'] == false) continue;
+        final rawDate = data['date'] ?? data['startTime'] ?? data['data'];
+        final when = rawDate is Timestamp
+            ? rawDate.toDate()
+            : DateTime.tryParse(rawDate?.toString() ?? '');
+        if (when == null) continue;
+        final title =
+            (data['title'] ??
+                    data['titulo'] ??
+                    data['departmentName'] ??
+                    'Escala')
+                .toString()
+                .trim();
+        final item = _AgendaItem(
+          id: doc.id,
+          title: title.isEmpty ? 'Escala' : title,
+          when: when,
+          kind: AgKind.escala,
+          allDay: data['allDay'] == true,
+          ref: doc.reference,
+          data: {...data, 'sourceModule': 'escala'},
+        );
+        map.putIfAbsent(_keyFor(when), () => []).add(item);
+      }
+      if (_showFinance) {
+        final finance = await FinanceMonthCache.fetchMonth(
+          widget.tenantId,
+          _visibleMonth,
+          forceServer: forceServer,
+        );
+        for (final entry in finance.entries) {
+          final item = _AgendaItem(
+            id: entry.id,
+            title: entry.description.trim().isEmpty
+                ? entry.category
+                : entry.description,
+            when: entry.date,
+            kind: entry.isIncome ? AgKind.receita : AgKind.despesa,
+            allDay: true,
+            ref: ChurchUiCollections.financeiro(widget.tenantId).doc(entry.id),
+            data: {
+              'sourceModule': 'financeiro',
+              'amount': entry.amount,
+              'category': entry.category,
+              'status': entry.status,
+              if (entry.calendarColorHex != null)
+                'calendarColorHex': entry.calendarColorHex,
+            },
+          );
+          map.putIfAbsent(_keyFor(entry.date), () => []).add(item);
+        }
+      }
       for (final list in map.values) {
         list.sort((a, b) => a.when.compareTo(b.when));
       }
@@ -385,7 +544,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
         _byDay
           ..clear()
           ..addAll(map);
-        _softError = res.softError;
+        _softError = res.softError ?? schedules.softError;
         _loading = false;
       });
     } catch (e) {
@@ -416,6 +575,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
     setState(() {
       _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month + delta);
     });
+    if (_showFinance) unawaited(_load());
   }
 
   void _goToday() {
@@ -445,6 +605,11 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
           _hintCard(),
           const SizedBox(height: 14),
           _calendarCard(),
+          const SizedBox(height: 14),
+          AgendaFeriadosDoMesCard(
+            visibleMonth: _visibleMonth,
+            onDiaTocado: (dia) => setState(() => _selectedDay = dia),
+          ),
           const SizedBox(height: 14),
           _resumoDoDia(),
           const SizedBox(height: 14),
@@ -533,6 +698,30 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
                     'Recarregar do servidor',
                     () => _load(forceServer: true),
                   ),
+                  SwitchListTile.adaptive(
+                    value: _showFinance,
+                    onChanged: (value) {
+                      setState(() => _showFinance = value);
+                      unawaited(_load());
+                    },
+                    secondary: const Icon(
+                      Icons.account_balance_wallet_rounded,
+                      color: Colors.white,
+                    ),
+                    title: const Text(
+                      'Pendências financeiras no calendário',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Desativado por padrão · receitas verdes e despesas vermelhas',
+                      style: TextStyle(color: Colors.white70, fontSize: 11.5),
+                    ),
+                    activeThumbColor: Colors.white,
+                    activeTrackColor: AgendaVisualPalette.receitaPendente,
+                  ),
                 ],
               ),
             ),
@@ -594,7 +783,10 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
             icon: Icons.add_rounded,
             label: 'Novo',
             gradient: const [Color(0xFFEC4899), Color(0xFFF97316)],
-            onTap: () => _openAddEditForm(day: _selectedDay),
+            // MESMA porta do toque no dia: escolher aviso / evento / reunião
+            // abria aqui um formulário simples e ali o editor completo — dois
+            // caminhos com resultados diferentes para a mesma intenção.
+            onTap: () => unawaited(_openDayCreateMenu(_selectedDay)),
           ),
         ),
       ],
@@ -672,7 +864,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
           const SizedBox(width: 10),
           const Expanded(
             child: Text(
-              'Toque no dia para ver. Toque de novo no mesmo dia para incluir ou editar culto/evento/reunião.',
+              'Um toque seleciona o dia. Toque novamente para abrir a prévia completa de avisos, eventos, cultos, reuniões, escalas e financeiro opcional.',
               style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600,
@@ -694,10 +886,10 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
       if (items.isEmpty) return;
       final kinds = items.map((e) => e.kind).toSet();
       dayColors[key] = kinds.length == 1
-          ? items.first.kind.color
+          ? items.first.color
           : const Color(0xFF0EA5A4);
       dayCounts[key] = items.length;
-      dayColorBands[key] = items.map((e) => e.kind.color).toSet().toList();
+      dayColorBands[key] = items.map((e) => e.color).toSet().toList();
     });
     return YahwehMonthCalendar(
       visibleMonth: _visibleMonth,
@@ -708,10 +900,11 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
       onMonthDelta: _changeMonth,
       onDayTap: (day) => setState(() => _selectedDay = day),
       onDaySelectedTap: (day) => _openDayEditor(day),
+      // O card «Feriados do mês» logo abaixo já lista tudo — o rodapé embutido
+      // repetiria a mesma informação.
+      showHolidayFooter: false,
     );
   }
-
-
 
   Widget _resumoDoDia() {
     final items = _itemsOf(_selectedDay);
@@ -765,8 +958,36 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
             )
           else if (items.isEmpty)
             _emptyDay()
-          else
-            ...items.map(_dayItemTile),
+          else ...[
+            for (final kind in const [
+              AgKind.aviso,
+              AgKind.evento,
+              AgKind.culto,
+              AgKind.reuniao,
+              AgKind.escala,
+              AgKind.receita,
+              AgKind.despesa,
+            ])
+              if (items.any((e) => e.kind == kind)) ...[
+                Padding(
+                  padding: const EdgeInsets.only(top: 8, bottom: 6),
+                  child: Row(
+                    children: [
+                      Icon(kind.icon, size: 18, color: kind.color),
+                      const SizedBox(width: 7),
+                      Text(
+                        kind.labelPlural,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          color: kind.color,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                ...items.where((e) => e.kind == kind).map(_dayItemTile),
+              ],
+          ],
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -816,7 +1037,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
           if (_canEdit) ...[
             const SizedBox(height: 10),
             OutlinedButton.icon(
-              onPressed: () => _openAddEditForm(day: _selectedDay),
+              onPressed: () => unawaited(_openDayCreateMenu(_selectedDay)),
               icon: const Icon(Icons.add_rounded, size: 18),
               label: const Text('Adicionar'),
             ),
@@ -833,7 +1054,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
     final location = (item.data['location'] ?? item.data['local'] ?? '')
         .toString()
         .trim();
-    final color = item.kind.color;
+    final color = item.color;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Material(
@@ -867,114 +1088,129 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
             // infinita e o «Resumo do dia» estica sem fim.
             child: IntrinsicHeight(
               child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Faixa de cor por tipo: culto azul, evento laranja, reunião roxo.
-                Container(
-                  width: 6,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [color, color.withValues(alpha: 0.55)],
-                    ),
-                    borderRadius: const BorderRadius.horizontal(
-                      left: Radius.circular(16),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Faixa de cor por tipo: culto azul, evento laranja, reunião roxo.
+                  Container(
+                    width: 6,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [color, color.withValues(alpha: 0.55)],
+                      ),
+                      borderRadius: const BorderRadius.horizontal(
+                        left: Radius.circular(16),
+                      ),
                     ),
                   ),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(13),
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                color.withValues(alpha: 0.95),
-                                color.withValues(alpha: 0.70),
-                              ],
-                            ),
-                          ),
-                          child: Icon(
-                            item.kind.icon,
-                            color: Colors.white,
-                            size: 22,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 14.5,
-                                  fontWeight: FontWeight.w800,
-                                  height: 1.2,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 4,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  _agendaChip(item.kind.label, color),
-                                  _agendaChip(
-                                    timeLabel,
-                                    const Color(0xFF475569),
-                                    icon: Icons.schedule_rounded,
-                                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(13),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  color.withValues(alpha: 0.95),
+                                  color.withValues(alpha: 0.70),
                                 ],
                               ),
-                              if (location.isNotEmpty) ...[
-                                const SizedBox(height: 5),
-                                Row(
+                            ),
+                            child: Icon(
+                              item.kind.icon,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 14.5,
+                                    fontWeight: FontWeight.w800,
+                                    height: 1.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
                                   children: [
-                                    const Icon(
-                                      Icons.place_rounded,
-                                      size: 13,
-                                      color: Color(0xFF94A3B8),
-                                    ),
-                                    const SizedBox(width: 3),
-                                    Expanded(
-                                      child: Text(
-                                        location,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Color(0xFF64748B),
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
+                                    _agendaChip(item.kind.label, color),
+                                    _agendaChip(
+                                      timeLabel,
+                                      const Color(0xFF475569),
+                                      icon: Icons.schedule_rounded,
                                     ),
                                   ],
                                 ),
+                                if (location.isNotEmpty) ...[
+                                  const SizedBox(height: 5),
+                                  Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.place_rounded,
+                                        size: 13,
+                                        color: Color(0xFF94A3B8),
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Expanded(
+                                        child: Text(
+                                          location,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Color(0xFF64748B),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
-                        ),
-                        const Icon(
-                          Icons.chevron_right_rounded,
-                          color: Color(0xFFB6C2D2),
-                        ),
-                      ],
+                          // As mesmas três ações da prévia do mês: ver
+                          // detalhes, alterar e excluir. Antes o resumo do dia
+                          // só tinha uma seta — para editar ou apagar era
+                          // preciso descobrir o caminho pelos cards do mês.
+                          AgendaPreviewActions(
+                            compact: true,
+                            onDetails: () => _showAgendaItemDetails(
+                              context,
+                              item,
+                              onEdit: _canEditAgendaItem(item)
+                                  ? () => _openAddEditForm(item: item)
+                                  : null,
+                            ),
+                            canEdit: _canEditAgendaItem(item),
+                            onEdit: () =>
+                                unawaited(_editAgendaItemFromPreview(item)),
+                            onDelete: () =>
+                                unawaited(_removerItemDaAgenda(item)),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
               ),
             ),
           ),
@@ -1011,7 +1247,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
 
   Widget _counters() {
     final month = _monthItems();
-    final cultos = month.where((e) => e.kind == AgKind.culto).length;
+    final avisos = month.where((e) => e.kind == AgKind.aviso).length;
     final eventos = month.where((e) => e.kind == AgKind.evento).length;
     final reunioes = month.where((e) => e.kind == AgKind.reuniao).length;
     return Row(
@@ -1062,14 +1298,14 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
         ),
         const SizedBox(width: 10),
         _counterCard(
-          'Cultos',
-          cultos,
-          AgKind.culto.color,
-          AgKind.culto.icon,
+          'Avisos',
+          avisos,
+          AgKind.aviso.color,
+          AgKind.aviso.icon,
           onTap: () => _openKindPreview(
             context,
-            title: 'Cultos',
-            items: month.where((e) => e.kind == AgKind.culto).toList(),
+            title: 'Avisos',
+            items: month.where((e) => e.kind == AgKind.aviso).toList(),
             canEdit: _canEditAgendaItem,
             onEdit: _editAgendaItemFromPreview,
             onDelete: _deleteAgendaItemFromPreview,
@@ -1135,11 +1371,76 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
   // ---------------------------------------------------------------------------
 
   void _openDayEditor(DateTime day) {
-    if (!_canEdit) return;
-    _openAddEditForm(day: day);
+    unawaited(_openDayCreateMenu(day));
   }
 
-  Future<void> _openAddEditForm({DateTime? day, _AgendaItem? item}) async {
+  /// Prévia do dia em **tela cheia**.
+  ///
+  /// Era um bottom sheet com altura igual à da tela dentro de uma folha que
+  /// nunca chega à altura toda: o conteúdo transbordava, o rodapé ficava fora
+  /// do ecrã e o texto do fundo aparecia por baixo do card. Uma rota inteira
+  /// resolve isso e ainda dá espaço para as ações de cada compromisso.
+  ///
+  /// Devolve o tipo escolhido em «Adicionar» — é a MESMA porta que o botão
+  /// «Novo» e o «Adicionar» do resumo do dia usam, para os três caminhos
+  /// abrirem exatamente o mesmo editor.
+  Future<void> _openDayCreateMenu(DateTime day) async {
+    final choice = await Navigator.of(context).push<AgKind>(
+      MaterialPageRoute<AgKind>(
+        fullscreenDialog: true,
+        builder: (_) => _AgendaDiaPreviewPage(
+          day: day,
+          canEdit: _canEdit,
+          itemsBuilder: () => _itemsOf(day),
+          canEditItem: _canEditAgendaItem,
+          onDetails: (item) => _showAgendaItemDetails(
+            context,
+            item,
+            onEdit: _canEditAgendaItem(item)
+                ? () => _openAddEditForm(item: item)
+                : null,
+          ),
+          onEdit: _editAgendaItemFromPreview,
+          onDelete: _removerItemDaAgenda,
+        ),
+      ),
+    );
+    if (!mounted || choice == null) return;
+    await _abrirEditorDoTipo(choice, day);
+  }
+
+  /// Abre o editor completo do tipo escolhido — aviso, evento/culto ou reunião.
+  Future<void> _abrirEditorDoTipo(AgKind kind, DateTime day) async {
+    if (kind == AgKind.aviso) {
+      await openChurchAvisoEditor(
+        context: context,
+        tenantId: widget.tenantId,
+        role: widget.role,
+        permissions: widget.permissions ?? const [],
+        initialDate: day,
+      );
+    } else if (kind == AgKind.evento || kind == AgKind.culto) {
+      await openChurchEventEditor(
+        context: context,
+        tenantId: widget.tenantId,
+        initialDate: day,
+      );
+    } else {
+      await openChurchEventEditor(
+        context: context,
+        tenantId: widget.tenantId,
+        initialDate: day,
+        meetingMode: true,
+      );
+    }
+    if (mounted) await _load(forceServer: true);
+  }
+
+  Future<void> _openAddEditForm({
+    DateTime? day,
+    _AgendaItem? item,
+    AgKind? initialKind,
+  }) async {
     if (!_canEdit) return;
     final initialDate = item?.when ?? day ?? _selectedDay;
     // Tela CHEIA (padrão Eventos/Avisos) com botão Voltar — em vez de bottom sheet.
@@ -1150,6 +1451,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
           tenantId: widget.tenantId,
           item: item,
           initialDate: initialDate,
+          initialKind: initialKind,
         ),
       ),
     );
@@ -1159,6 +1461,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
   }
 
   bool _canEditAgendaItem(_AgendaItem item) {
+    if ((item.data['sourceModule'] ?? 'agenda') != 'agenda') return false;
     final role = widget.role.toLowerCase();
     if (role.contains('líder') || role.contains('lider')) {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
@@ -1178,10 +1481,114 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
     await _openAddEditForm(item: item);
   }
 
-  Future<void> _deleteAgendaItemFromPreview(_AgendaItem item) async {
+  Future<void> _deleteAgendaItemFromPreview(_AgendaItem item) =>
+      _removerItemDaAgenda(item);
+
+  /// Remove um compromisso **por inteiro**: pergunta, apaga o documento de
+  /// origem (evento ou aviso), o espelho na agenda e as imagens/vídeos no
+  /// Storage.
+  ///
+  /// Antes apagava só o doc da `agenda`. O evento continuava no módulo
+  /// Eventos, no mural e no site público, e as fotos ficavam a ocupar Storage
+  /// para sempre — o utilizador via o item «voltar» e pagava armazenamento por
+  /// ficheiros que já ninguém alcançava.
+  Future<void> _removerItemDaAgenda(_AgendaItem item) async {
     if (!_canEditAgendaItem(item)) return;
-    await ChurchAgendaLoadService.deleteAgendaEvent(item.ref);
-    await _load(forceServer: true);
+
+    final rotulo = item.kind.label.toLowerCase();
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+        ),
+        icon: const Icon(
+          Icons.delete_forever_rounded,
+          color: Color(0xFFDC2626),
+          size: 30,
+        ),
+        title: Text('Remover $rotulo?'),
+        content: Text(
+          'Deseja realmente remover "${item.title}"?\n\n'
+          'Isto apaga o registo do calendário, do módulo de origem e as '
+          'fotos ou vídeos guardados. Não dá para desfazer.',
+          style: const TextStyle(height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.delete_outline_rounded, size: 18),
+            label: const Text('Remover'),
+          ),
+        ],
+      ),
+    );
+    if (confirmar != true || !mounted) return;
+
+    final tid = ChurchRepository.churchId(widget.tenantId);
+    final eventoId = (item.data['noticiaId'] ?? item.data['eventoId'] ?? '')
+        .toString()
+        .trim();
+    final avisoId = (item.data['avisoId'] ?? '').toString().trim();
+
+    try {
+      if (eventoId.isNotEmpty) {
+        // Apaga o evento de origem (Firestore + Storage + mural/site) e o
+        // espelho que ele mantém na agenda.
+        await ChurchEventosLoadService.deleteOne(
+          churchIdHint: tid,
+          docId: eventoId,
+        );
+        await ChurchFeedAgendaSyncService.deleteForEvento(
+          tenantId: tid,
+          eventoId: eventoId,
+        );
+      } else if (avisoId.isNotEmpty) {
+        await ChurchAvisosService.deleteOne(churchIdHint: tid, docId: avisoId);
+        await ChurchFeedAgendaSyncService.deleteForAviso(
+          tenantId: tid,
+          avisoId: avisoId,
+        );
+      }
+
+      // O doc da agenda pode já ter desaparecido com o espelho; apagar de novo
+      // é inofensivo e garante que nada fica para trás.
+      await ChurchAgendaLoadService.deleteAgendaEvent(item.ref);
+
+      // Compromisso criado direto na agenda também pode ter imagens.
+      if (eventoId.isEmpty && avisoId.isEmpty) {
+        await ChurchCanonicalMediaDeleteService.purgeFeedPostDeleted(
+          tenantId: tid,
+          postId: item.id,
+          isEvento: item.kind != AgKind.aviso,
+          data: item.data,
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${item.kind.label} removido.'),
+          backgroundColor: const Color(0xFF15803D),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não foi possível remover: $e'),
+          backgroundColor: const Color(0xFFB91C1C),
+        ),
+      );
+    }
+    if (mounted) await _load(forceServer: true);
   }
 }
 
@@ -1210,6 +1617,482 @@ Future<void> _openKindPreview(
       ),
     ),
   );
+}
+
+/// Prévia completa de um dia — tela cheia.
+///
+/// Junta as duas coisas que se quer ao tocar num dia: **ver o que já existe**
+/// (com ver detalhes / alterar / excluir) e **acrescentar** aviso, evento/culto
+/// ou reunião. Devolve o [AgKind] escolhido em «Adicionar», ou `null` se a
+/// pessoa apenas voltou.
+class _AgendaDiaPreviewPage extends StatefulWidget {
+  const _AgendaDiaPreviewPage({
+    required this.day,
+    required this.canEdit,
+    required this.itemsBuilder,
+    required this.canEditItem,
+    required this.onDetails,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final DateTime day;
+  final bool canEdit;
+
+  /// Lido a cada reconstrução — depois de excluir, a lista reflete o estado
+  /// novo sem esta página precisar de guardar cópia dos dados.
+  final List<_AgendaItem> Function() itemsBuilder;
+
+  final bool Function(_AgendaItem) canEditItem;
+  final Future<void> Function(_AgendaItem) onDetails;
+  final Future<void> Function(_AgendaItem) onEdit;
+  final Future<void> Function(_AgendaItem) onDelete;
+
+  @override
+  State<_AgendaDiaPreviewPage> createState() => _AgendaDiaPreviewPageState();
+}
+
+class _AgendaDiaPreviewPageState extends State<_AgendaDiaPreviewPage> {
+  static final BoxDecoration _cartao = BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(18),
+    border: Border.all(color: const Color(0xFFE2E8F0)),
+    boxShadow: [
+      BoxShadow(
+        color: Colors.black.withValues(alpha: 0.04),
+        blurRadius: 12,
+        offset: const Offset(0, 4),
+      ),
+    ],
+  );
+
+  Future<void> _executar(Future<void> Function() acao) async {
+    await acao();
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final itens = widget.itemsBuilder();
+    final dataLabel = DateFormat(
+      "EEEE, dd/MM/yyyy",
+      'pt_BR',
+    ).format(widget.day);
+    final titulo = dataLabel.isEmpty
+        ? dataLabel
+        : dataLabel.substring(0, 1).toUpperCase() + dataLabel.substring(1);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF1F5F9),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1D4ED8),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        leading: IconButton(
+          tooltip: 'Retornar',
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Resumo completo do dia',
+              style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w900),
+            ),
+            Text(
+              titulo,
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: Color(0xCCFFFFFF),
+              ),
+            ),
+          ],
+        ),
+      ),
+      body: SafeArea(
+        top: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 860),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              children: [
+                _secao(
+                  icone: Icons.event_note_rounded,
+                  titulo: 'Prévia do dia',
+                  contador: '${itens.length}',
+                ),
+                const SizedBox(height: 10),
+                if (itens.isEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 26,
+                    ),
+                    decoration: _cartao,
+                    child: const Column(
+                      children: [
+                        Icon(
+                          Icons.event_available_rounded,
+                          size: 34,
+                          color: Color(0xFFCBD5E1),
+                        ),
+                        SizedBox(height: 10),
+                        Text(
+                          'Nenhum compromisso neste dia.',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF334155),
+                          ),
+                        ),
+                        SizedBox(height: 3),
+                        Text(
+                          'Use as opções abaixo para acrescentar.',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            color: Color(0xFF94A3B8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  for (final item in itens) _itemCard(item),
+                if (widget.canEdit) ...[
+                  const SizedBox(height: 18),
+                  _secao(
+                    icone: Icons.add_circle_rounded,
+                    titulo: 'Adicionar neste dia',
+                  ),
+                  const SizedBox(height: 10),
+                  _escolha(
+                    kind: AgKind.aviso,
+                    title: 'AVISO',
+                    subtitle: 'Aviso completo com fotos, vídeo e validade',
+                    icon: Icons.campaign_rounded,
+                    color: AgendaVisualPalette.aviso,
+                  ),
+                  const SizedBox(height: 10),
+                  _escolha(
+                    kind: AgKind.evento,
+                    title: 'EVENTO / CULTO',
+                    subtitle:
+                        'Evento completo com galeria, vídeo e localização',
+                    icon: Icons.celebration_rounded,
+                    color: AgKind.evento.color,
+                  ),
+                  const SizedBox(height: 10),
+                  _escolha(
+                    kind: AgKind.reuniao,
+                    title: 'REUNIÃO',
+                    subtitle:
+                        'Responsáveis, departamentos, data e localização',
+                    icon: Icons.groups_rounded,
+                    color: AgKind.reuniao.color,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 860),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      label: const Text('Retornar'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF475569),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded),
+                      label: const Text('Cancelar'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _secao({
+    required IconData icone,
+    required String titulo,
+    String? contador,
+  }) {
+    return Row(
+      children: [
+        Icon(icone, size: 18, color: const Color(0xFF1D4ED8)),
+        const SizedBox(width: 7),
+        Text(
+          titulo.toUpperCase(),
+          style: const TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.8,
+            color: Color(0xFF334155),
+          ),
+        ),
+        if (contador != null) ...[
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE2E8F0),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              contador,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF475569),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _itemCard(_AgendaItem item) {
+    final hora = item.allDay
+        ? 'Dia todo'
+        : DateFormat('HH:mm').format(item.when);
+    final local = (item.data['location'] ?? item.data['local'] ?? '')
+        .toString()
+        .trim();
+    final cor = item.color;
+    final podeEditar = widget.canEditItem(item);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () => _executar(() => widget.onDetails(item)),
+          child: Ink(
+            decoration: _cartao,
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    width: 6,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [cor, cor.withValues(alpha: 0.55)],
+                      ),
+                      borderRadius: const BorderRadius.horizontal(
+                        left: Radius.circular(18),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(13, 13, 8, 13),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 46,
+                            height: 46,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(14),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  cor.withValues(alpha: 0.95),
+                                  cor.withValues(alpha: 0.70),
+                                ],
+                              ),
+                            ),
+                            child: Icon(
+                              item.kind.icon,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 14.5,
+                                    fontWeight: FontWeight.w800,
+                                    height: 1.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  children: [
+                                    _agendaKindChip(item.kind.label, cor),
+                                    _agendaKindChip(
+                                      hora,
+                                      const Color(0xFF475569),
+                                      icon: Icons.schedule_rounded,
+                                    ),
+                                  ],
+                                ),
+                                if (local.isNotEmpty) ...[
+                                  const SizedBox(height: 5),
+                                  Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.place_rounded,
+                                        size: 13,
+                                        color: Color(0xFF94A3B8),
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Expanded(
+                                        child: Text(
+                                          local,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Color(0xFF64748B),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          AgendaPreviewActions(
+                            compact: true,
+                            onDetails: () =>
+                                _executar(() => widget.onDetails(item)),
+                            canEdit: podeEditar,
+                            onEdit: () => _executar(() => widget.onEdit(item)),
+                            onDelete: () =>
+                                _executar(() => widget.onDelete(item)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _escolha({
+    required AgKind kind,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Material(
+      color: color.withValues(alpha: 0.09),
+      borderRadius: BorderRadius.circular(17),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(17),
+        onTap: () => Navigator.pop(context, kind),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(17),
+            border: Border.all(color: color.withValues(alpha: 0.22)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [color, color.withValues(alpha: 0.72)],
+                  ),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: Colors.white),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: Color(0xFF475569),
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: color),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _AgendaKindPreviewPage extends StatelessWidget {
@@ -1256,7 +2139,7 @@ class _AgendaKindPreviewPage extends StatelessWidget {
                     (item.data['location'] ?? item.data['local'] ?? '')
                         .toString()
                         .trim();
-                final color = item.kind.color;
+                final color = item.color;
                 return Material(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(18),
@@ -1288,133 +2171,142 @@ class _AgendaKindPreviewPage extends StatelessWidget {
                       // `stretch` estica sem limite dentro da lista.
                       child: IntrinsicHeight(
                         child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Container(
-                            width: 6,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [color, color.withValues(alpha: 0.55)],
-                              ),
-                              borderRadius: const BorderRadius.horizontal(
-                                left: Radius.circular(18),
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Container(
+                              width: 6,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    color,
+                                    color.withValues(alpha: 0.55),
+                                  ],
+                                ),
+                                borderRadius: const BorderRadius.horizontal(
+                                  left: Radius.circular(18),
+                                ),
                               ),
                             ),
-                          ),
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(14, 14, 6, 14),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 46,
-                                    height: 46,
-                                    alignment: Alignment.center,
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(14),
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                        colors: [
-                                          color.withValues(alpha: 0.95),
-                                          color.withValues(alpha: 0.70),
-                                        ],
-                                      ),
-                                    ),
-                                    child: Icon(
-                                      item.kind.icon,
-                                      color: Colors.white,
-                                      size: 23,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          item.title,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.w800,
-                                            height: 1.2,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 6),
-                                        Wrap(
-                                          spacing: 6,
-                                          runSpacing: 4,
-                                          crossAxisAlignment:
-                                              WrapCrossAlignment.center,
-                                          children: [
-                                            _agendaKindChip(
-                                              item.kind.label,
-                                              color,
-                                            ),
-                                            _agendaKindChip(
-                                              date,
-                                              const Color(0xFF475569),
-                                              icon:
-                                                  Icons.calendar_today_rounded,
-                                            ),
-                                            _agendaKindChip(
-                                              time,
-                                              const Color(0xFF475569),
-                                              icon: Icons.schedule_rounded,
-                                            ),
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  14,
+                                  14,
+                                  6,
+                                  14,
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 46,
+                                      height: 46,
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(14),
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            color.withValues(alpha: 0.95),
+                                            color.withValues(alpha: 0.70),
                                           ],
                                         ),
-                                        if (location.isNotEmpty) ...[
-                                          const SizedBox(height: 5),
-                                          Row(
+                                      ),
+                                      child: Icon(
+                                        item.kind.icon,
+                                        color: Colors.white,
+                                        size: 23,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            item.title,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w800,
+                                              height: 1.2,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Wrap(
+                                            spacing: 6,
+                                            runSpacing: 4,
+                                            crossAxisAlignment:
+                                                WrapCrossAlignment.center,
                                             children: [
-                                              const Icon(
-                                                Icons.place_rounded,
-                                                size: 13,
-                                                color: Color(0xFF94A3B8),
+                                              _agendaKindChip(
+                                                item.kind.label,
+                                                color,
                                               ),
-                                              const SizedBox(width: 3),
-                                              Expanded(
-                                                child: Text(
-                                                  location,
-                                                  maxLines: 1,
-                                                  overflow:
-                                                      TextOverflow.ellipsis,
-                                                  style: const TextStyle(
-                                                    fontSize: 12,
-                                                    color: Color(0xFF64748B),
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
+                                              _agendaKindChip(
+                                                date,
+                                                const Color(0xFF475569),
+                                                icon: Icons
+                                                    .calendar_today_rounded,
+                                              ),
+                                              _agendaKindChip(
+                                                time,
+                                                const Color(0xFF475569),
+                                                icon: Icons.schedule_rounded,
                                               ),
                                             ],
                                           ),
+                                          if (location.isNotEmpty) ...[
+                                            const SizedBox(height: 5),
+                                            Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.place_rounded,
+                                                  size: 13,
+                                                  color: Color(0xFF94A3B8),
+                                                ),
+                                                const SizedBox(width: 3),
+                                                Expanded(
+                                                  child: Text(
+                                                    location,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      fontSize: 12,
+                                                      color: Color(0xFF64748B),
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
                                         ],
-                                      ],
+                                      ),
                                     ),
-                                  ),
-                                  AgendaPreviewActions(
-                                    onDetails: () => _showAgendaItemDetails(
-                                      context,
-                                      item,
-                                      onEdit: canEdit(item)
-                                          ? () => onEdit(item)
-                                          : null,
+                                    AgendaPreviewActions(
+                                      onDetails: () => _showAgendaItemDetails(
+                                        context,
+                                        item,
+                                        onEdit: canEdit(item)
+                                            ? () => onEdit(item)
+                                            : null,
+                                      ),
+                                      canEdit: canEdit(item),
+                                      onEdit: () => onEdit(item),
+                                      onDelete: () => onDelete(item),
                                     ),
-                                    canEdit: canEdit(item),
-                                    onEdit: () => onEdit(item),
-                                    onDelete: () => onDelete(item),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
                         ),
                       ),
                     ),
@@ -1431,11 +2323,13 @@ class _AgendaFormSheet extends StatefulWidget {
     required this.tenantId,
     required this.initialDate,
     this.item,
+    this.initialKind,
   });
 
   final String tenantId;
   final DateTime initialDate;
   final _AgendaItem? item;
+  final AgKind? initialKind;
 
   @override
   State<_AgendaFormSheet> createState() => _AgendaFormSheetState();
@@ -1458,6 +2352,8 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
   TimeOfDay? _time;
   bool _allDay = false;
   bool _saving = false;
+  DateTime? _validUntil;
+  late String _colorHex;
 
   // Notificar todos (push via Cloud Function onNovaAgendaPush).
   bool _notify = false;
@@ -1516,9 +2412,16 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
         deps.map((e) => e.toString().trim()).where((e) => e.isNotEmpty),
       );
     }
-    _kind = it?.kind ?? AgKind.culto;
+    _kind = it?.kind ?? widget.initialKind ?? AgKind.evento;
+    _colorHex =
+        (d['colorHex'] ??
+                d['color'] ??
+                '#${AgendaVisualPalette.colorToHex(_kind.color)}')
+            .toString();
     _date = it?.when ?? widget.initialDate;
     _allDay = it?.allDay ?? false;
+    final validRaw = d['validUntil'] ?? d['expiresAt'];
+    if (validRaw is Timestamp) _validUntil = validRaw.toDate();
     _time = (it != null && !it.allDay)
         ? TimeOfDay(hour: it.when.hour, minute: it.when.minute)
         : const TimeOfDay(hour: 19, minute: 30);
@@ -1673,6 +2576,7 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
       'data': Timestamp.fromDate(when),
       'allDay': _allDay,
       'active': true,
+      'colorHex': _colorHex.startsWith('#') ? _colorHex : '#$_colorHex',
       'notify': notify,
       'updatedAt': FieldValue.serverTimestamp(),
     };
@@ -1706,6 +2610,18 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
       if (composto.isNotEmpty) p['endereco'] = composto;
       if (_selectedDepartments.isNotEmpty) {
         p['departamentos'] = _selectedDepartments.toList();
+      }
+      if (_validUntil != null) {
+        p['validUntil'] = Timestamp.fromDate(
+          DateTime(
+            _validUntil!.year,
+            _validUntil!.month,
+            _validUntil!.day,
+            23,
+            59,
+          ),
+        );
+        p['expiresAt'] = p['validUntil'];
       }
     }
     if (seriesId != null) p['seriesId'] = seriesId;
@@ -1874,8 +2790,8 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
                       controller: _titleCtrl,
                       textCapitalization: TextCapitalization.sentences,
                       decoration: InputDecoration(
-                  labelText: 'Título',
-                  hintText: 'Ex.: Culto de Oração',
+                        labelText: 'Título',
+                        hintText: 'Ex.: Culto de Oração',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -1892,11 +2808,35 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        for (final k in AgKind.values) ...[
+                        for (final k in const [
+                          AgKind.aviso,
+                          AgKind.evento,
+                          AgKind.culto,
+                          AgKind.reuniao,
+                        ]) ...[
                           Expanded(child: _kindChip(k)),
-                          if (k != AgKind.values.last) const SizedBox(width: 8),
+                          if (k != AgKind.reuniao) const SizedBox(width: 8),
                         ],
                       ],
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final picked = await mostrarSeletorDeCores(
+                          context,
+                          titulo: 'Cor no calendário',
+                          selecionadaHex: _colorHex,
+                        );
+                        if (picked != null && mounted)
+                          setState(() => _colorHex = picked);
+                      },
+                      icon: CircleAvatar(
+                        radius: 8,
+                        backgroundColor:
+                            AgendaVisualPalette.hexToColor(_colorHex) ??
+                            _kind.color,
+                      ),
+                      label: const Text('Escolher cor no calendário'),
                     ),
                     const SizedBox(height: 16),
                     Row(
@@ -1929,11 +2869,11 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
                     ),
                     const SizedBox(height: 6),
                     // ---- Campos ricos (variam por tipo) ----
-              _sectionLabel('Descrição'),
+                    _sectionLabel('Descrição'),
                     const SizedBox(height: 8),
                     _multilineField(
                       controller: _descCtrl,
-                hint: 'Detalhes, tema, observações…',
+                      hint: 'Detalhes, tema, observações…',
                       minLines: 2,
                       maxLines: 4,
                     ),
@@ -1943,15 +2883,15 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
                       const SizedBox(height: 8),
                       _multilineField(
                         controller: _localCtrl,
-                        hint: _kind == AgKind.culto
-                      ? 'Ex.: Templo — Salão principal'
-                      : 'Ex.: Onde será o evento',
+                        hint: _kind == AgKind.evento
+                            ? 'Ex.: Templo — Salão principal'
+                            : 'Ex.: Onde será o evento',
                         minLines: 1,
                         maxLines: 2,
                       ),
                     ],
                     if (_kind == AgKind.reuniao) _reuniaoFields(),
-                    if (_kind == AgKind.culto || _kind == AgKind.evento)
+                    if (_kind == AgKind.aviso || _kind == AgKind.evento)
                       _responsiblePickerField(),
                     if (!_isEdit && _kind != AgKind.reuniao) _recurrenceField(),
                     if (!_isEdit && !_repeatWeekly) _multiDaysField(),
@@ -2037,7 +2977,10 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
     final selected = _kind == k;
     return InkWell(
       borderRadius: BorderRadius.circular(12),
-      onTap: () => setState(() => _kind = k),
+      onTap: () => setState(() {
+        _kind = k;
+        _colorHex = '#${AgendaVisualPalette.colorToHex(k.color)}';
+      }),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
@@ -2291,6 +3234,59 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
           Icons.add_location_alt_outlined,
         ),
         const SizedBox(height: 14),
+        _sectionLabel('Validade da reunião'),
+        const SizedBox(height: 8),
+        InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: _validUntil ?? _date,
+              firstDate: _date,
+              lastDate: DateTime(_date.year + 5),
+              locale: const Locale('pt', 'BR'),
+            );
+            if (picked != null && mounted) {
+              setState(() => _validUntil = picked);
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 14),
+            decoration: BoxDecoration(
+              color: AgKind.reuniao.color.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AgKind.reuniao.color.withValues(alpha: 0.30),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.event_available_rounded,
+                  color: AgKind.reuniao.color,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _validUntil == null
+                        ? 'Definir data de validade'
+                        : DateFormat('dd/MM/yyyy').format(_validUntil!),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                if (_validUntil != null)
+                  IconButton(
+                    tooltip: 'Sem validade',
+                    onPressed: () => setState(() => _validUntil = null),
+                    icon: const Icon(Icons.close_rounded),
+                  )
+                else
+                  const Icon(Icons.chevron_right_rounded),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
         Row(
           children: [
             _sectionLabel('Departamento(s)'),
@@ -2363,7 +3359,7 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: Text(
-            _kind == AgKind.culto
+            _kind == AgKind.aviso
                 ? 'Culto fixo (toda semana)'
                 : 'Repetir toda semana',
           ),

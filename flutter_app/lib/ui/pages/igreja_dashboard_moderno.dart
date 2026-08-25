@@ -2928,6 +2928,13 @@ class _LinksPublicosStripState extends State<_LinksPublicosStrip> {
   @override
   void didUpdateWidget(covariant _LinksPublicosStrip oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.tenantId.trim() != widget.tenantId.trim()) {
+      _slug = null;
+      _cadastroConcluido = true;
+      _loading = true;
+      unawaited(_loadSlug());
+      return;
+    }
     final seed = widget.churchSlug.trim();
     if (seed.isNotEmpty && seed != _slug) {
       setState(() {

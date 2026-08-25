@@ -298,7 +298,7 @@ class _AguardandoAprovacaoPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Seu cadastro foi recebido. O gestor da igreja precisa aprovar para criar seu acesso ao painel. Após a aprovação, entre com seu e-mail e a senha inicial 123456 (depois você pode trocar ou usar Esqueci a senha).',
+                      'Seu cadastro foi recebido. Após a aprovação, você receberá por e-mail uma senha provisória de 6 dígitos. No primeiro acesso será obrigatório escolher uma nova senha.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey.shade700, height: 1.4),
                     ),
@@ -639,6 +639,8 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
 
   Future<Map<String, dynamic>?> _loadProfile(User user, {int repairDepth = 0}) async {
     final cached = await AuthProfileCacheService.instance.load(user.uid);
+    final isMasterVisit =
+        (MasterTenantOverrideService.tenantId?.trim() ?? '').isNotEmpty;
     if (repairDepth == 0 &&
         cached != null &&
         (cached['igrejaId'] ?? '').toString().trim().isNotEmpty) {
@@ -652,8 +654,10 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
       if (AppConnectivityService.instance.isOnline) {
         final claimsFast = await _loadProfileFromClaimsFast(user, cached);
         if (claimsFast != null && claimsFast['active'] == true) {
-          await AuthProfileCacheService.instance.save(user.uid, claimsFast);
-          unawaited(_enrichProfileWithMemberAsync(user, claimsFast));
+          if (!isMasterVisit) {
+            await AuthProfileCacheService.instance.save(user.uid, claimsFast);
+            unawaited(_enrichProfileWithMemberAsync(user, claimsFast));
+          }
           return claimsFast;
         }
       }
@@ -661,8 +665,10 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
     if (repairDepth == 0 && AppConnectivityService.instance.isOnline) {
       final claimsFast = await _loadProfileFromClaimsFast(user, cached);
       if (claimsFast != null) {
-        await AuthProfileCacheService.instance.save(user.uid, claimsFast);
-        unawaited(_enrichProfileWithMemberAsync(user, claimsFast));
+        if (!isMasterVisit) {
+          await AuthProfileCacheService.instance.save(user.uid, claimsFast);
+          unawaited(_enrichProfileWithMemberAsync(user, claimsFast));
+        }
         return claimsFast;
       }
       if (AppConnectivityService.instance.isOnline) {
@@ -1149,7 +1155,9 @@ class _AuthGateState extends State<AuthGate> with WidgetsBindingObserver {
         }
       }
 
-      if (igrejaId.isNotEmpty) {
+      // A igreja visitada e um contexto temporario do master. Nunca grave o
+      // tenant visitado no cadastro, claims ou igreja de origem do operador.
+      if (igrejaId.isNotEmpty && masterVisit.isEmpty) {
         final synced = await TenantResolverService.syncUserToCanonicalChurchId(
           userUid: user.uid,
           canonicalId: igrejaId,

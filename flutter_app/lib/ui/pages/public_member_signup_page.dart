@@ -782,7 +782,7 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                           ),
                           const SizedBox(height: 10),
                           Text(
-                            'Quando o gestor aprovar, sua conta de acesso será criada automaticamente com senha inicial 123456 (você poderá trocar depois ou usar “Esqueci a senha”).',
+                            'Quando o gestor aprovar, seu cadastro e sua foto serão movidos para a área permanente. Você receberá por e-mail uma senha provisória para o primeiro acesso.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 13,
@@ -1135,6 +1135,26 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
     final isPublicVisitor =
         FirebaseAuth.instance.currentUser == null ||
         FirebaseAuth.instance.currentUser!.isAnonymous;
+    if (isPublicVisitor) {
+      final ownerUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      if (ownerUid.isEmpty) {
+        throw StateError('Sessão pública indisponível. Atualize a página e tente novamente.');
+      }
+      final pendingPath =
+          'igrejas/${tenantId.trim()}/pending_member_signups/$ownerUid/$mid/foto_perfil.jpg';
+      final uploaded = await ChurchMediaUploadFacade.uploadImageAtPath(
+        storagePath: pendingPath,
+        rawBytes: raw,
+        logLabel: 'public_member_pending_profile',
+        compressForFeed: false,
+        requireAuth: false,
+      );
+      return (
+        url: sanitizeImageUrl(uploaded.downloadUrl),
+        storagePath: uploaded.storagePath,
+        thumbStoragePath: uploaded.storagePath,
+      );
+    }
     return MemberProfilePhotoSaveService.uploadStorageOnlyControleTotal(
       tenantId: tenantId.trim(),
       memberDocId: mid,
@@ -1403,6 +1423,9 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                 photoThumbStoragePathField ?? photoStoragePathField,
           ),
         'PUBLIC_SIGNUP': true,
+        'publicSignupOwnerUid': isPublicVisitor
+            ? (FirebaseAuth.instance.currentUser?.uid ?? '')
+            : '',
         'publicSignup': true,
         'STATUS': 'pendente',
         'status': 'pendente',

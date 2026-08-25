@@ -42,6 +42,7 @@ abstract final class MasterTenantOverrideService {
   };
 
   static const String _prefsKey = 'master_tenant_override_v1';
+  static int _selectionEpoch = 0;
 
   /// Muda quando o operador troca de igreja — o shell reconstrói ouvindo isto.
   static final ValueNotifier<String?> current = ValueNotifier<String?>(null);
@@ -59,28 +60,36 @@ abstract final class MasterTenantOverrideService {
   }
 
   static Future<void> restore() async {
+    final epoch = _selectionEpoch;
     if (!isAllowedUser) {
-      current.value = null;
       ChurchContext.explicitTenantOverride = null;
+      current.value = null;
       return;
     }
+    String? restored;
     try {
       final prefs = await SharedPreferences.getInstance();
       final saved = (prefs.getString(_prefsKey) ?? '').trim();
-      current.value = saved.isEmpty ? null : saved;
+      restored = saved.isEmpty ? null : saved;
     } catch (_) {
-      current.value = null;
+      restored = null;
     }
-    ChurchContext.explicitTenantOverride = current.value;
+    if (epoch != _selectionEpoch) return;
+    // O contexto global precisa mudar ANTES de notificar o shell. Caso
+    // contrário, o listener resolve o destino enquanto o override ainda
+    // aponta para a igreja anterior e volta a alimentar todos os módulos com
+    // dados do tenant errado.
+    ChurchContext.explicitTenantOverride = restored;
+    current.value = restored;
   }
 
   static Future<void> setTenant(String? churchId) async {
     if (!isAllowedUser) return;
+    final epoch = ++_selectionEpoch;
     final id = (churchId ?? '').trim();
-    current.value = id.isEmpty ? null : id;
-    // O resolvedor de tenant le isto ANTES do regex `igreja_*`, para aceitar
-    // ids fora do padrao (ver ChurchContext.explicitTenantOverride).
-    ChurchContext.explicitTenantOverride = current.value;
+    final next = id.isEmpty ? null : id;
+    // Persiste antes de reconstruir a arvore. O novo AuthGate chama restore()
+    // no arranque e nao pode reencontrar a preferencia da igreja anterior.
     try {
       final prefs = await SharedPreferences.getInstance();
       if (id.isEmpty) {
@@ -89,6 +98,9 @@ abstract final class MasterTenantOverrideService {
         await prefs.setString(_prefsKey, id);
       }
     } catch (_) {}
+    if (epoch != _selectionEpoch) return;
+    ChurchContext.explicitTenantOverride = next;
+    current.value = next;
   }
 
   static Future<void> clear() => setTenant(null);

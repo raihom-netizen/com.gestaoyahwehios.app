@@ -40,6 +40,8 @@ class MembroFinanceiroLinha {
 
   double receitas = 0;
   double despesas = 0;
+  int lancamentos = 0;
+  DateTime? ultimoLancamento;
 
   double get saldo => receitas - despesas;
   bool get temMovimento => receitas > 0 || despesas > 0;
@@ -54,9 +56,13 @@ class MembroFinanceiroLinha {
   }
 }
 
+/// Largura máxima da coluna de conteúdo. Acima disto o browser esticava a
+/// tela até deixar cada número sozinho no meio de um deserto branco.
+const double _larguraMaxConteudo = 1180;
+
 enum _Periodo { ano, mes, intervalo }
 
-enum _Ordem { alfabetica, maisReceita, maisDespesa }
+enum _Ordem { alfabetica, maisReceita, maisDespesa, maiorSaldo }
 
 /// Financeiro de **todos os membros** num só quadro.
 ///
@@ -84,6 +90,7 @@ class _MembrosFinanceiroGeralPageState
   final _money = NumberFormat.currency(locale: 'pt_BR', symbol: r'R$');
 
   bool _carregando = true;
+  bool _atualizandoSilenciosamente = false;
   bool _exportando = false;
   String _erro = '';
   int _revisaoHub = -1;
@@ -142,20 +149,49 @@ class _MembrosFinanceiroGeralPageState
         ),
       ]);
       if (!mounted) return;
+      final financeResult = res[1] as ChurchFinanceLoadResult;
       setState(() {
         _membros = res[0] as List<Map<String, dynamic>>;
-        _lancamentos =
-            (res[1] as dynamic).docs
-                as List<QueryDocumentSnapshot<Map<String, dynamic>>>;
+        _lancamentos = financeResult.docs;
         _carregando = false;
         _erro = '';
       });
+      // Cache primeiro pinta a tela imediatamente. Em seguida confirma no
+      // servidor e repinta silenciosamente; antes o refresh em background
+      // atualizava apenas o cache do serviço, deixando a tela presa no total
+      // anterior (por exemplo, R$ 50 em vez de incluir os novos R$ 150).
+      if (!force &&
+          financeResult.fromCache &&
+          !_atualizandoSilenciosamente) {
+        _atualizandoSilenciosamente = true;
+        unawaited(_atualizarFinanceiroSilencioso().whenComplete(() {
+          _atualizandoSilenciosamente = false;
+        }));
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _carregando = false;
         _erro = 'Não foi possível carregar: $e';
       });
+    }
+  }
+
+  Future<void> _atualizarFinanceiroSilencioso() async {
+    try {
+      final result = await ChurchFinanceLoadService.loadLancamentos(
+        seedTenantId: _tid,
+        limit: FirebasePerformanceLimits.financeiroPage,
+        forceRefresh: true,
+        forceServer: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        _lancamentos = result.docs;
+        _erro = '';
+      });
+    } catch (_) {
+      // Mantém a leitura cache-first visível se a rede estiver indisponível.
     }
   }
 
@@ -241,6 +277,7 @@ class _MembrosFinanceiroGeralPageState
   /// Quadro por pessoa, já filtrado e ordenado.
   List<MembroFinanceiroLinha> get _linhas {
     final porId = <String, MembroFinanceiroLinha>{};
+    final porNome = <String, MembroFinanceiroLinha>{};
     for (final m in _membros) {
       final id = (m['id'] ?? '').toString().trim();
       if (id.isEmpty) continue;
@@ -253,7 +290,7 @@ class _MembrosFinanceiroGeralPageState
       ]);
       if (nome.isEmpty) continue;
       final sexoRaw = _txt(m, ['SEXO', 'sexo', 'genero']).toLowerCase();
-      porId[id] = MembroFinanceiroLinha(
+      final linha = MembroFinanceiroLinha(
         id: id,
         nome: nome,
         sexo: sexoRaw.startsWith('m')
@@ -262,6 +299,8 @@ class _MembrosFinanceiroGeralPageState
         departamentos: _departamentosDe(m),
         idade: _idadeDe(m),
       );
+      porId[id] = linha;
+      porNome[_normalizarNome(nome)] = linha;
     }
 
     for (final doc in _lancamentos) {
@@ -271,8 +310,21 @@ class _MembrosFinanceiroGeralPageState
       // vezes.
       if (d['vinculoMultiplo'] == true) continue;
       final mid = (d['membroId'] ?? d['memberId'] ?? '').toString().trim();
-      if (mid.isEmpty) continue;
-      final linha = porId[mid];
+      var linha = mid.isEmpty ? null : porId[mid];
+      // Compatibilidade com lançamentos antigos/importados: algumas versões
+      // guardavam o nome, ou um código do membro, no lugar do docId. O nome só
+      // é usado como fallback quando identifica uma pessoa cadastrada.
+      if (linha == null) {
+        final nomeVinculo = _txt(d, const [
+          'membroNome',
+          'memberNome',
+          'memberName',
+          'donorName',
+        ]);
+        if (nomeVinculo.isNotEmpty) {
+          linha = porNome[_normalizarNome(nomeVinculo)];
+        }
+      }
       if (linha == null) continue;
       if (!_noPeriodo(d)) continue;
       final t = financeInferTipo(d);
@@ -282,6 +334,15 @@ class _MembrosFinanceiroGeralPageState
         linha.receitas += v;
       } else if (t.contains('saida') || t.contains('despesa')) {
         linha.despesas += v;
+      } else {
+        continue;
+      }
+      linha.lancamentos++;
+      final data = financeLancamentoDate(d);
+      if (data != null &&
+          (linha.ultimoLancamento == null ||
+              data.isAfter(linha.ultimoLancamento!))) {
+        linha.ultimoLancamento = data;
       }
     }
 
@@ -306,12 +367,34 @@ class _MembrosFinanceiroGeralPageState
           (a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()),
         );
       case _Ordem.maisReceita:
-        out.sort((a, b) => b.receitas.compareTo(a.receitas));
+        out.sort((a, b) {
+          final valor = b.receitas.compareTo(a.receitas);
+          return valor != 0
+              ? valor
+              : a.nome.toLowerCase().compareTo(b.nome.toLowerCase());
+        });
       case _Ordem.maisDespesa:
-        out.sort((a, b) => b.despesas.compareTo(a.despesas));
+        out.sort((a, b) {
+          final valor = b.despesas.compareTo(a.despesas);
+          return valor != 0
+              ? valor
+              : a.nome.toLowerCase().compareTo(b.nome.toLowerCase());
+        });
+      case _Ordem.maiorSaldo:
+        out.sort((a, b) {
+          final valor = b.saldo.compareTo(a.saldo);
+          return valor != 0
+              ? valor
+              : a.nome.toLowerCase().compareTo(b.nome.toLowerCase());
+        });
     }
     return out;
   }
+
+  static String _normalizarNome(String value) => value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'\s+'), ' ');
 
   List<String> get _todosDepartamentos {
     final s = <String>{};
@@ -322,22 +405,25 @@ class _MembrosFinanceiroGeralPageState
     return l;
   }
 
-  double get _totalReceitas =>
-      _linhas.fold<double>(0, (a, l) => a + l.receitas);
-
-  double get _totalDespesas =>
-      _linhas.fold<double>(0, (a, l) => a + l.despesas);
-
   /// Entradas e saídas mês a mês, só das pessoas visíveis no filtro.
-  List<({int mes, double receitas, double despesas})> get _porMes {
-    final ids = {for (final l in _linhas) l.id};
+  List<({int mes, double receitas, double despesas})> _porMes(
+    List<MembroFinanceiroLinha> linhas,
+  ) {
+    final ids = {for (final l in linhas) l.id};
+    final nomes = {for (final l in linhas) _normalizarNome(l.nome)};
     final rec = List<double>.filled(12, 0);
     final des = List<double>.filled(12, 0);
     for (final doc in _lancamentos) {
       final d = doc.data();
       if (d['vinculoMultiplo'] == true) continue;
       final mid = (d['membroId'] ?? d['memberId'] ?? '').toString().trim();
-      if (!ids.contains(mid)) continue;
+      final nomeVinculo = _normalizarNome(_txt(d, const [
+        'membroNome',
+        'memberNome',
+        'memberName',
+        'donorName',
+      ]));
+      if (!ids.contains(mid) && !nomes.contains(nomeVinculo)) continue;
       if (!_noPeriodo(d)) continue;
       final dt = financeLancamentoDate(d);
       if (dt == null) continue;
@@ -355,9 +441,11 @@ class _MembrosFinanceiroGeralPageState
     ];
   }
 
-  Map<String, double> get _receitaPorDepartamento {
+  Map<String, double> _receitaPorDepartamento(
+    List<MembroFinanceiroLinha> linhas,
+  ) {
     final out = <String, double>{};
-    for (final l in _linhas) {
+    for (final l in linhas) {
       if (l.receitas <= 0) continue;
       if (l.departamentos.isEmpty) {
         out['Sem departamento'] = (out['Sem departamento'] ?? 0) + l.receitas;
@@ -373,14 +461,14 @@ class _MembrosFinanceiroGeralPageState
     return out;
   }
 
-  Map<String, double> get _receitaPorPerfil {
+  Map<String, double> _receitaPorPerfil(List<MembroFinanceiroLinha> linhas) {
     final out = <String, double>{
       'Homens': 0,
       'Mulheres': 0,
       'Crianças': 0,
       'Idosos': 0,
     };
-    for (final l in _linhas) {
+    for (final l in linhas) {
       if (l.receitas <= 0) continue;
       if (l.faixa == 'crianca') {
         out['Crianças'] = out['Crianças']! + l.receitas;
@@ -433,10 +521,13 @@ class _MembrosFinanceiroGeralPageState
     if (_exportando) return;
     setState(() => _exportando = true);
     try {
+      await _carregar(force: true);
+      if (!mounted) return;
+      final linhasFiltradas = _linhas;
       final branding = await loadReportPdfBranding(_tid);
       final bytes = await buildMembrosFinanceiroGeralPdf(
         branding: branding,
-        linhas: _linhas,
+        linhas: linhasFiltradas,
         periodoLabel: _periodoLabel,
         filtroLabel: _filtroLabel,
       );
@@ -462,6 +553,7 @@ class _MembrosFinanceiroGeralPageState
     if (_filtroSexo == 'm') partes.add('Homens');
     if (_filtroSexo == 'f') partes.add('Mulheres');
     if (_filtroDepartamento != 'todos') partes.add(_filtroDepartamento);
+    if (_busca.trim().isNotEmpty) partes.add('Pesquisa: "${_busca.trim()}"');
     return partes.isEmpty ? 'Todos os membros' : partes.join(' · ');
   }
 
@@ -470,8 +562,10 @@ class _MembrosFinanceiroGeralPageState
   @override
   Widget build(BuildContext context) {
     final linhas = _linhas;
-    final receitas = _totalReceitas;
-    final despesas = _totalDespesas;
+    // Consolida uma única vez por frame. Antes cada card/gráfico reconstruía
+    // toda a relação membros x lançamentos, multiplicando o custo da tela.
+    final receitas = linhas.fold<double>(0, (a, l) => a + l.receitas);
+    final despesas = linhas.fold<double>(0, (a, l) => a + l.despesas);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
@@ -523,39 +617,79 @@ class _MembrosFinanceiroGeralPageState
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: () => _carregar(force: true),
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(14, 14, 14, 28),
-                children: [
-                  if (_erro.isNotEmpty) _banner(_erro),
-                  _cartaoPeriodo(),
-                  const SizedBox(height: 12),
-                  _cartoesTotais(receitas, despesas, linhas),
-                  const SizedBox(height: 12),
-                  _graficoMesAMes(),
-                  const SizedBox(height: 12),
-                  _graficoDistribuicao(),
-                  const SizedBox(height: 12),
-                  _barraFiltros(),
-                  const SizedBox(height: 10),
-                  if (linhas.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 36),
-                      child: Center(
-                        child: Text(
-                          'Nenhum membro com movimento no período.\n'
-                          'Vincule o membro ao lançar receitas e despesas.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 13,
-                            height: 1.5,
-                            color: Color(0xFF64748B),
+              // No telemóvel a tela era boa; no browser esticava tudo até aos
+              // 1900px — o campo de busca com meio metro de largura e cada
+              // membro sozinho numa faixa vazia. Coluna central com largura
+              // máxima + grelha resolve os dois de uma vez.
+              child: LayoutBuilder(
+                builder: (context, restricoes) {
+                  final largo = restricoes.maxWidth >= 900;
+                  final recuo = largo ? 24.0 : 14.0;
+                  final util = (restricoes.maxWidth - recuo * 2)
+                      .clamp(280.0, _larguraMaxConteudo);
+                  final maiorReceita = linhas.isEmpty
+                      ? 0.0
+                      : linhas
+                          .map((l) => l.receitas)
+                          .reduce((a, b) => a > b ? a : b);
+                  final distribuicao = _graficoDistribuicao(linhas);
+                  return ListView(
+                    padding: EdgeInsets.fromLTRB(recuo, 14, recuo, 28),
+                    children: [
+                      Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            maxWidth: _larguraMaxConteudo,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (_erro.isNotEmpty) _banner(_erro),
+                              _cartaoPeriodo(),
+                              const SizedBox(height: 12),
+                              _cartoesTotais(
+                                receitas,
+                                despesas,
+                                linhas,
+                                largo: largo,
+                              ),
+                              const SizedBox(height: 12),
+                              if (largo && distribuicao != null)
+                                IntrinsicHeight(
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      Expanded(
+                                        flex: 3,
+                                        child: _graficoMesAMes(linhas),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(flex: 2, child: distribuicao),
+                                    ],
+                                  ),
+                                )
+                              else ...[
+                                _graficoMesAMes(linhas),
+                                if (distribuicao != null) ...[
+                                  const SizedBox(height: 12),
+                                  distribuicao,
+                                ],
+                              ],
+                              const SizedBox(height: 12),
+                              _barraFiltros(largo),
+                              const SizedBox(height: 12),
+                              if (linhas.isEmpty)
+                                _semMembros()
+                              else
+                                _grelhaMembros(linhas, util, maiorReceita),
+                            ],
                           ),
                         ),
                       ),
-                    )
-                  else
-                    for (final l in linhas) _linhaMembro(l),
-                ],
+                    ],
+                  );
+                },
               ),
             ),
     );
@@ -733,8 +867,9 @@ class _MembrosFinanceiroGeralPageState
   Widget _cartoesTotais(
     double receitas,
     double despesas,
-    List<MembroFinanceiroLinha> linhas,
-  ) {
+    List<MembroFinanceiroLinha> linhas, {
+    bool largo = false,
+  }) {
     // Cada card abre a lista já ordenada pelo que ele mostra — o número e a
     // lista que o explica ficam a um toque.
     return Row(
@@ -767,15 +902,27 @@ class _MembrosFinanceiroGeralPageState
                 ? const Color(0xFF1D4ED8)
                 : const Color(0xFFB91C1C),
             icone: Icons.account_balance_wallet_rounded,
-            onTap: () => setState(() => _ordem = _Ordem.alfabetica),
+            onTap: () => setState(() => _ordem = _Ordem.maiorSaldo),
           ),
         ),
+        if (largo) ...[
+          const SizedBox(width: 10),
+          Expanded(
+            child: _CardTotal(
+              titulo: 'Membros',
+              valor: '${linhas.length}',
+              cor: const Color(0xFF7C3AED),
+              icone: Icons.groups_rounded,
+              onTap: () => setState(() => _ordem = _Ordem.alfabetica),
+            ),
+          ),
+        ],
       ],
     );
   }
 
-  Widget _graficoMesAMes() {
-    final dados = _porMes;
+  Widget _graficoMesAMes(List<MembroFinanceiroLinha> linhas) {
+    final dados = _porMes(linhas);
     final maxV = dados.fold<double>(
       0,
       (a, e) => [a, e.receitas, e.despesas].reduce((x, y) => x > y ? x : y),
@@ -874,11 +1021,12 @@ class _MembrosFinanceiroGeralPageState
     );
   }
 
-  Widget _graficoDistribuicao() {
-    final perfil = _receitaPorPerfil;
-    final depts = _receitaPorDepartamento.entries.toList()
+  /// `null` quando não há nada para mostrar — quem chama decide o espaço.
+  Widget? _graficoDistribuicao(List<MembroFinanceiroLinha> linhas) {
+    final perfil = _receitaPorPerfil(linhas);
+    final depts = _receitaPorDepartamento(linhas).entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    if (perfil.isEmpty && depts.isEmpty) return const SizedBox.shrink();
+    if (perfil.isEmpty && depts.isEmpty) return null;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
@@ -953,7 +1101,68 @@ class _MembrosFinanceiroGeralPageState
     );
   }
 
-  Widget _barraFiltros() {
+  Widget _semMembros() => Container(
+        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+        decoration: _cardDeco,
+        child: const Column(
+          children: [
+            Icon(
+              Icons.person_search_rounded,
+              size: 34,
+              color: Color(0xFFCBD5E1),
+            ),
+            SizedBox(height: 10),
+            Text(
+              'Nenhum membro com movimento no período.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF334155),
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Vincule o membro ao lançar receitas e despesas.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.45,
+                color: Color(0xFF94A3B8),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  /// Grelha de membros: 1 coluna no telemóvel, 2 no tablet, 3 no browser.
+  ///
+  /// Antes era sempre uma coluna — no browser cada membro ocupava uma faixa
+  /// de 1900px com três números perdidos no meio e obrigava a rolar por uma
+  /// lista que cabia num ecrã.
+  Widget _grelhaMembros(
+    List<MembroFinanceiroLinha> linhas,
+    double util,
+    double maiorReceita,
+  ) {
+    final colunas = util >= 1120 ? 3 : (util >= 720 ? 2 : 1);
+    const espaco = 12.0;
+    final largura =
+        colunas == 1 ? util : (util - espaco * (colunas - 1)) / colunas;
+    return Wrap(
+      spacing: espaco,
+      runSpacing: espaco,
+      children: [
+        for (var i = 0; i < linhas.length; i++)
+          SizedBox(
+            width: largura,
+            child: _linhaMembro(linhas[i], i + 1, maiorReceita),
+          ),
+      ],
+    );
+  }
+
+  Widget _barraFiltros(bool largo) {
     Widget chipSexo(String v, String label) {
       final sel = _filtroSexo == v;
       return Padding(
@@ -991,164 +1200,317 @@ class _MembrosFinanceiroGeralPageState
     }
 
     final depts = _todosDepartamentos;
+    final busca = TextField(
+      controller: _buscaCtrl,
+      onChanged: (v) => setState(() => _busca = v.trim()),
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: 'Buscar membro pelo nome…',
+        prefixIcon: const Icon(Icons.search_rounded, size: 20),
+        suffixIcon: _busca.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Limpar',
+                icon: const Icon(Icons.close_rounded, size: 18),
+                onPressed: () {
+                  _buscaCtrl.clear();
+                  setState(() => _busca = '');
+                },
+              ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+    final dropDepto = DropdownButtonFormField<String>(
+      initialValue: _filtroDepartamento,
+      isDense: true,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: 'Departamento',
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      ),
+      items: [
+        const DropdownMenuItem(
+          value: 'todos',
+          child: Text('Todos os departamentos'),
+        ),
+        for (final d in depts) DropdownMenuItem(value: d, child: Text(d)),
+      ],
+      onChanged: (v) => setState(() => _filtroDepartamento = v ?? 'todos'),
+    );
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: _cardDeco,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextField(
-            controller: _buscaCtrl,
-            onChanged: (v) => setState(() => _busca = v.trim()),
-            decoration: InputDecoration(
-              isDense: true,
-              hintText: 'Buscar membro pelo nome…',
-              prefixIcon: const Icon(Icons.search_rounded, size: 20),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
+          // No browser a busca e o departamento cabem na mesma linha; no
+          // telemóvel continuam empilhados.
+          if (largo && depts.isNotEmpty)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                chipSexo('todos', 'Todos'),
-                chipSexo('m', 'Homens'),
-                chipSexo('f', 'Mulheres'),
+                Expanded(flex: 3, child: busca),
+                const SizedBox(width: 10),
+                Expanded(flex: 2, child: dropDepto),
               ],
-            ),
-          ),
-          const SizedBox(height: 6),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                chipOrdem(_Ordem.maisReceita, 'Mais contribuiu'),
-                chipOrdem(_Ordem.maisDespesa, 'Mais despesa'),
-                chipOrdem(_Ordem.alfabetica, 'A–Z'),
-              ],
-            ),
-          ),
-          if (depts.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            DropdownButtonFormField<String>(
-              initialValue: _filtroDepartamento,
-              isDense: true,
-              isExpanded: true,
-              decoration: InputDecoration(
-                labelText: 'Departamento',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              ),
-              items: [
-                const DropdownMenuItem(
-                  value: 'todos',
-                  child: Text('Todos os departamentos'),
-                ),
-                for (final d in depts)
-                  DropdownMenuItem(value: d, child: Text(d)),
-              ],
-              onChanged: (v) =>
-                  setState(() => _filtroDepartamento = v ?? 'todos'),
-            ),
+            )
+          else ...[
+            busca,
+            if (depts.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              dropDepto,
+            ],
           ],
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 0,
+            runSpacing: 6,
+            children: [
+              chipSexo('todos', 'Todos'),
+              chipSexo('m', 'Homens'),
+              chipSexo('f', 'Mulheres'),
+              const SizedBox(width: 6),
+              chipOrdem(_Ordem.maisReceita, 'Mais contribuiu'),
+              chipOrdem(_Ordem.maisDespesa, 'Mais despesa'),
+              chipOrdem(_Ordem.maiorSaldo, 'Maior saldo'),
+              chipOrdem(_Ordem.alfabetica, 'Nome A–Z'),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _linhaMembro(MembroFinanceiroLinha l) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: Colors.white,
+  /// Cartão de um membro na grelha.
+  ///
+  /// Leva **posição** e **barra de proporção** porque a lista está ordenada por
+  /// um critério (mais contribuiu, maior saldo…): sem isso, dois cartões lado a
+  /// lado no browser não diziam qual pesava mais.
+  Widget _linhaMembro(
+    MembroFinanceiroLinha l,
+    int posicao,
+    double maiorReceita,
+  ) {
+    final frac = maiorReceita <= 0
+        ? 0.0
+        : (l.receitas / maiorReceita).clamp(0.0, 1.0);
+    final iniciais = _iniciaisDe(l.nome);
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
         borderRadius: BorderRadius.circular(18),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(18),
-          onTap: () => unawaited(_abrirExtrato(l)),
-          child: Container(
-            padding: const EdgeInsets.all(13),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        l.nome,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 14.5,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF0F172A),
-                        ),
+        onTap: () => unawaited(_abrirExtrato(l)),
+        child: Container(
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    alignment: Alignment.center,
+                    margin: const EdgeInsets.only(right: 10),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: [
+                          ThemeCleanPremium.primary,
+                          ThemeCleanPremium.primary.withValues(alpha: 0.72),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
                     ),
-                    const Icon(
-                      Icons.chevron_right_rounded,
-                      color: Color(0xFF94A3B8),
-                    ),
-                  ],
-                ),
-                if (l.departamentos.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
                     child: Text(
-                      l.departamentos.join(' · '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      iniciais,
                       style: const TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF94A3B8),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
                       ),
                     ),
                   ),
-                const SizedBox(height: 10),
-                Row(
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          l.nome,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                        if (l.departamentos.isNotEmpty)
+                          Text(
+                            l.departamentos.join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF94A3B8),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '#$posicao',
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF475569),
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Color(0xFF94A3B8),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Wrap(
+                  spacing: 7,
+                  runSpacing: 5,
                   children: [
-                    Expanded(
-                      child: _Valor(
-                        rotulo: 'Contribuiu',
-                        valor: _money.format(l.receitas),
-                        cor: const Color(0xFF15803D),
-                      ),
+                    _MiniInfoChip(
+                      icon: Icons.receipt_long_rounded,
+                      label: '${l.lancamentos} lançamento(s)',
                     ),
-                    Expanded(
-                      child: _Valor(
-                        rotulo: 'Despesas',
-                        valor: _money.format(l.despesas),
-                        cor: const Color(0xFFB91C1C),
+                    if (l.ultimoLancamento != null)
+                      _MiniInfoChip(
+                        icon: Icons.schedule_rounded,
+                        label: DateFormat('dd/MM/yyyy', 'pt_BR')
+                            .format(l.ultimoLancamento!),
                       ),
-                    ),
-                    Expanded(
-                      child: _Valor(
-                        rotulo: 'Saldo',
-                        valor: _money.format(l.saldo),
-                        cor: l.saldo >= 0
-                            ? const Color(0xFF1D4ED8)
-                            : const Color(0xFFB91C1C),
-                      ),
-                    ),
                   ],
                 ),
+              ),
+              if (maiorReceita > 0) ...[
+                const SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: frac,
+                    minHeight: 5,
+                    backgroundColor: const Color(0xFFE2E8F0),
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                      Color(0xFF15803D),
+                    ),
+                  ),
+                ),
               ],
-            ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: _Valor(
+                      rotulo: 'Contribuiu',
+                      valor: _money.format(l.receitas),
+                      cor: const Color(0xFF15803D),
+                    ),
+                  ),
+                  Expanded(
+                    child: _Valor(
+                      rotulo: 'Despesas',
+                      valor: _money.format(l.despesas),
+                      cor: const Color(0xFFB91C1C),
+                    ),
+                  ),
+                  Expanded(
+                    child: _Valor(
+                      rotulo: 'Saldo',
+                      valor: _money.format(l.saldo),
+                      cor: l.saldo >= 0
+                          ? const Color(0xFF1D4ED8)
+                          : const Color(0xFFB91C1C),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+
+  /// Duas iniciais do nome — o avatar do extrato usa a mesma leitura.
+  static String _iniciaisDe(String nome) {
+    final partes = nome
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (partes.isEmpty) return '?';
+    if (partes.length == 1) {
+      return partes.first.substring(0, 1).toUpperCase();
+    }
+    return (partes.first.substring(0, 1) + partes.last.substring(0, 1))
+        .toUpperCase();
+  }
+}
+
+class _MiniInfoChip extends StatelessWidget {
+  const _MiniInfoChip({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 13, color: const Color(0xFF475569)),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF475569),
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
 class _CardTotal extends StatelessWidget {

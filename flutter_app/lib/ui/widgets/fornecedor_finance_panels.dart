@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
 import 'package:gestao_yahweh/core/finance_saldo_policy.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
+import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/church_finance_load_service.dart';
@@ -346,16 +347,30 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
           break;
         }
       }
-      final compSnap = await ChurchUiCollections.churchDoc(tid)
-          .collection('fornecedor_compromissos')
-          .where('fornecedorId', isEqualTo: widget.fornecedorId.trim())
-          .limit(200)
-          .get();
+      // Leitura pelo gateway (REST na web). O `.collection().where().get()`
+      // cru do SDK era o que rebentava aqui com «INTERNAL ASSERTION FAILED»
+      // e devolvia «Erro ao gerar PDF» — o mesmo defeito que já tinha
+      // derrubado Financeiro, Patrimônio e Escalas.
+      final alvo = widget.fornecedorId.trim();
+      final compSnap = await ChurchFirestoreAccess.listOnce(
+        module: 'fornecedores',
+        churchId: tid,
+        subcollectionName: 'fornecedor_compromissos',
+        limit: 200,
+      );
+      final compromissos = <Map<String, dynamic>>[];
+      for (final d in compSnap.docs) {
+        final m = d.data();
+        final fid = (m['fornecedorId'] ?? m['fornecedor_id'] ?? '')
+            .toString()
+            .trim();
+        if (fid == alvo) compromissos.add(m);
+      }
       final bytes = await buildFornecedorHistoricoPdf(
         branding: branding,
         fornecedorNome: nome,
         lancamentos: _docs.map((d) => d.data()).toList(),
-        compromissos: compSnap.docs.map((d) => d.data()).toList(),
+        compromissos: compromissos,
       );
       if (!mounted) return;
       await showPdfActions(
@@ -399,224 +414,232 @@ class _FornecedorFinanceHubPanelState extends State<FornecedorFinanceHubPanel> {
 
     return RefreshIndicator(
       onRefresh: () => _load(force: true),
-      child: CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFFEE2E2),
-                        foregroundColor: const Color(0xFFB91C1C),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        elevation: 0,
-                      ),
-                      onPressed: widget.onNovaDespesa,
-                      icon: const Icon(Icons.trending_down_rounded),
-                      label: const Text(
-                        'Despesa',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFFDCFCE7),
-                        foregroundColor: const Color(0xFF15803D),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        elevation: 0,
-                      ),
-                      onPressed: widget.onNovaReceita,
-                      icon: const Icon(Icons.trending_up_rounded),
-                      label: const Text(
-                        'Receita',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: ControleTotalSupplierFinanceCard(
-                title: 'Financeiro do fornecedor',
-                subtitle: '${_visible.length} lançamento(s) vinculado(s)',
-                despesas: money.format(totals.despesas),
-                receitas: money.format(totals.receitas),
-                saldo: money.format(totals.saldo),
-                saldoNegativo: totals.saldo < 0,
-                onOpenLancamentos: () => _openGrid(filtro: 'todos'),
-                onOpenPendentes: () => _openGrid(filtro: 'pendentes'),
-                onOpenComprovantes: () => _openGrid(filtro: 'todos'),
-              ),
-            ),
-          ),
-          if (_docs.isNotEmpty)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-                child: Material(
-                  color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(14),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
-                    onTap: () => _openGrid(),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.grid_view_rounded,
-                            color: ThemeCleanPremium.primary,
+      // Coluna central com largura máxima — o mesmo padrão do Financeiro e
+      // do Financeiro geral. Sem isto, no browser cada lançamento ficava
+      // sozinho numa faixa de 1900px, com o valor no outro extremo do ecrã.
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1180),
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFFEE2E2),
+                            foregroundColor: const Color(0xFFB91C1C),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            elevation: 0,
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'Abrir grade de lançamentos (${_docs.length})',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 13,
+                          onPressed: widget.onNovaDespesa,
+                          icon: const Icon(Icons.trending_down_rounded),
+                          label: const Text(
+                            'Despesa',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFDCFCE7),
+                            foregroundColor: const Color(0xFF15803D),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            elevation: 0,
+                          ),
+                          onPressed: widget.onNovaReceita,
+                          icon: const Icon(Icons.trending_up_rounded),
+                          label: const Text(
+                            'Receita',
+                            style: TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: ControleTotalSupplierFinanceCard(
+                    title: 'Financeiro do fornecedor',
+                    subtitle: '${_visible.length} lançamento(s) vinculado(s)',
+                    despesas: money.format(totals.despesas),
+                    receitas: money.format(totals.receitas),
+                    saldo: money.format(totals.saldo),
+                    saldoNegativo: totals.saldo < 0,
+                    onOpenLancamentos: () => _openGrid(filtro: 'todos'),
+                    onOpenPendentes: () => _openGrid(filtro: 'pendentes'),
+                    onOpenComprovantes: () => _openGrid(filtro: 'todos'),
+                  ),
+                ),
+              ),
+              if (_docs.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                    child: Material(
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(14),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () => _openGrid(),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.grid_view_rounded,
+                                color: ThemeCleanPremium.primary,
                               ),
-                            ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Abrir grade de lançamentos (${_docs.length})',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                              Icon(
+                                Icons.chevron_right_rounded,
+                                color: Colors.grey.shade500,
+                              ),
+                            ],
                           ),
-                          Icon(
-                            Icons.chevron_right_rounded,
-                            color: Colors.grey.shade500,
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
-          if (_docs.isNotEmpty)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                child: FinanceResumoChartsSection(
-                  allLancamentos: _docs,
-                  receitasPorCat: receitasPorCat,
-                  despesasPorCat: despesasPorCat,
-                  totalReceitas: totals.receitas,
-                  totalDespesas: totals.despesas,
-                  chartYear: year,
+              if (_docs.isNotEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: FinanceResumoChartsSection(
+                      allLancamentos: _docs,
+                      receitasPorCat: receitasPorCat,
+                      despesasPorCat: despesasPorCat,
+                      totalReceitas: totals.receitas,
+                      totalDespesas: totals.despesas,
+                      chartYear: year,
+                    ),
+                  ),
+                ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${_visible.length} lançamento(s)',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => _openGrid(),
+                        icon: const Icon(Icons.grid_view_rounded),
+                        label: const Text('Grade'),
+                      ),
+                      TextButton.icon(
+                        onPressed: _exportingPdf ? null : _exportHistoricoPdf,
+                        icon: _exportingPdf
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.picture_as_pdf_outlined),
+                        label: const Text('PDF histórico'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Row(
-                children: [
-                  Expanded(
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'todos', label: Text('Todos')),
+                      ButtonSegment(value: 'despesas', label: Text('Despesas')),
+                      ButtonSegment(value: 'receitas', label: Text('Receitas')),
+                    ],
+                    selected: {_filtro},
+                    onSelectionChanged: (s) => setState(() => _filtro = s.first),
+                  ),
+                ),
+              ),
+              if (_visible.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(
                     child: Text(
-                      '${_visible.length} lançamento(s)',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.grey.shade700,
-                      ),
+                      'Nenhum lançamento vinculado.',
+                      style: TextStyle(color: Colors.grey.shade600),
                     ),
                   ),
-                  TextButton.icon(
-                    onPressed: () => _openGrid(),
-                    icon: const Icon(Icons.grid_view_rounded),
-                    label: const Text('Grade'),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate((context, i) {
+                      final d = _visible[i];
+                      final perfil = _perfil;
+                      if (perfil == null) {
+                        // Sem perfil o editor do Financeiro nao abre; mostrar o
+                        // cartao antigo e melhor do que nao mostrar nada.
+                        return _LancamentoCard(
+                          doc: d,
+                          money: money,
+                          onTap: () =>
+                              fornecedorShowLancamentoPreview(context, doc: d),
+                          onEditar: () => widget.onEditar(d),
+                          onExcluir: () => widget.onExcluir(d),
+                          onRecibo: () => widget.onRecibo(d.data(), d.id),
+                        );
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: FinanceTransactionListTile(
+                          doc: d,
+                          profile: perfil,
+                          financeAccounts: _contas,
+                          gridSelectionMode: false,
+                          isSelected: false,
+                          optimisticPaidIds: const <String>{},
+                          onEdit: (ctx, id, data, type) async =>
+                              widget.onEditar(d),
+                          onDelete: (ctx, id) async => widget.onExcluir(d),
+                          onConfirmPayment: (ctx, id) async =>
+                              widget.onEditar(d),
+                          onAttachReceipt: (ctx, id) async =>
+                              widget.onEditar(d),
+                        ),
+                      );
+                    }, childCount: _visible.length),
                   ),
-                  TextButton.icon(
-                    onPressed: _exportingPdf ? null : _exportHistoricoPdf,
-                    icon: _exportingPdf
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.picture_as_pdf_outlined),
-                    label: const Text('PDF histórico'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'todos', label: Text('Todos')),
-                  ButtonSegment(value: 'despesas', label: Text('Despesas')),
-                  ButtonSegment(value: 'receitas', label: Text('Receitas')),
-                ],
-                selected: {_filtro},
-                onSelectionChanged: (s) => setState(() => _filtro = s.first),
-              ),
-            ),
-          ),
-          if (_visible.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                child: Text(
-                  'Nenhum lançamento vinculado.',
-                  style: TextStyle(color: Colors.grey.shade600),
                 ),
-              ),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate((context, i) {
-                  final d = _visible[i];
-                  final perfil = _perfil;
-                  if (perfil == null) {
-                    // Sem perfil o editor do Financeiro nao abre; mostrar o
-                    // cartao antigo e melhor do que nao mostrar nada.
-                    return _LancamentoCard(
-                      doc: d,
-                      money: money,
-                      onTap: () =>
-                          fornecedorShowLancamentoPreview(context, doc: d),
-                      onEditar: () => widget.onEditar(d),
-                      onExcluir: () => widget.onExcluir(d),
-                      onRecibo: () => widget.onRecibo(d.data(), d.id),
-                    );
-                  }
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: FinanceTransactionListTile(
-                      doc: d,
-                      profile: perfil,
-                      financeAccounts: _contas,
-                      gridSelectionMode: false,
-                      isSelected: false,
-                      optimisticPaidIds: const <String>{},
-                      onEdit: (ctx, id, data, type) async =>
-                          widget.onEditar(d),
-                      onDelete: (ctx, id) async => widget.onExcluir(d),
-                      onConfirmPayment: (ctx, id) async =>
-                          widget.onEditar(d),
-                      onAttachReceipt: (ctx, id) async =>
-                          widget.onEditar(d),
-                    ),
-                  );
-                }, childCount: _visible.length),
-              ),
-            ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }

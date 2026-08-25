@@ -46,6 +46,7 @@ abstract final class ChurchFeedAgendaSyncService {
       'noticiaId': eid,
       'category': category,
       'color': colorHex,
+      'colorHex': colorHex,
       'location': location?.trim() ?? '',
       'type': 'evento',
       'updatedAt': FieldValue.serverTimestamp(),
@@ -160,6 +161,7 @@ abstract final class ChurchFeedAgendaSyncService {
       'avisoId': aid,
       'category': 'aviso',
       'color': colorHex,
+      'colorHex': colorHex,
       'type': 'aviso',
       'updatedAt': FieldValue.serverTimestamp(),
     };

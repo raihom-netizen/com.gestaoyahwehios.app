@@ -38,7 +38,7 @@ class ChurchFuncoesControleService {
         _doc(
             'secretario',
             'Secretário(a)',
-            'Cadastros, certificados, documentos, departamentos e visitantes ? sem financeiro.',
+            'Cadastros, certificados, documentos, departamentos e visitantes • sem financeiro.',
             5),
         _doc(
             'tesoureiro',
@@ -335,4 +335,3 @@ class ChurchFuncoesControleService {
         .replaceAll(RegExp(r'^_|_$'), '');
   }
 }
-

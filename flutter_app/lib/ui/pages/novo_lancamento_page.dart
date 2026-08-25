@@ -1,4 +1,4 @@
-﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart';
 import 'dart:async';
 
@@ -29,8 +29,6 @@ import 'package:gestao_yahweh/utils/finance_transaction_status_resolver.dart';
 import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
 import 'package:gestao_yahweh/models/finance_account.dart';
-import 'package:gestao_yahweh/constants/finance_account_visuals.dart';
-import 'package:gestao_yahweh/ui/widgets/finance_bank_brand_thumb.dart';
 import 'package:gestao_yahweh/ui/widgets/brl_amount_text_field.dart';
 import 'package:gestao_yahweh/utils/date_picker_a11y.dart';
 import 'package:gestao_yahweh/constants/finance_category_visuals.dart';
@@ -146,6 +144,21 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
   List<String> get _currentCategories =>
       _isIncome ? _incomeCategories : _expenseCategories;
 
+  static const String _defaultIncomeCategory = 'Dízimos';
+  static const String _defaultExpenseCategory = 'Alimentação';
+
+  String _defaultCategoryFor(List<String> categories, bool isIncome) {
+    final preferred = isIncome
+        ? _defaultIncomeCategory
+        : _defaultExpenseCategory;
+    for (final category in categories) {
+      if (category.trim().toLowerCase() == preferred.toLowerCase()) {
+        return category;
+      }
+    }
+    return preferred;
+  }
+
   bool get _isEditing =>
       widget.editingTransactionId != null && widget.editingData != null;
 
@@ -225,7 +238,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     // So conta como ligado quando foi gravado explicitamente `true`.
     // Com `!= false`, lancamento antigo sem o campo aparecia no
     // calendario ao ser reaberto.
-    _addToCalendar = st == 'pending' &&
+    _addToCalendar =
+        st == 'pending' &&
         d['addToCalendar'] == true &&
         d['hideFromCalendar'] != true;
 
@@ -234,10 +248,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     // — senão o formulário some com o comprovante ao reabrir para editar.
     final canonicalReceiptLink =
         (d['comprovanteUrl'] ?? d['comprovanteLink'] ?? '').toString();
-    final receiptName = (receipt['name'] ??
-            (canonicalReceiptLink.isNotEmpty ? 'Comprovante' : '') ??
-            '')
-        .toString();
+    final receiptName =
+        (receipt['name'] ??
+                (canonicalReceiptLink.isNotEmpty ? 'Comprovante' : '') ??
+                '')
+            .toString();
     _hasExistingReceipt = receiptName.isNotEmpty;
     _hasReceipt = _hasExistingReceipt;
     _receiptName = receiptName;
@@ -248,8 +263,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     final currentCat = (d['category'] ?? '').toString().trim();
     final list = _isIncome ? _incomeCategories : _expenseCategories;
     final incluirNova = UserCategoriesService.kIncluirNova;
-    final match =
-        list.where((c) => c.toLowerCase() == currentCat.toLowerCase()).toList();
+    final match = list
+        .where((c) => c.toLowerCase() == currentCat.toLowerCase())
+        .toList();
     if (currentCat.isNotEmpty && match.isNotEmpty) {
       _selectedCategory = match.first;
       _categoryCtrl.text = _selectedCategory;
@@ -262,8 +278,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
           : (list.isNotEmpty ? list.first : '__outra__');
       _categoryCtrl.text =
           _selectedCategory == '__outra__' || _selectedCategory == incluirNova
-              ? ''
-              : _selectedCategory;
+          ? ''
+          : _selectedCategory;
     }
 
     final installments = (d['installments'] as num?)?.toInt() ?? 1;
@@ -297,13 +313,12 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
           _loadEditingData(widget.editingData!);
         } else {
           final list = _isIncome ? income : expense;
-          _selectedCategory = list.length > 1 && list.first == incluirNova
-              ? list[1]
-              : (list.isNotEmpty ? list.first : '__outra__');
+          _selectedCategory = _defaultCategoryFor(list, _isIncome);
           _categoryCtrl.text =
-              _selectedCategory == '__outra__' || _selectedCategory == incluirNova
-                  ? ''
-                  : _selectedCategory;
+              _selectedCategory == '__outra__' ||
+                  _selectedCategory == incluirNova
+              ? ''
+              : _selectedCategory;
           _applyAutoDescriptionFromContext();
         }
       });
@@ -354,9 +369,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         }
         if (_selectedCategory.isEmpty) {
           final list = _isIncome ? _incomeCategories : _expenseCategories;
-          _selectedCategory = list.length > 1 && list.first == incluirNova
-              ? list[1]
-              : (list.isNotEmpty ? list.first : '__outra__');
+          _selectedCategory = _defaultCategoryFor(list, _isIncome);
         }
       });
     } finally {
@@ -393,7 +406,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
       () {
         if (!mounted) return;
         if (_selectedCategory != '__outra__') return;
-        final stillAuto = _lastAutoDescription != null &&
+        final stillAuto =
+            _lastAutoDescription != null &&
             _descCtrl.text == _lastAutoDescription;
         if (stillAuto) _applyAutoDescriptionFromContext();
       },
@@ -432,7 +446,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
       lastDate: DateTime(2100),
     );
     if (picked != null) {
-      final keepSync = _lastAutoDescription != null &&
+      final keepSync =
+          _lastAutoDescription != null &&
           _descCtrl.text == _lastAutoDescription;
       setState(() {
         _date = FinanceTransactionDatetime.mergeCalendarDayWithExistingTime(
@@ -489,8 +504,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-                content:
-                    Text('Arquivo inválido. Use apenas JPEG, PNG ou PDF.')),
+              content: Text('Arquivo inválido. Use apenas JPEG, PNG ou PDF.'),
+            ),
           );
         }
         return;
@@ -502,7 +517,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text(
-                  'Não foi possível ler o arquivo. Tente outro ou um tamanho menor.'),
+                'Não foi possível ler o arquivo. Tente outro ou um tamanho menor.',
+              ),
               duration: Duration(seconds: 4),
             ),
           );
@@ -513,7 +529,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-                content: Text('Arquivo grande demais. Limite: 5 MB.')),
+              content: Text('Arquivo grande demais. Limite: 5 MB.'),
+            ),
           );
         }
         return;
@@ -531,16 +548,18 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         _receiptMime = mime;
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Arquivo anexado: ${f.name}')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Arquivo anexado: ${f.name}')));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(
-                  'Erro ao selecionar arquivo: ${e.toString().split('\n').first}')),
+            content: Text(
+              'Erro ao selecionar arquivo: ${e.toString().split('\n').first}',
+            ),
+          ),
         );
       }
     }
@@ -553,16 +572,17 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     }
     final amount = CurrencyFormats.parseBRLInput(_amountCtrl.text) ?? 0;
     if (amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Informe um valor válido.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Informe um valor válido.')));
       return;
     }
 
     final incluirNova = UserCategoriesService.kIncluirNova;
     String categoryFinal =
         (_selectedCategory == '__outra__' || _selectedCategory == incluirNova)
-            ? _categoryCtrl.text.trim()
-            : _selectedCategory;
+        ? _categoryCtrl.text.trim()
+        : _selectedCategory;
     if (categoryFinal.isEmpty) {
       categoryFinal = _isIncome ? 'Receita' : 'Despesa';
     }
@@ -573,8 +593,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
       financeAid = _financeAccounts.first.id;
     }
     if (financeAid.isEmpty && _financeAccounts.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Escolha o banco/conta do lançamento.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Escolha o banco/conta do lançamento.')),
+      );
       return;
     }
 
@@ -591,12 +612,15 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         ? (int.tryParse(_installmentsCtrl.text.trim()) ?? 12).clamp(1, 999)
         : 1;
     final startIdx = _installmentMode
-        ? (int.tryParse(_installmentStartCtrl.text.trim()) ?? 1)
-            .clamp(1, installmentsTotal)
+        ? (int.tryParse(_installmentStartCtrl.text.trim()) ?? 1).clamp(
+            1,
+            installmentsTotal,
+          )
         : 1;
 
     // Só envia comprovante se tiver bytes válidos (evita erro no upload).
-    final bool hasValidReceipt = _hasReceipt &&
+    final bool hasValidReceipt =
+        _hasReceipt &&
         _receiptBytes != null &&
         _receiptBytes!.lengthInBytes > 0 &&
         _receiptName.isNotEmpty &&
@@ -654,9 +678,10 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     );
     final paidForEffective = resolvedStatus == 'paid'
         ? (current['paidAt'] is Timestamp
-            ? current['paidAt'] as Timestamp
-            : FinanceTransactionStatusResolver.paidAtForAutoPaid(
-                dateWithoutSeconds))
+              ? current['paidAt'] as Timestamp
+              : FinanceTransactionStatusResolver.paidAtForAutoPaid(
+                  dateWithoutSeconds,
+                ))
         : null;
 
     final updateData = <String, dynamic>{
@@ -713,8 +738,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         }
       }
 
-      final txRef =
-          ChurchUiCollections.financeiro(widget.uid.trim()).doc(docId);
+      final txRef = ChurchUiCollections.financeiro(
+        widget.uid.trim(),
+      ).doc(docId);
       if (kIsWeb) {
         // Web: atualiza por REST (o SDK trava no cliente envenenado). Separa os
         // campos a GRAVAR dos a DELETAR (updatedAt = serverTimestamp → grava now;
@@ -770,17 +796,21 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
 
       if (mounted) {
         HapticFeedback.lightImpact();
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Lançamento atualizado.')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Lançamento atualizado.')));
         Navigator.of(context).pop(true);
       }
     } catch (err) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content:
-              Text('Erro ao atualizar: ${err.toString().split('\n').first}'),
-          backgroundColor: AppColors.error,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Erro ao atualizar: ${err.toString().split('\n').first}',
+            ),
+            backgroundColor: AppColors.error,
+          ),
+        );
       }
     }
   }
@@ -831,17 +861,21 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         final extra = metaInfo?.hasWeeksImpact == true
             ? ' Semanas da meta atualizadas.'
             : '';
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lançamento excluído.$extra')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Lançamento excluído.$extra')));
         Navigator.of(context).pop(true);
       }
     } catch (err) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Erro ao excluir: ${err.toString().split('\n').first}'),
-          backgroundColor: AppColors.error,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Erro ao excluir: ${err.toString().split('\n').first}',
+            ),
+            backgroundColor: AppColors.error,
+          ),
+        );
       }
     }
   }
@@ -863,7 +897,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
 
     final scaffold = Scaffold(
       resizeToAvoidBottomInset: scaffoldKeyboardResizeToAvoidBottomInset(
-          standaloneFullPageForm: true),
+        standaloneFullPageForm: true,
+      ),
       backgroundColor: ModernModuleUI.scaffoldBgOf(context),
       extendBodyBehindAppBar: true,
       appBar: financePremiumGradientAppBar(
@@ -874,27 +909,34 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                 Color(0xFF14532D),
                 Color(0xFF15803D),
                 Color(0xFF22C55E),
-                AppColors.accent
+                AppColors.accent,
               ]
             : const [
                 Color(0xFF7F1D1D),
                 Color(0xFFB91C1C),
                 Color(0xFFEF4444),
-                AppColors.logoOrange
+                AppColors.logoOrange,
               ],
         actions: [
           if (_isEditing)
             IconButton(
               tooltip: 'Excluir lançamento',
               onPressed: _confirmDeleteEditing,
-              icon: const Icon(Icons.delete_outline_rounded,
-                  color: Colors.white, size: 24),
+              icon: const Icon(
+                Icons.delete_outline_rounded,
+                color: Colors.white,
+                size: 24,
+              ),
             ),
           TextButton(
             onPressed: () => Navigator.maybePop(context),
-            child: Text('Cancelar',
-                style: TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w800)),
+            child: Text(
+              'Cancelar',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
         ],
       ),
@@ -906,8 +948,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
               child: FinancePremiumFormFooterActions(
                 onCancel: () => Navigator.maybePop(context),
                 onSave: _submit,
-                saveLabel:
-                    _isEditing ? 'Salvar alterações' : 'Confirmar lançamento',
+                saveLabel: _isEditing
+                    ? 'Salvar alterações'
+                    : 'Confirmar lançamento',
                 saveIcon: Icons.check_rounded,
                 accent: _isIncome
                     ? const Color(0xFF15803D)
@@ -939,7 +982,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                             final cur = _selectedCategory == '__outra__'
                                 ? ''
                                 : _selectedCategory;
-                            final same = cur.trim().toLowerCase() ==
+                            final same =
+                                cur.trim().toLowerCase() ==
                                     preset.categoryName.trim().toLowerCase() &&
                                 cur.isNotEmpty;
                             if (same) {
@@ -955,14 +999,17 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                         ),
                         SizedBox(height: 12),
                         ListenableBuilder(
-                          listenable: Listenable.merge(
-                              [_installmentsCtrl, _installmentStartCtrl]),
+                          listenable: Listenable.merge([
+                            _installmentsCtrl,
+                            _installmentStartCtrl,
+                          ]),
                           builder: (_, _) => Text(
                             _amountFieldLabel(),
                             style: TextStyle(
-                                color: context.appTextSecondary,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600),
+                              color: context.appTextSecondary,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                         SizedBox(height: 6),
@@ -970,7 +1017,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                           child: Container(
                             width: double.infinity,
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 14),
+                              horizontal: 14,
+                              vertical: 14,
+                            ),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 begin: Alignment.topLeft,
@@ -984,31 +1033,34 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                                         context.appSurfaceHigh,
                                       ]
                                     : _isIncome
-                                        ? [
-                                            const Color(0xFFE8F5E9),
-                                            const Color(0xFFF1F8E9),
-                                          ]
-                                        : [
-                                            const Color(0xFFFFEBEE),
-                                            const Color(0xFFFFF3E0),
-                                          ],
+                                    ? [
+                                        const Color(0xFFE8F5E9),
+                                        const Color(0xFFF1F8E9),
+                                      ]
+                                    : [
+                                        const Color(0xFFFFEBEE),
+                                        const Color(0xFFFFF3E0),
+                                      ],
                               ),
                               borderRadius: BorderRadius.circular(18),
                               border: Border.all(
-                                color: (_isIncome
-                                        ? const Color(0xFF2E7D32)
-                                        : const Color(0xFFC62828))
-                                    .withValues(
-                                        alpha:
-                                            context.isDarkMode ? 0.72 : 0.35),
+                                color:
+                                    (_isIncome
+                                            ? const Color(0xFF2E7D32)
+                                            : const Color(0xFFC62828))
+                                        .withValues(
+                                          alpha: context.isDarkMode
+                                              ? 0.72
+                                              : 0.35,
+                                        ),
                                 width: 1.5,
                               ),
                               boxShadow: [
                                 BoxShadow(
                                   color: (_isIncome ? Colors.green : Colors.red)
                                       .withValues(
-                                          alpha:
-                                              context.isDarkMode ? 0.22 : 0.12),
+                                        alpha: context.isDarkMode ? 0.22 : 0.12,
+                                      ),
                                   blurRadius: 14,
                                   offset: const Offset(0, 4),
                                 ),
@@ -1026,11 +1078,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                                 height: 1.05,
                                 color: _isIncome
                                     ? (context.isDarkMode
-                                        ? const Color(0xFF86EFAC)
-                                        : const Color(0xFF1B5E20))
+                                          ? const Color(0xFF86EFAC)
+                                          : const Color(0xFF1B5E20))
                                     : (context.isDarkMode
-                                        ? const Color(0xFFFCA5A5)
-                                        : const Color(0xFFB71C1C)),
+                                          ? const Color(0xFFFCA5A5)
+                                          : const Color(0xFFB71C1C)),
                               ),
                               decoration: InputDecoration(
                                 isDense: true,
@@ -1041,11 +1093,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                                   fontWeight: FontWeight.w900,
                                   color: _isIncome
                                       ? (context.isDarkMode
-                                          ? const Color(0xFF4ADE80)
-                                          : const Color(0xFF2E7D32))
+                                            ? const Color(0xFF4ADE80)
+                                            : const Color(0xFF2E7D32))
                                       : (context.isDarkMode
-                                          ? const Color(0xFFF87171)
-                                          : const Color(0xFFD32F2F)),
+                                            ? const Color(0xFFF87171)
+                                            : const Color(0xFFD32F2F)),
                                 ),
                                 border: InputBorder.none,
                                 hintText: '0,00',
@@ -1067,16 +1119,20 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                         _buildAccountSelector(),
                         SizedBox(height: 10),
                         ListenableBuilder(
-                          listenable: Listenable.merge(
-                              [_installmentsCtrl, _installmentStartCtrl]),
+                          listenable: Listenable.merge([
+                            _installmentsCtrl,
+                            _installmentStartCtrl,
+                          ]),
                           builder: (_, _) => _buildDateField(),
                         ),
                         SizedBox(height: 12),
                         _buildStatusRecurrenceRow(),
                         SizedBox(height: 10),
                         ListenableBuilder(
-                          listenable: Listenable.merge(
-                              [_installmentsCtrl, _installmentStartCtrl]),
+                          listenable: Listenable.merge([
+                            _installmentsCtrl,
+                            _installmentStartCtrl,
+                          ]),
                           builder: (_, _) => _buildInstallmentsField(),
                         ),
                         if (_status == 'pending') ...[
@@ -1092,9 +1148,10 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                           Text(
                             'Comprovante (JPEG, PNG ou PDF)',
                             style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: context.appDeepTitle,
-                                fontSize: 14),
+                              fontWeight: FontWeight.bold,
+                              color: context.appDeepTitle,
+                              fontSize: 14,
+                            ),
                           ),
                           SizedBox(height: 8),
                           GestureDetector(
@@ -1105,9 +1162,12 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                             child: Container(
                               width: double.infinity,
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 14),
-                              decoration:
-                                  context.appPanelDecoration(radius: 16),
+                                horizontal: 16,
+                                vertical: 14,
+                              ),
+                              decoration: context.appPanelDecoration(
+                                radius: 16,
+                              ),
                               child: Stack(
                                 children: [
                                   Column(
@@ -1120,8 +1180,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                                         color: !widget.canAttachReceipt
                                             ? Colors.grey
                                             : (_hasReceipt
-                                                ? Colors.green
-                                                : Colors.blue.shade400),
+                                                  ? Colors.green
+                                                  : Colors.blue.shade400),
                                       ),
                                       SizedBox(height: 10),
                                       Text(
@@ -1132,8 +1192,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                                           color: !widget.canAttachReceipt
                                               ? Colors.grey
                                               : (_hasReceipt
-                                                  ? Colors.blue.shade700
-                                                  : Colors.grey),
+                                                    ? Colors.blue.shade700
+                                                    : Colors.grey),
                                           fontWeight: _hasReceipt
                                               ? FontWeight.w600
                                               : FontWeight.normal,
@@ -1163,8 +1223,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                                             color: Color(0xFFE53935),
                                             shape: BoxShape.circle,
                                           ),
-                                          child: const Icon(Icons.close_rounded,
-                                              color: Colors.white, size: 16),
+                                          child: const Icon(
+                                            Icons.close_rounded,
+                                            color: Colors.white,
+                                            size: 16,
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -1191,10 +1254,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
           _isIncome = income;
           final list = _currentCategories;
           final incluirNova = UserCategoriesService.kIncluirNova;
-          _selectedCategory = list.length > 1 && list.first == incluirNova
-              ? list[1]
-              : (list.isNotEmpty ? list.first : '__outra__');
-          _categoryCtrl.text = _selectedCategory == '__outra__' ||
+          _selectedCategory = _defaultCategoryFor(list, _isIncome);
+          _categoryCtrl.text =
+              _selectedCategory == '__outra__' ||
                   _selectedCategory == incluirNova
               ? ''
               : _selectedCategory;
@@ -1253,19 +1315,20 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
       final icon = a.isCardProduct
           ? Icons.credit_card_rounded
           : (a.isVaultProduct
-              ? Icons.savings_rounded
-              : Icons.account_balance_rounded);
+                ? Icons.savings_rounded
+                : Icons.account_balance_rounded);
       return Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Material(
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: onTap ??
+            onTap:
+                onTap ??
                 () => setState(() {
-                      _selectedFinanceAccountId = a.id;
-                      _applyStatusDefaultForAccount(_financeAccounts);
-                    }),
+                  _selectedFinanceAccountId = a.id;
+                  _applyStatusDefaultForAccount(_financeAccounts);
+                }),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
@@ -1274,9 +1337,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                     : context.appInputFill,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: selected
-                      ? accent
-                      : accent.withValues(alpha: 0.18),
+                  color: selected ? accent : accent.withValues(alpha: 0.18),
                   width: selected ? 1.6 : 1,
                 ),
               ),
@@ -1288,8 +1349,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                       color: selected ? accent : accent.withValues(alpha: 0.12),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(icon,
-                        size: 16, color: selected ? Colors.white : accent),
+                    child: Icon(
+                      icon,
+                      size: 16,
+                      color: selected ? Colors.white : accent,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -1319,16 +1383,17 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
 
     // Campo COMPACTO: mostra o banco selecionado; toque abre a lista (estilo
     // do seletor de Categoria). Ocupa pouco espaço em receita e despesa.
-    final selected = _financeAccounts
-        .cast<FinanceAccount?>()
-        .firstWhere((a) => a?.id == _selectedFinanceAccountId, orElse: () => null);
+    final selected = _financeAccounts.cast<FinanceAccount?>().firstWhere(
+      (a) => a?.id == _selectedFinanceAccountId,
+      orElse: () => null,
+    );
     final selIcon = selected == null
         ? Icons.account_balance_rounded
         : (selected.isCardProduct
-            ? Icons.credit_card_rounded
-            : (selected.isVaultProduct
-                ? Icons.savings_rounded
-                : Icons.account_balance_rounded));
+              ? Icons.credit_card_rounded
+              : (selected.isVaultProduct
+                    ? Icons.savings_rounded
+                    : Icons.account_balance_rounded));
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Column(
@@ -1357,8 +1422,10 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
               borderRadius: BorderRadius.circular(12),
               onTap: () => _openAccountPicker(accent, tile),
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 13,
+                ),
                 decoration: BoxDecoration(
                   color: context.appInputFill,
                   borderRadius: BorderRadius.circular(12),
@@ -1387,8 +1454,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                         ),
                       ),
                     ),
-                    Icon(Icons.unfold_more_rounded,
-                        color: accent, size: 22),
+                    Icon(Icons.unfold_more_rounded, color: accent, size: 22),
                   ],
                 ),
               ),
@@ -1400,8 +1466,10 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
   }
 
   /// Abre a lista de bancos/contas em folha inferior (estilo Categoria).
-  Future<void> _openAccountPicker(Color accent,
-      Widget Function(FinanceAccount, {VoidCallback? onTap}) tile) async {
+  Future<void> _openAccountPicker(
+    Color accent,
+    Widget Function(FinanceAccount, {VoidCallback? onTap}) tile,
+  ) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1430,8 +1498,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                 const SizedBox(height: 14),
                 Row(
                   children: [
-                    Icon(Icons.account_balance_rounded,
-                        size: 20, color: accent),
+                    Icon(
+                      Icons.account_balance_rounded,
+                      size: 20,
+                      color: accent,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       'Escolher banco / conta',
@@ -1449,13 +1520,16 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                     child: Column(
                       children: [
                         for (final a in _financeAccounts)
-                          tile(a, onTap: () {
-                            setState(() {
-                              _selectedFinanceAccountId = a.id;
-                              _applyStatusDefaultForAccount(_financeAccounts);
-                            });
-                            Navigator.of(ctx).pop();
-                          }),
+                          tile(
+                            a,
+                            onTap: () {
+                              setState(() {
+                                _selectedFinanceAccountId = a.id;
+                                _applyStatusDefaultForAccount(_financeAccounts);
+                              });
+                              Navigator.of(ctx).pop();
+                            },
+                          ),
                       ],
                     ),
                   ),
@@ -1475,29 +1549,25 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         Text(
           'Descrição',
           style: TextStyle(
-              fontWeight: FontWeight.w700,
-              color: context.appTextPrimary,
-              fontSize: 12.5),
+            fontWeight: FontWeight.w700,
+            color: context.appTextPrimary,
+            fontSize: 12.5,
+          ),
         ),
         SizedBox(height: 6),
         Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: context.isDarkMode
-                  ? [
-                      context.appDarkModuleSurface,
-                      context.appSurfaceHigh,
-                    ]
-                  : [
-                      const Color(0xFFE3F2FD),
-                      Colors.white,
-                    ],
+                  ? [context.appDarkModuleSurface, context.appSurfaceHigh]
+                  : [const Color(0xFFE3F2FD), Colors.white],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-                color: const Color(0xFF1565C0).withValues(alpha: 0.22)),
+              color: const Color(0xFF1565C0).withValues(alpha: 0.22),
+            ),
             boxShadow: [
               BoxShadow(
                 color: const Color(0xFF1565C0).withValues(alpha: 0.08),
@@ -1518,9 +1588,12 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                     style: FilledButton.styleFrom(
                       minimumSize: const Size(48, 48),
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                       foregroundColor: context.isDarkMode
                           ? const Color(0xFF93C5FD)
                           : const Color(0xFF0D47A1),
@@ -1533,11 +1606,14 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                       children: [
                         Icon(Icons.list_alt_rounded, size: 20),
                         SizedBox(width: 6),
-                        Text('LISTA',
-                            style: TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 12,
-                                letterSpacing: 0.3)),
+                        Text(
+                          'LISTA',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1556,8 +1632,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                     ),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(Icons.edit_note_rounded,
-                      color: Color(0xFF0D47A1), size: 24),
+                  child: Icon(
+                    Icons.edit_note_rounded,
+                    color: Color(0xFF0D47A1),
+                    size: 24,
+                  ),
                 ),
               ),
               Expanded(
@@ -1579,8 +1658,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                         'Padrão: categoria + mês do lançamento (ex.: Supermercado MAIO/2026). Edite se quiser.',
                     border: InputBorder.none,
                     labelStyle: TextStyle(
-                        color: context.appTextSecondary,
-                        fontWeight: FontWeight.w600),
+                      color: context.appTextSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
                     hintStyle: TextStyle(color: Colors.grey.shade400),
                     contentPadding: const EdgeInsets.fromLTRB(8, 14, 14, 14),
                   ),
@@ -1625,12 +1705,13 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     final incluirNova = UserCategoriesService.kIncluirNova;
     final label = _selectedCategory == '__outra__'
         ? (_categoryCtrl.text.trim().isEmpty
-            ? 'Outra — digite o nome abaixo'
-            : _categoryCtrl.text.trim())
+              ? 'Outra — digite o nome abaixo'
+              : _categoryCtrl.text.trim())
         : (_selectedCategory.isEmpty || _selectedCategory == incluirNova
-            ? 'Escolher categoria'
-            : _selectedCategory);
-    final vis = (_selectedCategory.isNotEmpty &&
+              ? 'Escolher categoria'
+              : _selectedCategory);
+    final vis =
+        (_selectedCategory.isNotEmpty &&
             _selectedCategory != '__outra__' &&
             _selectedCategory != incluirNova)
         ? financeCategoryVisualFor(_selectedCategory, isIncome: _isIncome)
@@ -1647,9 +1728,10 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
         Text(
           'Categoria',
           style: TextStyle(
-              fontWeight: FontWeight.w700,
-              color: context.appTextPrimary,
-              fontSize: 12.5),
+            fontWeight: FontWeight.w700,
+            color: context.appTextPrimary,
+            fontSize: 12.5,
+          ),
         ),
         SizedBox(height: 5),
         Material(
@@ -1664,17 +1746,21 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                    color: context.appDeepTitle.withValues(alpha: 0.18)),
+                  color: context.appDeepTitle.withValues(alpha: 0.18),
+                ),
                 boxShadow: [
                   BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 10,
-                      offset: const Offset(0, 3)),
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
                 ],
               ),
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 child: Row(
                   children: [
                     Container(
@@ -1719,8 +1805,10 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                         },
                         icon: Icon(Icons.backspace_outlined, size: 22),
                       ),
-                    Icon(Icons.unfold_more_rounded,
-                        color: context.appDeepTitle),
+                    Icon(
+                      Icons.unfold_more_rounded,
+                      color: context.appDeepTitle,
+                    ),
                   ],
                 ),
               ),
@@ -1742,10 +1830,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
   }
 
   Widget _buildDateField() {
-    final installmentsTotal =
-        (int.tryParse(_installmentsCtrl.text.trim()) ?? 1).clamp(1, 999);
+    final installmentsTotal = (int.tryParse(_installmentsCtrl.text.trim()) ?? 1)
+        .clamp(1, 999);
     final isParcelado = _installmentMode && installmentsTotal > 1;
-    final isToday = _date.year == DateTime.now().year &&
+    final isToday =
+        _date.year == DateTime.now().year &&
         _date.month == DateTime.now().month &&
         _date.day == DateTime.now().day;
     final dateLabel = isToday
@@ -1771,14 +1860,19 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
               children: [
                 Text(
                   'Toque para escolher o dia e o horário (retroativo ou futuro).',
-                  style:
-                      TextStyle(fontSize: 12, color: context.appTextSecondary),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.appTextSecondary,
+                  ),
                 ),
                 SizedBox(height: 4),
                 Text(
                   'O horário já vem com a hora atual e pode ser ajustado em hora/minuto.',
                   style: TextStyle(
-                      fontSize: 11, color: context.appTextMuted, height: 1.35),
+                    fontSize: 11,
+                    color: context.appTextMuted,
+                    height: 1.35,
+                  ),
                 ),
               ],
             ),
@@ -1802,7 +1896,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                     ),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                        color: const Color(0xFF00897B).withValues(alpha: 0.35)),
+                      color: const Color(0xFF00897B).withValues(alpha: 0.35),
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: const Color(0xFF00897B).withValues(alpha: 0.1),
@@ -1831,8 +1926,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                       ),
                     ],
                   ),
-                  child: Icon(Icons.calendar_month_rounded,
-                      color: Colors.white, size: 22),
+                  child: Icon(
+                    Icons.calendar_month_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
                 ),
                 SizedBox(width: 12),
                 Expanded(
@@ -1862,8 +1960,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                     ],
                   ),
                 ),
-                Icon(Icons.chevron_right_rounded,
-                    color: context.appTextMuted, size: 28),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: context.appTextMuted,
+                  size: 28,
+                ),
               ],
             ),
           ),
@@ -1886,11 +1987,13 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                     color: const Color(0xFF00897B).withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(Icons.schedule_rounded,
-                      color: context.isDarkMode
-                          ? const Color(0xFF6EE7B7)
-                          : const Color(0xFF00695C),
-                      size: 22),
+                  child: Icon(
+                    Icons.schedule_rounded,
+                    color: context.isDarkMode
+                        ? const Color(0xFF6EE7B7)
+                        : const Color(0xFF00695C),
+                    size: 22,
+                  ),
                 ),
                 SizedBox(width: 12),
                 Expanded(
@@ -1920,10 +2023,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                     ],
                   ),
                 ),
-                TextButton(
-                  onPressed: _pickTime,
-                  child: Text('Alterar'),
-                ),
+                TextButton(onPressed: _pickTime, child: Text('Alterar')),
               ],
             ),
           ),
@@ -1937,8 +2037,10 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     return ListenableBuilder(
       listenable: _installmentsCtrl,
       builder: (context, _) {
-        final n =
-            (int.tryParse(_installmentsCtrl.text.trim()) ?? 1).clamp(1, 999);
+        final n = (int.tryParse(_installmentsCtrl.text.trim()) ?? 1).clamp(
+          1,
+          999,
+        );
         final parceladoPendente = _installmentMode && n > 1;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1956,16 +2058,20 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                     ),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(Icons.flag_circle_rounded,
-                      color: Colors.deepPurple.shade700, size: 22),
+                  child: Icon(
+                    Icons.flag_circle_rounded,
+                    color: Colors.deepPurple.shade700,
+                    size: 22,
+                  ),
                 ),
                 SizedBox(width: 10),
                 Text(
                   'Status do lançamento',
                   style: TextStyle(
-                      fontSize: 13,
-                      color: context.appTextPrimary,
-                      fontWeight: FontWeight.w800),
+                    fontSize: 13,
+                    color: context.appTextPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
@@ -1979,15 +2085,12 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                     )
                   : BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [
-                          Color(0xFFFFF8E1),
-                          Colors.white,
-                        ],
+                        colors: [Color(0xFFFFF8E1), Colors.white],
                       ),
                       borderRadius: BorderRadius.circular(16),
                       border: Border.all(
-                          color:
-                              const Color(0xFFF9A825).withValues(alpha: 0.35)),
+                        color: const Color(0xFFF9A825).withValues(alpha: 0.35),
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.orange.withValues(alpha: 0.06),
@@ -1999,7 +2102,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
               child: parceladoPendente
                   ? Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 12),
+                        horizontal: 10,
+                        vertical: 12,
+                      ),
                       child: Row(
                         children: [
                           Container(
@@ -2008,17 +2113,21 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                               color: Colors.orange.shade100,
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Icon(Icons.hourglass_top_rounded,
-                                color: Colors.orange.shade900, size: 24),
+                            child: Icon(
+                              Icons.hourglass_top_rounded,
+                              color: Colors.orange.shade900,
+                              size: 24,
+                            ),
                           ),
                           SizedBox(width: 12),
                           Expanded(
                             child: Text(
                               'Pendente (automático em parcelado)',
                               style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  color: context.appTextPrimary),
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: context.appTextPrimary,
+                              ),
                             ),
                           ),
                         ],
@@ -2040,7 +2149,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                           size: 28,
                         ),
                         contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 12),
+                          horizontal: 8,
+                          vertical: 12,
+                        ),
                       ),
                       isExpanded: true,
                       items: [
@@ -2048,12 +2159,16 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                           value: 'paid',
                           child: Row(
                             children: [
-                              Icon(Icons.check_circle_rounded,
-                                  color: Colors.green.shade700, size: 22),
+                              Icon(
+                                Icons.check_circle_rounded,
+                                color: Colors.green.shade700,
+                                size: 22,
+                              ),
                               SizedBox(width: 10),
-                              Text('Pago',
-                                  style:
-                                      TextStyle(fontWeight: FontWeight.w700)),
+                              Text(
+                                'Pago',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
                             ],
                           ),
                         ),
@@ -2061,12 +2176,16 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                           value: 'pending',
                           child: Row(
                             children: [
-                              Icon(Icons.schedule_rounded,
-                                  color: Colors.orange.shade800, size: 22),
+                              Icon(
+                                Icons.schedule_rounded,
+                                color: Colors.orange.shade800,
+                                size: 22,
+                              ),
                               SizedBox(width: 10),
-                              Text('Pendente',
-                                  style:
-                                      TextStyle(fontWeight: FontWeight.w700)),
+                              Text(
+                                'Pendente',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
                             ],
                           ),
                         ),
@@ -2087,9 +2206,10 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                 child: Text(
                   'As parcelas aparecem nas listas de pendentes até você confirmar o pagamento/recebimento.',
                   style: TextStyle(
-                      fontSize: 11,
-                      color: context.appTextSecondary,
-                      height: 1.35),
+                    fontSize: 11,
+                    color: context.appTextSecondary,
+                    height: 1.35,
+                  ),
                 ),
               ),
           ],
@@ -2100,8 +2220,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
 
   /// Toggle para incluir/excluir o lançamento pendente do calendário Agenda/Escala.
   Widget _buildAddToCalendarToggle() {
-    final accent =
-        _isIncome ? const Color(0xFF2E7D32) : const Color(0xFFE53935);
+    final accent = _isIncome
+        ? const Color(0xFF2E7D32)
+        : const Color(0xFFE53935);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
@@ -2109,10 +2230,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
             ? accent.withValues(alpha: 0.12)
             : accent.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: accent.withValues(alpha: 0.28),
-          width: 1,
-        ),
+        border: Border.all(color: accent.withValues(alpha: 0.28), width: 1),
       ),
       child: Row(
         children: [
@@ -2203,10 +2321,7 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                     setState(() => _vinculo = escolhido);
                   },
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 13,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
               decoration: BoxDecoration(
                 color: const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(12),
@@ -2316,26 +2431,33 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
     final defaultHex = _isIncome ? '#2E7D32' : '#E53935';
     final current = _calendarColorHex ?? defaultHex;
     final currentClean = current.replaceFirst('#', '').toUpperCase();
-    final currentColor = Color(0xFF000000 +
-        int.parse(
+    final currentColor = Color(
+      0xFF000000 +
+          int.parse(
             currentClean.length > 6
                 ? currentClean.substring(currentClean.length - 6)
                 : currentClean,
-            radix: 16));
+            radix: 16,
+          ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(Icons.palette_rounded,
-                size: 18, color: context.appTextSecondary),
+            Icon(
+              Icons.palette_rounded,
+              size: 18,
+              color: context.appTextSecondary,
+            ),
             SizedBox(width: 8),
             Text(
               'Cor no calendário',
               style: TextStyle(
-                  fontSize: 13,
-                  color: context.appTextPrimary,
-                  fontWeight: FontWeight.w700),
+                fontSize: 13,
+                color: context.appTextPrimary,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
         ),
@@ -2355,10 +2477,11 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                 child: Text(
                   'Toque para escolher a cor',
                   style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.25,
-                      fontSize: 13.5),
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.25,
+                    fontSize: 13.5,
+                  ),
                 ),
               ),
             ),
@@ -2379,8 +2502,9 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
       return Color(int.parse('FF$h', radix: 16));
     }).toList();
     final defaultHex = _isIncome ? '#2E7D32' : '#E53935';
-    final current =
-        (_calendarColorHex ?? defaultHex).replaceFirst('#', '').toUpperCase();
+    final current = (_calendarColorHex ?? defaultHex)
+        .replaceFirst('#', '')
+        .toUpperCase();
     final idx = await showDialog<int>(
       context: context,
       builder: (dlgCtx) => AlertDialog(
@@ -2398,7 +2522,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
               icon: Icon(Icons.close_rounded, size: 18),
               label: Text('Cancelar'),
               style: TextButton.styleFrom(
-                  foregroundColor: context.appTextSecondary),
+                foregroundColor: context.appTextSecondary,
+              ),
             ),
           ],
         ),
@@ -2411,7 +2536,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
               final clean = hex
                   .replaceFirst('#', '')
                   .replaceFirst(RegExp(r'^0x', caseSensitive: false), '');
-              final isSelected = clean.toUpperCase() ==
+              final isSelected =
+                  clean.toUpperCase() ==
                       (clean.length > 6
                               ? clean.substring(clean.length - 6)
                               : clean)
@@ -2451,23 +2577,29 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
 
   Widget _buildInstallmentsField() {
     final n = (int.tryParse(_installmentsCtrl.text.trim()) ?? 1).clamp(1, 999);
-    final start =
-        (int.tryParse(_installmentStartCtrl.text.trim()) ?? 1).clamp(1, n);
+    final start = (int.tryParse(_installmentStartCtrl.text.trim()) ?? 1).clamp(
+      1,
+      n,
+    );
     final geradas = _installmentMode && n > 1 ? (n - start + 1) : 1;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(Icons.payments_rounded,
-                color: context.appDeepTitle.withValues(alpha: 0.85), size: 22),
+            Icon(
+              Icons.payments_rounded,
+              color: context.appDeepTitle.withValues(alpha: 0.85),
+              size: 22,
+            ),
             SizedBox(width: 8),
             Text(
               'À vista ou parcelado',
               style: TextStyle(
-                  fontSize: 13,
-                  color: context.appTextPrimary,
-                  fontWeight: FontWeight.w800),
+                fontSize: 13,
+                color: context.appTextPrimary,
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ],
         ),
@@ -2476,14 +2608,18 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
           segments: const [
             ButtonSegment<bool>(
               value: false,
-              label: Text('À vista',
-                  style: TextStyle(fontWeight: FontWeight.w800)),
+              label: Text(
+                'À vista',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
               icon: Icon(Icons.flash_on_rounded, size: 20),
             ),
             ButtonSegment<bool>(
               value: true,
-              label: Text('Parcelado',
-                  style: TextStyle(fontWeight: FontWeight.w800)),
+              label: Text(
+                'Parcelado',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
               icon: Icon(Icons.calendar_view_month_rounded, size: 20),
             ),
           ],
@@ -2516,11 +2652,14 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                 : const Color(0xFF1A237E),
             backgroundColor: context.appSurface,
             side: BorderSide(
-                color: context.appDeepTitle.withValues(alpha: 0.35),
-                width: 1.5),
+              color: context.appDeepTitle.withValues(alpha: 0.35),
+              width: 1.5,
+            ),
             padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
-            textStyle:
-                const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+            textStyle: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+            ),
           ),
         ),
         if (_installmentMode) ...[
@@ -2546,11 +2685,14 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
           ),
           if (n > 1) ...[
             SizedBox(height: 16),
-            Text('O valor no topo é:',
-                style: TextStyle(
-                    fontSize: 12,
-                    color: context.appTextSecondary,
-                    fontWeight: FontWeight.w600)),
+            Text(
+              'O valor no topo é:',
+              style: TextStyle(
+                fontSize: 12,
+                color: context.appTextSecondary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
             SizedBox(height: 8),
             SegmentedButton<bool>(
               segments: const [
@@ -2571,7 +2713,8 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
               style: ButtonStyle(
                 visualDensity: VisualDensity.compact,
                 padding: WidgetStateProperty.all(
-                    const EdgeInsets.symmetric(vertical: 10, horizontal: 6)),
+                  const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
+                ),
               ),
             ),
           ],
@@ -2584,7 +2727,10 @@ class _NovoLancamentoPageState extends State<NovoLancamentoPage> {
                   ? 'Cada lançamento usa o valor acima. Serão criados $geradas lançamento(s) (parcelas $start a $n). A data acima é a da parcela $start.'
                   : 'O total acima é dividido por $n; cada lançamento fica com a quota mensal. Serão criados $geradas lançamento(s) (parcelas $start a $n). A data acima é a da parcela $start.',
               style: TextStyle(
-                  fontSize: 12, color: context.appTextSecondary, height: 1.35),
+                fontSize: 12,
+                color: context.appTextSecondary,
+                height: 1.35,
+              ),
             ),
           ),
       ],

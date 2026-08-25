@@ -380,18 +380,30 @@ service firebase.storage {
       allow read: if true;
     }
 
+    // Cadastro público: foto temporária, isolada pelo UID anónimo da sessão.
+    // A aprovação server-side move o objeto para `membros/{id}`.
+    match /igrejas/{igrejaId}/pending_member_signups/{ownerUid}/{signupId}/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == ownerUid;
+      allow create, update: if request.auth != null
+        && request.auth.uid == ownerUid
+        && request.resource.size < 15 * 1024 * 1024
+        && photoImageOrBlob();
+      allow delete: if request.auth != null && request.auth.uid == ownerUid;
+    }
+
     // Fotos de membros: membro da igreja (auth) OU cadastro público sem sessão (foto canónica só)
     match /igrejas/{igrejaId}/membros/{path=**} {
       allow read: if true;
       allow create, update: if request.resource.size < 20 * 1024 * 1024
         && photoImageOrBlob()
+        && isChurchMember(igrejaId)
         && (
           isMemberCanonicalProfilePhotoPath(path)
-          || (isChurchMember(igrejaId) && (
+          || (
             isChurchStaffWriter(igrejaId)
             || path.matches('^fotos/.*')
             || path.matches('^thumbs/.*')
-          ))
+          )
         );
       // Delete não possui request.resource; separar evita permission-denied
       // ao remover/substituir a foto pelo módulo Membros.

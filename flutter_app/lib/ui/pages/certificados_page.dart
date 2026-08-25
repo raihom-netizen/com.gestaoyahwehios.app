@@ -6161,9 +6161,10 @@ List<_SignatoryOption> _normalizeUiSignatoriesForPdfGlobal(
   required bool useDigitalSignature,
 }) {
   if (signatories.isEmpty) return const <_SignatoryOption>[];
-  if (!useDigitalSignature) return signatories;
-  // Em modo digital, manter somente a assinatura mais recente selecionada.
-  return <_SignatoryOption>[signatories.last];
+  // Tanto a assinatura manual quanto a digital aceitam todos os signatários
+  // marcados. O corte antigo para `signatories.last` fazia a prévia, a emissão
+  // individual e a emissão em lote perderem as demais assinaturas.
+  return List<_SignatoryOption>.unmodifiable(signatories);
 }
 
 class _CertEditorPageState extends State<_CertEditorPage> {

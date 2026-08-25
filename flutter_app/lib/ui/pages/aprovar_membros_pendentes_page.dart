@@ -1,18 +1,22 @@
 import 'package:gestao_yahweh/utils/yahweh_date_range_picker.dart';
 import 'dart:async' show TimeoutException, Timer, unawaited;
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
+import 'package:gestao_yahweh/core/app_constants.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/core/tenant/church_panel_tenant.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_aprovacoes_load_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
+import 'package:gestao_yahweh/services/marketing_public_site_service.dart';
+import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
@@ -253,10 +257,160 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     ThemeCleanPremium.showErrorSnackBarWithRetry(context, msg);
   }
 
-  Future<void> _invokeSetMemberApproved(String memberId) async {
-    await FirebaseFunctions.instanceFor(region: 'us-central1')
+  Future<Map<String, dynamic>> _invokeSetMemberApproved(String memberId) async {
+    final response = await FirebaseFunctions.instanceFor(region: 'us-central1')
         .httpsCallable('setMemberApproved')
         .call({'tenantId': _churchId, 'memberId': memberId});
+    return Map<String, dynamic>.from(response.data as Map? ?? const {});
+  }
+
+  Future<void> _showTemporaryCredentialPreview(
+    Map<String, dynamic> result,
+  ) async {
+    final password = (result['temporaryPassword'] ?? '').toString().trim();
+    if (!mounted || password.isEmpty) return;
+    final name = (result['memberName'] ?? 'Membro').toString().trim();
+    final email = (result['email'] ?? '').toString().trim();
+    final emailSent = result['emailSent'] == true;
+    final churchName = (result['churchName'] ?? 'Gestão YAHWEH').toString().trim();
+    final churchSlug = (result['churchSlug'] ?? _churchId).toString().trim();
+    final credentialText = 'Nome: $name\nE-mail: $email\nSenha provisória: $password';
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        titlePadding: EdgeInsets.zero,
+        title: Container(
+          padding: const EdgeInsets.all(22),
+          decoration: const BoxDecoration(
+            gradient: _AprovacoesPremiumTheme.heroGradient,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.verified_user_rounded, color: Colors.white),
+              SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Acesso provisório criado',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(name, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 5),
+              SelectableText(email, style: const TextStyle(color: Colors.black54)),
+              const SizedBox(height: 18),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFBFDBFE)),
+                ),
+                child: Column(
+                  children: [
+                    const Text('SENHA PROVISÓRIA', style: TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 7),
+                    SelectableText(password, style: const TextStyle(fontSize: 32, letterSpacing: 8, color: Color(0xFF075985), fontWeight: FontWeight.w900)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Icon(emailSent ? Icons.mark_email_read_rounded : Icons.warning_amber_rounded, color: emailSent ? _AprovacoesPremiumTheme.emerald : _AprovacoesPremiumTheme.amber),
+                  const SizedBox(width: 9),
+                  Expanded(child: Text(emailSent ? 'Credenciais enviadas automaticamente por e-mail.' : 'O e-mail não foi enviado. Copie os dados e entregue ao membro.')),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Text('No primeiro acesso, o membro deverá escolher uma nova senha numérica de 6 dígitos.', style: TextStyle(color: Colors.black54)),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton.tonalIcon(
+            onPressed: () async {
+              Map<String, dynamic>? downloads;
+              try {
+                final snap = await MarketingPublicSiteService.appDownloadsDoc.get();
+                downloads = snap.data();
+              } catch (_) {}
+              final base = AppConstants.publicWebBaseUrl.replaceFirst(RegExp(r'/$'), '');
+              final encodedSlug = Uri.encodeComponent(churchSlug);
+              final publicSiteUrl = '$base/igreja/$encodedSlug';
+              final webAccessUrl = '$base/igreja/login';
+              final androidUrl = AppConstants.effectiveAppDownloadsAndroidUrl(downloads);
+              final iosUrl = AppConstants.effectiveAppDownloadsIosUrl(downloads);
+              final shareText = StringBuffer()
+                ..writeln('🔐 *ACESSO LIBERADO*')
+                ..writeln('*$churchName*')
+                ..writeln()
+                ..writeln('Olá, *$name*! Seu cadastro foi aprovado.')
+                ..writeln()
+                ..writeln('👤 *Usuário:* $email')
+                ..writeln('🔑 *Senha provisória:* $password')
+                ..writeln()
+                ..writeln('No primeiro acesso, crie uma nova senha numérica de 6 dígitos.')
+                ..writeln()
+                ..writeln('🌐 *Acesso pelo navegador:*')
+                ..writeln(webAccessUrl)
+                ..writeln()
+                ..writeln('⛪ *Site da igreja:*')
+                ..writeln(publicSiteUrl)
+                ..writeln()
+                ..writeln('📱 *Android — Play Store:*')
+                ..writeln(androidUrl)
+                ..writeln()
+                ..writeln('🍎 *iPhone — Apple/TestFlight:*')
+                ..writeln(iosUrl)
+                ..writeln()
+                ..write('— Gestão YAHWEH');
+              try {
+                final box = ctx.findRenderObject() as RenderBox?;
+                await YahwehShareService.shareText(
+                  shareText.toString(),
+                  subject: 'Acesso ao $churchName',
+                  sharePositionOrigin: box == null
+                      ? null
+                      : box.localToGlobal(Offset.zero) & box.size,
+                );
+              } catch (_) {
+                await Clipboard.setData(ClipboardData(text: shareText.toString()));
+                if (ctx.mounted) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('Compartilhamento indisponível. Mensagem copiada para enviar no WhatsApp.')),
+                  );
+                }
+              }
+            },
+            icon: const Icon(Icons.ios_share_rounded),
+            label: const Text('Compartilhar acesso'),
+          ),
+          OutlinedButton.icon(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: credentialText));
+              if (ctx.mounted) {
+                ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(content: Text('Dados de acesso copiados.')));
+              }
+            },
+            icon: const Icon(Icons.copy_rounded),
+            label: const Text('Copiar dados'),
+          ),
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('Concluir')),
+        ],
+      ),
+    );
   }
 
   Future<void> _afterApprovalMutation({bool skipReload = false}) async {
@@ -290,14 +444,15 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
     _removePendenteLocal(id);
     try {
       // Fonte da verdade = CF (Auth + migração docId?uid). Evita ativo+pendente duplicado.
-      await _invokeSetMemberApproved(id);
+      final result = await _invokeSetMemberApproved(id);
       await _afterApprovalMutation(skipReload: false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar(
-            'Membro aprovado. Login criado (senha inicial 123456).',
-          ),
-        );
+        await _showTemporaryCredentialPreview(result);
+        if (mounted && (result['temporaryPassword'] ?? '').toString().isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            ThemeCleanPremium.successSnackBar('Membro aprovado com sucesso.'),
+          );
+        }
       }
     } catch (e) {
       _restorePendentesLocal(previous);

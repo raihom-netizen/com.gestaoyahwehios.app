@@ -22,13 +22,15 @@ if (Test-Path $jdk21Script) {
     . $jdk21Script
     try { Ensure-Jdk21Toolchain -Quiet | Out-Null } catch { }
 }
-$gcloudInstall = Join-Path $repoRoot 'scripts\install_google_cloud_sdk.ps1'
-if (Test-Path $gcloudInstall) {
-    . $gcloudInstall
-    Ensure-GcloudInstalled -RepoRoot $repoRoot -Quiet | Out-Null
-}
-$gcpAuth = Join-Path $repoRoot 'scripts\ensure_google_cloud_auth.ps1'
-if (Test-Path $gcpAuth) {
-    . $gcpAuth
-    Ensure-GoogleCloudAuth -RepoRoot $repoRoot -Quiet | Out-Null
+if ($env:GESTAO_YAHWEH_SKIP_GCLOUD_ENSURE -ne '1') {
+    $gcloudInstall = Join-Path $repoRoot 'scripts\install_google_cloud_sdk.ps1'
+    if (Test-Path $gcloudInstall) {
+        . $gcloudInstall
+        Ensure-GcloudInstalled -RepoRoot $repoRoot -Quiet | Out-Null
+    }
+    $gcpAuth = Join-Path $repoRoot 'scripts\ensure_google_cloud_auth.ps1'
+    if (Test-Path $gcpAuth) {
+        . $gcpAuth
+        Ensure-GoogleCloudAuth -RepoRoot $repoRoot -Quiet | Out-Null
+    }
 }

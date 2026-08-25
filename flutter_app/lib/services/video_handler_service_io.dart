@@ -7,7 +7,6 @@ import 'package:flutter/foundation.dart'
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_event_video_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/video_duration.dart';
@@ -170,57 +169,19 @@ class VideoHandlerService implements IVideoHandlerService {
               eventPostDocId,
               slot,
             );
-      final thumbPath = ChurchStorageLayout.eventHostedVideoThumbPath(
-        tenantId,
-        eventPostDocId,
-        slot,
-      );
-
       onUploadProgress?.call(0.0);
 
-      // Miniatura estilo Instagram/YouTube — Android + iOS (falha não bloqueia o vídeo).
-      // Gerada e enviada EM PARALELO ao vídeo (não mais depois dele): o
-      // vídeo é o upload pesado, a miniatura é rápida — rodar em série só
-      // somava tempo de espera sem necessidade.
-      Future<String> uploadThumb() async {
-        try {
-          // O editor já extraiu a miniatura ao anexar — gerar de novo era
-          // repetir um decode de vídeo (segundos) por nada.
-          var thumbBytes = precomputedThumbBytes;
-          if (thumbBytes == null || thumbBytes.isEmpty) {
-            final thumbFile = await MediaService.getVideoThumbnail(compressed)
-                .timeout(const Duration(seconds: 20), onTimeout: () => null);
-            if (thumbFile != null && thumbFile.existsSync()) {
-              thumbBytes = await thumbFile.readAsBytes();
-            }
-          }
-          if (thumbBytes != null && thumbBytes.isNotEmpty) {
-            return await EcoFireStorageUpload.putData(
-              storagePath: thumbPath,
-              bytes: thumbBytes,
-              mimeType: 'image/jpeg',
-            );
-          }
-        } catch (_) {}
-        return '';
-      }
-
-      final results = await Future.wait([
-        EcoFireEventVideoUpload.putVideoFile(
-          storagePath: videoPath,
-          file: compressed,
-          onProgress: onUploadProgress,
-        ),
-        uploadThumb(),
-      ]);
-      final videoUrl = results[0];
-      final thumbUrl = results[1];
+      final videoUrl = await EcoFireEventVideoUpload.putVideoFile(
+        storagePath: videoPath,
+        file: compressed,
+        onProgress: onUploadProgress,
+      );
 
       return VideoUploadResult(
         videoUrl: videoUrl,
-        thumbUrl: thumbUrl,
+        thumbUrl: '',
         videoStoragePath: videoPath,
-        thumbStoragePath: thumbPath,
+        thumbStoragePath: '',
       );
     } finally {
       await VideoCompress.deleteAllCache();

@@ -17,12 +17,10 @@ import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/services/church_media_upload_facade.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_event_video_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
-import 'package:gestao_yahweh/core/ecofire/ecofire_storage_upload.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
-import 'package:gestao_yahweh/services/video_thumb_capture.dart';
 import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
@@ -328,43 +326,14 @@ abstract final class ChurchAvisosService {
       postId,
       0,
     );
-    final thumbPath = ChurchStorageLayout.avisoHostedVideoThumbPath(
-      churchId,
-      postId,
-      0,
+    await MediaUploadService.uploadBytesWithRetry(
+      storagePath: storagePath,
+      bytes: bytes,
+      contentType: 'video/mp4',
+      skipClientPrepare: true,
+      onProgress: onProgress,
     );
-
-    Future<String> uploadThumb() async {
-      try {
-        final thumbBytes = await captureVideoFirstFrameJpeg(
-          bytes,
-          mimeType: 'video/mp4',
-        ).timeout(const Duration(seconds: 20), onTimeout: () => null);
-        if (thumbBytes == null || thumbBytes.isEmpty) return '';
-        return await MediaUploadService.uploadBytesWithRetry(
-          storagePath: thumbPath,
-          bytes: thumbBytes,
-          contentType: 'image/jpeg',
-        );
-      } catch (_) {
-        return '';
-      }
-    }
-
-    final results = await Future.wait([
-      MediaUploadService.uploadBytesWithRetry(
-        storagePath: storagePath,
-        bytes: bytes,
-        contentType: 'video/mp4',
-        skipClientPrepare: true,
-        onProgress: onProgress,
-      ),
-      uploadThumb(),
-    ]);
-    return (
-      videoPath: storagePath,
-      thumbPath: results[1].isNotEmpty ? thumbPath : '',
-    );
+    return (videoPath: storagePath, thumbPath: '');
   }
 
   /// Reserva o id do aviso antes de publicar — o vídeo passa a ter um path
@@ -480,47 +449,15 @@ abstract final class ChurchAvisosService {
       postId,
       0,
     );
-    final thumbPath = ChurchStorageLayout.avisoHostedVideoThumbPath(
-      churchId,
-      postId,
-      0,
-    );
-
     // Miniatura estilo Instagram/YouTube, gerada e enviada EM PARALELO ao
     // vídeo (mesmo padrão do módulo Eventos) — sem isso o aviso com vídeo
     // não tinha nenhuma prévia leve (só o vídeo bruto para carregar).
-    Future<String> uploadThumb() async {
-      try {
-        final thumbFile = await MediaService.getVideoThumbnail(
-          compressed,
-        ).timeout(const Duration(seconds: 20), onTimeout: () => null);
-        if (thumbFile != null && thumbFile.existsSync()) {
-          final thumbBytes = await thumbFile.readAsBytes();
-          if (thumbBytes.isNotEmpty) {
-            return await EcoFireStorageUpload.putData(
-              storagePath: thumbPath,
-              bytes: thumbBytes,
-              mimeType: 'image/jpeg',
-            );
-          }
-        }
-      } catch (_) {}
-      return '';
-    }
-
-    final results = await Future.wait([
-      EcoFireEventVideoUpload.putVideoFile(
-        storagePath: storagePath,
-        file: compressed,
-        onProgress: onProgress,
-      ),
-      uploadThumb(),
-    ]);
-    final thumbUrl = results[1];
-    return (
-      videoPath: storagePath,
-      thumbPath: thumbUrl.isNotEmpty ? thumbPath : '',
+    await EcoFireEventVideoUpload.putVideoFile(
+      storagePath: storagePath,
+      file: compressed,
+      onProgress: onProgress,
     );
+    return (videoPath: storagePath, thumbPath: '');
   }
 
   /// Publica aviso: fotos (Instagram) + YouTube/v�deo opcional ? Firestore.
@@ -546,6 +483,7 @@ abstract final class ChurchAvisosService {
     String youtubeUrl = '',
     String instagramUrl = '',
     bool publicSite = true,
+    String agendaColorHex = '#F59E0B',
     String? videoStoragePath,
     String? videoLocalPath,
 
@@ -653,6 +591,8 @@ abstract final class ChurchAvisosService {
       'authorUid': user?.uid ?? '',
       'authorName': (user?.displayName ?? '').trim(),
       'publicSite': publicSite,
+      'agendaColorHex': agendaColorHex,
+      'colorHex': agendaColorHex,
       'permanent': permanent,
       if (expTs != null) ...{'avisoExpiresAt': expTs, 'validUntil': validUntil},
       if (ytId != null) ...{
@@ -729,6 +669,7 @@ abstract final class ChurchAvisosService {
     String youtubeUrl = '',
     String instagramUrl = '',
     bool publicSite = true,
+    String agendaColorHex = '#F59E0B',
     String? videoStoragePath,
     String? videoLocalPath,
     bool clearVideo = false,
@@ -831,6 +772,8 @@ abstract final class ChurchAvisosService {
       'mensagem': body.trim(),
       'updatedAt': FieldValue.serverTimestamp(),
       'permanent': permanent,
+      'agendaColorHex': agendaColorHex,
+      'colorHex': agendaColorHex,
       if (expTs != null) ...{
         'avisoExpiresAt': expTs,
         'validUntil': validUntil,

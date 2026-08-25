@@ -29,10 +29,7 @@ function Remove-PathRobust {
         }
     }
 
-    try {
-        cmd /c "rmdir /s /q \"$PathToRemove\"" | Out-Null
-    }
-    catch {}
+    throw "Nao foi possivel limpar com seguranca: $PathToRemove"
 }
 
 if (-not (Test-Path (Join-Path $FlutterApp "pubspec.yaml"))) {
@@ -64,7 +61,7 @@ Remove-PathRobust -PathToRemove (Join-Path $FlutterApp "build\web\assets\assets"
 Write-Host "`n=== flutter build web --release (CanvasKit) ===" -ForegroundColor Cyan
 . (Join-Path $RepoRoot "scripts\flutter_invoke_with_retry.ps1")
 $buildExit = Invoke-FlutterWithRetry -Label "Web hosting" -MaxAttempts 3 -InitialWaitSec 15 -Arguments @(
-    "build", "web", "--release", "--pwa-strategy=none", "--no-wasm-dry-run", "--no-tree-shake-icons",
+    "build", "web", "--release", "--pwa-strategy=none", "--no-wasm-dry-run",
     "--dart-define=FLUTTER_WEB_USE_SKIA=true"
 )
 if ($buildExit -ne 0) { exit $buildExit }

@@ -267,14 +267,20 @@ service cloud.firestore {
               || (canAccessTenant(id) && isLeader(id))
             ))
           // Cadastro público (sem login) — ficha pendente.
-          || (request.auth == null
+          || (signedIn()
+            && request.auth.token.firebase.sign_in_provider == 'anonymous'
             && request.resource.data.get('PUBLIC_SIGNUP', false) == true
             && request.resource.data.get('STATUS', '') == 'pendente'
             && request.resource.data.get('status', '') == 'pendente'
-            && request.resource.data.get('role', '') == 'membro');
-        allow update: if (request.auth == null
+            && request.resource.data.get('role', '') == 'membro'
+            && request.resource.data.get('churchId', '') == id
+            && request.resource.data.get('publicSignupOwnerUid', '') == uid());
+        allow update: if (signedIn()
+              && request.auth.token.firebase.sign_in_provider == 'anonymous'
               && resource.data.get('PUBLIC_SIGNUP', false) == true
               && resource.data.get('STATUS', '') == 'pendente'
+              && resource.data.get('publicSignupOwnerUid', '') == uid()
+              && request.resource.data.get('publicSignupOwnerUid', '') == uid()
               && request.resource.data.get('STATUS', '') == 'pendente')
           || (signedIn() && (
               isMaster() || canStaffEditMembers(id) || ownsMember(id, memberId)

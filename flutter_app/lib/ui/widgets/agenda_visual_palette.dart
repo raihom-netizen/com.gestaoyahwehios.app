@@ -4,11 +4,15 @@ import 'package:google_fonts/google_fonts.dart';
 
 /// Tipos visuais canónicos da agenda (calendário + lista + PDF).
 enum AgendaVisualKind {
+  aviso,
   evento,
   culto,
+  reuniao,
   curso,
   escala,
   pendencia,
+  receitaPendente,
+  despesaPendente,
   feriado,
 }
 
@@ -16,11 +20,15 @@ enum AgendaVisualKind {
 abstract final class AgendaVisualPalette {
   AgendaVisualPalette._();
 
-  static const Color evento = Color(0xFF7C3AED);
-  static const Color culto = Color(0xFF2563EB);
+  static const Color aviso = Color(0xFFF59E0B);
+  static const Color evento = Color(0xFFEC4899);
+  static const Color culto = Color(0xFFF97316);
+  static const Color reuniao = Color(0xFF2563EB);
   static const Color curso = Color(0xFF16A34A);
-  static const Color escala = Color(0xFF0D9488);
-  static const Color pendencia = Color(0xFFEA580C);
+  static const Color escala = Color(0xFF7C3AED);
+  static const Color receitaPendente = Color(0xFF16A34A);
+  static const Color despesaPendente = Color(0xFFDC2626);
+  static const Color pendencia = despesaPendente;
   static const Color eventoSocial = Color(0xFFE11D48);
   static const Color lideranca = Color(0xFF7C3AED);
   static const Color agendaInterna = Color(0xFF3B82F6);
@@ -60,9 +68,9 @@ abstract final class AgendaVisualPalette {
   }
 
   static String colorToHex(Color c) {
-    final r = c.red.toRadixString(16).padLeft(2, '0');
-    final g = c.green.toRadixString(16).padLeft(2, '0');
-    final b = c.blue.toRadixString(16).padLeft(2, '0');
+    final r = (c.r * 255).round().toRadixString(16).padLeft(2, '0');
+    final g = (c.g * 255).round().toRadixString(16).padLeft(2, '0');
+    final b = (c.b * 255).round().toRadixString(16).padLeft(2, '0');
     return '$r$g$b';
   }
 
@@ -128,14 +136,17 @@ abstract final class AgendaVisualPalette {
       AgendaVisualKind.culto => culto,
       AgendaVisualKind.curso => curso,
       AgendaVisualKind.pendencia => pendencia,
+      AgendaVisualKind.aviso => aviso,
+      AgendaVisualKind.reuniao => reuniao,
+      AgendaVisualKind.receitaPendente => receitaPendente,
+      AgendaVisualKind.despesaPendente => despesaPendente,
       AgendaVisualKind.feriado => feriado,
       AgendaVisualKind.escala => escala,
       AgendaVisualKind.evento => evento,
     };
   }
 
-  static Color chipBackground(Color accent) =>
-      accent.withValues(alpha: 0.12);
+  static Color chipBackground(Color accent) => accent.withValues(alpha: 0.12);
 
   static Color chipForeground(Color accent) {
     final lum = accent.computeLuminance();
@@ -148,6 +159,8 @@ abstract final class AgendaVisualPalette {
     switch (kind) {
       case AgendaVisualKind.evento:
         return Icons.event_rounded;
+      case AgendaVisualKind.aviso:
+        return Icons.campaign_rounded;
       case AgendaVisualKind.culto:
         return Icons.church_rounded;
       case AgendaVisualKind.curso:
@@ -155,6 +168,12 @@ abstract final class AgendaVisualPalette {
       case AgendaVisualKind.escala:
         return Icons.calendar_month_rounded;
       case AgendaVisualKind.pendencia:
+        return Icons.warning_amber_rounded;
+      case AgendaVisualKind.reuniao:
+        return Icons.groups_rounded;
+      case AgendaVisualKind.receitaPendente:
+        return Icons.south_west_rounded;
+      case AgendaVisualKind.despesaPendente:
         return Icons.warning_amber_rounded;
       case AgendaVisualKind.feriado:
         return Icons.flag_rounded;
@@ -164,19 +183,36 @@ abstract final class AgendaVisualPalette {
 
 /// Legenda fixa — código de cores da agenda.
 class AgendaColorLegend extends StatelessWidget {
-  const AgendaColorLegend({
-    super.key,
-    this.compact = false,
-  });
+  const AgendaColorLegend({super.key, this.compact = false});
 
   final bool compact;
 
   static const _items = <({String label, Color color, IconData icon})>[
-    (label: 'Eventos', color: AgendaVisualPalette.evento, icon: Icons.event_rounded),
-    (label: 'Cursos / EBD', color: AgendaVisualPalette.curso, icon: Icons.menu_book_rounded),
-    (label: 'Cultos', color: AgendaVisualPalette.culto, icon: Icons.church_rounded),
-    (label: 'Escalas', color: AgendaVisualPalette.escala, icon: Icons.groups_rounded),
-    (label: 'Pendências', color: AgendaVisualPalette.pendencia, icon: Icons.warning_amber_rounded),
+    (
+      label: 'Eventos',
+      color: AgendaVisualPalette.evento,
+      icon: Icons.event_rounded,
+    ),
+    (
+      label: 'Cursos / EBD',
+      color: AgendaVisualPalette.curso,
+      icon: Icons.menu_book_rounded,
+    ),
+    (
+      label: 'Cultos',
+      color: AgendaVisualPalette.culto,
+      icon: Icons.church_rounded,
+    ),
+    (
+      label: 'Escalas',
+      color: AgendaVisualPalette.escala,
+      icon: Icons.groups_rounded,
+    ),
+    (
+      label: 'Pendências',
+      color: AgendaVisualPalette.pendencia,
+      icon: Icons.warning_amber_rounded,
+    ),
   ];
 
   @override
@@ -248,7 +284,10 @@ class _LegendChip extends StatelessWidget {
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.18),
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: color.withValues(alpha: 0.55), width: 1.2),
+            border: Border.all(
+              color: color.withValues(alpha: 0.55),
+              width: 1.2,
+            ),
           ),
           child: Icon(icon, size: compact ? 11 : 12, color: color),
         ),
@@ -296,9 +335,7 @@ class AgendaDayCornerBadge extends StatelessWidget {
           ),
         ],
       ),
-      child: icon == null
-          ? null
-          : Icon(icon, size: 9, color: Colors.white),
+      child: icon == null ? null : Icon(icon, size: 9, color: Colors.white),
     );
     if (tooltip == null) return child;
     return Tooltip(message: tooltip!, child: child);

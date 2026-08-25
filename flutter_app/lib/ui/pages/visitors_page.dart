@@ -1514,7 +1514,7 @@ class _VisitorsPageState extends State<VisitorsPage> {
       child: TextField(
         onChanged: _scheduleSearchNome,
         decoration: InputDecoration(
-          hintText: 'Buscar por nome ou telefone?',
+          hintText: 'Buscar por nome ou telefone',
           prefixIcon: const Icon(
             Icons.search_rounded,
             color: ThemeCleanPremium.onSurfaceVariant,
@@ -2633,7 +2633,7 @@ class _KpiDrillHeader extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '$count ${count == 1 ? "visitante" : "visitantes"} ? linhas modernas com editar e excluir',
+                      '$count ${count == 1 ? "visitante" : "visitantes"} • linhas modernas com editar e excluir',
                       style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,

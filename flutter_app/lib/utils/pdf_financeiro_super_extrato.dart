@@ -159,8 +159,9 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
       '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
 
   final primary = PdfColor.fromInt(0xFF14532D);
-  final onPrimary = PdfColors.white;
   final muted = PdfColors.grey700;
+  final ink = PdfColor.fromInt(0xFF0F172A);
+  final border = PdfColor.fromInt(0xFFE2E8F0);
   final green = PdfColor.fromInt(0xFF166534);
   final red = PdfColor.fromInt(0xFF991B1B);
   final blueSaldo = PdfColor.fromInt(0xFF1D4ED8);
@@ -275,8 +276,7 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
         decoration: pw.BoxDecoration(
           color: PdfColors.white,
           borderRadius: pw.BorderRadius.circular(12),
-          border: pw.Border.all(
-              color: const PdfColor(1, 1, 1, 0.35), width: 1),
+          border: pw.Border.all(color: border, width: 1),
         ),
         child: pw.Image(pw.MemoryImage(logoBytes), fit: pw.BoxFit.contain),
       );
@@ -287,15 +287,14 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
       height: 54,
       margin: const pw.EdgeInsets.only(right: 12),
       decoration: pw.BoxDecoration(
-        color: const PdfColor(1, 1, 1, 0.18),
+        color: PdfColor.fromInt(0xFFF8FAFC),
         borderRadius: pw.BorderRadius.circular(12),
-        border: pw.Border.all(
-            color: const PdfColor(1, 1, 1, 0.35), width: 1),
+        border: pw.Border.all(color: border, width: 1),
       ),
       alignment: pw.Alignment.center,
       child: pw.Text(
         '✝',
-        style: pw.TextStyle(fontSize: 22, color: onPrimary),
+        style: pw.TextStyle(fontSize: 22, color: ink),
       ),
     );
   }
@@ -306,14 +305,9 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
     return pw.Container(
       padding: const pw.EdgeInsets.symmetric(vertical: 16, horizontal: 16),
       decoration: pw.BoxDecoration(
-        gradient: pw.LinearGradient(
-          colors: [
-            PdfColor.fromInt(0xFF14532D),
-            PdfColor.fromInt(0xFF166534),
-            PdfColor.fromInt(0xFF15803D),
-          ],
-        ),
+        color: PdfColors.white,
         borderRadius: pw.BorderRadius.circular(14),
+        border: pw.Border.all(color: border, width: 1.1),
       ),
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -328,7 +322,7 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
                   style: pw.TextStyle(
                     fontSize: 16,
                     fontWeight: pw.FontWeight.bold,
-                    color: onPrimary,
+                    color: ink,
                   ),
                 ),
                 pw.SizedBox(height: 3),
@@ -336,7 +330,7 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
                   documentSubtitle.isEmpty
                       ? 'Extrato Financeiro'
                       : _clamp(documentSubtitle, 60),
-                  style: pw.TextStyle(fontSize: 10.5, color: onPrimary),
+                  style: pw.TextStyle(fontSize: 10.5, color: muted),
                 ),
                 if (churchDetailLines.isNotEmpty) ...[
                   pw.SizedBox(height: 6),
@@ -347,7 +341,7 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
                             _clamp(line, 90),
                             style: pw.TextStyle(
                               fontSize: 8,
-                              color: const PdfColor(1, 1, 1, 0.92),
+                              color: muted,
                             ),
                           ),
                         ),
@@ -360,8 +354,9 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
             constraints: const pw.BoxConstraints(maxWidth: 150),
             padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: pw.BoxDecoration(
-              color: const PdfColor(1, 1, 1, 0.18),
+              color: PdfColor.fromInt(0xFFF1F5F9),
               borderRadius: pw.BorderRadius.circular(10),
+              border: pw.Border.all(color: border, width: 0.8),
             ),
             child: pw.Text(
               periodo.isEmpty ? 'Período' : _clamp('Período\n$periodo', 90),
@@ -370,7 +365,7 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
               style: pw.TextStyle(
                 fontSize: 9,
                 fontWeight: pw.FontWeight.bold,
-                color: onPrimary,
+                color: ink,
               ),
             ),
           ),
