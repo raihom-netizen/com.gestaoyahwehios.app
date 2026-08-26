@@ -1,4 +1,7 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2232: Foto do membro quadrada — carteirinha (tela e PDF) com a
+/// moldura 1:1 e a foto a ocupar o quadrado inteiro (antes recorte oval com
+/// sobra cinza), e previa quadrada ao importar a foto nos dois cadastros.
 /// 11.2.305+2231: Cadastro de membro (interno e site público) sem CPF obrigatório;
 /// aprovação de cadastro e cadastro interno passam a aparecer na hora na lista de
 /// Membros (cache do diretório recomputado no servidor); Financeiro — doação PIX/site
@@ -526,7 +529,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2231';
+const String appBuildNumber = '2232';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

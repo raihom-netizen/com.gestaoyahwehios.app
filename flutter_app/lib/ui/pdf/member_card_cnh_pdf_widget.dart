@@ -64,8 +64,9 @@ class MemberCardCnhPdfWidget extends pw.StatelessWidget {
                 children: [
                   if (photoImage != null)
                     pw.Container(
-                      width: 38,
-                      height: 48,
+                      // Quadrada como na tela — a foto do membro é 1:1.
+                      width: 44,
+                      height: 44,
                       decoration: pw.BoxDecoration(
                         border: pw.Border.all(color: PdfColors.grey600, width: 0.6),
                         borderRadius: pw.BorderRadius.circular(3),
@@ -74,8 +75,8 @@ class MemberCardCnhPdfWidget extends pw.StatelessWidget {
                     )
                   else
                     pw.Container(
-                      width: 38,
-                      height: 48,
+                      width: 44,
+                      height: 44,
                       decoration: pw.BoxDecoration(
                         color: PdfColors.grey300,
                         borderRadius: pw.BorderRadius.circular(3),

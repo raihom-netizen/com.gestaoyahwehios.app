@@ -2180,23 +2180,31 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                         photoPreview: Stack(
                                           clipBehavior: Clip.none,
                                           children: [
-                                            CircleAvatar(
-                                              radius: 72,
-                                              backgroundColor: const Color(
-                                                0xFFF1F5F9,
+                                            // Prévia QUADRADA — mostra o
+                                            // enquadramento 1:1 que vai para
+                                            // a ficha e para a carteirinha.
+                                            ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(18),
+                                              child: Container(
+                                                width: 144,
+                                                height: 144,
+                                                color: const Color(0xFFF1F5F9),
+                                                child: _photoBytes == null
+                                                    ? Icon(
+                                                        Icons.person_rounded,
+                                                        size: 56,
+                                                        color: Colors
+                                                            .grey
+                                                            .shade400,
+                                                      )
+                                                    : Image.memory(
+                                                        _photoBytes!,
+                                                        fit: BoxFit.cover,
+                                                        width: 144,
+                                                        height: 144,
+                                                      ),
                                               ),
-                                              backgroundImage:
-                                                  _photoBytes == null
-                                                  ? null
-                                                  : MemoryImage(_photoBytes!),
-                                              child: _photoBytes == null
-                                                  ? Icon(
-                                                      Icons.person_rounded,
-                                                      size: 56,
-                                                      color:
-                                                          Colors.grey.shade400,
-                                                    )
-                                                  : null,
                                             ),
                                             if (_photoBytes != null &&
                                                 _photoBytes!.isNotEmpty)

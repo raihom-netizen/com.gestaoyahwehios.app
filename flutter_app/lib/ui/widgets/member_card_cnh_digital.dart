@@ -32,6 +32,9 @@ class MemberCardCnhDigital extends StatelessWidget {
   /// são cortadas pelo recorte circular — era o que acontecia com logos
   /// largas (a IBNA é 1338×753) e o utilizador via a arte cortada.
   static const double _logoDiameter = 146;
+
+  /// Lado da moldura (quadrada) da foto do membro.
+  static const double _photoBox = 104;
   static const Color _labelColor = Color(0xFF4A5D48);
   static const Color _valueColor = Color(0xFF142414);
 
@@ -116,8 +119,12 @@ class MemberCardCnhDigital extends StatelessWidget {
                         children: [
                           if (showPhoto)
                             Container(
-                              width: 90,
-                              height: 114,
+                              // Moldura QUADRADA: a foto do membro é gravada
+                              // 1:1 (recorte central no pipeline), então uma
+                              // moldura 3x4 deixava faixa cinza em cima e em
+                              // baixo. Quadrada, a foto ocupa tudo.
+                              width: _photoBox,
+                              height: _photoBox,
                               decoration: BoxDecoration(
                                 color: Colors.grey.shade200,
                                 borderRadius: BorderRadius.circular(6),
@@ -134,15 +141,10 @@ class MemberCardCnhDigital extends StatelessWidget {
                                 ],
                               ),
                               clipBehavior: Clip.antiAlias,
-                              child: FittedBox(
-                                fit: BoxFit.cover,
-                                alignment: Alignment.topCenter,
-                                clipBehavior: Clip.hardEdge,
-                                child: SizedBox(
-                                  width: 90,
-                                  height: 114,
-                                  child: photoSlot,
-                                ),
+                              child: SizedBox(
+                                width: _photoBox,
+                                height: _photoBox,
+                                child: photoSlot,
                               ),
                             ),
                           if (showPhoto) const SizedBox(width: 12),

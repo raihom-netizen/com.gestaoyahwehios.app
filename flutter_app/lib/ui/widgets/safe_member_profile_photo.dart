@@ -45,6 +45,10 @@ class SafeMemberProfilePhoto extends StatefulWidget {
   final double width;
   final double height;
   final bool circular;
+
+  /// Raio dos cantos quando [circular] é `false` — acompanha a moldura de quem
+  /// usa (na carteirinha a foto tem de encostar na borda, sem sobra cinza).
+  final double cornerRadius;
   final BoxFit fit;
   final Widget? placeholder;
   final Widget? errorChild;
@@ -69,6 +73,7 @@ class SafeMemberProfilePhoto extends StatefulWidget {
     required this.width,
     required this.height,
     this.circular = true,
+    this.cornerRadius = 16,
     this.fit = BoxFit.cover,
     this.placeholder,
     this.errorChild,
@@ -434,7 +439,7 @@ class _SafeMemberProfilePhotoState extends State<SafeMemberProfilePhoto> {
         return ClipOval(child: SizedBox(width: widget.width, height: widget.height, child: child));
       }
       return ClipRRect(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(widget.cornerRadius),
         child: SizedBox(width: widget.width, height: widget.height, child: child),
       );
     }

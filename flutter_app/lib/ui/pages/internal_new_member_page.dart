@@ -1248,19 +1248,28 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        CircleAvatar(
-                          radius: 36,
-                          backgroundColor: const Color(0xFFF1F5F9),
-                          backgroundImage: _photoBytes == null
-                              ? null
-                              : MemoryImage(_photoBytes!),
-                          child: _photoBytes == null
-                              ? Icon(
-                                  Icons.person_rounded,
-                                  size: 40,
-                                  color: Colors.grey.shade400,
-                                )
-                              : null,
+                        // Prévia QUADRADA: a foto é gravada 1:1 e aparece
+                        // quadrada na carteirinha — o círculo aqui escondia o
+                        // enquadramento real que o membro acabou de escolher.
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            width: 72,
+                            height: 72,
+                            color: const Color(0xFFF1F5F9),
+                            child: _photoBytes == null
+                                ? Icon(
+                                    Icons.person_rounded,
+                                    size: 40,
+                                    color: Colors.grey.shade400,
+                                  )
+                                : Image.memory(
+                                    _photoBytes!,
+                                    fit: BoxFit.cover,
+                                    width: 72,
+                                    height: 72,
+                                  ),
+                          ),
                         ),
                         const SizedBox(width: 14),
                         Expanded(

@@ -2279,8 +2279,13 @@ class _MemberCardPageState extends State<MemberCardPage>
                       .toString()
                       .trim(),
             memberFirestoreHint: payload.member,
-            width: 88,
-            height: 88,
+            // Quadrada e a encher a moldura da carteirinha (104x104): antes
+            // eram 88x88 recortados em oval dentro de uma moldura 90x114, e
+            // sobrava cinza a toda a volta da foto.
+            width: 104,
+            height: 104,
+            circular: false,
+            cornerRadius: 6,
             imageCacheRevision: memberPhotoDisplayCacheRevision(payload.member),
             preferListThumbnail: false,
           ),
