@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/constants/currency_formats.dart';
 import 'package:gestao_yahweh/constants/date_time_formats.dart';
 import 'package:gestao_yahweh/models/finance_account.dart';
+import 'package:gestao_yahweh/ui/widgets/finance_vinculo_picker.dart'
+    show financeVinculoGridLabel;
 import 'package:gestao_yahweh/models/user_profile.dart';
 import 'package:gestao_yahweh/core/finance_app_colors.dart';
 import 'package:gestao_yahweh/core/finance_theme_context.dart';
@@ -111,6 +113,10 @@ class FinanceTransactionListTile extends StatelessWidget {
         ? ' $installmentIndex/$installmentCount'
         : '';
     final financeAccLabel = financeAccountLabelForTx(financeAccounts, d);
+    // Quem é o lançamento: membro, fornecedor ou doador do Pix/site. Os três
+    // módulos (Financeiro, Membros e Fornecedores) usam este mesmo cartão, por
+    // isso o nome passa a aparecer nos três de uma vez.
+    final vinculo = financeVinculoGridLabel(d);
 
     final hasReceipt = FinanceComprovanteAttachService.hasComprovanteInDoc(d);
     final accent = isIncome
@@ -235,6 +241,35 @@ class FinanceTransactionListTile extends StatelessWidget {
                                       fontSize: 12,
                                       fontWeight: FontWeight.w700,
                                       color: AppColors.primary,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (vinculo != null) ...[
+                            SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Icon(
+                                  vinculo.multiplo
+                                      ? Icons.groups_rounded
+                                      : (vinculo.ehFornecedor
+                                            ? Icons.storefront_rounded
+                                            : Icons.person_rounded),
+                                  size: 14,
+                                  color: accent,
+                                ),
+                                SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    vinculo.texto,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: context.appTextPrimary,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,

@@ -81,6 +81,44 @@ class FinanceVinculo {
   }
 }
 
+/// Rótulo de quem é o lançamento, para as grelhas do Financeiro, do membro e
+/// do fornecedor: nome do membro, do fornecedor, do doador do Pix/site, ou
+/// «N pessoas» quando o lançamento foi marcado para várias.
+///
+/// `null` quando o lançamento não tem vínculo nenhum (despesa geral da igreja).
+({String texto, bool ehFornecedor, bool multiplo})? financeVinculoGridLabel(
+  Map<String, dynamic>? d,
+) {
+  if (d == null) return null;
+  if (d['vinculoMultiplo'] == true) {
+    final lista = d['vinculos'];
+    final n = lista is List ? lista.length : 0;
+    return (
+      texto: n > 1 ? '$n pessoas' : 'Várias pessoas',
+      ehFornecedor: false,
+      multiplo: true,
+    );
+  }
+  final v = FinanceVinculo.deFirestore(d);
+  if (v != null && v.nome.trim().isNotEmpty) {
+    return (texto: v.nome.trim(), ehFornecedor: !v.ehMembro, multiplo: false);
+  }
+  // Doação do Pix/site público sem membro ligado: fica o nome de quem doou.
+  final doador = _campo(d, ['donorName', 'doadorNome', 'memberName']);
+  if (doador.isNotEmpty) {
+    return (texto: doador, ehFornecedor: false, multiplo: false);
+  }
+  // Vínculo com id mas sem nome guardado (registo antigo).
+  if (v != null) {
+    return (
+      texto: v.ehMembro ? 'Membro' : 'Fornecedor',
+      ehFornecedor: !v.ehMembro,
+      multiplo: false,
+    );
+  }
+  return null;
+}
+
 /// Seleção de vínculo de um lançamento: **um** ou **vários**.
 ///
 /// A distinção não é cosmética — muda o que o lançamento significa:
