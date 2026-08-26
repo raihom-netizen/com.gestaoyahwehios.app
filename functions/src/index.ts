@@ -34,7 +34,10 @@ import {
   readChurchRootData,
   readUsersIndexSnapshot,
 } from "./churchFirestorePaths";
-import { recomputeMembersDirectoryFromDocs } from "./membersDirectoryCache";
+import {
+  recomputeMembersDirectoryFromDocs,
+  refreshMembersDirectoryCache,
+} from "./membersDirectoryCache";
 import { resolveTenantIdForCallable } from "./tenantCallableResolve";
 import {
   stampCanonicalMember,
@@ -5187,6 +5190,13 @@ export const setMemberApproved = functions
           emailError,
         });
       }
+      // Cache do módulo Membros tem TTL de 8 min: sem recomputar aqui o membro
+      // recém-aprovado só aparecia na lista alguns minutos depois.
+      try {
+        await refreshMembersDirectoryCache(tenantId);
+      } catch (dirErr) {
+        console.warn("setMemberApproved members directory", dirErr);
+      }
       return {
         ok: true,
         memberId: finalMemberId,
@@ -5263,6 +5273,12 @@ export const setMemberApproved = functions
       await closeDuplicatePendingMembers(tenantId, finalMemberId, cpf, emailNorm);
     } catch (dupErr) {
       console.warn("setMemberApproved closeDuplicatePendingMembers", dupErr);
+    }
+    // Mesma razão do ramo público: lista de Membros atualizada na hora.
+    try {
+      await refreshMembersDirectoryCache(tenantId);
+    } catch (dirErr) {
+      console.warn("setMemberApproved members directory", dirErr);
     }
     return {
       ok: true,
@@ -7486,6 +7502,8 @@ export {
 } from "./gyMediaAttachments";
 
 export { backfillMemberCodigos } from "./memberCodigo";
+
+export { normalizeChurchFinanceLancamentos } from "./financeLegacyNormalize";
 
 export {
   backfillChurchTenantFields,

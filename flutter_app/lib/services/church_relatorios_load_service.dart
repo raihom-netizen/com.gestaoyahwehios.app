@@ -235,6 +235,8 @@ abstract final class ChurchRelatoriosLoadService {
           'tenantId': churchId,
           'modules': const ['eventos'],
           'eventosLimit': kEventosLimit,
+          'fromMs': startDay.millisecondsSinceEpoch,
+          'toMs': endDay.millisecondsSinceEpoch,
         });
         final list = res.data['eventos'];
         if (list is List && list.isNotEmpty) {
@@ -296,7 +298,10 @@ abstract final class ChurchRelatoriosLoadService {
     final churchId = _churchId(churchIdHint);
     if (churchId.isEmpty) return const [];
 
-    final ramKey = '$churchId|$limit';
+    // O período entra na chave: agora quem recorta é o servidor, então cada
+    // intervalo tem o seu próprio conjunto de linhas em RAM.
+    final ramKey = '$churchId|$limit|'
+        '${inicio.millisecondsSinceEpoch}|${fim.millisecondsSinceEpoch}';
     if (!forceRefresh) {
       final hit = _financeRam[ramKey];
       if (hit != null &&
@@ -315,6 +320,10 @@ abstract final class ChurchRelatoriosLoadService {
           'tenantId': churchId,
           'modules': const ['finance'],
           'financeLimit': limit,
+          // Corte no servidor: sem isto vinham 500 documentos por id, que
+          // podiam nem sequer conter o período pedido.
+          'fromMs': inicio.millisecondsSinceEpoch,
+          'toMs': fim.millisecondsSinceEpoch,
         });
         final list = res.data['finance'];
         if (list is List && list.isNotEmpty) {

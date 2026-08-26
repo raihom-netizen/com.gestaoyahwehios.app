@@ -84,12 +84,25 @@ Future<int> gerarReceitasRecorrentesPendentes(String tenantId) async {
             ? (fornecedorNome.isNotEmpty ? fornecedorNome : fornecedorId)
             : (memberNome.isNotEmpty ? memberNome : memberDocId);
         final descTitular = titularNome;
+        final descricao = '$categoria — $descTitular ($labelMes) · recorrente';
+        // A lista do Financeiro consulta o período por `date`/`effectiveDate`/
+        // `paidAt`: sem nenhum destes o lançamento ficava gravado mas invisível.
+        final dataCompetencia = Timestamp.fromDate(
+          DateTime(cursor.year, cursor.month, 1),
+        );
         final base = <String, dynamic>{
-          'type': 'entrada',
+          // Par en/pt — o Financeiro compara `type` com 'income'/'expense'.
+          'type': 'income',
+          'tipo': 'entrada',
+          'status': 'pending',
           'amount': v,
+          'valor': v,
           'categoria': categoria,
-          'descricao':
-              '$categoria — $descTitular ($labelMes) · recorrente',
+          'category': categoria,
+          'descricao': descricao,
+          'description': descricao,
+          'date': dataCompetencia,
+          'effectiveDate': dataCompetencia,
           'recebimentoConfirmado': false,
           'pendenteConciliacaoRecorrencia': true,
           'recorrenciaId': rd.id,
@@ -97,6 +110,7 @@ Future<int> gerarReceitasRecorrentesPendentes(String tenantId) async {
           'titularNome': titularNome,
           'vinculoTipo': isFornecedor ? 'fornecedor' : 'membro',
           if (contaDestinoId.isNotEmpty) 'contaDestinoId': contaDestinoId,
+          if (contaDestinoId.isNotEmpty) 'financeAccountId': contaDestinoId,
           if (contaDestinoNome.isNotEmpty) 'contaDestinoNome': contaDestinoNome,
           'createdAt': YahwehFv.serverTimestamp,
         };
@@ -107,6 +121,10 @@ Future<int> gerarReceitasRecorrentesPendentes(String tenantId) async {
         } else {
           base['memberDocId'] = memberDocId;
           base['memberNome'] = memberNome;
+          // Vínculo lido pelo extrato financeiro do membro.
+          base['membroId'] = memberDocId;
+          base['memberId'] = memberDocId;
+          base['membroNome'] = memberNome;
           if (memberTelefone.isNotEmpty) {
             base['memberTelefone'] = memberTelefone;
           }

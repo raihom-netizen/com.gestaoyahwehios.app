@@ -44,7 +44,6 @@ class MemberSignupRequiredFieldsAlert extends StatelessWidget {
 
   static const List<String> requiredItems = [
     'Nome completo',
-    'CPF',
     'Data de nascimento',
     'E-mail',
     'Foto de perfil',

@@ -631,6 +631,14 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
         memberDocId: ref.id,
         memberData: _memberDataForLocalCache(data),
       );
+      // Servidor: recomputa o cache do diretório na hora (TTL de 8 min) — sem
+      // isto o membro novo só aparecia noutras sessões/dispositivos depois.
+      unawaited(
+        MembersDirectorySnapshotService.warmFromCallable(
+          tenantId: widget.tenantId,
+          force: true,
+        ),
+      );
       unawaited(ChurchMembersLoadService.invalidate(widget.tenantId));
       unawaited(DashboardStatsCounterService.onMemberCreated(widget.tenantId));
       FirebaseStorageService.invalidateMemberPhotoCache(
@@ -880,13 +888,15 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                               }),
                             ],
                             decoration: memberSignupInputDecoration(
-                              label: 'CPF',
+                              label: 'CPF (opcional)',
                               icon: Icons.badge_rounded,
                             ),
+                            // CPF deixou de ser obrigatório: só valida quando
+                            // preenchido (o login usa o e-mail).
                             validator: (v) {
-                              final msg = _req(v);
-                              if (msg != null) return msg;
-                              if (_onlyDigits(v!).length != 11) {
+                              final digits = _onlyDigits(v ?? '');
+                              if (digits.isEmpty) return null;
+                              if (digits.length != 11) {
                                 return 'CPF inválido';
                               }
                               return null;

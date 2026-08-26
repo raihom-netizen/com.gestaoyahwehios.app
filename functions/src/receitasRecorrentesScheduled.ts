@@ -70,21 +70,43 @@ export async function gerarReceitasRecorrentesPendentesForTenant(tenantId: strin
       const exist = await ref.get();
       if (!exist.exists) {
         const labelMes = `${String(cursor.getMonth() + 1).padStart(2, "0")}/${cursor.getFullYear()}`;
+        const descricao = `${categoria} — ${memberNome} (${labelMes}) · recorrente`;
+        // `date`/`effectiveDate` são obrigatórios: a lista do módulo Financeiro
+        // consulta o período por `date`, `effectiveDate` ou `paidAt` — sem
+        // nenhum deles o lançamento existia mas nunca aparecia na tela.
+        const dataCompetencia = admin.firestore.Timestamp.fromDate(
+          new Date(cursor.getFullYear(), cursor.getMonth(), 1),
+        );
         const payload: Record<string, unknown> = {
-          type: "entrada",
+          // Par en/pt: o Financeiro compara `type` com "income"/"expense".
+          type: "income",
+          tipo: "entrada",
+          status: "pending",
           amount: v,
+          valor: v,
           categoria,
-          descricao: `${categoria} — ${memberNome} (${labelMes}) · recorrente`,
+          category: categoria,
+          descricao,
+          description: descricao,
+          date: dataCompetencia,
+          effectiveDate: dataCompetencia,
           recebimentoConfirmado: false,
           pendenteConciliacaoRecorrencia: true,
           recorrenciaId: rd.id,
           competencia: comp,
           memberDocId,
           memberNome,
+          // Vínculo do extrato por membro (Membros → Financeiro do membro).
+          membroId: memberDocId,
+          memberId: memberDocId,
+          membroNome: memberNome,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         };
         if (memberTelefone) payload.memberTelefone = memberTelefone;
-        if (contaDestinoId) payload.contaDestinoId = contaDestinoId;
+        if (contaDestinoId) {
+          payload.contaDestinoId = contaDestinoId;
+          payload.financeAccountId = contaDestinoId;
+        }
         if (contaDestinoNome) payload.contaDestinoNome = contaDestinoNome;
         await ref.set(payload);
         criados++;

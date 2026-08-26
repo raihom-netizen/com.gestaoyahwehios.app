@@ -697,8 +697,11 @@ class MembersDirectorySnapshotService {
     return warmFromCallable(tenantId: tid);
   }
 
+  /// [force] ignora o TTL de 8 min do cache no servidor — usar depois de
+  /// criar ou aprovar membro, senão a lista só muda minutos depois.
   static Future<MembersDirectorySnapshot> warmFromCallable({
     String? tenantId,
+    bool force = false,
   }) async {
     try {
       final callable = _functions.httpsCallable(
@@ -708,6 +711,7 @@ class MembersDirectorySnapshotService {
       final payload = <String, dynamic>{};
       final tidArg = (tenantId ?? '').trim();
       if (tidArg.isNotEmpty) payload['tenantId'] = tidArg;
+      if (force) payload['force'] = true;
       final res = await callable
           .call<Map<String, dynamic>>(payload)
           .timeout(const Duration(seconds: 20));

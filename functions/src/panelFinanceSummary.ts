@@ -36,8 +36,17 @@ function parseAmount(data: Record<string, unknown>): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * O app grava `type` em inglês (`income`/`expense`) e as integrações em
+ * português (`tipo: "entrada"`). Ler só `type` fazia o lançamento do app ficar
+ * de fora dos totais — normaliza-se sempre para o vocabulário português.
+ */
 function tipoLower(data: Record<string, unknown>): string {
-  return String(data["type"] ?? data["tipo"] ?? "").toLowerCase();
+  const raw = String(data["type"] ?? data["tipo"] ?? "").toLowerCase();
+  if (raw === "income") return "entrada";
+  if (raw === "expense") return "saida";
+  if (!raw) return String(data["tipo"] ?? "").toLowerCase();
+  return raw;
 }
 
 function monthKeyPtBr(d: Date): string {

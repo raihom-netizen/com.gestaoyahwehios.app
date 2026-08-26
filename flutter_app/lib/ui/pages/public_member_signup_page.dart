@@ -1540,8 +1540,10 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
       _snackWizard('Preencha o nome completo.');
       return false;
     }
-    if (_onlyDigits(_cpfCtrl.text).length != 11) {
-      _snackWizard('CPF deve ter 11 dígitos.');
+    // CPF é opcional — só barra quando preenchido pela metade.
+    final cpfWizard = _onlyDigits(_cpfCtrl.text);
+    if (cpfWizard.isNotEmpty && cpfWizard.length != 11) {
+      _snackWizard('CPF deve ter 11 dígitos ou ficar em branco.');
       return false;
     }
     final birthParsed = memberSignupParseBirthDateBr(
@@ -1761,14 +1763,16 @@ class _PublicMemberSignupPageState extends State<PublicMemberSignupPage> {
                                                 }),
                                               ],
                                               decoration: _signInput(
-                                                label: 'CPF',
+                                                label: 'CPF (opcional)',
                                                 icon: Icons.badge_rounded,
-                                                required: true,
                                               ),
+                                              // CPF deixou de ser obrigatório:
+                                              // só valida quando preenchido.
                                               validator: (v) {
-                                                final msg = _req(v);
-                                                if (msg != null) return msg;
-                                                final digits = _onlyDigits(v!);
+                                                final digits = _onlyDigits(
+                                                  v ?? '',
+                                                );
+                                                if (digits.isEmpty) return null;
                                                 if (digits.length != 11) {
                                                   return 'CPF invalido';
                                                 }

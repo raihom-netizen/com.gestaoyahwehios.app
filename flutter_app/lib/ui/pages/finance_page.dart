@@ -9271,13 +9271,20 @@ class FinanceInsightSheetState extends State<FinanceInsightSheet> {
     // locais já recarregam via FinanceTransactionsHub.revision; isto aqui só
     // cobria mudanças de outra aba/dispositivo — poll leve resolve sem risco.
     if (FirestoreWebGuard.disableLiveSnapshotsOnWeb) {
+      // 180s era tempo demais para um PIX/doação aprovado pelo webhook
+      // aparecer sozinho na tela — 45s mantém o custo baixo e parece imediato.
       _txWatchPollTimer = Timer.periodic(
-        const Duration(seconds: 180),
+        const Duration(seconds: 45),
         (_) => _scheduleDocsReloadDebounced(),
       );
       return;
     }
+    // `limit(1)` sem `orderBy` observa o primeiro doc por __name__: um
+    // lançamento novo (webhook do Mercado Pago, outro dispositivo) quase nunca
+    // entra nesse top-1, então a tela não era acordada. Ordenar pelo mais
+    // recente faz qualquer criação disparar o listener.
     _txWatchSub = ChurchUiCollections.financeiro(fsId)
+        .orderBy('createdAt', descending: true)
         .limit(1)
         .snapshots(includeMetadataChanges: true)
         .listen((_) => _scheduleDocsReloadDebounced());

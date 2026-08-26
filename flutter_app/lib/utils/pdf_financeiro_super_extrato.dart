@@ -143,6 +143,22 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
   final systemLogoBytes = p['systemLogoPngBytes'] as Uint8List?;
   final closingAttestation = p['closingAttestation'] as pw.Widget?;
 
+  // Providers criados UMA vez: `footer` corre por página e um `MemoryImage`
+  // novo a cada página decodifica o logo outra vez e embute uma cópia da
+  // imagem em cada página do ficheiro. Imagem inválida vira `null` (o PDF sai
+  // sem logo) em vez de rebentar a exportação inteira.
+  pw.MemoryImage? imageProvider(Uint8List? bytes) {
+    if (bytes == null || bytes.length <= 32) return null;
+    try {
+      return pw.MemoryImage(bytes);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  final churchLogoProvider = imageProvider(logoBytes);
+  final systemLogoProvider = imageProvider(systemLogoBytes);
+
   rawList.sort((a, b) {
     final ma = (a['sortMs'] as num?)?.toInt() ?? 0;
     final mb = (b['sortMs'] as num?)?.toInt() ?? 0;
@@ -201,7 +217,7 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: [
-          if (systemLogoBytes != null && systemLogoBytes.length > 32)
+          if (systemLogoProvider != null)
             pw.Container(
               width: 22,
               height: 22,
@@ -214,8 +230,7 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
               ),
               child: pw.Padding(
                 padding: const pw.EdgeInsets.all(2),
-                child: pw.Image(pw.MemoryImage(systemLogoBytes),
-                    fit: pw.BoxFit.contain),
+                child: pw.Image(systemLogoProvider, fit: pw.BoxFit.contain),
               ),
             )
           else
@@ -267,7 +282,7 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
   }
 
   pw.Widget headerLogoBadge() {
-    if (logoBytes != null && logoBytes.length > 32) {
+    if (churchLogoProvider != null) {
       return pw.Container(
         width: 54,
         height: 54,
@@ -278,7 +293,7 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
           borderRadius: pw.BorderRadius.circular(12),
           border: pw.Border.all(color: border, width: 1),
         ),
-        child: pw.Image(pw.MemoryImage(logoBytes), fit: pw.BoxFit.contain),
+        child: pw.Image(churchLogoProvider, fit: pw.BoxFit.contain),
       );
     }
     // Ícone moderno placeholder quando a igreja ainda não tem logo.
@@ -449,13 +464,14 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
     return pw.Container(
       margin: const pw.EdgeInsets.only(bottom: 10),
       padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      // SEM `boxShadow`: no PDF cada sombra vira uma imagem borrada embutida.
+      // Medido com 1000 lançamentos: 4235 ms / 565 KB com sombra contra
+      // 289 ms / 66 KB sem ela — 14x mais lento e 8x maior, por um efeito que
+      // no papel nem se vê. A borda cinza dá o mesmo recorte do cartão.
       decoration: pw.BoxDecoration(
         color: PdfColors.white,
         borderRadius: pw.BorderRadius.circular(12),
         border: pw.Border.all(color: PdfColor.fromInt(0xFFE2E8F0)),
-        boxShadow: [
-          pw.BoxShadow(color: PdfColors.grey300, blurRadius: 2, offset: const PdfPoint(0, 1)),
-        ],
       ),
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
@@ -596,6 +612,9 @@ Future<Uint8List> _financeSuperExtratoComputeAsync(Map<String, dynamic> p) async
 
   pdf.addPage(
     pw.MultiPage(
+      // Uma tabela longa é UM widget que ocupa muitas páginas: o limite padrão
+      // de 20 do pacote abortava o relatório grande com TooManyPagesException.
+      maxPages: 2000,
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.all(22),
       footer: footer,

@@ -655,21 +655,30 @@ export async function tryHandleChurchDonationPayment(payment: any): Promise<bool
   const taxaSeparada = fee > 0 && (await lancarTaxaComoDespesa(tenantId));
   const valorReceita = taxaSeparada ? gross : net;
 
+  const descricaoDoacao = buildDonationFinanceDescription(
+    donationKind,
+    donorName,
+    memberFull,
+    donationObs
+  );
+
   await ref.set({
-    type: "entrada",
+    // O módulo Financeiro (lista, totais, gráficos, PDF e saldo de abertura)
+    // compara `type` com "income"/"expense" — só `tipo: "entrada"` fazia a
+    // doação ser somada como DESPESA. Grava-se o par en/pt.
+    type: "income",
     tipo: "entrada",
+    status: "paid",
     amount: valorReceita,
     valor: valorReceita,
     grossAmount: gross,
     mpFees: fee,
     netAmount: net,
-    descricao: buildDonationFinanceDescription(
-      donationKind,
-      donorName,
-      memberFull,
-      donationObs
-    ),
+    descricao: descricaoDoacao,
+    /** Espelho en — as listas/PDF do Financeiro leem `description`/`category`. */
+    description: descricaoDoacao,
     categoria: categoriaFinanceiro,
+    category: categoriaFinanceiro,
     donationKind,
     donationKindLabel: tipoLabel,
     /** Alinhado ao Financeiro (saldo por conta e lista): destino da receita */
@@ -677,10 +686,15 @@ export async function tryHandleChurchDonationPayment(payment: any): Promise<bool
     contaDestinoNome: contaDestinoNome || null,
     /** Legado / referência rápida */
     contaId: contaDestinoId || null,
+    /** Filtro por conta e saldo por conta do Financeiro usam este campo. */
+    financeAccountId: contaDestinoId || null,
     recebimentoConfirmado: true,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     /** Data do pagamento aprovado (extrato / filtros — [financeLancamentoDate] usa `date` ou `createdAt`) */
     date: ts,
+    /** `effectiveDate`/`paidAt`: período e saldo de abertura do Financeiro. */
+    effectiveDate: ts,
+    paidAt: ts,
     dataCompetencia: ts,
     mpPaymentId: pid,
     mpOrderStatus: payment.status,
@@ -705,21 +719,26 @@ export async function tryHandleChurchDonationPayment(payment: any): Promise<bool
       .collection("finance")
       .doc(`${pid}_taxa_mp`)
       .set({
-        type: "saida",
+        // Mesmo motivo da receita: o Financeiro lê "expense" em `type`.
+        type: "expense",
         tipo: "saida",
         amount: fee,
         valor: fee,
         descricao: `Taxa Mercado Pago — ${tipoLabel}`,
+        description: `Taxa Mercado Pago — ${tipoLabel}`,
         categoria: CATEGORIA_TAXA_MP,
         category: CATEGORIA_TAXA_MP,
         contaOrigemId: contaDestinoId || null,
         contaOrigemNome: contaDestinoNome || null,
         contaId: contaDestinoId || null,
+        financeAccountId: contaDestinoId || null,
         pago: true,
         pagamentoConfirmado: true,
         status: "paid",
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         date: ts,
+        effectiveDate: ts,
+        paidAt: ts,
         dataCompetencia: ts,
         mpPaymentId: pid,
         mpFeeOf: pid,

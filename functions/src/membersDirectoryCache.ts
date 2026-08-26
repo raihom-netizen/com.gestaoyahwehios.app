@@ -206,6 +206,33 @@ async function writeMembersDirectoryIfNewer(
 }
 
 /**
+ * Relê `membros` e reconstrói o cache do módulo Membros.
+ * Usado depois de aprovar/criar membro: sem isto o novo membro só aparecia
+ * na lista quando o TTL de 8 min do cache expirava.
+ */
+export async function refreshMembersDirectoryCache(
+  tenantId: string,
+): Promise<void> {
+  const tid = String(tenantId || "").trim();
+  if (!tid) return;
+  if (isForbiddenTestChurchId(tid)) return;
+  const membrosCol = admin
+    .firestore()
+    .collection("igrejas")
+    .doc(tid)
+    .collection("membros");
+  const membrosSnap = await membrosCol.limit(DIRECTORY_MAX).get();
+  let total = membrosSnap.size;
+  try {
+    const agg = await membrosCol.count().get();
+    total = agg.data().count;
+  } catch (_) {
+    /* count opcional */
+  }
+  await recomputeMembersDirectoryFromDocs(tid, membrosSnap.docs, total);
+}
+
+/**
  * Grava `igrejas/{tenantId}/_panel_cache/members_directory` (1 read na lista).
  * Chamado após scan de `membros` no painel (sem segunda query).
  */
@@ -302,7 +329,11 @@ export const getChurchMembersDirectory = functions
     const staleMs = 8 * 60 * 1000;
     let directory = snap.data();
     const updated = directory?.updatedAt as admin.firestore.Timestamp | undefined;
+    // `force`: aprovar/cadastrar membro tinha de esperar os 8 min do TTL para
+    // o novo membro aparecer na lista — o cliente pede recomputação imediata.
+    const force = body.force === true || String(body.force || "") === "true";
     const isStale =
+      force ||
       !snap.exists ||
       !updated ||
       Date.now() - updated.toMillis() > staleMs;

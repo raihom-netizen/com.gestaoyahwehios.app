@@ -198,19 +198,16 @@ Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> financePeriodMergedDoc
   final t = DateTime(to.year, to.month, to.day, 23, 59, 59);
   final col = ChurchUiCollections.financeiro(id);
 
+  // `status` e `type` NÃO vão para o servidor de propósito.
+  //
+  // Cada combinação (status, type, conta) × (date, effectiveDate, paidAt) pede
+  // um índice composto próprio — 21 ao todo, e nenhum deles existia: a consulta
+  // falhava com FAILED_PRECONDITION e caía no cache local, devolvendo lista
+  // incompleta e lenta. Os dois campos já são refiltrados em memória logo
+  // abaixo, com o mesmo resultado. Fica no servidor apenas a conta, que corta
+  // volume de verdade e precisa de só um índice por campo de data.
   Query<Map<String, dynamic>> base(String field) {
-    // Igualdades antes do intervalo (índices compostos Firestore).
     Query<Map<String, dynamic>> q = col;
-    if (statusFilter == 'pending') {
-      q = q.where('status', isEqualTo: 'pending');
-    } else if (statusFilter == 'paid') {
-      q = q.where('status', isEqualTo: 'paid');
-    }
-    if (typeFilter == 'income') {
-      q = q.where('type', isEqualTo: 'income');
-    } else if (typeFilter == 'expense') {
-      q = q.where('type', isEqualTo: 'expense');
-    }
     final acc = financeAccountId?.trim();
     if (acc != null && acc.isNotEmpty) {
       q = q.where('financeAccountId', isEqualTo: acc);
@@ -225,17 +222,8 @@ Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> financePeriodMergedDoc
   // stream do SDK, então NÃO dispara a INTERNAL ASSERTION e funciona mesmo com
   // o cliente do SDK envenenado.
   List<RestFieldFilter> restFilters(String field) {
+    // Mesmos filtros de [base] — `status`/`type` ficam para o filtro em memória.
     final fs = <RestFieldFilter>[];
-    if (statusFilter == 'pending') {
-      fs.add(RestFieldFilter('status', 'EQUAL', {'stringValue': 'pending'}));
-    } else if (statusFilter == 'paid') {
-      fs.add(RestFieldFilter('status', 'EQUAL', {'stringValue': 'paid'}));
-    }
-    if (typeFilter == 'income') {
-      fs.add(RestFieldFilter('type', 'EQUAL', {'stringValue': 'income'}));
-    } else if (typeFilter == 'expense') {
-      fs.add(RestFieldFilter('type', 'EQUAL', {'stringValue': 'expense'}));
-    }
     final acc = financeAccountId?.trim();
     if (acc != null && acc.isNotEmpty) {
       fs.add(RestFieldFilter('financeAccountId', 'EQUAL', {'stringValue': acc}));

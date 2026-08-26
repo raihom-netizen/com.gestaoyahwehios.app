@@ -27,6 +27,7 @@ import 'package:gestao_yahweh/utils/search_input_debounce.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/mp_payment_return_status.dart';
+import 'package:gestao_yahweh/utils/finance_transactions_hub.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/panel/panel_resilient_load.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
@@ -102,6 +103,17 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
         ? _operationalTenantId
         : widget.tenantId,
   );
+
+  /// Pagamento aprovado: o lançamento vem do webhook (assíncrono). Avisa o
+  /// Financeiro/painéis agora e de novo passados uns segundos.
+  void _acordarFinanceiroAposPagamento() {
+    final tid = _effectiveTenantId.trim();
+    if (tid.isEmpty) return;
+    FinanceTransactionsHub.notifyMutated(uid: tid);
+    Future<void>.delayed(const Duration(seconds: 8), () {
+      FinanceTransactionsHub.notifyMutated(uid: tid);
+    });
+  }
 
   @override
   void initState() {
@@ -807,6 +819,11 @@ class _ChurchDonationsPageState extends State<ChurchDonationsPage>
             status == 'cancelled' ||
             status == 'failure';
         final approved = status == 'approved' || status == 'success';
+        if (approved) {
+          // O webhook grava o lançamento segundos depois: acorda o Financeiro
+          // agora e outra vez quando a receita já deve ter chegado.
+          _acordarFinanceiroAposPagamento();
+        }
         final String title;
         final String message;
         final IconData icon;

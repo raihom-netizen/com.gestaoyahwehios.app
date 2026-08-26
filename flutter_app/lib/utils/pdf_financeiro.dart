@@ -24,6 +24,9 @@ Future<Uint8List> gerarPdfFinanceiro(List<Map<String, dynamic>> transacoes) asyn
 
   pdf.addPage(
     pw.MultiPage(
+      // Uma tabela longa é UM widget que ocupa muitas páginas: o limite padrão
+      // de 20 do pacote abortava o relatório grande com TooManyPagesException.
+      maxPages: 2000,
       pageFormat: PdfPageFormat.a4,
       build: (context) => [
         pw.Text(

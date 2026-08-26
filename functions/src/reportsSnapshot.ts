@@ -135,6 +135,44 @@ export const getRelatoriosBundle = functions
     const db = admin.firestore();
     const churchRef = db.collection("igrejas").doc(tenantId);
 
+    // Período do relatório (ms desde a época). Sem ele, `limit()` sem ordem
+    // devolvia 500 documentos **por id** — numa igreja com mais lançamentos do
+    // que isso o relatório do período saía incompleto ou vazio, e ainda assim
+    // transferia tudo. Com período, o corte é feito no servidor.
+    const parseMs = (v: unknown): Date | null => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? new Date(n) : null;
+    };
+    const from = parseMs(body.fromMs);
+    const to = parseMs(body.toMs);
+
+    /**
+     * Consulta ordenada pelo campo de data; cai na leitura simples quando não
+     * traz nada (documentos legados sem o campo).
+     */
+    const readByDate = async (
+      collection: string,
+      dateField: string,
+      max: number,
+    ): Promise<admin.firestore.QueryDocumentSnapshot[]> => {
+      try {
+        let q: admin.firestore.Query = churchRef.collection(collection);
+        if (from) q = q.where(dateField, ">=", from);
+        if (to) q = q.where(dateField, "<=", to);
+        const snap = await q.orderBy(dateField, "desc").limit(max).get();
+        if (!snap.empty) return snap.docs;
+      } catch (e) {
+        functions.logger.warn("getRelatoriosBundle readByDate", {
+          tenantId,
+          collection,
+          dateField,
+          e,
+        });
+      }
+      const plain = await churchRef.collection(collection).limit(max).get();
+      return plain.docs;
+    };
+
     const out: Record<string, unknown> = {
       ok: true,
       tenantId,
@@ -160,33 +198,26 @@ export const getRelatoriosBundle = functions
 
     if (modules.includes("eventos")) {
       tasks.push(
-        churchRef
-          .collection("eventos")
-          .limit(eventosLimit)
-          .get()
-          .then((snap) => {
-            out.eventos = snap.docs.map(eventoRow);
-          }),
+        // Campo de data do evento: `startAt` (ver [eventoRow]).
+        readByDate("eventos", "startAt", eventosLimit).then((docs) => {
+          out.eventos = docs.map(eventoRow);
+        }),
       );
     }
 
     if (modules.includes("finance")) {
       tasks.push(
-        churchRef
-          .collection("finance")
-          .limit(financeLimit)
-          .get()
-          .then(async (snap) => {
-            if (snap.docs.length > 0) {
-              out.finance = snap.docs.map(financeRow);
-              return;
-            }
-            const legacy = await churchRef
-              .collection("financeiro")
-              .limit(financeLimit)
-              .get();
-            out.finance = legacy.docs.map(financeRow);
-          }),
+        readByDate("finance", "date", financeLimit).then(async (docs) => {
+          if (docs.length > 0) {
+            out.finance = docs.map(financeRow);
+            return;
+          }
+          const legacy = await churchRef
+            .collection("financeiro")
+            .limit(financeLimit)
+            .get();
+          out.finance = legacy.docs.map(financeRow);
+        }),
       );
     }
 

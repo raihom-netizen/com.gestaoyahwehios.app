@@ -5776,6 +5776,9 @@ class _SchedulesPageState extends State<SchedulesPage>
 
       pdf.addPage(
         pw.MultiPage(
+          // Uma tabela longa é UM widget que ocupa muitas páginas: o limite padrão
+          // de 20 do pacote abortava o relatório grande com TooManyPagesException.
+          maxPages: 2000,
           pageFormat: PdfPageFormat.a4,
           build: (ctx) => [
             pw.Center(
@@ -5919,6 +5922,9 @@ class _SchedulesPageState extends State<SchedulesPage>
       }
       pdf.addPage(
         pw.MultiPage(
+          // Uma tabela longa é UM widget que ocupa muitas páginas: o limite padrão
+          // de 20 do pacote abortava o relatório grande com TooManyPagesException.
+          maxPages: 2000,
           pageFormat: PdfPageFormat.a4,
           build: (ctx) => [
             pw.Center(

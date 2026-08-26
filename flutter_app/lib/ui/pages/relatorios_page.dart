@@ -1183,6 +1183,9 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
+          // Uma tabela longa é UM widget que ocupa muitas páginas: o limite padrão
+          // de 20 do pacote abortava o relatório grande com TooManyPagesException.
+          maxPages: 2000,
           pageFormat: format,
           margin: PdfSuperPremiumTheme.pageMargin,
           header: (ctx) => pw.Padding(
@@ -1198,7 +1201,7 @@ class _RelatorioMembrosPageState extends State<_RelatorioMembrosPage> {
             churchName: branding.churchName,
           ),
           build: (ctx) => [
-            PdfSuperPremiumTheme.fromTextArray(
+            ...PdfSuperPremiumTheme.fromTextArrayChunks(
               headers: headers,
               data: data,
               accent: branding.accent,
@@ -1534,6 +1537,9 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
+          // Uma tabela longa é UM widget que ocupa muitas páginas: o limite padrão
+          // de 20 do pacote abortava o relatório grande com TooManyPagesException.
+          maxPages: 2000,
           pageFormat: format,
           margin: PdfSuperPremiumTheme.pageMargin,
           header: (ctx) => pw.Padding(
@@ -1608,7 +1614,7 @@ class _RelatorioAniversariantesPageState extends State<_RelatorioAniversariantes
               return blocks;
             }
             return [
-              PdfSuperPremiumTheme.fromTextArray(
+              ...PdfSuperPremiumTheme.fromTextArrayChunks(
                 headers: const [
                   '#',
                   'Nome',
@@ -5184,6 +5190,9 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
+          // Uma tabela longa é UM widget que ocupa muitas páginas: o limite padrão
+          // de 20 do pacote abortava o relatório grande com TooManyPagesException.
+          maxPages: 2000,
           pageFormat: format,
           margin: PdfSuperPremiumTheme.pageMargin,
           header: (ctx) => pw.Padding(
@@ -5199,7 +5208,7 @@ class _RelatorioPatrimonioPageState extends State<_RelatorioPatrimonioPage> {
             churchName: branding.churchName,
           ),
           build: (ctx) => [
-            PdfSuperPremiumTheme.fromTextArray(
+            ...PdfSuperPremiumTheme.fromTextArrayChunks(
               headers: headers,
               data: data,
               accent: branding.accent,
@@ -5507,6 +5516,9 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
+          // Uma tabela longa é UM widget que ocupa muitas páginas: o limite padrão
+          // de 20 do pacote abortava o relatório grande com TooManyPagesException.
+          maxPages: 2000,
           pageFormat: format,
           margin: PdfSuperPremiumTheme.pageMargin,
           header: (ctx) => pw.Padding(
@@ -5527,7 +5539,7 @@ class _RelatorioEventosPageState extends State<_RelatorioEventosPage> {
             if (_eventos.isEmpty)
               pw.Center(child: pw.Padding(padding: const pw.EdgeInsets.all(24), child: pw.Text('Nenhum evento no período.', style: const pw.TextStyle(fontSize: 12))))
             else
-              PdfSuperPremiumTheme.fromTextArray(
+              ...PdfSuperPremiumTheme.fromTextArrayChunks(
                 headers: const [
                   '#',
                   'Evento',

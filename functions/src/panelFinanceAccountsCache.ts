@@ -20,8 +20,17 @@ function financeLancamentoDate(data: Record<string, unknown>): Date | undefined 
   return toDateMaybe(raw);
 }
 
+/**
+ * O app grava `type` em inglês (`income`/`expense`) e as integrações em
+ * português (`tipo: "entrada"`). Ler só `type` deixava o lançamento do app
+ * fora do saldo por conta — normaliza-se para o vocabulário português.
+ */
 function tipoLower(data: Record<string, unknown>): string {
-  return String(data["type"] ?? data["tipo"] ?? "").toLowerCase();
+  const raw = String(data["type"] ?? data["tipo"] ?? "").toLowerCase();
+  if (raw === "income") return "entrada";
+  if (raw === "expense") return "saida";
+  if (!raw) return String(data["tipo"] ?? "").toLowerCase();
+  return raw;
 }
 
 function parseAmount(data: Record<string, unknown>): number {

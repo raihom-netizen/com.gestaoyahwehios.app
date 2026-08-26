@@ -1,4 +1,14 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2231: Cadastro de membro (interno e site público) sem CPF obrigatório;
+/// aprovação de cadastro e cadastro interno passam a aparecer na hora na lista de
+/// Membros (cache do diretório recomputado no servidor); Financeiro — doação PIX/site
+/// público e contribuição recorrente gravam `type/status/date` no padrão do módulo
+/// (antes somavam como despesa ou nem apareciam), saldo por conta e resumo do painel
+/// entendem pt/en, confirmar recebimento marca o lançamento como efetivado; PDF do
+/// Financeiro e relatórios muito mais rápidos (sem sombra por linha, logo embutido uma
+/// só vez, tabela longa em blocos) e sem TooManyPagesException; índices novos em
+/// `finance` e relatórios cortados por período no servidor; regras/índices/functions/
+/// web/AAB/iOS + force update.
 /// 11.2.305+2230: Deploy completo — relatórios financeiros no padrão premium
 /// (extrato do membro, financeiro por membro e histórico do fornecedor: nome em
 /// destaque, indicadores, colunas medidas para a data não partir); Financeiro
@@ -516,7 +526,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2230';
+const String appBuildNumber = '2231';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

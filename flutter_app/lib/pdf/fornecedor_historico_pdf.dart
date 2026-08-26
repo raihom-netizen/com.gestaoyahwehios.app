@@ -292,6 +292,9 @@ Future<Uint8List> buildFornecedorHistoricoPdf({
   final pdf = await PdfSuperPremiumTheme.newPdfDocument();
   pdf.addPage(
     pw.MultiPage(
+      // Uma tabela longa é UM widget que ocupa muitas páginas: o limite padrão
+      // de 20 do pacote abortava o relatório grande com TooManyPagesException.
+      maxPages: 2000,
       pageFormat: PdfPageFormat.a4,
       margin: PdfSuperPremiumTheme.pageMargin,
       header: (ctx) => pw.Padding(
@@ -371,7 +374,7 @@ Future<Uint8List> buildFornecedorHistoricoPdf({
         if (finRows.isEmpty)
           vazio('Nenhum lançamento vinculado a este fornecedor.')
         else
-          PdfSuperPremiumTheme.fromTextArray(
+          ...PdfSuperPremiumTheme.fromTextArrayChunks(
             headers: const [
               'Data',
               'Tipo',
@@ -403,7 +406,7 @@ Future<Uint8List> buildFornecedorHistoricoPdf({
         if (compRows.isEmpty)
           vazio('Nenhum compromisso registado para este fornecedor.')
         else
-          PdfSuperPremiumTheme.fromTextArray(
+          ...PdfSuperPremiumTheme.fromTextArrayChunks(
             headers: const ['Data e hora', 'Descrição', 'Status', 'Valor prev.'],
             data: compRows,
             accent: accent,

@@ -2602,6 +2602,13 @@ class _MembersPageState extends State<MembersPage> {
       }
     }
     MembersDirectorySnapshotService.invalidateMemory(_effectiveTenantId);
+    // Recomputa já no servidor (TTL de 8 min) para o aprovado aparecer aqui.
+    unawaited(
+      MembersDirectorySnapshotService.warmFromCallable(
+        tenantId: _effectiveTenantId,
+        force: true,
+      ),
+    );
     unawaited(ChurchAprovacoesLoadService.invalidate(_effectiveTenantId));
     if (mounted) {
       setState(() => _selectedPendingIds.removeWhere(ids.contains));
@@ -7823,6 +7830,9 @@ class _MembersPageState extends State<MembersPage> {
       final pdf = await PdfSuperPremiumTheme.newPdfDocument();
       pdf.addPage(
         pw.MultiPage(
+          // Uma tabela longa é UM widget que ocupa muitas páginas: o limite padrão
+          // de 20 do pacote abortava o relatório grande com TooManyPagesException.
+          maxPages: 2000,
           pageFormat: PdfPageFormat.a4.landscape,
           margin: PdfSuperPremiumTheme.pageMargin,
           header: (ctx) => pw.Padding(
@@ -7836,7 +7846,7 @@ class _MembersPageState extends State<MembersPage> {
           footer: (ctx) =>
               PdfSuperPremiumTheme.footer(ctx, churchName: branding.churchName),
           build: (ctx) => [
-            PdfSuperPremiumTheme.fromTextArray(
+            ...PdfSuperPremiumTheme.fromTextArrayChunks(
               headers: const [
                 '#',
                 'Nome',

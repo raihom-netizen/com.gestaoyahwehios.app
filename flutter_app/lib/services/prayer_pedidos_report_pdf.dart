@@ -20,6 +20,9 @@ abstract final class PrayerPedidosReportPdf {
 
     doc.addPage(
       pw.MultiPage(
+        // Uma tabela longa é UM widget que ocupa muitas páginas: o limite padrão
+        // de 20 do pacote abortava o relatório grande com TooManyPagesException.
+        maxPages: 2000,
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
         build: (ctx) => [

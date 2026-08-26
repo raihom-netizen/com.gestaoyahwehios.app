@@ -21,6 +21,35 @@ class PdfSuperPremiumTheme {
 
   static const String kFooterBrand = 'Gestão YAHWEH';
 
+  /// Providers de imagem reaproveitados entre páginas e entre documentos.
+  ///
+  /// `header`/`footer` são chamados **uma vez por página**: criar um
+  /// `pw.MemoryImage` novo lá dentro decodifica o logo outra vez e ainda
+  /// **embute uma cópia da imagem por página**. Medido com um logo de 768 KB
+  /// em 12 páginas: 526 ms / 11,5 MB recriando contra 216 ms / 1 MB
+  /// reaproveitando. O `ImageProvider` do pacote refaz o `PdfImage` sozinho
+  /// quando o documento muda, por isso guardar a instância é seguro.
+  static final Map<int, pw.MemoryImage> _imageProviders =
+      <int, pw.MemoryImage>{};
+
+  /// `null` quando não há bytes utilizáveis — imagem inválida nunca derruba o
+  /// relatório inteiro (sai sem logo/assinatura).
+  static pw.MemoryImage? imageProviderFor(Uint8List? bytes) {
+    if (bytes == null || bytes.length <= 32) return null;
+    final key = identityHashCode(bytes);
+    final cached = _imageProviders[key];
+    if (cached != null) return cached;
+    if (_imageProviders.length > 12) _imageProviders.clear();
+    try {
+      final provider = pw.MemoryImage(bytes);
+      _imageProviders[key] = provider;
+      return provider;
+    } catch (e) {
+      debugPrint('PdfSuperPremiumTheme: imagem inválida ignorada ($e)');
+      return null;
+    }
+  }
+
   /// Define o ícone de autoria do rodapé (chamar no warm-up / branding).
   static void setSystemFooterLogo(Uint8List? bytes) {
     if (bytes != null && bytes.length > 32) {
@@ -296,15 +325,15 @@ class PdfSuperPremiumTheme {
     final rule = PdfColor.fromInt(0xFF9CA3AF);
 
     pw.Widget logoBadge() {
-      final lb = branding?.logoBytes;
-      if (lb == null || lb.length <= 32) {
+      final provider = imageProviderFor(branding?.logoBytes);
+      if (provider == null) {
         return pw.SizedBox(width: 0, height: 0);
       }
       return pw.Container(
         width: headerLogoSizePt,
         height: headerLogoSizePt,
         margin: const pw.EdgeInsets.only(right: 14),
-        child: pw.Image(pw.MemoryImage(lb), fit: pw.BoxFit.contain),
+        child: pw.Image(provider, fit: pw.BoxFit.contain),
       );
     }
 
@@ -379,11 +408,7 @@ class PdfSuperPremiumTheme {
     churchName = pdfSafeText(churchName);
     final safeTitle = pdfSafeText(documentTitle);
 
-    pw.ImageProvider? logoProv;
-    final lb = branding.logoBytes;
-    if (lb != null && lb.length > 32) {
-      logoProv = pw.MemoryImage(lb);
-    }
+    final pw.ImageProvider? logoProv = imageProviderFor(branding.logoBytes);
 
     String s(dynamic v) => (v ?? '').toString().trim();
     final rua = s(churchData['rua'] ??
@@ -547,7 +572,8 @@ class PdfSuperPremiumTheme {
   }) {
     final brand =
         footerBrand.trim().isEmpty ? kFooterBrand : footerBrand.trim();
-    final logo = systemLogoBytes ?? _systemFooterLogoBytes;
+    // Provider reaproveitado: `footer` corre por página (ver [imageProviderFor]).
+    final logoProvider = imageProviderFor(systemLogoBytes ?? _systemFooterLogoBytes);
     final muted = _muted;
     final footerAccent = PdfColor.fromInt(0xFF0F172A);
     final now = DateTime.now();
@@ -565,7 +591,7 @@ class PdfSuperPremiumTheme {
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: [
-          if (logo != null && logo.length > 32)
+          if (logoProvider != null)
             pw.Container(
               width: 20,
               height: 20,
@@ -578,8 +604,7 @@ class PdfSuperPremiumTheme {
               ),
               child: pw.Padding(
                 padding: const pw.EdgeInsets.all(2),
-                child:
-                    pw.Image(pw.MemoryImage(logo), fit: pw.BoxFit.contain),
+                child: pw.Image(logoProvider, fit: pw.BoxFit.contain),
               ),
             )
           else
@@ -665,6 +690,10 @@ class PdfSuperPremiumTheme {
           showDigitalSignatures &&
           signatureBytes != null &&
           signatureBytes.length > 24;
+      // Provider tolerante: assinatura ilegível sai do relatório em vez de
+      // rebentar a geração inteira.
+      final signatureProvider =
+          canShowSignature ? imageProviderFor(signatureBytes) : null;
       return pw.Expanded(
         child: pw.Container(
           margin: const pw.EdgeInsets.symmetric(horizontal: 5),
@@ -709,14 +738,14 @@ class PdfSuperPremiumTheme {
                     maxWidth: 228,
                   ),
                 ),
-              ] else if (canShowSignature) ...[
+              ] else if (signatureProvider != null) ...[
                 pw.SizedBox(height: 6),
                 pw.Center(
                   child: pw.SizedBox(
                     width: 106,
                     height: 24,
                     child: pw.Image(
-                      pw.MemoryImage(signatureBytes),
+                      signatureProvider,
                       fit: pw.BoxFit.contain,
                     ),
                   ),
@@ -810,6 +839,9 @@ class PdfSuperPremiumTheme {
         showDigitalSignature &&
         signatureImageBytes != null &&
         signatureImageBytes.length > 24;
+    // Ver nota em [imageProviderFor]: imagem inválida não derruba o PDF.
+    final signatureProvider =
+        canShowSignature ? imageProviderFor(signatureImageBytes) : null;
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.stretch,
       children: [
@@ -857,14 +889,14 @@ class PdfSuperPremiumTheme {
                     maxWidth: 248,
                   ),
                 ),
-              ] else if (canShowSignature) ...[
+              ] else if (signatureProvider != null) ...[
                 pw.SizedBox(height: 8),
                 pw.Center(
                   child: pw.SizedBox(
                     width: 140,
                     height: 30,
                     child: pw.Image(
-                      pw.MemoryImage(signatureImageBytes),
+                      signatureProvider,
                       fit: pw.BoxFit.contain,
                     ),
                   ),
@@ -909,6 +941,54 @@ class PdfSuperPremiumTheme {
 
   /// Tabela estilo premium: bordas suaves, cabeçalho com traço na cor da igreja.
   ///
+  /// Tabela longa fatiada em blocos — **a mesma tabela**, várias `pw.Table`.
+  ///
+  /// Uma tabela única dentro de um `MultiPage` é refeita por inteiro a cada
+  /// página, o que dá tempo quadrático: medido com 2000 linhas, 27 s numa
+  /// tabela só contra 0,9 s em blocos de 40. Abaixo de [chunkThreshold] linhas
+  /// devolve **uma** tabela (relatório pequeno fica exatamente como antes);
+  /// acima disso corta em blocos de [chunkSize], cada um repetindo o cabeçalho.
+  ///
+  /// Os blocos têm de entrar como filhos diretos do `build` do `MultiPage`
+  /// (`...PdfSuperPremiumTheme.fromTextArrayChunks(...)`) — embrulhá-los num
+  /// `Column` traria o problema de volta, porque aí voltam a ser um só widget.
+  static List<pw.Widget> fromTextArrayChunks({
+    required List<String> headers,
+    required List<List<String>> data,
+    pw.TextStyle? headerStyle,
+    pw.TextStyle? cellStyle,
+    pw.BoxDecoration? headerDecoration,
+    pw.EdgeInsets? cellPadding,
+    PdfColor? accent,
+    Map<int, pw.TableColumnWidth>? columnWidths,
+    Map<int, pw.Alignment>? cellAlignmentsExtra,
+    bool zebraStripes = true,
+    int chunkSize = 60,
+    int chunkThreshold = 120,
+  }) {
+    pw.Widget build(List<List<String>> rows) => fromTextArray(
+          headers: headers,
+          data: rows,
+          headerStyle: headerStyle,
+          cellStyle: cellStyle,
+          headerDecoration: headerDecoration,
+          cellPadding: cellPadding,
+          accent: accent,
+          columnWidths: columnWidths,
+          cellAlignmentsExtra: cellAlignmentsExtra,
+          zebraStripes: zebraStripes,
+        );
+
+    if (data.length <= chunkThreshold) return [build(data)];
+    final size = chunkSize < 10 ? 10 : chunkSize;
+    final out = <pw.Widget>[];
+    for (var i = 0; i < data.length; i += size) {
+      final end = i + size > data.length ? data.length : i + size;
+      out.add(build(data.sublist(i, end)));
+    }
+    return out;
+  }
+
   /// Coluna `0` com [pw.FixedColumnWidth] (ex.: índice #) fica centralizada; [zebraStripes] alterna o fundo.
   static pw.Widget fromTextArray({
     required List<String> headers,

@@ -483,6 +483,12 @@ Future<void> commitFinanceConfirmPayment({
     'status': 'paid',
     'paidAt': confTs,
     'effectiveDate': confTs,
+    // O saldo por conta e o resumo do painel (Cloud Functions) usam estes dois
+    // campos, não `status`: sem eles o lançamento continuava «não efetivado»
+    // depois de confirmado e nunca entrava no saldo. Só o campo do tipo certo
+    // é lido, por isso gravar os dois é seguro.
+    'recebimentoConfirmado': true,
+    'pagamentoConfirmado': true,
     'updatedAt': YahwehFv.serverTimestamp,
   };
   final aid = result.financeAccountId?.trim() ?? '';
@@ -938,6 +944,7 @@ Future<void> commitFinanceConfirmPaymentBatch({
       if (scheduleFuture) {
         final sched = result.faturaSchedule!;
         updateData['status'] = 'pending';
+        updateData['pagamentoConfirmado'] = false;
         updateData['faturaPaymentScheduledAt'] = confTs;
         updateData['faturaClosedAt'] = Timestamp.fromDate(DateTime.now());
         updateData['faturaAutoDebit'] = sched.autoDebitOnDueDate;
@@ -950,6 +957,10 @@ Future<void> commitFinanceConfirmPaymentBatch({
         updateData['status'] = 'paid';
         updateData['paidAt'] = confTs;
         updateData['effectiveDate'] = confTs;
+        // Ver nota em [commitFinanceConfirmPayment]: é isto que o saldo por
+        // conta e o resumo do painel leem para considerar o valor efetivado.
+        updateData['recebimentoConfirmado'] = true;
+        updateData['pagamentoConfirmado'] = true;
         updateData['faturaPaymentScheduledAt'] = YahwehFv.deleteField;
         updateData['faturaClosedAt'] = YahwehFv.deleteField;
         updateData['faturaAutoDebit'] = YahwehFv.deleteField;
@@ -1002,6 +1013,7 @@ Future<int> processDueFaturaScheduledPayments({
       'status': 'paid',
       'paidAt': confTs,
       'effectiveDate': confTs,
+      'pagamentoConfirmado': true,
       'faturaPaymentScheduledAt': YahwehFv.deleteField,
       'faturaClosedAt': YahwehFv.deleteField,
       'faturaAutoDebit': YahwehFv.deleteField,
