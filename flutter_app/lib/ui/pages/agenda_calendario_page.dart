@@ -1740,7 +1740,79 @@ class _AgendaDiaPreviewPageState extends State<_AgendaDiaPreviewPage> {
             constraints: const BoxConstraints(maxWidth: 860),
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              children: [
+              children: _corpoSeguro(itens),
+            ),
+          ),
+        ),
+      ),
+      bottomNavigationBar: _rodape(context),
+    );
+  }
+
+  /// Conteúdo da prévia com rede de segurança.
+  ///
+  /// Se montar um cartão falhar (dados estranhos, paleta, o que for), a página
+  /// inteira ficava em branco — sem lista **e** sem os botões de adicionar. Aqui
+  /// o erro vira uma mensagem e as opções AVISO/EVENTO/REUNIÃO continuam de pé.
+  List<Widget> _corpoSeguro(List<_AgendaItem> itens) {
+    try {
+      return _corpo(itens);
+    } catch (e, st) {
+      debugPrint('AgendaDiaPreview: falha a montar o corpo: $e');
+      debugPrint('$st');
+      return [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: _cartao,
+          child: const Text(
+            'Não foi possível mostrar os compromissos deste dia. '
+            'Pode acrescentar normalmente nas opções abaixo.',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF334155),
+            ),
+          ),
+        ),
+        const SizedBox(height: 18),
+        if (widget.canEdit) ..._opcoesAdicionar(),
+      ];
+    }
+  }
+
+  List<Widget> _opcoesAdicionar() => [
+    _secao(
+      icone: Icons.add_circle_rounded,
+      titulo: 'Adicionar neste dia',
+    ),
+    const SizedBox(height: 10),
+    _escolha(
+      kind: AgKind.aviso,
+      title: 'AVISO',
+      subtitle: 'Aviso completo com fotos, vídeo e validade',
+      icon: Icons.campaign_rounded,
+      color: AgendaVisualPalette.aviso,
+    ),
+    const SizedBox(height: 10),
+    _escolha(
+      kind: AgKind.evento,
+      title: 'EVENTO / CULTO',
+      subtitle: 'Evento completo com galeria, vídeo e localização',
+      icon: Icons.celebration_rounded,
+      color: AgKind.evento.color,
+    ),
+    const SizedBox(height: 10),
+    _escolha(
+      kind: AgKind.reuniao,
+      title: 'REUNIÃO',
+      subtitle: 'Responsáveis, departamentos, data e localização',
+      icon: Icons.groups_rounded,
+      color: AgKind.reuniao.color,
+    ),
+  ];
+
+  List<Widget> _corpo(List<_AgendaItem> itens) {
+    return [
                 _secao(
                   icone: Icons.event_note_rounded,
                   titulo: 'Prévia do dia',
@@ -1837,12 +1909,11 @@ class _AgendaDiaPreviewPageState extends State<_AgendaDiaPreviewPage> {
                     ),
                   ),
                 ],
-              ],
-            ),
-          ),
-        ),
-      ),
-      bottomNavigationBar: SafeArea(
+    ];
+  }
+
+  Widget _rodape(BuildContext context) {
+    return SafeArea(
         child: Container(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           decoration: const BoxDecoration(
@@ -1887,8 +1958,7 @@ class _AgendaDiaPreviewPageState extends State<_AgendaDiaPreviewPage> {
             ),
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _secao({

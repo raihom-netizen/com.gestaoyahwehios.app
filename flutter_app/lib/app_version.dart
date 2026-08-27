@@ -1,4 +1,9 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2238: Agenda — «Novo», o toque no dia e o «Adicionar» do resumo
+/// voltam a abrir a previa com AVISO/EVENTO/REUNIAO mesmo que montar a lista
+/// falhe (o ecra ficava totalmente em branco); comprovante — o olho so aparece
+/// quando ha mesmo ficheiro no Storage (a flag legada `hasReceipt` sozinha
+/// mostrava o botao e dava «nao encontrado»).
 /// 11.2.305+2237: Codigo do membro deixa de aparecer «Pendente» no cartao — o
 /// cache do diretorio (que alimenta a carteirinha) nunca carregava
 /// `codigoMembro`, tal como tinha acontecido com a assinatura; todos os
@@ -550,7 +555,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2237';
+const String appBuildNumber = '2238';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

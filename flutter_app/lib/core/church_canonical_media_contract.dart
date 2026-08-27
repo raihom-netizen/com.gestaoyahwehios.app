@@ -223,13 +223,15 @@ abstract final class ChurchCanonicalMediaContract {
     );
   }
 
+  /// Só é «visualizável» quando há mesmo ficheiro para abrir.
+  ///
+  /// A flag legada `hasReceipt` sozinha não chega: lançamentos antigos (ou com
+  /// upload falhado) ficavam com ela a `true` sem nada no Storage, o olho
+  /// aparecia na grelha e ao tocar dava «Comprovante não encontrado no
+  /// Storage». Sem caminho nem URL, não se mostra o botão.
   static bool hasViewableFinanceComprovante(Map<String, dynamic>? data) {
     if (data == null) return false;
-    final ref = resolveFinanceComprovante(data);
-    if (ref.isResolvable) return true;
-    // Compatibilidade com lançamentos já confirmados pelo fluxo legado.
-    // Na fila offline ainda não há conteúdo visualizável no Storage.
-    return data['hasReceipt'] == true && data['receiptPendingUpload'] != true;
+    return resolveFinanceComprovante(data).isResolvable;
   }
 
   static String financeComprovanteViewUrl(Map<String, dynamic>? data) {
