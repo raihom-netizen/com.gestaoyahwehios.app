@@ -17,6 +17,8 @@ import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/services/membro_publish_verification_service.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
 import 'package:gestao_yahweh/utils/firestore_publish_recovery.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
+    show firestoreRestGetDoc;
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// CRUD membro — grava só em `igrejas/{churchId}/membros/{memberId}` com verificação.
@@ -132,19 +134,46 @@ abstract final class MembroStrictUpdateService {
     return refs;
   }
 
+  /// Existe? `null` quando não deu para saber.
+  ///
+  /// Na web um `get(Source.server)` cru rebenta com a INTERNAL ASSERTION do SDK
+  /// — e era isso que derrubava a exclusão inteira: o utilizador via «Erro ao
+  /// excluir» e o membro continuava na lista. O REST não passa pelo watch
+  /// stream e responde na mesma. Não sabendo, quem chama assume que a
+  /// gravação correu (o `delete` em si é resiliente e não atirou).
+  static Future<bool?> _docExiste(
+    DocumentReference<Map<String, dynamic>> docRef,
+  ) async {
+    if (kIsWeb) {
+      try {
+        return (await firestoreRestGetDoc(docRef.path)) != null;
+      } catch (e) {
+        if (kDebugMode) debugPrint('_docExiste REST ${docRef.path}: $e');
+        return null;
+      }
+    }
+    try {
+      return (await docRef.get(const GetOptions(source: Source.server))).exists;
+    } catch (e) {
+      if (kDebugMode) debugPrint('_docExiste SDK ${docRef.path}: $e');
+      return null;
+    }
+  }
+
   static Future<void> _deleteDocVerified(
     DocumentReference<Map<String, dynamic>> docRef,
   ) async {
-    final before = await docRef.get(const GetOptions(source: Source.server));
-    if (!before.exists) return;
+    if (await _docExiste(docRef) == false) return;
 
     await runFirestorePublishWithRecovery(
       () => YahwehDocWrite.delete(docRef),
     );
 
     for (var attempt = 0; attempt < 4; attempt++) {
-      final after = await docRef.get(const GetOptions(source: Source.server));
-      if (!after.exists) return;
+      final aindaExiste = await _docExiste(docRef);
+      // `false` = apagou; `null` = não deu para confirmar, mas o delete não
+      // atirou — insistir seria pedir para falhar por nada.
+      if (aindaExiste != true) return;
       await Future<void>.delayed(Duration(milliseconds: 120 + attempt * 160));
       await runFirestorePublishWithRecovery(() => YahwehDocWrite.delete(docRef));
     }
@@ -270,9 +299,7 @@ abstract final class MembroStrictUpdateService {
     if (!deletedAny) {
       for (final ref in membroRefs) {
         try {
-          final exists = (await ref.get(const GetOptions(source: Source.server)))
-              .exists;
-          if (!exists) continue;
+          if (await _docExiste(ref) == false) continue;
           await _deleteDocVerified(ref);
           if (!_isLegacyMembersRef(ref)) deletedAny = true;
         } catch (e) {
@@ -289,9 +316,7 @@ abstract final class MembroStrictUpdateService {
 
       if (!deletedAny) {
         final primary = _membroDocRef(igrejaId: churchId, memberDocId: mid);
-        final exists =
-            (await primary.get(const GetOptions(source: Source.server))).exists;
-        if (exists) {
+        if (await _docExiste(primary) != false) {
           await _deleteDocVerified(primary);
           deletedAny = true;
         }

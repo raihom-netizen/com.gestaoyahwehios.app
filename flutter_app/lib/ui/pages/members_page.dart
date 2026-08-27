@@ -513,7 +513,9 @@ class _MembersPageState extends State<MembersPage> {
 
   String _filtroGenero = 'todos'; // todos, masculino, feminino
   String _filtroDepartamento = 'todos';
-  String _filtroStatus = 'todos'; // todos, ativos, inativos
+  // Padrão «ativos»: a pergunta do dia a dia é «quem está na igreja hoje».
+  // Inativos e pendentes continuam a um toque.
+  String _filtroStatus = 'ativos'; // todos, ativos, inativos, pendentes
   String _filtroFaixaEtaria =
       'todas'; // todas, criancas, adolescentes, adultos, idosos
   String _filtroDiaCadastro = 'todos'; // todos, hoje, semana, mes
@@ -874,7 +876,7 @@ class _MembersPageState extends State<MembersPage> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tenantId != widget.tenantId) {
       _resolvedTenantId = null;
-      _filtroStatus = 'todos';
+      _filtroStatus = 'ativos';
       _filtroGenero = 'todos';
       _filtroFaixaEtaria = 'todas';
       _filtroDiaCadastro = 'todos';
@@ -1216,7 +1218,7 @@ class _MembersPageState extends State<MembersPage> {
   }
 
   bool _membersListFiltersActive() {
-    return _filtroStatus != 'todos' ||
+    return (_filtroStatus != 'todos' && _filtroStatus != 'ativos') ||
         _filtroGenero != 'todos' ||
         _filtroDepartamento != 'todos' ||
         _filtroFaixaEtaria != 'todas' ||
@@ -6132,6 +6134,124 @@ class _MembersPageState extends State<MembersPage> {
     return RegExp(r'^[a-zA-Z0-9]+$').hasMatch(s);
   }
 
+  // --- Inativar / Reativar membro -------------------------------------------
+  //
+  // Alternativa não destrutiva ao excluir: o cadastro fica na aba «Inativos»,
+  // com histórico e financeiro intactos, e volta a ativo a qualquer momento.
+  Future<void> _toggleMemberAtivo(
+    BuildContext context,
+    _MemberDoc member,
+  ) async {
+    if (!_canManage) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar(
+          'Apenas a equipe pode ativar ou inativar cadastros.',
+        ),
+      );
+      return;
+    }
+    final name = _str(member.data, 'NOME_COMPLETO', 'nome', 'name');
+    final estaInativo = (member.data['STATUS'] ?? member.data['status'] ?? '')
+        .toString()
+        .toLowerCase()
+        .contains('inativ');
+    final novoStatus = estaInativo ? 'ativo' : 'inativo';
+    final accent = estaInativo
+        ? const Color(0xFF16A34A)
+        : const Color(0xFFEA580C);
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
+        titlePadding: EdgeInsets.zero,
+        title: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: accent,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(ThemeCleanPremium.radiusLg),
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                estaInativo
+                    ? Icons.toggle_on_rounded
+                    : Icons.toggle_off_rounded,
+                color: Colors.white,
+                size: 26,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  estaInativo ? 'Reativar membro' : 'Inativar membro',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 17,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        content: Text(
+          estaInativo
+              ? '"$name" volta a aparecer entre os membros ativos, com acesso e '
+                    'histórico como antes.'
+              : '"$name" sai da lista de ativos e passa para a aba «Inativos». '
+                    'Nada é apagado — ficha, financeiro e histórico ficam '
+                    'guardados, e dá para reativar quando quiser.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: accent),
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: Icon(
+              estaInativo ? Icons.check_rounded : Icons.pause_rounded,
+            ),
+            label: Text(estaInativo ? 'Reativar' : 'Inativar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    try {
+      await MembroStrictUpdateService.updateMember(
+        seedTenantId: _effectiveTenantId,
+        memberDocId: member.id,
+        updates: {
+          'STATUS': novoStatus,
+          'status': novoStatus,
+          'ativo': !estaInativo ? false : true,
+          'active': !estaInativo ? false : true,
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.successSnackBar(
+          estaInativo
+              ? '"$name" reativado.'
+              : '"$name" ficou inativo — está na aba «Inativos».',
+        ),
+      );
+      _refreshMembers(forceServer: true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        ThemeCleanPremium.feedbackSnackBar('Não foi possível alterar: $e'),
+      );
+    }
+  }
+
   // --- Excluir Membro -------------------------------------------------------
   Future<void> _deleteMember(BuildContext context, _MemberDoc member) async {
     if (!_canDeleteMembers) {
@@ -6861,6 +6981,11 @@ class _MembersPageState extends State<MembersPage> {
           final optimisticBytes = _optimisticProfilePhotoBytes[docs[i].id];
           final isInativo = status.toLowerCase().contains('inativ');
           final isPendingRow = _memberDocIsPending(data);
+          final isInactiveRow =
+              (data['STATUS'] ?? data['status'] ?? '')
+                  .toString()
+                  .toLowerCase()
+                  .contains('inativ');
           final avatarColor = _avatarColor(
             data,
             photo.isNotEmpty || optimisticBytes != null,
@@ -7069,6 +7194,11 @@ class _MembersPageState extends State<MembersPage> {
                                       if (v == 'approve') {
                                         _aprovarMembrosPorIds({docs[i].id});
                                       }
+                                      if (v == 'toggleAtivo') {
+                                        unawaited(
+                                          _toggleMemberAtivo(context, docs[i]),
+                                        );
+                                      }
                                       if (v == 'card') {
                                         openMemberCardCnhFullscreen(
                                           context,
@@ -7195,6 +7325,37 @@ class _MembersPageState extends State<MembersPage> {
                                               Text(
                                                 'Atualizar senha',
                                                 style: TextStyle(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      if (_canManage)
+                                        PopupMenuItem(
+                                          value: 'toggleAtivo',
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                isInactiveRow
+                                                    ? Icons
+                                                          .toggle_on_rounded
+                                                    : Icons
+                                                          .toggle_off_rounded,
+                                                size: 18,
+                                                color: isInactiveRow
+                                                    ? const Color(0xFF16A34A)
+                                                    : const Color(0xFFEA580C),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                isInactiveRow
+                                                    ? 'Reativar membro'
+                                                    : 'Inativar membro',
+                                                style: TextStyle(
+                                                  color: isInactiveRow
+                                                      ? const Color(0xFF16A34A)
+                                                      : const Color(0xFFEA580C),
                                                   fontWeight: FontWeight.w600,
                                                 ),
                                               ),
@@ -7482,6 +7643,9 @@ class _MembersPageState extends State<MembersPage> {
                                 }
                                 if (v == 'approve') {
                                   _aprovarMembrosPorIds({member.id});
+                                }
+                                if (v == 'toggleAtivo') {
+                                  unawaited(_toggleMemberAtivo(context, member));
                                 }
                                 if (v == 'card') {
                                   openMemberCardCnhFullscreen(
@@ -8309,15 +8473,18 @@ class _MembersPageState extends State<MembersPage> {
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOutCubic,
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            // Selecionado = cor cheia (lê-se de longe qual filtro está a
+            // valer); os outros ficam num tom leve da própria cor, para a
+            // barra inteira ser colorida em vez de cinzenta.
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               color: selected
-                  ? accent.withValues(alpha: 0.11)
-                  : Colors.transparent,
+                  ? accent
+                  : accent.withValues(alpha: 0.10),
               border: Border.all(
                 color: selected
-                    ? accent.withValues(alpha: 0.35)
-                    : Colors.transparent,
+                    ? accent
+                    : accent.withValues(alpha: 0.28),
                 width: 1,
               ),
               boxShadow: selected
@@ -8337,7 +8504,7 @@ class _MembersPageState extends State<MembersPage> {
                 Icon(
                   icon,
                   size: 18,
-                  color: selected ? accent : ThemeCleanPremium.onSurfaceVariant,
+                  color: selected ? Colors.white : accent,
                 ),
                 const SizedBox(width: 6),
                 Flexible(
@@ -8346,12 +8513,10 @@ class _MembersPageState extends State<MembersPage> {
                     overflow: TextOverflow.ellipsis,
                     maxLines: 1,
                     style: TextStyle(
-                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
                       fontSize: 13,
                       letterSpacing: -0.2,
-                      color: selected
-                          ? accent
-                          : ThemeCleanPremium.onSurfaceVariant,
+                      color: selected ? Colors.white : accent,
                     ),
                   ),
                 ),
@@ -8934,7 +9099,8 @@ class _MembersPageState extends State<MembersPage> {
                     const SizedBox(height: 20),
                     FilledButton.icon(
                       onPressed: () => setState(() {
-                        _filtroStatus = 'todos';
+                        // Limpar volta ao padrão do módulo, que é «ativos».
+                        _filtroStatus = 'ativos';
                         _filtroGenero = 'todos';
                         _filtroFaixaEtaria = 'todas';
                         _filtroDiaCadastro = 'todos';
