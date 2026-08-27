@@ -1,4 +1,6 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2246: Build de distribuicao do 2245 (web + AAB + fontes iOS) —
+/// niveis 1-5 nos cargos, editor novo e cartao membro legivel.
 /// 11.2.305+2245: Cargos na escala de NIVEIS 1 a 5 (era 0-100, ilegivel):
 /// 1 membro, 2 lider de departamento, 3 secretario, 4 tesoureiro, 5 pastor/
 /// gestor/adm/pastor auxiliar. Nivel 5 passa a ver o Financeiro e a autorizar
@@ -582,7 +584,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2245';
+const String appBuildNumber = '2246';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,
