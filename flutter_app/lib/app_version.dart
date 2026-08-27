@@ -1,4 +1,9 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2234: Codigo do membro passa a ser sequencial simples a partir de
+/// 00001 (sem o ano a frente, sem reiniciar em janeiro), no app e nas Cloud
+/// Functions; Agenda — o segundo toque no dia voltou a abrir a previa com
+/// AVISO/EVENTO/REUNIAO (erro a montar a lista ou o locale deixava o ecra em
+/// branco) e quem nao pode editar passa a ver o porque.
 /// 11.2.305+2233: Financeiro, Membros e Fornecedores integrados na grelha —
 /// cada lancamento mostra de quem e (membro, fornecedor, doador do Pix/site ou
 /// «N pessoas»), em receitas e despesas, nas tres telas ao mesmo tempo.
@@ -532,7 +537,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2233';
+const String appBuildNumber = '2234';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

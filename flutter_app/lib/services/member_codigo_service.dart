@@ -5,12 +5,17 @@ import 'package:gestao_yahweh/services/church_operational_paths.dart';
 
 /// Código de membro sequencial **por igreja** (cartão CNH, QR, relatórios).
 ///
-/// Formato: `AAAA` + `NNNNN` (ex.: `202600001`) — reinicia a sequência a cada ano civil.
+/// Formato: `NNNNN` — sequencial simples a partir de `00001`, sem o ano à
+/// frente e sem reiniciar em janeiro (o código identifica o membro para
+/// sempre; reiniciar todo ano fazia dois membros partilharem número).
 abstract final class MemberCodigoService {
   MemberCodigoService._();
 
   static const _configDocId = 'codigo_membro';
   static const _seqPad = 5;
+
+  /// Marca do formato novo (sequencial puro) no doc de configuração.
+  static const _schemaSequencial = 'seq';
 
   static DocumentReference<Map<String, dynamic>> _configRef(String tenantId) =>
                 ChurchOperationalPaths.churchDoc(tenantId.trim())
@@ -65,27 +70,24 @@ abstract final class MemberCodigoService {
     }
     final db = firebaseDefaultFirestore;
     final cfgRef = _configRef(tid);
-    final yearNow = DateTime.now().year;
 
     for (var attempt = 0; attempt < 8; attempt++) {
       final code = await db.runTransaction<String>((tx) async {
         final snap = await tx.get(cfgRef);
         final data = snap.data() ?? {};
-        var year = (data['year'] is num)
-            ? (data['year'] as num).toInt()
-            : yearNow;
-        var next = (data['nextSequence'] is num)
+        // O contador antigo pertencia ao formato com ano (`2026000NN`); ao
+        // mudar para sequencial puro recomeça-se em 1 — colisão com código
+        // já usado é resolvida pelo `_isCodeTaken` logo abaixo.
+        final novoEsquema = data['schema'] == _schemaSequencial;
+        var next = (novoEsquema && data['nextSequence'] is num)
             ? (data['nextSequence'] as num).toInt()
             : 1;
-        if (year != yearNow) {
-          year = yearNow;
-          next = 1;
-        }
-        final candidate = '$year${next.toString().padLeft(_seqPad, '0')}';
+        if (next < 1) next = 1;
+        final candidate = next.toString().padLeft(_seqPad, '0');
         tx.set(
           cfgRef,
           {
-            'year': year,
+            'schema': _schemaSequencial,
             'nextSequence': next + 1,
             'updatedAt': FieldValue.serverTimestamp(),
           },

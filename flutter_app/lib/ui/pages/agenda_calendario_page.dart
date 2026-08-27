@@ -1671,16 +1671,37 @@ class _AgendaDiaPreviewPageState extends State<_AgendaDiaPreviewPage> {
     if (mounted) setState(() {});
   }
 
+  /// Lista do dia à prova de falha: um erro a montar os itens não pode
+  /// esvaziar a página inteira — era assim que o segundo toque no dia abria um
+  /// ecrã em branco, sem sequer as opções de adicionar aviso/evento/reunião.
+  List<_AgendaItem> _itensSeguros() {
+    try {
+      return widget.itemsBuilder();
+    } catch (e, st) {
+      debugPrint('AgendaDiaPreview: falha a montar itens do dia: $e');
+      debugPrint('$st');
+      return const <_AgendaItem>[];
+    }
+  }
+
+  /// `pt_BR` pode não estar carregado (arranque a frio na web) e o `DateFormat`
+  /// atira — sem isto o `build` inteiro morria antes de desenhar o que quer que
+  /// fosse.
+  String _tituloSeguro() {
+    String bruto;
+    try {
+      bruto = DateFormat("EEEE, dd/MM/yyyy", 'pt_BR').format(widget.day);
+    } catch (_) {
+      bruto = DateFormat('dd/MM/yyyy').format(widget.day);
+    }
+    if (bruto.isEmpty) return bruto;
+    return bruto.substring(0, 1).toUpperCase() + bruto.substring(1);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final itens = widget.itemsBuilder();
-    final dataLabel = DateFormat(
-      "EEEE, dd/MM/yyyy",
-      'pt_BR',
-    ).format(widget.day);
-    final titulo = dataLabel.isEmpty
-        ? dataLabel
-        : dataLabel.substring(0, 1).toUpperCase() + dataLabel.substring(1);
+    final itens = _itensSeguros();
+    final titulo = _tituloSeguro();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
@@ -1793,6 +1814,27 @@ class _AgendaDiaPreviewPageState extends State<_AgendaDiaPreviewPage> {
                         'Responsáveis, departamentos, data e localização',
                     icon: Icons.groups_rounded,
                     color: AgKind.reuniao.color,
+                  ),
+                ] else ...[
+                  // Sem permissão de edição a página ficava sem nada abaixo da
+                  // lista — o utilizador via um ecrã vazio e não percebia
+                  // porquê.
+                  const SizedBox(height: 18),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 18,
+                    ),
+                    decoration: _cartao,
+                    child: const Text(
+                      'Só a liderança com permissão na Agenda pode acrescentar '
+                      'avisos, eventos ou reuniões neste dia.',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
                   ),
                 ],
               ],
