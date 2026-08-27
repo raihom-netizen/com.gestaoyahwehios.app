@@ -450,38 +450,24 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
 
     try {
       final functions = FirebaseFunctions.instanceFor(region: 'us-central1');
-      final emailForAuth = emailNorm.isNotEmpty
-          ? emailNorm
-          : (cpfDigits.length == 11
-                ? '$cpfDigits@membro.gestaoyahweh.com.br'
-                : '');
-      if (emailForAuth.isEmpty) {
-        if (mounted) {
-          setState(() => _saving = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Informe e-mail ou CPF com 11 dígitos para criar o login do membro.',
-              ),
-            ),
-          );
-        }
-        return;
-      }
+      // Só se cria login quando há e-mail. Sem ele o membro fica como ficha —
+      // o gestor dá acesso depois, editando o membro e informando o e-mail.
+      final emailForAuth = emailNorm;
+      final criarLogin = emailForAuth.isNotEmpty;
       final pwd = _passwordCtrl.text.trim();
       // Login e código do membro não dependem um do outro — em paralelo.
       // O código é acessório: se a transação falhar, o cadastro continua
       // (antes, um erro aqui abortava depois do login já ter sido criado,
       // deixando o gestor preso em «e-mail já existe» na segunda tentativa).
-      final authFuture = functions
-          .httpsCallable('createMemberAuthAccountForGestor')
-          .call({
-            'tenantId': widget.tenantId,
-            'email': emailForAuth,
-            'password': pwd.length >= 6 ? pwd : '123456',
-            'displayName': _nameCtrl.text.trim(),
-            'cpf': cpfDigits,
-          });
+      final authFuture = criarLogin
+          ? functions.httpsCallable('createMemberAuthAccountForGestor').call({
+              'tenantId': widget.tenantId,
+              'email': emailForAuth,
+              'password': pwd.length >= 6 ? pwd : '123456',
+              'displayName': _nameCtrl.text.trim(),
+              'cpf': cpfDigits,
+            })
+          : null;
       final codigoFuture = MemberCodigoService.allocateNext(widget.tenantId)
           .then<String?>((c) => c)
           .catchError((Object e) {
@@ -489,14 +475,19 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
             return null;
           });
 
-      final authRes = await authFuture;
-      final authMap = Map<String, dynamic>.from(authRes.data as Map? ?? {});
-      final uid = (authMap['uid'] ?? '').toString().trim();
-      if (uid.isEmpty) {
-        throw Exception('UID do login não retornado pelo servidor.');
+      String uid = '';
+      if (authFuture != null) {
+        final authRes = await authFuture;
+        final authMap = Map<String, dynamic>.from(authRes.data as Map? ?? {});
+        uid = (authMap['uid'] ?? '').toString().trim();
+        if (uid.isEmpty) {
+          throw Exception('UID do login não retornado pelo servidor.');
+        }
       }
 
-      final ref = col.doc(uid);
+      // Ficha sem login: id próprio do documento (o `authUid` entra quando a
+      // liderança criar o acesso mais tarde).
+      final ref = uid.isNotEmpty ? col.doc(uid) : col.doc();
       final photoBytes = _photoBytes;
       final age = _calcAge(birthParsed) ?? 0;
       final ageRange = _ageRange(age);
@@ -537,11 +528,12 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
       final codigoMembro = await codigoFuture;
 
       final data = {
-        'MEMBER_ID': uid,
-        'authUid': uid,
+        'MEMBER_ID': ref.id,
+        // Sem login ainda: `authUid` só existe quando há conta de acesso.
+        if (uid.isNotEmpty) 'authUid': uid,
         if (codigoMembro != null && codigoMembro.isNotEmpty)
           ...MemberCodigoService.fieldsForFirestore(codigoMembro),
-        'CREATED_BY_CPF': cpfDigits.isNotEmpty ? cpfDigits : uid,
+        'CREATED_BY_CPF': cpfDigits.isNotEmpty ? cpfDigits : ref.id,
         'alias': alias,
         'slug': slug,
         'tenantId': widget.tenantId,
@@ -651,12 +643,15 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
 
       // O login já foi criado por `createMemberAuthAccountForGestor`; esta
       // chamada é apenas o vínculo `users/{uid}` e não deve segurar a tela.
-      unawaited(
-        functions
-            .httpsCallable('createMemberLoginFromPublic')
-            .call({'tenantId': widget.tenantId, 'memberId': ref.id})
-            .then((_) {}, onError: (_) {}),
-      );
+      // Sem e-mail não há login para vincular.
+      if (criarLogin) {
+        unawaited(
+          functions
+              .httpsCallable('createMemberLoginFromPublic')
+              .call({'tenantId': widget.tenantId, 'memberId': ref.id})
+              .then((_) {}, onError: (_) {}),
+        );
+      }
 
       if (!mounted) return;
       setState(() => _submittedSuccess = true);
@@ -997,10 +992,46 @@ class _InternalNewMemberPageState extends State<InternalNewMemberPage> {
                       controller: _emailCtrl,
                       keyboardType: TextInputType.emailAddress,
                       decoration: memberSignupInputDecoration(
-                        label: 'E-mail',
+                        label: 'E-mail (opcional — cria o acesso)',
                         icon: Icons.alternate_email_rounded,
+                        hint: 'Deixe em branco se o membro não vai aceder',
                       ),
-                      validator: _req,
+                      // Sem e-mail o membro entra só como ficha. Quando a
+                      // liderança quiser dar acesso, basta editar e preencher o
+                      // e-mail — aí o login é criado (ou o membro entra com
+                      // Google/Apple com esse mesmo e-mail).
+                      validator: (v) {
+                        final t = (v ?? '').trim();
+                        if (t.isEmpty) return null;
+                        if (!t.contains('@') || t.length < 6) {
+                          return 'E-mail inválido';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.info_outline_rounded,
+                          size: 16,
+                          color: Colors.grey.shade600,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Sem e-mail o cadastro fica só como ficha do membro '
+                            '(sem login). Para dar acesso depois, edite o membro '
+                            'e informe o e-mail com a senha — ou o membro entra '
+                            'com Google/Apple usando esse e-mail.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(

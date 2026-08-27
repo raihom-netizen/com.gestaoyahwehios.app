@@ -1,4 +1,8 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2235: E-mail deixa de ser obrigatorio no cadastro interno — sem
+/// e-mail o membro entra so como ficha, sem login; quando a lideranca quiser
+/// dar acesso, preenche o e-mail (com senha) ou o membro entra com
+/// Google/Apple usando esse e-mail.
 /// 11.2.305+2234: Codigo do membro passa a ser sequencial simples a partir de
 /// 00001 (sem o ano a frente, sem reiniciar em janeiro), no app e nas Cloud
 /// Functions; Agenda — o segundo toque no dia voltou a abrir a previa com
@@ -537,7 +541,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2234';
+const String appBuildNumber = '2235';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,
