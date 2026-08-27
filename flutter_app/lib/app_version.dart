@@ -1,4 +1,19 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2245: Cargos na escala de NIVEIS 1 a 5 (era 0-100, ilegivel):
+/// 1 membro, 2 lider de departamento, 3 secretario, 4 tesoureiro, 5 pastor/
+/// gestor/adm/pastor auxiliar. Nivel 5 passa a ver o Financeiro e a autorizar
+/// outros; nivel 4 tem Financeiro mas nao da acesso de administrador; nivel 3
+/// edita eventos sem Financeiro; nivel 2 gera escalas e edita o que criou;
+/// nivel 1 so ve. Editor de cargos novo, com os cinco niveis em cartoes
+/// coloridos que dizem o que cada um pode. Cargos das 4 igrejas migrados.
+/// 11.2.305+2244: Cartao membro - o botao «Compartilhar» estava invisivel:
+/// era contornado e pintado de BRANCO por `actionsOnDark`, que assumia fundo
+/// escuro, mas a barra de acoes e clara (branco a 8% sobre pagina branca).
+/// Passa a solido verde, com «Limpar assinatura» tambem legivel e a barra com
+/// fundo cinzento real. Vale para web, Android e iOS.
+/// 11.2.305+2243: Build de distribuicao do 2242 (web + AAB + fontes iOS)
+/// com a previa do dia da Agenda ja a desenhar (cabecalho fixo em vez de
+/// AppBar).
 /// 11.2.305+2242: Agenda - a previa do dia abria em BRANCO (so «Retornar /
 /// Cancelar»): na web deste app o `AppBar` de uma rota empurrada nao desenha
 /// e leva o corpo atras. As duas previas (do dia e por tipo) passam a usar o
@@ -567,7 +582,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2242';
+const String appBuildNumber = '2245';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

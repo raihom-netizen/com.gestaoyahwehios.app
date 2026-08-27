@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:gestao_yahweh/core/church_cargo_nivel.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -243,7 +244,7 @@ class _CargosPageState extends State<CargosPage> {
       name: 'Pastor Presidente / Administrador',
       key: 'pastor_presidente',
       permissionTemplate: 'pastor_presidente',
-      hierarchyLevel: 100,
+      hierarchyLevel: 5,
       accentColor: 0xFF1565C0,
       requiresConsecrationDate: true,
     ),
@@ -252,7 +253,7 @@ class _CargosPageState extends State<CargosPage> {
       name: 'Pastor Auxiliar / Ministerial',
       key: 'pastor_auxiliar',
       permissionTemplate: 'pastor_auxiliar',
-      hierarchyLevel: 88,
+      hierarchyLevel: 5,
       accentColor: 0xFF5E35B1,
       requiresConsecrationDate: true,
     ),
@@ -261,7 +262,7 @@ class _CargosPageState extends State<CargosPage> {
       name: 'Secretário(a)',
       key: 'secretario',
       permissionTemplate: 'secretario',
-      hierarchyLevel: 72,
+      hierarchyLevel: 3,
       accentColor: 0xFF00897B,
       requiresConsecrationDate: false,
     ),
@@ -270,7 +271,7 @@ class _CargosPageState extends State<CargosPage> {
       name: 'Tesoureiro(a)',
       key: 'tesoureiro',
       permissionTemplate: 'tesoureiro',
-      hierarchyLevel: 65,
+      hierarchyLevel: 4,
       accentColor: 0xFF2E7D32,
       requiresConsecrationDate: false,
     ),
@@ -279,7 +280,7 @@ class _CargosPageState extends State<CargosPage> {
       name: 'Líder de Departamento',
       key: 'lider_departamento',
       permissionTemplate: 'lider_departamento',
-      hierarchyLevel: 55,
+      hierarchyLevel: 2,
       accentColor: 0xFF6A1B9A,
       requiresConsecrationDate: false,
     ),
@@ -288,7 +289,7 @@ class _CargosPageState extends State<CargosPage> {
       name: 'Membro / Congregado',
       key: 'membro',
       permissionTemplate: 'membro',
-      hierarchyLevel: 12,
+      hierarchyLevel: 1,
       accentColor: 0xFF78909C,
       requiresConsecrationDate: false,
     ),
@@ -1162,10 +1163,22 @@ class _CargosPageState extends State<CargosPage> {
                             runSpacing: 8,
                             children: [
                               if (hierarchy != null)
+                                // Antes so o numero cru («Nível 88»), que nao
+                                // dizia nada a quem le. Agora o nivel 1-5 vem
+                                // com o nome do patamar e a cor propria.
                                 _CargoInfoChip(
-                                  icon: Icons.layers_rounded,
-                                  label: 'Nível $hierarchy',
-                                  accent: accent,
+                                  icon: ChurchCargoNivel.de(hierarchy).icone,
+                                  label:
+                                      'Nível ${ChurchCargoNivel.de(hierarchy).valor} · '
+                                      '${ChurchCargoNivel.de(hierarchy).titulo}',
+                                  accent: ChurchCargoNivel.de(hierarchy).cor,
+                                ),
+                              if (hierarchy != null &&
+                                  ChurchCargoNivel.de(hierarchy).veFinanceiro)
+                                const _CargoInfoChip(
+                                  icon: Icons.account_balance_wallet_rounded,
+                                  label: 'Financeiro',
+                                  accent: Color(0xFF059669),
                                 ),
                               if (modCount > 0)
                                 _CargoInfoChip(
@@ -1907,7 +1920,7 @@ class _CargoFormPage extends StatefulWidget {
 class _CargoFormPageState extends State<_CargoFormPage> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _keyCtrl;
-  late final TextEditingController _hierCtrl;
+  late ChurchCargoNivel _nivel;
   late String _template;
   late int _membrosTri;
   late int _muralTri;
@@ -1936,6 +1949,184 @@ class _CargoFormPageState extends State<_CargoFormPage> {
     ('fornecedores', 'Fornecedores e prestadores'),
   ];
 
+
+  /// Seletor de nivel 1-5 — cada opcao diz, por palavras, o que o cargo pode.
+  ///
+  /// Substitui a caixa «Nível (0–100)»: um numero solto entre 0 e 100 nao
+  /// dizia a ninguem o que estava a dar, e dois cargos com 65 e 72 pareciam
+  /// iguais. Aqui a escolha e a propria regra de acesso.
+  Widget _seletorDeNivel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.layers_rounded, size: 18, color: Color(0xFF1D4ED8)),
+            const SizedBox(width: 7),
+            const Text(
+              'NÍVEL DE ACESSO',
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.8,
+                color: Color(0xFF334155),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: _nivel.cor.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${_nivel.valor} de 5',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: _nivel.cor,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        for (final n in ChurchCargoNivel.values.reversed)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _cartaoDeNivel(n),
+          ),
+      ],
+    );
+  }
+
+  Widget _cartaoDeNivel(ChurchCargoNivel n) {
+    final ativo = n == _nivel;
+    return Material(
+      color: ativo ? n.cor.withValues(alpha: 0.12) : const Color(0xFFF8FAFC),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => setState(() {
+          _nivel = n;
+          // O modelo base acompanha o nivel — evita o cargo ficar «nivel 5»
+          // com permissoes de membro, que era a incoerencia mais comum.
+          _template = n.templatePadrao;
+        }),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: ativo
+                  ? n.cor.withValues(alpha: 0.55)
+                  : const Color(0xFFE2E8F0),
+              width: ativo ? 1.8 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [n.cor, n.cor.withValues(alpha: 0.7)],
+                  ),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Icon(n.icone, color: Colors.white, size: 21),
+                    Positioned(
+                      right: 3,
+                      bottom: 2,
+                      child: Text(
+                        '${n.valor}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      n.titulo,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13.5,
+                        color: ativo ? n.cor : const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      n.resumo,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        height: 1.25,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF475569),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _selo(
+                          n.veFinanceiro ? 'Com Financeiro' : 'Sem Financeiro',
+                          n.veFinanceiro
+                              ? const Color(0xFF059669)
+                              : const Color(0xFF94A3B8),
+                        ),
+                        if (n.autorizaOutros)
+                          _selo('Autoriza membros', const Color(0xFF1D4ED8)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                ativo
+                    ? Icons.check_circle_rounded
+                    : Icons.radio_button_unchecked_rounded,
+                color: ativo ? n.cor : const Color(0xFFCBD5E1),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _selo(String texto, Color cor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: cor.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: cor.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        texto,
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w900,
+          color: cor,
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1944,10 +2135,8 @@ class _CargoFormPageState extends State<_CargoFormPage> {
     _keyCtrl = TextEditingController(
       text: (data['key'] ?? widget.doc?.id ?? '').toString(),
     );
-    _hierCtrl = TextEditingController(
-      text: (data['hierarchyLevel'] ?? '').toString().trim().isEmpty
-          ? '50'
-          : '${data['hierarchyLevel']}',
+    _nivel = ChurchCargoNivel.de(
+      (data['hierarchyLevel'] as num?)?.toInt(),
     );
     _template = (data['permissionTemplate'] ?? data['key'] ?? 'membro')
         .toString()
@@ -1988,7 +2177,6 @@ class _CargoFormPageState extends State<_CargoFormPage> {
   void dispose() {
     _nameCtrl.dispose();
     _keyCtrl.dispose();
-    _hierCtrl.dispose();
     super.dispose();
   }
 
@@ -2354,7 +2542,7 @@ class _CargoFormPageState extends State<_CargoFormPage> {
       );
       return;
     }
-    final h = int.tryParse(_hierCtrl.text.trim()) ?? 50;
+    final h = _nivel.valor;
     final mods = _serializeModulePermissions(
       cargoKey: key,
       membrosTri: _membrosTri,
@@ -2370,7 +2558,7 @@ class _CargoFormPageState extends State<_CargoFormPage> {
       'name': name,
       'key': key,
       'permissionTemplate': _template,
-      'hierarchyLevel': h.clamp(0, 100),
+      'hierarchyLevel': ChurchCargoNivel.normalizar(h),
       'modulePermissions': mods,
       'updatedAt': YahwehFv.serverTimestamp,
     };
@@ -2457,43 +2645,26 @@ class _CargoFormPageState extends State<_CargoFormPage> {
             style: TextStyle(fontSize: 11, color: Colors.orange.shade800),
           ),
         ],
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _hierCtrl,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Nível (0–100)',
-                  prefixIcon: Icon(Icons.layers_rounded),
-                  isDense: true,
+        const SizedBox(height: 18),
+        _seletorDeNivel(),
+        const SizedBox(height: 14),
+        DropdownButtonFormField<String>(
+          initialValue: templateValue,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Modelo base de permissões',
+            prefixIcon: Icon(Icons.security_rounded),
+            isDense: true,
+          ),
+          items: templates
+              .map(
+                (t) => DropdownMenuItem(
+                  value: t.key,
+                  child: Text(t.label, overflow: TextOverflow.ellipsis),
                 ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 2,
-              child: DropdownButtonFormField<String>(
-                initialValue: templateValue,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Modelo base',
-                  prefixIcon: Icon(Icons.security_rounded),
-                  isDense: true,
-                ),
-                items: templates
-                    .map(
-                      (t) => DropdownMenuItem(
-                        value: t.key,
-                        child: Text(t.label, overflow: TextOverflow.ellipsis),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() => _template = v ?? 'membro'),
-              ),
-            ),
-          ],
+              )
+              .toList(),
+          onChanged: (v) => setState(() => _template = v ?? 'membro'),
         ),
         const SizedBox(height: 16),
         Text(

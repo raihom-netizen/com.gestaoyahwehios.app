@@ -154,8 +154,12 @@ service cloud.firestore {
         ));
     }
     function canReadFinance(t) {
+      // Nivel 5 (pastor presidente, gestor, adm e pastor auxiliar) e nivel 4
+      // (tesoureiro) leem o Financeiro. `isPastorAux` faltava aqui: o pastor
+      // auxiliar podia ESCREVER (canWriteFinance ja o incluia) e nao conseguia
+      // ler o que tinha gravado.
       return isMaster() || (canAccessTenant(t) && (
-        isManager() || isTreasurer(t) || isPastoral(t)
+        isManager() || isTreasurer(t) || isPastoral(t) || isPastorAux(t)
         || hasPerm(t, 'financeiro')
       ));
     }

@@ -115,10 +115,12 @@ class ChurchRolePermissions {
     return n == ChurchRoleKeys.liderDepartamento || n == ChurchRoleKeys.lider;
   }
 
+  /// NIVEL 5 — pastor presidente, gestor, adm e pastor auxiliar.
+  /// Pode tudo: remove, autoriza outros membros e entra no Financeiro.
   static const ChurchRolePermissionSnapshot _full =
       ChurchRolePermissionSnapshot(
         restrictedNav: false,
-        viewFinance: false,
+        viewFinance: true,
         viewPatrimonio: true,
         editAnyMember: true,
         viewMemberDirectory: true,
@@ -131,26 +133,11 @@ class ChurchRolePermissions {
         badgeColorArgb: 0xFF1565C0,
       );
 
+  /// NIVEL 5 — o pastor auxiliar entra no mesmo patamar do presidente.
   static const ChurchRolePermissionSnapshot _pastorAux =
       ChurchRolePermissionSnapshot(
         restrictedNav: false,
-        viewFinance: false,
-        viewPatrimonio: false,
-        editAnyMember: true,
-        viewMemberDirectory: true,
-        editChurchProfile: true,
-        editDepartments: true,
-        editSchedulesAll: true,
-        manageVisitors: true,
-        manageCargosCatalog: false,
-        approvePendingMembers: true,
-        badgeColorArgb: 0xFF5E35B1,
-      );
-
-  static const ChurchRolePermissionSnapshot _secretario =
-      ChurchRolePermissionSnapshot(
-        restrictedNav: false,
-        viewFinance: false,
+        viewFinance: true,
         viewPatrimonio: true,
         editAnyMember: true,
         viewMemberDirectory: true,
@@ -160,9 +147,31 @@ class ChurchRolePermissions {
         manageVisitors: true,
         manageCargosCatalog: true,
         approvePendingMembers: true,
+        badgeColorArgb: 0xFF5E35B1,
+      );
+
+  /// NIVEL 3 — secretario(a): edita eventos, avisos, agenda, escalas, fichas e
+  /// visitantes. NAO entra no Financeiro, NAO mexe no catalogo de cargos (era
+  /// por ai que se dava acesso de administrador) e NAO altera o perfil da
+  /// igreja.
+  static const ChurchRolePermissionSnapshot _secretario =
+      ChurchRolePermissionSnapshot(
+        restrictedNav: false,
+        viewFinance: false,
+        viewPatrimonio: true,
+        editAnyMember: true,
+        viewMemberDirectory: true,
+        editChurchProfile: false,
+        editDepartments: true,
+        editSchedulesAll: true,
+        manageVisitors: true,
+        manageCargosCatalog: false,
+        approvePendingMembers: true,
         badgeColorArgb: 0xFF00897B,
       );
 
+  /// NIVEL 4 — tesoureiro(a): pode tudo, incluindo o Financeiro, MENOS dar
+  /// permissao de administrador a outros (`manageCargosCatalog`).
   static const ChurchRolePermissionSnapshot _tesoureiro =
       ChurchRolePermissionSnapshot(
         restrictedNav: false,
@@ -170,28 +179,31 @@ class ChurchRolePermissions {
         viewPatrimonio: true,
         editAnyMember: true,
         viewMemberDirectory: true,
-        editChurchProfile: false,
+        editChurchProfile: true,
         editDepartments: true,
         editSchedulesAll: true,
-        manageVisitors: false,
+        manageVisitors: true,
         manageCargosCatalog: false,
         approvePendingMembers: true,
         badgeColorArgb: 0xFF2E7D32,
       );
 
+  /// NIVEL 2 — lider de departamento: gera escalas e edita os eventos e avisos
+  /// que ele proprio criou. Sem Financeiro, sem editar ficha de terceiros e
+  /// sem aprovar cadastros pendentes.
   static const ChurchRolePermissionSnapshot _liderDept =
       ChurchRolePermissionSnapshot(
         restrictedNav: false,
         viewFinance: false,
         viewPatrimonio: false,
-        editAnyMember: true,
+        editAnyMember: false,
         viewMemberDirectory: true,
         editChurchProfile: false,
         editDepartments: true,
-        editSchedulesAll: false,
+        editSchedulesAll: true,
         manageVisitors: false,
         manageCargosCatalog: false,
-        approvePendingMembers: true,
+        approvePendingMembers: false,
         badgeColorArgb: 0xFF6A1B9A,
       );
 

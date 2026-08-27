@@ -25,8 +25,8 @@ import 'package:gestao_yahweh/services/member_card_sign_service.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_resolver.dart';
 import 'package:gestao_yahweh/services/member_profile_photo_sync_notifier.dart';
 import 'package:gestao_yahweh/services/members_directory_snapshot_service.dart';
-import 'package:gestao_yahweh/services/yahweh_share_service.dart';
 import 'package:gestao_yahweh/utils/pdf_actions_helper.dart';
+import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_cnh_nav.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/church_panel_ui_helpers.dart';
@@ -107,6 +107,9 @@ class _MemberCardPageState extends State<MemberCardPage>
   static const _gradB = Color(0xFF0EA5E9);
   static const _gradC = Color(0xFFEC4899);
 
+  /// Verde do «Compartilhar» — solido, para se ler em fundo claro e escuro.
+  static const _gradShare = Color(0xFF059669);
+
   late final TextEditingController _searchCtrl;
   Timer? _searchDebounce;
   TabController? _tabs;
@@ -146,6 +149,7 @@ class _MemberCardPageState extends State<MemberCardPage>
     if ((novo - _previewZoom).abs() < 0.001) return;
     setState(() => _previewZoom = novo);
   }
+
   late final VoidCallback _photoSyncListener;
 
   final ScreenshotController _shotCtrl = ScreenshotController();
@@ -1399,17 +1403,24 @@ class _MemberCardPageState extends State<MemberCardPage>
     }
   }
 
-  Future<void> _exportPng() async {
+  Future<void> _exportPng({required bool compartilhar}) async {
     final pr = MediaQuery.devicePixelRatioOf(context) * 1.5;
     final bytes = await _shotCtrl.capture(pixelRatio: pr);
     if (bytes == null || !mounted) return;
     final name = (_previewMember?.name ?? 'carteirinha')
         .replaceAll(RegExp(r'[^\w\s-]'), '')
         .trim();
-    await YahwehShareService.shareBytes(
+    final ok = await utilitariosSaveOrShareBytes(
+      context: context,
       bytes: bytes,
       fileName: '${name.isEmpty ? 'carteirinha' : name}.png',
       mimeType: 'image/png',
+      preferShare: compartilhar,
+      chooseSaveLocation: !compartilhar,
+    );
+    if (!mounted || compartilhar || !ok) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Cartão salvo no dispositivo.')),
     );
   }
 
@@ -2340,16 +2351,15 @@ class _MemberCardPageState extends State<MemberCardPage>
           const SizedBox(height: 16),
           Center(
             child: Container(
-              padding: webDesktop
-                  ? const EdgeInsets.all(10)
-                  : EdgeInsets.zero,
+              padding: webDesktop ? const EdgeInsets.all(10) : EdgeInsets.zero,
               decoration: webDesktop
                   ? BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.08),
+                      // Era `white` a 8% sobre pagina branca: uma caixa que
+                      // ninguem via, e que levava os botoes a serem pintados
+                      // como se estivessem sobre escuro.
+                      color: const Color(0xFFF1F5F9),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.12),
-                      ),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
                     )
                   : null,
               child: Wrap(
@@ -2370,9 +2380,32 @@ class _MemberCardPageState extends State<MemberCardPage>
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    onPressed: () => unawaited(_exportPng()),
-                    icon: const Icon(Icons.image_rounded),
-                    label: const Text('Exportar PNG'),
+                    onPressed: () => unawaited(_exportPng(compartilhar: false)),
+                    icon: const Icon(Icons.download_rounded),
+                    label: const Text('Salvar no dispositivo'),
+                  ),
+                  // Botao SOLIDO, como os vizinhos. Era um OutlinedButton
+                  // pintado de branco por `actionsOnDark` a assumir fundo
+                  // escuro — mas a barra e clara, portanto ficava branco
+                  // sobre branco: invisivel na web e sem contraste no
+                  // telemovel.
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _gradShare,
+                      foregroundColor: Colors.white,
+                      padding: webDesktop
+                          ? const EdgeInsets.symmetric(
+                              horizontal: 22,
+                              vertical: 17,
+                            )
+                          : null,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    onPressed: () => unawaited(_exportPng(compartilhar: true)),
+                    icon: const Icon(Icons.share_rounded),
+                    label: const Text('Compartilhar'),
                   ),
                   FilledButton.icon(
                     style: FilledButton.styleFrom(
@@ -2421,16 +2454,16 @@ class _MemberCardPageState extends State<MemberCardPage>
                       (_previewMember?.isSigned ?? false))
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: webDesktop
-                            ? Colors.red.shade300
-                            : Colors.red.shade600,
-                        side: BorderSide(color: Colors.red.shade300),
+                        // Mesma armadilha do «Compartilhar»: o tom claro so
+                        // se lia sobre fundo escuro.
+                        foregroundColor: Colors.red.shade700,
+                        backgroundColor: Colors.white,
+                        side: BorderSide(color: Colors.red.shade400),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(14),
                         ),
                       ),
-                      onPressed: () =>
-                          unawaited(_clearSignSelected(context)),
+                      onPressed: () => unawaited(_clearSignSelected(context)),
                       icon: const Icon(Icons.remove_circle_outline_rounded),
                       label: const Text('Limpar assinatura'),
                     ),
