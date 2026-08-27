@@ -32,6 +32,7 @@ class MemberDirectoryEntry {
     this.createdAt,
     this.updatedAt,
     this.dataNascimento,
+    this.codigoMembro,
     this.carteirinhaAssinadaEm,
     this.carteirinhaAssinadaPor,
     this.carteirinhaAssinadaPorNome,
@@ -59,6 +60,10 @@ class MemberDirectoryEntry {
   final Timestamp? createdAt;
   final Timestamp? updatedAt;
   final dynamic dataNascimento;
+
+  /// Código sequencial do membro (cartão/carteirinha). Sem ele o cartão
+  /// mostrava «Pendente» mesmo com o código já gravado na ficha.
+  final String? codigoMembro;
 
   /// Timestamp Firestore ou ISO local ? estado da assinatura da carteirinha.
   final dynamic carteirinhaAssinadaEm;
@@ -116,6 +121,9 @@ class MemberDirectoryEntry {
       createdAt: ts(raw['createdAt']),
       updatedAt: ts(raw['updatedAt']),
       dataNascimento: raw['dataNascimento'],
+      codigoMembro: _pickOptStr(
+        raw['codigoMembro'] ?? raw['COD_MEMBRO'] ?? raw['codigo_membro'],
+      ),
       carteirinhaAssinadaEm: raw['carteirinhaAssinadaEm'],
       carteirinhaAssinadaPor: _pickOptStr(raw['carteirinhaAssinadaPor']),
       carteirinhaAssinadaPorNome: _pickOptStr(
@@ -175,6 +183,11 @@ class MemberDirectoryEntry {
       if (createdAt != null) 'createdAt': createdAt,
       if (updatedAt != null) 'updatedAt': updatedAt,
       if (dataNascimento != null) 'DATA_NASCIMENTO': dataNascimento,
+      if (codigoMembro != null && codigoMembro!.trim().isNotEmpty) ...{
+        'codigoMembro': codigoMembro,
+        'COD_MEMBRO': codigoMembro,
+        'codigo_membro': codigoMembro,
+      },
       if (carteirinhaAssinadaEm != null)
         'carteirinhaAssinadaEm': carteirinhaAssinadaEm,
       if (carteirinhaAssinadaPor != null &&
@@ -301,6 +314,17 @@ class MemberDirectoryEntry {
       createdAt: createdAt,
       updatedAt: Timestamp.now(),
       dataNascimento: dn,
+      codigoMembro: FirestoreMapFields.pickString(fields, const [
+            'codigoMembro',
+            'COD_MEMBRO',
+            'codigo_membro',
+          ], fallback: codigoMembro ?? '').isEmpty
+          ? codigoMembro
+          : FirestoreMapFields.pickString(fields, const [
+              'codigoMembro',
+              'COD_MEMBRO',
+              'codigo_membro',
+            ], fallback: codigoMembro ?? ''),
       carteirinhaAssinadaEm: assinadaEm,
       carteirinhaAssinadaPor: assinadaPor.isEmpty
           ? carteirinhaAssinadaPor

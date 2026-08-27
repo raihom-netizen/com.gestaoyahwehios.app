@@ -110,6 +110,16 @@ function directoryEntry(
     updatedAt: d.updatedAt ?? null,
     dataNascimento:
       d.DATA_NASCIMENTO ?? d.dataNascimento ?? d.birthDate ?? null,
+    // Código do membro — mesma história da assinatura logo abaixo: o cartão lê
+    // este cache e mostrava «Pendente» mesmo com o código já gravado na ficha.
+    codigoMembro:
+      pickString(d, [
+        "codigoMembro",
+        "COD_MEMBRO",
+        "codigo_membro",
+        "numeroMembro",
+        "NUMERO_MEMBRO",
+      ]) || null,
     // Assinatura da carteirinha — faltava aqui, por isso o painel mostrava
     // "Pendente assinatura" para sempre: este cache (lido por
     // getChurchMembersDirectory) nunca carregava esses campos do doc real,

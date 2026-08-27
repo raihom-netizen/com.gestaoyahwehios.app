@@ -110,6 +110,9 @@ class BlindMemberDoc {
         createdAt: createdAt,
         updatedAt: updatedAt,
         dataNascimento: dataNascimento,
+        codigoMembro: _optStr(
+          raw['codigoMembro'] ?? raw['COD_MEMBRO'] ?? raw['codigo_membro'],
+        ),
         carteirinhaAssinadaEm: raw['carteirinhaAssinadaEm'],
         carteirinhaAssinadaPor: _optStr(raw['carteirinhaAssinadaPor']),
         carteirinhaAssinadaPorNome: _optStr(raw['carteirinhaAssinadaPorNome']),

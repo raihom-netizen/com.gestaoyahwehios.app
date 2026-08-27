@@ -1,4 +1,8 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2237: Codigo do membro deixa de aparecer «Pendente» no cartao — o
+/// cache do diretorio (que alimenta a carteirinha) nunca carregava
+/// `codigoMembro`, tal como tinha acontecido com a assinatura; todos os
+/// membros de todas as igrejas ficaram com codigo atribuido.
 /// 11.2.305+2236: Excluir membro volta a apagar de facto (a verificacao lia o
 /// SDK cru e rebentava na web com a INTERNAL ASSERTION — «Erro ao excluir» e o
 /// membro ficava na lista); nova acao Inativar/Reativar com dialogo colorido,
@@ -546,7 +550,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2236';
+const String appBuildNumber = '2237';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,
