@@ -988,10 +988,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
                 ...items.where((e) => e.kind == kind).map(_dayItemTile),
               ],
           ],
-          if (_canEdit) ...[
-            const SizedBox(height: 12),
-            _atalhosCriarNoDia(),
-          ],
+          if (_canEdit) ...[const SizedBox(height: 12), _atalhosCriarNoDia()],
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1044,8 +1041,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            onPressed: () =>
-                unawaited(_abrirEditorDoTipo(kind, _selectedDay)),
+            onPressed: () => unawaited(_abrirEditorDoTipo(kind, _selectedDay)),
             icon: Icon(icone, size: 17),
             label: FittedBox(
               child: Text(
@@ -1459,7 +1455,6 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
       choice = await Navigator.of(context, rootNavigator: true).push<AgKind>(
         MaterialPageRoute<AgKind>(
           fullscreenDialog: true,
-          settings: const RouteSettings(name: '/agenda/dia'),
           builder: (_) => _AgendaDiaPreviewPage(
             day: day,
             canEdit: _canEdit,
@@ -1851,49 +1846,74 @@ class _AgendaDiaPreviewPageState extends State<_AgendaDiaPreviewPage> {
     final itens = _itensSeguros();
     final titulo = _tituloSeguro();
 
+    // Sem `appBar:` e sem `bottomNavigationBar:` de proposito: no web deste
+    // app o AppBar de uma rota empurrada nao chega a desenhar e leva o corpo
+    // atras — dava exatamente o ecra branco com so os botoes «Retornar /
+    // Cancelar». O padrao que funciona (ver `_AgendaFormSheet`) e um header
+    // fixo como primeiro filho de uma Column dentro do body.
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF1D4ED8),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          tooltip: 'Retornar',
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+      body: SafeArea(
+        child: Column(
           children: [
-            const Text(
-              'Resumo completo do dia',
-              style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w900),
-            ),
-            Text(
-              titulo,
-              style: const TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-                color: Color(0xCCFFFFFF),
+            _cabecalhoFixo(context, titulo),
+            Expanded(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 860),
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                    children: _corpoSeguro(itens),
+                  ),
+                ),
               ),
             ),
+            _rodape(context),
           ],
         ),
       ),
-      body: SafeArea(
-        top: false,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 860),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              children: _corpoSeguro(itens),
+    );
+  }
+
+  /// Cabecalho azul fixo — substitui o `AppBar`, que na web nao renderiza.
+  Widget _cabecalhoFixo(BuildContext context, String titulo) {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFF1D4ED8),
+      padding: const EdgeInsets.fromLTRB(6, 10, 14, 12),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Retornar',
+            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Resumo completo do dia',
+                  style: TextStyle(
+                    fontSize: 16.5,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                  ),
+                ),
+                Text(
+                  titulo,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xCCFFFFFF),
+                  ),
+                ),
+              ],
             ),
           ),
-        ),
+        ],
       ),
-      bottomNavigationBar: _rodape(context),
     );
   }
 
@@ -2354,209 +2374,259 @@ class _AgendaKindPreviewPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Header fixo em vez de `AppBar` — mesma razao da previa do dia: no web
+    // o AppBar de uma rota empurrada nao desenha.
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: 'Retornar',
-          icon: const Icon(Icons.arrow_back_rounded),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Text(title),
-        backgroundColor: const Color(0xFF1D4ED8),
-        foregroundColor: Colors.white,
-      ),
-      body: items.isEmpty
-          ? const Center(child: Text('Nenhum compromisso encontrado.'))
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: items.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 14),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                final date = DateFormat('dd/MM/yyyy').format(item.when);
-                final time = item.allDay
-                    ? 'Dia todo'
-                    : DateFormat('HH:mm').format(item.when);
-                final location =
-                    (item.data['location'] ?? item.data['local'] ?? '')
-                        .toString()
-                        .trim();
-                final color = item.color;
-                return Material(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(18),
-                    // O toque abria uma ficha pobre (tipo, data e hora numa
-                    // linha) enquanto o menu de acoes abria a completa.
-                    // Agora os dois caminhos abrem a mesma ficha.
-                    onTap: () => _showAgendaItemDetails(
-                      context,
-                      item,
-                      onEdit: canEdit(item) ? () => onEdit(item) : null,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              color: const Color(0xFF1D4ED8),
+              padding: const EdgeInsets.fromLTRB(6, 10, 14, 12),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Retornar',
+                    icon: const Icon(
+                      Icons.arrow_back_rounded,
+                      color: Colors.white,
                     ),
-                    child: Ink(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: const Color(0xFFE8EDF5)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(
-                              0xFF0F172A,
-                            ).withValues(alpha: 0.05),
-                            blurRadius: 14,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      // Mesmo motivo do card do dia: sem IntrinsicHeight o
-                      // `stretch` estica sem limite dentro da lista.
-                      child: IntrinsicHeight(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Container(
-                              width: 6,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    color,
-                                    color.withValues(alpha: 0.55),
-                                  ],
-                                ),
-                                borderRadius: const BorderRadius.horizontal(
-                                  left: Radius.circular(18),
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  14,
-                                  14,
-                                  6,
-                                  14,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 46,
-                                      height: 46,
-                                      alignment: Alignment.center,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(14),
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
-                                          colors: [
-                                            color.withValues(alpha: 0.95),
-                                            color.withValues(alpha: 0.70),
-                                          ],
-                                        ),
-                                      ),
-                                      child: Icon(
-                                        item.kind.icon,
-                                        color: Colors.white,
-                                        size: 23,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            item.title,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 15,
-                                              fontWeight: FontWeight.w800,
-                                              height: 1.2,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Wrap(
-                                            spacing: 6,
-                                            runSpacing: 4,
-                                            crossAxisAlignment:
-                                                WrapCrossAlignment.center,
-                                            children: [
-                                              _agendaKindChip(
-                                                item.kind.label,
-                                                color,
-                                              ),
-                                              _agendaKindChip(
-                                                date,
-                                                const Color(0xFF475569),
-                                                icon: Icons
-                                                    .calendar_today_rounded,
-                                              ),
-                                              _agendaKindChip(
-                                                time,
-                                                const Color(0xFF475569),
-                                                icon: Icons.schedule_rounded,
-                                              ),
-                                            ],
-                                          ),
-                                          if (location.isNotEmpty) ...[
-                                            const SizedBox(height: 5),
-                                            Row(
-                                              children: [
-                                                const Icon(
-                                                  Icons.place_rounded,
-                                                  size: 13,
-                                                  color: Color(0xFF94A3B8),
-                                                ),
-                                                const SizedBox(width: 3),
-                                                Expanded(
-                                                  child: Text(
-                                                    location,
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: const TextStyle(
-                                                      fontSize: 12,
-                                                      color: Color(0xFF64748B),
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ],
-                                      ),
-                                    ),
-                                    AgendaPreviewActions(
-                                      onDetails: () => _showAgendaItemDetails(
-                                        context,
-                                        item,
-                                        onEdit: canEdit(item)
-                                            ? () => onEdit(item)
-                                            : null,
-                                      ),
-                                      canEdit: canEdit(item),
-                                      onEdit: () => onEdit(item),
-                                      onDelete: () => onDelete(item),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
                   ),
-                );
-              },
+                ],
+              ),
             ),
+            Expanded(
+              child: items.isEmpty
+                  ? const Center(child: Text('Nenhum compromisso encontrado.'))
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: items.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 14),
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        final date = DateFormat('dd/MM/yyyy').format(item.when);
+                        final time = item.allDay
+                            ? 'Dia todo'
+                            : DateFormat('HH:mm').format(item.when);
+                        final location =
+                            (item.data['location'] ?? item.data['local'] ?? '')
+                                .toString()
+                                .trim();
+                        final color = item.color;
+                        return Material(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(18),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(18),
+                            // O toque abria uma ficha pobre (tipo, data e hora numa
+                            // linha) enquanto o menu de acoes abria a completa.
+                            // Agora os dois caminhos abrem a mesma ficha.
+                            onTap: () => _showAgendaItemDetails(
+                              context,
+                              item,
+                              onEdit: canEdit(item) ? () => onEdit(item) : null,
+                            ),
+                            child: Ink(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(
+                                  color: const Color(0xFFE8EDF5),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(
+                                      0xFF0F172A,
+                                    ).withValues(alpha: 0.05),
+                                    blurRadius: 14,
+                                    offset: const Offset(0, 5),
+                                  ),
+                                ],
+                              ),
+                              // Mesmo motivo do card do dia: sem IntrinsicHeight o
+                              // `stretch` estica sem limite dentro da lista.
+                              child: IntrinsicHeight(
+                                child: Row(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Container(
+                                      width: 6,
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topCenter,
+                                          end: Alignment.bottomCenter,
+                                          colors: [
+                                            color,
+                                            color.withValues(alpha: 0.55),
+                                          ],
+                                        ),
+                                        borderRadius:
+                                            const BorderRadius.horizontal(
+                                              left: Radius.circular(18),
+                                            ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          14,
+                                          14,
+                                          6,
+                                          14,
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              width: 46,
+                                              height: 46,
+                                              alignment: Alignment.center,
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(14),
+                                                gradient: LinearGradient(
+                                                  begin: Alignment.topLeft,
+                                                  end: Alignment.bottomRight,
+                                                  colors: [
+                                                    color.withValues(
+                                                      alpha: 0.95,
+                                                    ),
+                                                    color.withValues(
+                                                      alpha: 0.70,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              child: Icon(
+                                                item.kind.icon,
+                                                color: Colors.white,
+                                                size: 23,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    item.title,
+                                                    maxLines: 2,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: const TextStyle(
+                                                      fontSize: 15,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      height: 1.2,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 6),
+                                                  Wrap(
+                                                    spacing: 6,
+                                                    runSpacing: 4,
+                                                    crossAxisAlignment:
+                                                        WrapCrossAlignment
+                                                            .center,
+                                                    children: [
+                                                      _agendaKindChip(
+                                                        item.kind.label,
+                                                        color,
+                                                      ),
+                                                      _agendaKindChip(
+                                                        date,
+                                                        const Color(0xFF475569),
+                                                        icon: Icons
+                                                            .calendar_today_rounded,
+                                                      ),
+                                                      _agendaKindChip(
+                                                        time,
+                                                        const Color(0xFF475569),
+                                                        icon: Icons
+                                                            .schedule_rounded,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  if (location.isNotEmpty) ...[
+                                                    const SizedBox(height: 5),
+                                                    Row(
+                                                      children: [
+                                                        const Icon(
+                                                          Icons.place_rounded,
+                                                          size: 13,
+                                                          color: Color(
+                                                            0xFF94A3B8,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                          width: 3,
+                                                        ),
+                                                        Expanded(
+                                                          child: Text(
+                                                            location,
+                                                            maxLines: 1,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style:
+                                                                const TextStyle(
+                                                                  fontSize: 12,
+                                                                  color: Color(
+                                                                    0xFF64748B,
+                                                                  ),
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w600,
+                                                                ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                            ),
+                                            AgendaPreviewActions(
+                                              onDetails: () =>
+                                                  _showAgendaItemDetails(
+                                                    context,
+                                                    item,
+                                                    onEdit: canEdit(item)
+                                                        ? () => onEdit(item)
+                                                        : null,
+                                                  ),
+                                              canEdit: canEdit(item),
+                                              onEdit: () => onEdit(item),
+                                              onDelete: () => onDelete(item),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
