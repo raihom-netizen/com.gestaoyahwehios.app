@@ -40,6 +40,8 @@ const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const CONFIG_DOC = "codigo_membro";
 const SEQ_PAD = 5;
+/** Marca do formato novo (sequencial puro) no doc de configuração. */
+const SCHEMA_SEQUENCIAL = "seq";
 function membersCol(tenantId) {
     return admin.firestore().collection("igrejas").doc(tenantId).collection("membros");
 }
@@ -68,25 +70,31 @@ async function isCodeTaken(tenantId, code) {
     }
     return false;
 }
-/** Próximo código sequencial da igreja (`AAAA` + `NNNNN`). */
+/**
+ * Próximo código sequencial da igreja — `NNNNN`, a partir de `00001`.
+ *
+ * Espelha `MemberCodigoService.allocateNext` no app: sequencial simples, sem o
+ * ano à frente e sem reiniciar em janeiro. O contador do formato antigo
+ * (`2026000NN`) é ignorado; colisão com código já usado é resolvida pela
+ * verificação abaixo.
+ */
 async function allocateCodigoMembro(tenantId) {
     const tid = tenantId.trim();
     const db = admin.firestore();
     const cfgRef = configRef(tid);
-    const yearNow = new Date().getFullYear();
     for (let attempt = 0; attempt < 8; attempt++) {
         const code = await db.runTransaction(async (tx) => {
             const snap = await tx.get(cfgRef);
             const data = snap.data() ?? {};
-            let year = typeof data.year === "number" ? data.year : yearNow;
-            let next = typeof data.nextSequence === "number" ? data.nextSequence : 1;
-            if (year !== yearNow) {
-                year = yearNow;
+            const novoEsquema = data.schema === SCHEMA_SEQUENCIAL;
+            let next = novoEsquema && typeof data.nextSequence === "number"
+                ? data.nextSequence
+                : 1;
+            if (next < 1)
                 next = 1;
-            }
-            const candidate = `${year}${String(next).padStart(SEQ_PAD, "0")}`;
+            const candidate = String(next).padStart(SEQ_PAD, "0");
             tx.set(cfgRef, {
-                year,
+                schema: SCHEMA_SEQUENCIAL,
                 nextSequence: next + 1,
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
             }, { merge: true });

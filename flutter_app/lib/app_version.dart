@@ -1,4 +1,11 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2241: Build de distribuicao do 2240 (web + AAB + fontes iOS).
+/// 11.2.305+2240: Agenda - «Novo» deixa de ser um botao morto: o erro a abrir
+/// a previa do dia era engolido pelo `unawaited` (nada acontecia, sem
+/// mensagem); agora a rota vai pelo navegador raiz, qualquer falha cai numa
+/// folha com AVISO/EVENTO/REUNIAO e o erro aparece no ecra. O resumo do dia
+/// passa a ter tres atalhos que abrem o editor completo DIRETO, sem tela
+/// intermedia.
 /// 11.2.305+2238: Agenda — «Novo», o toque no dia e o «Adicionar» do resumo
 /// voltam a abrir a previa com AVISO/EVENTO/REUNIAO mesmo que montar a lista
 /// falhe (o ecra ficava totalmente em branco); comprovante — o olho so aparece
@@ -555,7 +562,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2238';
+const String appBuildNumber = '2241';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

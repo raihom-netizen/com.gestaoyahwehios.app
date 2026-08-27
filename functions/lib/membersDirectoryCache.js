@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getChurchMembersDirectory = void 0;
+exports.refreshMembersDirectoryCache = refreshMembersDirectoryCache;
 exports.recomputeMembersDirectoryFromDocs = recomputeMembersDirectoryFromDocs;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -141,6 +142,15 @@ function directoryEntry(doc) {
         createdAt: d.createdAt ?? d.criadoEm ?? null,
         updatedAt: d.updatedAt ?? null,
         dataNascimento: d.DATA_NASCIMENTO ?? d.dataNascimento ?? d.birthDate ?? null,
+        // Código do membro — mesma história da assinatura logo abaixo: o cartão lê
+        // este cache e mostrava «Pendente» mesmo com o código já gravado na ficha.
+        codigoMembro: pickString(d, [
+            "codigoMembro",
+            "COD_MEMBRO",
+            "codigo_membro",
+            "numeroMembro",
+            "NUMERO_MEMBRO",
+        ]) || null,
         // Assinatura da carteirinha — faltava aqui, por isso o painel mostrava
         // "Pendente assinatura" para sempre: este cache (lido por
         // getChurchMembersDirectory) nunca carregava esses campos do doc real,
@@ -228,6 +238,33 @@ async function writeMembersDirectoryIfNewer(ref, ticket, payload) {
     });
 }
 /**
+ * Relê `membros` e reconstrói o cache do módulo Membros.
+ * Usado depois de aprovar/criar membro: sem isto o novo membro só aparecia
+ * na lista quando o TTL de 8 min do cache expirava.
+ */
+async function refreshMembersDirectoryCache(tenantId) {
+    const tid = String(tenantId || "").trim();
+    if (!tid)
+        return;
+    if ((0, forbiddenTestChurchIds_1.isForbiddenTestChurchId)(tid))
+        return;
+    const membrosCol = admin
+        .firestore()
+        .collection("igrejas")
+        .doc(tid)
+        .collection("membros");
+    const membrosSnap = await membrosCol.limit(DIRECTORY_MAX).get();
+    let total = membrosSnap.size;
+    try {
+        const agg = await membrosCol.count().get();
+        total = agg.data().count;
+    }
+    catch (_) {
+        /* count opcional */
+    }
+    await recomputeMembersDirectoryFromDocs(tid, membrosSnap.docs, total);
+}
+/**
  * Grava `igrejas/{tenantId}/_panel_cache/members_directory` (1 read na lista).
  * Chamado após scan de `membros` no painel (sem segunda query).
  */
@@ -304,7 +341,11 @@ exports.getChurchMembersDirectory = functions
     const staleMs = 8 * 60 * 1000;
     let directory = snap.data();
     const updated = directory?.updatedAt;
-    const isStale = !snap.exists ||
+    // `force`: aprovar/cadastrar membro tinha de esperar os 8 min do TTL para
+    // o novo membro aparecer na lista — o cliente pede recomputação imediata.
+    const force = body.force === true || String(body.force || "") === "true";
+    const isStale = force ||
+        !snap.exists ||
         !updated ||
         Date.now() - updated.toMillis() > staleMs;
     if (isStale) {

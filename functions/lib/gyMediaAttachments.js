@@ -388,7 +388,8 @@ exports.gyPublicMemberSignup = functions
     if (nome.length < 3 || nome.length > 160) {
         throw new functions.https.HttpsError("invalid-argument", "Nome completo inválido.");
     }
-    if (!/^\d{11}$/.test(cpf)) {
+    // CPF é opcional no cadastro público — só valida quando enviado.
+    if (cpf && !/^\d{11}$/.test(cpf)) {
         throw new functions.https.HttpsError("invalid-argument", "CPF inválido.");
     }
     if (!email.includes("@") || email.length > 180) {
@@ -453,7 +454,9 @@ exports.gyPublicMemberSignup = functions
         .collection("igrejas")
         .doc(churchId)
         .collection("signup_locks");
-    const cpfLockRef = locks.doc(`cpf_${cpf}`);
+    // Sem CPF não há lock de CPF (senão todos os cadastros sem CPF disputavam
+    // o mesmo documento `cpf_`).
+    const cpfLockRef = cpf ? locks.doc(`cpf_${cpf}`) : null;
     const emailLockKey = email.replace(/[^a-z0-9]/gi, "_").slice(0, 120);
     const emailLockRef = locks.doc(`email_${emailLockKey}`);
     const existing = await docRef.get();
@@ -474,19 +477,21 @@ exports.gyPublicMemberSignup = functions
     else {
         // Query primeiro (legado), depois lock atômico (double-tap).
         const [cpfHit, emailHit] = await Promise.all([
-            membros.where("CPF", "==", cpf).limit(1).get(),
+            cpf
+                ? membros.where("CPF", "==", cpf).limit(1).get()
+                : Promise.resolve(null),
             membros.where("EMAIL", "==", email).limit(1).get(),
         ]);
-        if (!cpfHit.empty && cpfHit.docs[0].id !== docId) {
+        if (cpfHit && !cpfHit.empty && cpfHit.docs[0].id !== docId) {
             throw new functions.https.HttpsError("already-exists", "Já existe um cadastro com este CPF nesta igreja.");
         }
         if (!emailHit.empty && emailHit.docs[0].id !== docId) {
             throw new functions.https.HttpsError("already-exists", "Já existe um cadastro com este e-mail nesta igreja.");
         }
         await (0, adminDb_1.fs)().runTransaction(async (tx) => {
-            const cpfLock = await tx.get(cpfLockRef);
+            const cpfLock = cpfLockRef ? await tx.get(cpfLockRef) : null;
             const emailLock = await tx.get(emailLockRef);
-            const lockCpfId = String(cpfLock.data()?.memberId || "").trim();
+            const lockCpfId = String(cpfLock?.data()?.memberId || "").trim();
             const lockEmailId = String(emailLock.data()?.memberId || "").trim();
             if (lockCpfId && lockCpfId !== docId) {
                 const other = await tx.get(membros.doc(lockCpfId));
@@ -500,11 +505,13 @@ exports.gyPublicMemberSignup = functions
                     throw new functions.https.HttpsError("already-exists", "Já existe um cadastro com este e-mail nesta igreja.");
                 }
             }
-            tx.set(cpfLockRef, {
-                memberId: docId,
-                email,
-                updatedAt: adminDb_1.admin.firestore.FieldValue.serverTimestamp(),
-            }, { merge: true });
+            if (cpfLockRef) {
+                tx.set(cpfLockRef, {
+                    memberId: docId,
+                    email,
+                    updatedAt: adminDb_1.admin.firestore.FieldValue.serverTimestamp(),
+                }, { merge: true });
+            }
             tx.set(emailLockRef, {
                 memberId: docId,
                 cpf,

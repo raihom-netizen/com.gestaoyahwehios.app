@@ -49,8 +49,16 @@ const db = admin.firestore();
 const TZ_BR = "America/Sao_Paulo";
 const MS_24H = 24 * 60 * 60 * 1000;
 const WINDOW_MS = 14 * 60 * 1000;
+/** `income`/`expense` (app) e `entrada`/`saida` (integrações) no mesmo vocabulário. */
 function financeTipoLower(d) {
-    return String(d.type || d.tipo || "").toLowerCase();
+    const raw = String(d.type || d.tipo || "").toLowerCase();
+    if (raw === "income")
+        return "entrada";
+    if (raw === "expense")
+        return "saida";
+    if (!raw)
+        return String(d.tipo || "").toLowerCase();
+    return raw;
 }
 function isPendingPagamento(d) {
     const tipo = financeTipoLower(d);

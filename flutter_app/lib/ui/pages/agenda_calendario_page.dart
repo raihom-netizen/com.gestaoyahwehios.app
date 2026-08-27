@@ -690,7 +690,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
                   _funcTile(
                     Icons.add_circle_rounded,
                     'Novo culto / evento / reunião',
-                    () => _openAddEditForm(day: _selectedDay),
+                    () => unawaited(_openDayCreateMenu(_selectedDay)),
                   ),
                   _funcTile(Icons.today_rounded, 'Ir para hoje', _goToday),
                   _funcTile(
@@ -988,6 +988,10 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
                 ...items.where((e) => e.kind == kind).map(_dayItemTile),
               ],
           ],
+          if (_canEdit) ...[
+            const SizedBox(height: 12),
+            _atalhosCriarNoDia(),
+          ],
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1016,6 +1020,68 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Atalhos que abrem o editor completo **direto**, sem tela intermedia.
+  ///
+  /// «Novo» e o segundo toque no dia passam por uma rota nova («Resumo completo
+  /// do dia»); quando essa rota nao aparecia, o utilizador ficava sem forma
+  /// nenhuma de criar. Estes tres botoes vivem no proprio ecra da Agenda e vao
+  /// direitos ao mesmo editor de Avisos / Eventos-Cultos / Reunioes.
+  Widget _atalhosCriarNoDia() {
+    Widget botao(AgKind kind, String rotulo, IconData icone) {
+      return Expanded(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: FilledButton.icon(
+            style: FilledButton.styleFrom(
+              backgroundColor: kind == AgKind.aviso
+                  ? AgendaVisualPalette.aviso
+                  : kind.color,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            onPressed: () =>
+                unawaited(_abrirEditorDoTipo(kind, _selectedDay)),
+            icon: Icon(icone, size: 17),
+            label: FittedBox(
+              child: Text(
+                rotulo,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'ADICIONAR NESTE DIA',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.7,
+            color: Color(0xFF64748B),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            botao(AgKind.aviso, 'AVISO', Icons.campaign_rounded),
+            botao(AgKind.evento, 'EVENTO', Icons.celebration_rounded),
+            botao(AgKind.reuniao, 'REUNIÃO', Icons.groups_rounded),
+          ],
+        ),
+      ],
     );
   }
 
@@ -1385,53 +1451,137 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
   /// «Novo» e o «Adicionar» do resumo do dia usam, para os três caminhos
   /// abrirem exatamente o mesmo editor.
   Future<void> _openDayCreateMenu(DateTime day) async {
-    final choice = await Navigator.of(context).push<AgKind>(
-      MaterialPageRoute<AgKind>(
-        fullscreenDialog: true,
-        builder: (_) => _AgendaDiaPreviewPage(
-          day: day,
-          canEdit: _canEdit,
-          itemsBuilder: () => _itemsOf(day),
-          canEditItem: _canEditAgendaItem,
-          onDetails: (item) => _showAgendaItemDetails(
-            context,
-            item,
-            onEdit: _canEditAgendaItem(item)
-                ? () => _openAddEditForm(item: item)
-                : null,
+    AgKind? choice;
+    try {
+      // `rootNavigator: true`: dentro do painel a Agenda vive num IndexedStack;
+      // empurrar no navegador mais proximo podia cair num Navigator que nao
+      // apresenta nada — o toque em «Novo» ficava sem qualquer efeito visivel.
+      choice = await Navigator.of(context, rootNavigator: true).push<AgKind>(
+        MaterialPageRoute<AgKind>(
+          fullscreenDialog: true,
+          settings: const RouteSettings(name: '/agenda/dia'),
+          builder: (_) => _AgendaDiaPreviewPage(
+            day: day,
+            canEdit: _canEdit,
+            itemsBuilder: () => _itemsOf(day),
+            canEditItem: _canEditAgendaItem,
+            onDetails: (item) => _showAgendaItemDetails(
+              context,
+              item,
+              onEdit: _canEditAgendaItem(item)
+                  ? () => _openAddEditForm(item: item)
+                  : null,
+            ),
+            onEdit: _editAgendaItemFromPreview,
+            onDelete: _removerItemDaAgenda,
           ),
-          onEdit: _editAgendaItemFromPreview,
-          onDelete: _removerItemDaAgenda,
         ),
-      ),
-    );
+      );
+    } catch (e, st) {
+      // Nunca falhar em silencio: era este `unawaited` que engolia o erro e
+      // fazia «Novo» parecer um botao morto.
+      debugPrint('Agenda: falha ao abrir a previa do dia: $e');
+      debugPrint('$st');
+      if (!mounted) return;
+      choice = await _escolherTipoNaFolha(day);
+    }
     if (!mounted || choice == null) return;
     await _abrirEditorDoTipo(choice, day);
   }
 
+  /// Plano B do menu do dia: folha simples com AVISO / EVENTO-CULTO / REUNIAO.
+  ///
+  /// Se a tela cheia nao puder ser apresentada (navegador indisponivel, erro a
+  /// montar a rota), o utilizador continua a conseguir criar — em vez de tocar
+  /// em «Novo» e nao acontecer nada.
+  Future<AgKind?> _escolherTipoNaFolha(DateTime day) {
+    return showModalBottomSheet<AgKind>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Adicionar neste dia',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 12),
+              for (final opcao in const [
+                (AgKind.aviso, 'AVISO', Icons.campaign_rounded),
+                (AgKind.evento, 'EVENTO / CULTO', Icons.celebration_rounded),
+                (AgKind.reuniao, 'REUNIAO', Icons.groups_rounded),
+              ])
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: opcao.$1.color,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    onPressed: () => Navigator.pop(ctx, opcao.$1),
+                    icon: Icon(opcao.$3),
+                    label: Text(opcao.$2),
+                  ),
+                ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Abre o editor completo do tipo escolhido — aviso, evento/culto ou reunião.
   Future<void> _abrirEditorDoTipo(AgKind kind, DateTime day) async {
-    if (kind == AgKind.aviso) {
-      await openChurchAvisoEditor(
-        context: context,
-        tenantId: widget.tenantId,
-        role: widget.role,
-        permissions: widget.permissions ?? const [],
-        initialDate: day,
-      );
-    } else if (kind == AgKind.evento || kind == AgKind.culto) {
-      await openChurchEventEditor(
-        context: context,
-        tenantId: widget.tenantId,
-        initialDate: day,
-      );
-    } else {
-      await openChurchEventEditor(
-        context: context,
-        tenantId: widget.tenantId,
-        initialDate: day,
-        meetingMode: true,
-      );
+    try {
+      if (kind == AgKind.aviso) {
+        await openChurchAvisoEditor(
+          context: context,
+          tenantId: widget.tenantId,
+          role: widget.role,
+          permissions: widget.permissions ?? const [],
+          initialDate: day,
+        );
+      } else if (kind == AgKind.evento || kind == AgKind.culto) {
+        await openChurchEventEditor(
+          context: context,
+          tenantId: widget.tenantId,
+          initialDate: day,
+        );
+      } else {
+        await openChurchEventEditor(
+          context: context,
+          tenantId: widget.tenantId,
+          initialDate: day,
+          meetingMode: true,
+        );
+      }
+    } catch (e, st) {
+      debugPrint('Agenda: falha ao abrir o editor de ${kind.label}: $e');
+      debugPrint('$st');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: const Color(0xFFB91C1C),
+            content: Text(
+              'Nao foi possivel abrir o editor de ${kind.label.toLowerCase()}: $e',
+            ),
+          ),
+        );
+      }
+      return;
     }
     if (mounted) await _load(forceServer: true);
   }
@@ -1499,9 +1649,7 @@ class _AgendaCalendarioPageState extends State<AgendaCalendarioPage> {
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         icon: const Icon(
           Icons.delete_forever_rounded,
           color: Color(0xFFDC2626),
@@ -1781,10 +1929,7 @@ class _AgendaDiaPreviewPageState extends State<_AgendaDiaPreviewPage> {
   }
 
   List<Widget> _opcoesAdicionar() => [
-    _secao(
-      icone: Icons.add_circle_rounded,
-      titulo: 'Adicionar neste dia',
-    ),
+    _secao(icone: Icons.add_circle_rounded, titulo: 'Adicionar neste dia'),
     const SizedBox(height: 10),
     _escolha(
       kind: AgKind.aviso,
@@ -1813,152 +1958,138 @@ class _AgendaDiaPreviewPageState extends State<_AgendaDiaPreviewPage> {
 
   List<Widget> _corpo(List<_AgendaItem> itens) {
     return [
-                _secao(
-                  icone: Icons.event_note_rounded,
-                  titulo: 'Prévia do dia',
-                  contador: '${itens.length}',
+      _secao(
+        icone: Icons.event_note_rounded,
+        titulo: 'Prévia do dia',
+        contador: '${itens.length}',
+      ),
+      const SizedBox(height: 10),
+      if (itens.isEmpty)
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 26),
+          decoration: _cartao,
+          child: const Column(
+            children: [
+              Icon(
+                Icons.event_available_rounded,
+                size: 34,
+                color: Color(0xFFCBD5E1),
+              ),
+              SizedBox(height: 10),
+              Text(
+                'Nenhum compromisso neste dia.',
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF334155),
                 ),
-                const SizedBox(height: 10),
-                if (itens.isEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 26,
-                    ),
-                    decoration: _cartao,
-                    child: const Column(
-                      children: [
-                        Icon(
-                          Icons.event_available_rounded,
-                          size: 34,
-                          color: Color(0xFFCBD5E1),
-                        ),
-                        SizedBox(height: 10),
-                        Text(
-                          'Nenhum compromisso neste dia.',
-                          style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF334155),
-                          ),
-                        ),
-                        SizedBox(height: 3),
-                        Text(
-                          'Use as opções abaixo para acrescentar.',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            color: Color(0xFF94A3B8),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  for (final item in itens) _itemCard(item),
-                if (widget.canEdit) ...[
-                  const SizedBox(height: 18),
-                  _secao(
-                    icone: Icons.add_circle_rounded,
-                    titulo: 'Adicionar neste dia',
-                  ),
-                  const SizedBox(height: 10),
-                  _escolha(
-                    kind: AgKind.aviso,
-                    title: 'AVISO',
-                    subtitle: 'Aviso completo com fotos, vídeo e validade',
-                    icon: Icons.campaign_rounded,
-                    color: AgendaVisualPalette.aviso,
-                  ),
-                  const SizedBox(height: 10),
-                  _escolha(
-                    kind: AgKind.evento,
-                    title: 'EVENTO / CULTO',
-                    subtitle:
-                        'Evento completo com galeria, vídeo e localização',
-                    icon: Icons.celebration_rounded,
-                    color: AgKind.evento.color,
-                  ),
-                  const SizedBox(height: 10),
-                  _escolha(
-                    kind: AgKind.reuniao,
-                    title: 'REUNIÃO',
-                    subtitle:
-                        'Responsáveis, departamentos, data e localização',
-                    icon: Icons.groups_rounded,
-                    color: AgKind.reuniao.color,
-                  ),
-                ] else ...[
-                  // Sem permissão de edição a página ficava sem nada abaixo da
-                  // lista — o utilizador via um ecrã vazio e não percebia
-                  // porquê.
-                  const SizedBox(height: 18),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 18,
-                    ),
-                    decoration: _cartao,
-                    child: const Text(
-                      'Só a liderança com permissão na Agenda pode acrescentar '
-                      'avisos, eventos ou reuniões neste dia.',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF64748B),
-                      ),
-                    ),
-                  ),
-                ],
+              ),
+              SizedBox(height: 3),
+              Text(
+                'Use as opções abaixo para acrescentar.',
+                style: TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
+              ),
+            ],
+          ),
+        )
+      else
+        for (final item in itens) _itemCard(item),
+      if (widget.canEdit) ...[
+        const SizedBox(height: 18),
+        _secao(icone: Icons.add_circle_rounded, titulo: 'Adicionar neste dia'),
+        const SizedBox(height: 10),
+        _escolha(
+          kind: AgKind.aviso,
+          title: 'AVISO',
+          subtitle: 'Aviso completo com fotos, vídeo e validade',
+          icon: Icons.campaign_rounded,
+          color: AgendaVisualPalette.aviso,
+        ),
+        const SizedBox(height: 10),
+        _escolha(
+          kind: AgKind.evento,
+          title: 'EVENTO / CULTO',
+          subtitle: 'Evento completo com galeria, vídeo e localização',
+          icon: Icons.celebration_rounded,
+          color: AgKind.evento.color,
+        ),
+        const SizedBox(height: 10),
+        _escolha(
+          kind: AgKind.reuniao,
+          title: 'REUNIÃO',
+          subtitle: 'Responsáveis, departamentos, data e localização',
+          icon: Icons.groups_rounded,
+          color: AgKind.reuniao.color,
+        ),
+      ] else ...[
+        // Sem permissão de edição a página ficava sem nada abaixo da
+        // lista — o utilizador via um ecrã vazio e não percebia
+        // porquê.
+        const SizedBox(height: 18),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          decoration: _cartao,
+          child: const Text(
+            'Só a liderança com permissão na Agenda pode acrescentar '
+            'avisos, eventos ou reuniões neste dia.',
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF64748B),
+            ),
+          ),
+        ),
+      ],
     ];
   }
 
   Widget _rodape(BuildContext context) {
     return SafeArea(
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
-          ),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 860),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 860),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
                       ),
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.arrow_back_rounded),
-                      label: const Text('Retornar'),
                     ),
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    label: const Text('Retornar'),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF475569),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF475569),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
                       ),
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded),
-                      label: const Text('Cancelar'),
                     ),
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                    label: const Text('Cancelar'),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
-      );
+      ),
+    );
   }
 
   Widget _secao({
