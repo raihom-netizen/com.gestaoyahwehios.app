@@ -117,8 +117,10 @@ abstract final class EventoPublishService {
       if (!wantsVideoUpload) return;
       ChurchPublishFlowLog.uploadStart('evento video ${docRef.id}');
       try {
+        // O vídeo (encode + rede) é a maior fatia do tempo: dar-lhe só 24% da
+        // barra fazia a percentagem parar cedo e ficar lá minutos. 14%→59%.
         void reportVideo(double p) =>
-            onUploadProgress?.call(0.14 + p.clamp(0.0, 1.0) * 0.24);
+            onUploadProgress?.call(0.14 + p.clamp(0.0, 1.0) * 0.45);
         // O editor manda o vídeo assim que ele é anexado (enquanto o
         // utilizador ainda preenche título/data/local). Se já terminou, isto
         // devolve na hora e a publicação não espera pela rede.

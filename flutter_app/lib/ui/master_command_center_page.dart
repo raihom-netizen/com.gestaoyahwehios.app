@@ -178,6 +178,18 @@ class _MasterCommandCenterPageState extends State<MasterCommandCenterPage>
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white70,
             indicatorColor: Colors.white,
+            // Tamanho e padding fixos: com três rótulos de texto sobre o
+            // gradiente, o default M3 encostava «BI completo» na borda em
+            // telemóveis estreitos.
+            labelStyle: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+            unselectedLabelStyle: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+            labelPadding: const EdgeInsets.symmetric(horizontal: 6),
             tabs: const [
               Tab(text: 'Visão geral'),
               Tab(text: 'Clientes'),
@@ -645,19 +657,55 @@ class _QuickModulesGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tiles = _items.where((t) => visible(t.$1)).toList();
+    if (tiles.isEmpty) return const SizedBox.shrink();
     return MasterPremiumCard(
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 10,
-        children: tiles
-            .map(
-              (t) => ActionChip(
-                avatar: Icon(t.$2, size: 18, color: ThemeCleanPremium.primary),
-                label: Text(t.$3),
-                onPressed: () => onOpen(t.$1),
-              ),
-            )
-            .toList(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Atalhos',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.6,
+              color: ThemeCleanPremium.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: tiles
+                .map(
+                  (t) => ActionChip(
+                    avatar: Icon(
+                      t.$2,
+                      size: 18,
+                      color: ThemeCleanPremium.primary,
+                    ),
+                    // Cor explícita: o rótulo destes atalhos saía invisível
+                    // sobre o fundo branco do chip. A causa está corrigida no
+                    // `chipTheme` do tema, mas estes são a porta de entrada de
+                    // cada módulo do master — ficam blindados aqui também.
+                    label: Text(
+                      t.$3,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: ThemeCleanPremium.onSurface,
+                      ),
+                    ),
+                    tooltip: t.$3,
+                    backgroundColor: Colors.white,
+                    side: BorderSide(
+                      color: ThemeCleanPremium.primary.withValues(alpha: 0.22),
+                    ),
+                    onPressed: () => onOpen(t.$1),
+                  ),
+                )
+                .toList(),
+          ),
+        ],
       ),
     );
   }
@@ -698,11 +746,14 @@ class MasterExecutiveHeader extends StatelessWidget {
               ),
             ],
           ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
+          // Wrap, não Row: um `Row` dentro de `Wrap` não quebra linha, e as
+          // duas pílulas juntas estouravam a largura em telemóveis estreitos.
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               _masterPill(Icons.circle, "Operação protegida"),
-              const SizedBox(width: 8),
               _masterPill(Icons.verified_user_rounded, "Raíhom · Isabelle"),
             ],
           ),

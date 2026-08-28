@@ -1,4 +1,13 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2248: Publicar/anexar midia muito mais rapido em Eventos, Avisos e
+/// nas reunioes da Agenda (mesmo pipeline nas 3 plataformas): progresso real do
+/// encode de video, barra que nao anda para tras, fotos pre-enviadas ao anexar
+/// (reaproveitamento tudo-ou-nada por slot), fotos do Aviso sem dupla
+/// compressao, series da Agenda/Eventos gravadas em paralelo, log de
+/// diagnostico fora do caminho critico. Painel master legivel (labelStyle do
+/// chipTheme e textTheme sem cor apagavam o texto). Excluir evento fixo agora
+/// remove tambem os eventos e compromissos gerados, a capa no Storage e o
+/// cache em disco — deixou de "voltar" no painel e no site publico.
 /// 11.2.305+2247: Build para o aviso do Google Play sobre nivel de API. O
 /// codigo ja segmentava Android 16 (targetSdk/compileSdk 36) — confirmado no
 /// proprio AAB, cujo manifesto traz targetSdkVersion=36; o que estava fora de
@@ -589,7 +598,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2247';
+const String appBuildNumber = '2248';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

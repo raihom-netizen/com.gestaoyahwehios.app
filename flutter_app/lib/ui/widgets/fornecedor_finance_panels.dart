@@ -2224,7 +2224,7 @@ class _FornecedorLancamentoCtCard extends StatelessWidget {
                             Padding(
                               padding: const EdgeInsets.only(top: 6),
                               child: FinancePremiumVinculoPill(
-                                label: 'Fornecedor ? ',
+                                label: 'Fornecedor · $fornNome',
                                 isMembro: false,
                               ),
                             ),

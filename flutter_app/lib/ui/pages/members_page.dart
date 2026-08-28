@@ -577,6 +577,7 @@ class _MembersPageState extends State<MembersPage> {
   MembersDirectorySnapshot _directoryCache = const MembersDirectorySnapshot();
   StreamSubscription<MembersDirectorySnapshot>? _directoryCacheSub;
   late final VoidCallback _photoSyncListener;
+  late final VoidCallback _membersMutationListener;
 
   static int? _parseIdade(dynamic raw) {
     if (raw == null) return null;
@@ -810,6 +811,10 @@ class _MembersPageState extends State<MembersPage> {
     logYahwehModuleScreen('membros');
     _photoSyncListener = _onMemberProfilePhotoSynced;
     MemberProfilePhotoSyncNotifier.instance.addListener(_photoSyncListener);
+    _membersMutationListener = _onMembersDirectoryMutated;
+    MembersDirectorySnapshotService.mutationTenant.addListener(
+      _membersMutationListener,
+    );
     _searchCtrl = TextEditingController();
     if (widget.initialSearchQuery != null &&
         widget.initialSearchQuery!.trim().isNotEmpty) {
@@ -915,6 +920,9 @@ class _MembersPageState extends State<MembersPage> {
   @override
   void dispose() {
     MemberProfilePhotoSyncNotifier.instance.removeListener(_photoSyncListener);
+    MembersDirectorySnapshotService.mutationTenant.removeListener(
+      _membersMutationListener,
+    );
     _directoryCacheSub?.cancel();
     _membersRealtimeDebounce?.cancel();
     for (final sub in _membersRealtimeSubs) {
@@ -924,6 +932,19 @@ class _MembersPageState extends State<MembersPage> {
     _searchCtrl.dispose();
     _membersScrollController.dispose();
     super.dispose();
+  }
+
+  void _onMembersDirectoryMutated() {
+    final event = MembersDirectorySnapshotService.mutationTenant.value;
+    final separator = event.indexOf('|');
+    final tenantId = separator < 0 ? event : event.substring(0, separator);
+    if (!mounted || tenantId.trim() != _effectiveTenantId.trim()) return;
+    _membersRealtimeDebounce?.cancel();
+    _membersRealtimeDebounce = Timer(const Duration(milliseconds: 120), () {
+      if (!mounted) return;
+      _refreshMembers(forceServer: true);
+      unawaited(_hydrateMembersDirectoryCache());
+    });
   }
 
   /// Foto trocada no chat/perfil: reconstrói avatares da lista sem esperar o stream.
@@ -6224,16 +6245,23 @@ class _MembersPageState extends State<MembersPage> {
     );
     if (ok != true || !mounted) return;
 
+    final previousStatus =
+        (member.data['STATUS'] ?? member.data['status'] ?? 'ativo').toString();
+    final statusPatch = <String, dynamic>{
+      'STATUS': novoStatus,
+      'status': novoStatus,
+      'ativo': estaInativo,
+      'active': estaInativo,
+    };
+    final previousFilter = _filtroStatus;
+    _applyMemberSavedLocally(member.id, statusPatch);
+    setState(() => _filtroStatus = estaInativo ? 'ativos' : 'inativos');
+
     try {
       await MembroStrictUpdateService.updateMember(
         seedTenantId: _effectiveTenantId,
         memberDocId: member.id,
-        updates: {
-          'STATUS': novoStatus,
-          'status': novoStatus,
-          'ativo': !estaInativo ? false : true,
-          'active': !estaInativo ? false : true,
-        },
+        updates: statusPatch,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -6246,6 +6274,13 @@ class _MembersPageState extends State<MembersPage> {
       _refreshMembers(forceServer: true);
     } catch (e) {
       if (!mounted) return;
+      _applyMemberSavedLocally(member.id, {
+        'STATUS': previousStatus,
+        'status': previousStatus,
+        'ativo': !estaInativo,
+        'active': !estaInativo,
+      });
+      setState(() => _filtroStatus = previousFilter);
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar('Não foi possível alterar: $e'),
       );

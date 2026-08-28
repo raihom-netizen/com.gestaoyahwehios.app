@@ -234,11 +234,30 @@ abstract final class MediaService {
   ///
   /// **Web:** não transcodifica (`video_compress` é nativo) — envia ficheiro original
   /// ou bloqueia no picker conforme o módulo.
-  static Future<MediaInfo?> compressVideo(File file) async {
+  /// Um encode de cada vez pode publicar progresso: o `compressProgress$` do
+  /// `video_compress` é um StreamController **single-subscription** global —
+  /// dois `subscribe` em simultâneo rebentam com «already been listened to».
+  static bool _compressProgressBusy = false;
+
+  static Future<MediaInfo?> compressVideo(
+    File file, {
+    void Function(double progress01)? onProgress,
+  }) async {
     if (kIsWeb || !file.existsSync()) return null;
+    Subscription? sub;
     try {
       final byteLen = await file.length();
       final quality = videoCompressQualityForByteLength(byteLen);
+      // Sem isto o encode era uma caixa-preta: a barra «A publicar mídia…»
+      // ficava parada nos 14% durante todo o tempo de transcodificação (que
+      // num vídeo de 1–2 min é a maior fatia da espera).
+      if (onProgress != null && !_compressProgressBusy) {
+        _compressProgressBusy = true;
+        sub = VideoCompress.compressProgress$.subscribe((p) {
+          final v = p.isNaN ? 0.0 : (p / 100).clamp(0.0, 1.0).toDouble();
+          onProgress(v);
+        });
+      }
       return await VideoCompress.compressVideo(
         file.path,
         quality: quality,
@@ -250,6 +269,13 @@ abstract final class MediaService {
       );
     } catch (_) {
       return null;
+    } finally {
+      if (sub != null) {
+        try {
+          sub.unsubscribe();
+        } catch (_) {}
+        _compressProgressBusy = false;
+      }
     }
   }
 

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart'
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_event_video_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_publish_bootstrap.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/video_duration.dart';
@@ -123,8 +124,21 @@ class VideoHandlerService implements IVideoHandlerService {
       if (!alreadyLight) {
         File? encoded;
         try {
-          final mediaInfo = await MediaService.compressVideo(original)
-              .timeout(kMediaVideoTranscodeTimeout, onTimeout: () => null);
+          // O encode é a maior fatia da espera (1–3 min num vídeo de 1–2 min):
+          // sem reportar nada, a barra «A publicar mídia…» ficava congelada nos
+          // 14% e parecia app travado. Aqui ele ocupa 0–55% do progresso do
+          // vídeo; a rede fica com os 55–100% restantes.
+          GlobalUploadProgress.instance.updateLabelIfActive(
+            'A preparar vídeo…',
+          );
+          onUploadProgress?.call(0.0);
+          final mediaInfo =
+              await MediaService.compressVideo(
+                original,
+                onProgress: onUploadProgress == null
+                    ? null
+                    : (p) => onUploadProgress(p.clamp(0.0, 1.0) * 0.55),
+              ).timeout(kMediaVideoTranscodeTimeout, onTimeout: () => null);
           final f = mediaInfo?.file;
           if (f != null && f.existsSync() && await f.length() > 0) {
             encoded = f;
@@ -169,12 +183,15 @@ class VideoHandlerService implements IVideoHandlerService {
               eventPostDocId,
               slot,
             );
-      onUploadProgress?.call(0.0);
+      GlobalUploadProgress.instance.updateLabelIfActive('A enviar vídeo…');
+      onUploadProgress?.call(0.55);
 
       final videoUrl = await EcoFireEventVideoUpload.putVideoFile(
         storagePath: videoPath,
         file: compressed,
-        onProgress: onUploadProgress,
+        onProgress: onUploadProgress == null
+            ? null
+            : (p) => onUploadProgress(0.55 + p.clamp(0.0, 1.0) * 0.45),
       );
 
       return VideoUploadResult(

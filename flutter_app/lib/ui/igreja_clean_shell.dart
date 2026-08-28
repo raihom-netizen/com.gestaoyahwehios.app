@@ -1,4 +1,4 @@
-﻿import 'package:gestao_yahweh/core/tenant/church_session_restart.dart';
+import 'package:gestao_yahweh/core/tenant/church_session_restart.dart';
 import 'package:gestao_yahweh/core/tenant/church_tenant_switch_purge.dart';
 import 'dart:async' show StreamSubscription, unawaited;
 
@@ -8,7 +8,8 @@ import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/utils/firestore_session_guard.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/data/church_firestore_access.dart';
@@ -208,6 +209,12 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
   bool _showMasterPanelShield = false;
 
   String get _panelRole {
+    // Contas globais operam qualquer tenant com as permissoes do papel master.
+    // Usar o papel da igreja de origem mantinha menus e modulos filtrados
+    // pelas permissoes antigas depois da troca do churchId.
+    if (MasterTenantOverrideService.isAllowedUser) {
+      return AppRoles.master;
+    }
     final override = (_roleOverride ?? '').trim().toLowerCase();
     if (override.isNotEmpty) return override;
     return widget.role.trim().toLowerCase();
@@ -438,8 +445,7 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         _ChurchShellFooterShortcut(
           shellIndex: ChurchShellIndices.chatIgreja,
           shortLabel: 'Chat',
-          accent:
-              kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
+          accent: kChurchShellNavEntries[ChurchShellIndices.chatIgreja].accent,
         ),
     ];
 
@@ -938,8 +944,9 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
     // Sem cache local da igreja destino: buscar o doc no servidor, senão o
     // cabeçalho fica com o nome da igreja anterior.
     try {
-      final snap = await ChurchFirestoreAccess.getChurchRoot(churchId: tid)
-          .timeout(const Duration(seconds: 12));
+      final snap = await ChurchFirestoreAccess.getChurchRoot(
+        churchId: tid,
+      ).timeout(const Duration(seconds: 12));
       final data = snap.data();
       if (data != null && data.isNotEmpty && mounted) {
         _storeTenantDocSnapshot(tid, Map<String, dynamic>.from(data));
@@ -1490,27 +1497,28 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                                 return false;
                               },
                               child: Semantics(
-                              container: true,
-                              label:
-                                  'Conteúdo do módulo ${_items[_selectedIndex].label}',
-                              child: Padding(
-                                padding: EdgeInsets.zero,
-                                child: ShellScrollToTopLayer(
-                                  resetToken: _selectedIndex,
-                                  bottom: _isMobile ? 12 : 16,
-                                  child: SaaSContentViewport(
-                                    maxWidthOverride:
-                                        _selectedIndex ==
-                                                ChurchShellIndices.patrimonio ||
-                                            _selectedIndex ==
-                                                ChurchShellIndices.chatIgreja
-                                        ? 10000
-                                        : null,
-                                    child: _buildContent(),
+                                container: true,
+                                label:
+                                    'Conteúdo do módulo ${_items[_selectedIndex].label}',
+                                child: Padding(
+                                  padding: EdgeInsets.zero,
+                                  child: ShellScrollToTopLayer(
+                                    resetToken: _selectedIndex,
+                                    bottom: _isMobile ? 12 : 16,
+                                    child: SaaSContentViewport(
+                                      maxWidthOverride:
+                                          _selectedIndex ==
+                                                  ChurchShellIndices
+                                                      .patrimonio ||
+                                              _selectedIndex ==
+                                                  ChurchShellIndices.chatIgreja
+                                          ? 10000
+                                          : null,
+                                      child: _buildContent(),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
                             ),
                           ),
                         ],
@@ -2500,10 +2508,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _MasterChurchSwitcherSheet(
-        churches: churches,
-        atual: atual,
-      ),
+      builder: (ctx) =>
+          _MasterChurchSwitcherSheet(churches: churches, atual: atual),
     );
     if (escolhido == null || !mounted) return;
     await MasterTenantOverrideService.setTenant(
@@ -2515,10 +2521,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
         : churches
               .firstWhere(
                 (c) => c.id == escolhido,
-                orElse: () => MasterSwitchableChurch(
-                  id: escolhido,
-                  name: escolhido,
-                ),
+                orElse: () =>
+                    MasterSwitchableChurch(id: escolhido, name: escolhido),
               )
               .name;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -2901,7 +2905,8 @@ class _IgrejaCleanShellState extends State<IgrejaCleanShell>
                             Builder(
                               builder: (context) {
                                 return MouseRegion(
-                                  onEnter: (_) => _prefetchShellModuleDataOnHover(i),
+                                  onEnter: (_) =>
+                                      _prefetchShellModuleDataOnHover(i),
                                   child: ListTile(
                                     key: ValueKey('drawer_$i'),
                                     leading: _navMenuIconChip(

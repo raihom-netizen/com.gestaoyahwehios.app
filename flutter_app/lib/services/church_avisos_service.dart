@@ -19,6 +19,7 @@ import 'package:gestao_yahweh/core/ecofire/ecofire_event_video_upload.dart';
 import 'package:gestao_yahweh/core/ecofire/ecofire_resilient_publish.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
 import 'package:gestao_yahweh/services/media_service.dart';
 import 'package:gestao_yahweh/services/media_upload_service.dart';
 import 'package:image_picker/image_picker.dart' show XFile;
@@ -26,6 +27,7 @@ import 'package:gestao_yahweh/services/church_feed_agenda_sync_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_delete_service.dart';
 import 'package:gestao_yahweh/services/church_video_preupload.dart';
+import 'package:gestao_yahweh/services/church_photo_preupload.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show eventNoticiaDocHasPhotoMedia, eventNoticiaHostedVideoPlayUrl;
@@ -326,6 +328,9 @@ abstract final class ChurchAvisosService {
       postId,
       0,
     );
+    // Na web não há transcode (video_compress é nativo): o vídeo vai como
+    // está, e a barra é toda de rede. O rótulo tem de dizer isso.
+    GlobalUploadProgress.instance.updateLabelIfActive('A enviar vídeo…');
     await MediaUploadService.uploadBytesWithRetry(
       storagePath: storagePath,
       bytes: bytes,
@@ -386,6 +391,66 @@ abstract final class ChurchAvisosService {
   static void cancelVideoPreupload(String localPath) =>
       ChurchVideoPreupload.abandon(localPath);
 
+  /// Põe os envios antecipados das fotos do aviso em dia (ver
+  /// [ChurchPhotoPreupload]).
+  ///
+  /// [photos] é a lista de fotos novas **pela ordem final**, e [slotBase] é
+  /// quantas fotos já publicadas ficam antes delas. Chamar sempre com o lote
+  /// inteiro: `syncBatch` apaga primeiro o que muda de destino e só depois
+  /// envia, para a limpeza de um slot nunca correr depois do envio que o
+  /// ocupa.
+  static Future<void> syncPhotoPreuploads({
+    required String churchIdHint,
+    required String postId,
+    required List<Uint8List> photos,
+    int slotBase = 0,
+  }) async {
+    final cid = churchId(churchIdHint);
+    final pid = postId.trim();
+    if (cid.isEmpty || pid.isEmpty || photos.isEmpty) return;
+    final desired = <
+      ({
+        Uint8List bytes,
+        String storagePath,
+        Future<String> Function() run,
+        Future<void> Function() cleanup,
+      })
+    >[];
+    for (var i = 0; i < photos.length; i++) {
+      final bytes = photos[i];
+      if (bytes.isEmpty) continue;
+      final path = ChurchStorageLayout.avisoPostPhotoPath(
+        cid,
+        pid,
+        slotBase + i,
+      );
+      desired.add((
+        bytes: bytes,
+        storagePath: path,
+        run: () async {
+          await _ensurePublishReady();
+          final uploaded = await ChurchMediaUploadFacade.uploadMidia(
+            bytes: bytes,
+            storagePath: path,
+            logLabel: 'aviso_photo_preupload',
+            alreadyCompressed: true,
+            compressForFeed: false,
+            timeout: const Duration(seconds: 120),
+            skipEnsureReady: true,
+          );
+          return uploaded.downloadUrl;
+        },
+        cleanup: () =>
+            FirebaseStorageCleanupService.deleteManyByUrlPathOrGs([path]),
+      ));
+    }
+    await ChurchPhotoPreupload.syncBatch(desired);
+  }
+
+  /// Descarta os envios antecipados de fotos e apaga os órfãos do Storage.
+  static Future<void> cancelPhotoPreuploads(Iterable<Uint8List> bytes) =>
+      ChurchPhotoPreupload.abandonAll(bytes);
+
   /// Envio do vídeo na publicação: aproveita o pré-envio quando existe.
   static Future<({String videoPath, String thumbPath})> _uploadAvisoVideo({
     required String churchId,
@@ -440,7 +505,17 @@ abstract final class ChurchAvisosService {
     if (skipTranscode) {
       compressed = file;
     } else {
-      final mediaInfo = await MediaService.compressVideo(file);
+      // Mesmo problema do módulo Eventos: sem progresso do encode a barra
+      // ficava congelada durante o transcode inteiro e parecia app travado.
+      // Encode = 0–55% do vídeo; rede = 55–100%.
+      GlobalUploadProgress.instance.updateLabelIfActive('A preparar vídeo…');
+      onProgress?.call(0.0);
+      final mediaInfo = await MediaService.compressVideo(
+        file,
+        onProgress: onProgress == null
+            ? null
+            : (p) => onProgress(p.clamp(0.0, 1.0) * 0.55),
+      );
       compressed = (mediaInfo?.file != null) ? mediaInfo!.file! : file;
     }
 
@@ -452,10 +527,14 @@ abstract final class ChurchAvisosService {
     // Miniatura estilo Instagram/YouTube, gerada e enviada EM PARALELO ao
     // vídeo (mesmo padrão do módulo Eventos) — sem isso o aviso com vídeo
     // não tinha nenhuma prévia leve (só o vídeo bruto para carregar).
+    GlobalUploadProgress.instance.updateLabelIfActive('A enviar vídeo…');
+    onProgress?.call(0.55);
     await EcoFireEventVideoUpload.putVideoFile(
       storagePath: storagePath,
       file: compressed,
-      onProgress: onProgress,
+      onProgress: onProgress == null
+          ? null
+          : (p) => onProgress(0.55 + p.clamp(0.0, 1.0) * 0.45),
     );
     return (videoPath: storagePath, thumbPath: '');
   }
@@ -539,7 +618,11 @@ abstract final class ChurchAvisosService {
           churchId: cid,
           postId: postId,
           localPath: localVideo,
-          onProgress: onUploadProgress,
+          // O vídeo ia de 0 a 100% da barra e a gravação no Firestore ficava
+          // sem espaço para avançar. Aqui ele ocupa 10%→65%.
+          onProgress: onUploadProgress == null
+              ? null
+              : (p) => onUploadProgress(0.10 + p.clamp(0.0, 1.0) * 0.55),
         );
         resolvedVideoPath = uploaded.videoPath;
         resolvedThumbPath = uploaded.thumbPath;
@@ -609,15 +692,35 @@ abstract final class ChurchAvisosService {
       'path=${docRef.path} photos=${imgs.length} yt=${ytId != null} video=$videoPath',
     );
 
+    // Fotos que já subiram enquanto o utilizador escrevia (ver
+    // [ChurchPhotoPreupload]). Tudo-ou-nada: só reaproveita se TODAS tiverem
+    // pré-envio concluído para exatamente o slot em que vão ficar; senão o
+    // lote é descartado (órfãos apagados) e sobe tudo pelo caminho normal.
+    var photosToUpload = imgs;
+    var preuploadedRefs = const <String>[];
+    if (imgs.isNotEmpty) {
+      final claimed = await ChurchPhotoPreupload.claimAll([
+        for (var i = 0; i < imgs.length; i++)
+          (
+            bytes: imgs[i],
+            storagePath: ChurchStorageLayout.avisoPostPhotoPath(cid, postId, i),
+          ),
+      ]);
+      if (claimed != null && claimed.length == imgs.length) {
+        preuploadedRefs = claimed;
+        photosToUpload = const [];
+      }
+    }
+
     try {
       await _publishAvisoWithRecovery(
         docRef: docRef,
         tenantId: cid,
         corePayload: corePayload,
         isNewDoc: true,
-        existingPhotoRefs: const [],
-        startSlotIndex: 0,
-        newImagesBytes: imgs.isNotEmpty ? imgs : null,
+        existingPhotoRefs: preuploadedRefs,
+        startSlotIndex: preuploadedRefs.length,
+        newImagesBytes: photosToUpload.isNotEmpty ? photosToUpload : null,
         hasVideo: videoPath.isNotEmpty,
         videoStoragePath: videoPath.isNotEmpty ? videoPath : null,
         publicSite: publicSite,
@@ -799,9 +902,31 @@ abstract final class ChurchAvisosService {
 
     final docRef = ChurchUiCollections.avisos(cid).doc(id);
 
+    // Mesmo reaproveitamento tudo-ou-nada do [publish]: aqui os slots das
+    // fotos novas começam depois das que ficaram (`keepUrls`).
+    var photosToUpload = newImages;
+    var keepRefs = keepUrls;
+    if (newImages.isNotEmpty) {
+      final claimed = await ChurchPhotoPreupload.claimAll([
+        for (var i = 0; i < newImages.length; i++)
+          (
+            bytes: newImages[i],
+            storagePath: ChurchStorageLayout.avisoPostPhotoPath(
+              cid,
+              id,
+              keepUrls.length + i,
+            ),
+          ),
+      ]);
+      if (claimed != null && claimed.length == newImages.length) {
+        keepRefs = [...keepUrls, ...claimed];
+        photosToUpload = const [];
+      }
+    }
+
     logFirebasePublishPhase(
       'avisos_service_update_start',
-      'path=${docRef.path} keep=${keepUrls.length} new=${newImages.length}',
+      'path=${docRef.path} keep=${keepRefs.length} new=${photosToUpload.length}',
     );
 
     try {
@@ -810,9 +935,9 @@ abstract final class ChurchAvisosService {
         tenantId: cid,
         corePayload: corePayload,
         isNewDoc: false,
-        existingPhotoRefs: keepUrls,
-        startSlotIndex: keepUrls.length,
-        newImagesBytes: newImages.isNotEmpty ? newImages : null,
+        existingPhotoRefs: keepRefs,
+        startSlotIndex: keepRefs.length,
+        newImagesBytes: photosToUpload.isNotEmpty ? photosToUpload : null,
         hasVideo: videoPath.isNotEmpty,
         videoStoragePath: videoPath.isNotEmpty ? videoPath : null,
         publicSite: publicSite,

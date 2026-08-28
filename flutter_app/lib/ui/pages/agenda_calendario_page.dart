@@ -2959,41 +2959,25 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
       } else if (_repeatWeekly && _weeks > 1) {
         // Culto/evento fixo — cria uma ocorrência por semana (mesma série).
         final seriesId = DateTime.now().millisecondsSinceEpoch.toString();
-        for (var i = 0; i < _weeks; i++) {
-          final w = when.add(Duration(days: 7 * i));
-          final ref = ChurchUiCollections.agenda(widget.tenantId).doc();
-          await ChurchAgendaLoadService.setAgendaEvent(
-            ref: ref,
-            payload: _buildPayload(
-              when: w,
-              notify: _notify && i == 0,
-              isCreate: true,
-              seriesId: seriesId,
-            ),
-          );
-        }
+        await _createAgendaOccurrences(
+          dates: [
+            for (var i = 0; i < _weeks; i++) when.add(Duration(days: 7 * i)),
+          ],
+          seriesId: seriesId,
+        );
       } else if (_extraDays.isNotEmpty) {
         // Vários dias — cria uma ocorrência na data principal + em cada dia extra
         // (mesma série; push só na 1? para não repetir).
         final seriesId = DateTime.now().millisecondsSinceEpoch.toString();
         final hh = _allDay || _time == null ? 0 : _time!.hour;
         final mm = _allDay || _time == null ? 0 : _time!.minute;
-        final allDates = <DateTime>[
-          when,
-          ..._extraDays.map((d) => DateTime(d.year, d.month, d.day, hh, mm)),
-        ];
-        for (var i = 0; i < allDates.length; i++) {
-          final ref = ChurchUiCollections.agenda(widget.tenantId).doc();
-          await ChurchAgendaLoadService.setAgendaEvent(
-            ref: ref,
-            payload: _buildPayload(
-              when: allDates[i],
-              notify: _notify && i == 0,
-              isCreate: true,
-              seriesId: seriesId,
-            ),
-          );
-        }
+        await _createAgendaOccurrences(
+          dates: <DateTime>[
+            when,
+            ..._extraDays.map((d) => DateTime(d.year, d.month, d.day, hh, mm)),
+          ],
+          seriesId: seriesId,
+        );
       } else {
         final ref = ChurchUiCollections.agenda(widget.tenantId).doc();
         await ChurchAgendaLoadService.setAgendaEvent(
@@ -3007,6 +2991,34 @@ class _AgendaFormSheetState extends State<_AgendaFormSheet> {
       if (!mounted) return;
       setState(() => _saving = false);
       _toast('Falha ao salvar. Verifique a conexão e tente de novo.');
+    }
+  }
+
+  /// Grava as ocorrências da série em lotes **concorrentes**.
+  ///
+  /// Era um `for` com `await` dentro: um culto fixo de 12 semanas fazia 12
+  /// idas ao Firestore em fila, com o botão «A guardar…» preso o tempo todo.
+  /// Não há dependência entre as ocorrências — só o push da 1.ª é que não pode
+  /// repetir, e isso é decidido pelo índice, não pela ordem de gravação.
+  Future<void> _createAgendaOccurrences({
+    required List<DateTime> dates,
+    required String seriesId,
+  }) async {
+    const batch = 5;
+    for (var start = 0; start < dates.length; start += batch) {
+      final chunk = dates.skip(start).take(batch).toList();
+      await Future.wait([
+        for (var j = 0; j < chunk.length; j++)
+          ChurchAgendaLoadService.setAgendaEvent(
+            ref: ChurchUiCollections.agenda(widget.tenantId).doc(),
+            payload: _buildPayload(
+              when: chunk[j],
+              notify: _notify && (start + j) == 0,
+              isCreate: true,
+              seriesId: seriesId,
+            ),
+          ),
+      ]);
     }
   }
 

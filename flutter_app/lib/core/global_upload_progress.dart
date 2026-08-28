@@ -34,7 +34,8 @@ class GlobalUploadProgress {
   void update(double progress) {
     final s = state.value;
     if (s == null) return;
-    state.value = s.copyWith(progress: progress.clamp(0.0, 1.0));
+    final v = (progress.isNaN ? 0.0 : progress).clamp(0.0, 1.0);
+    state.value = s.copyWith(progress: v);
   }
 
   void updateLabel(String label) {
@@ -43,6 +44,13 @@ class GlobalUploadProgress {
     final s = state.value;
     if (s == null) return;
     state.value = s.copyWith(label: trimmed);
+  }
+
+  /// Rótulo de fase vindo de um serviço (encode/rede) — só pinta quando já há
+  /// uma barra ativa; no envio antecipado (sem barra) é um no-op.
+  void updateLabelIfActive(String label) {
+    if (state.value == null) return;
+    updateLabel(label);
   }
 
   void updateBatch({

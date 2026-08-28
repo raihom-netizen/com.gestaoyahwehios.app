@@ -137,6 +137,48 @@ abstract final class TenantModuleHiveCache {
     return out;
   }
 
+  /// Remove docs [docIds] do cache em disco deste módulo.
+  ///
+  /// Sem isto, apagar um registo no Firestore não o tirava do Hive: a leitura
+  /// seguinte servia o cache primeiro (stale-while-revalidate) e o registo
+  /// «voltava» — em cada abertura da app, durante os 30 dias de TTL. E como
+  /// [TenantStaleWhileRevalidate] deliberadamente **não** limpa o Hive quando
+  /// a rede devolve zero docs (um vazio pode ser id errado ou falha
+  /// temporária), apagar o último registo de um módulo nunca limpava nada.
+  /// Quem apaga tem de dizer explicitamente **o que** apagar do cache.
+  ///
+  /// Deixa a lista vazia (em vez de apagar a chave) quando remove tudo: assim
+  /// a próxima leitura devolve vazio de imediato, em vez de cair no caminho
+  /// «sem cache» e voltar a pintar dados antigos vindos de outra origem.
+  static Future<void> removeDocIds(
+    String tenantId,
+    String module,
+    Iterable<String> docIds,
+  ) async {
+    if (kIsWeb) return;
+    final tid = tenantId.trim();
+    final ids = docIds.map((e) => e.trim()).where((e) => e.isNotEmpty).toSet();
+    if (tid.isEmpty || ids.isEmpty) return;
+    await init();
+    final box = _box;
+    if (box == null) return;
+    try {
+      final raw = box.get(_dataKey(tid, module));
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) return;
+      final kept = decoded
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .where((row) => !ids.contains((row['id'] ?? '').toString().trim()))
+          .toList();
+      if (kept.length == decoded.length) return;
+      await box.put(_dataKey(tid, module), safeJsonEncode(kept));
+      // Timestamp intacto: o conteúdo continua tão fresco como estava, só
+      // perdeu os registos apagados.
+    } catch (_) {}
+  }
+
   static Future<void> clearModule(String tenantId, String module) async {
     if (kIsWeb) return;
     final tid = tenantId.trim();

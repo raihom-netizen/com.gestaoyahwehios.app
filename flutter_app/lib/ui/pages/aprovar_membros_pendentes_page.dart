@@ -415,6 +415,7 @@ class _AprovarMembrosPendentesPageState extends State<AprovarMembrosPendentesPag
 
   Future<void> _afterApprovalMutation({bool skipReload = false}) async {
     MembersDirectorySnapshotService.invalidateMemory(_churchId);
+    MembersDirectorySnapshotService.notifyTenantMutated(_churchId);
     // `force`: o cache do diretório tem TTL de 8 min — sem forçar, o membro
     // aprovado só entrava na lista de Membros minutos depois.
     unawaited(

@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/core/media_upload_limits.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/global_upload_progress.dart';
 
 import 'firebase_storage_cleanup_service.dart';
 import 'media_upload_service.dart';
@@ -55,6 +56,8 @@ class VideoHandlerService implements IVideoHandlerService {
             eventPostDocId,
             slot,
           );
+    // Na web não há transcode (video_compress é nativo): a barra é 100% rede.
+    GlobalUploadProgress.instance.updateLabelIfActive('A enviar vídeo…');
     final videoUrl = await MediaUploadService.uploadBytesWithRetry(
       storagePath: videoPath,
       bytes: bytes,

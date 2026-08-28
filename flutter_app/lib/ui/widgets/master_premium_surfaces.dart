@@ -94,6 +94,8 @@ class MasterKpiCard extends StatelessWidget {
                   children: [
                     Text(
                       label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
@@ -103,16 +105,23 @@ class MasterKpiCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w800,
                         letterSpacing: -0.3,
+                        // Cor explícita: o número do KPI é o dado principal do
+                        // cartão e não pode depender do estilo herdado.
+                        color: ThemeCleanPremium.onSurface,
                       ),
                     ),
                     if (subtitle != null && subtitle!.isNotEmpty) ...[
                       const SizedBox(height: 2),
                       Text(
                         subtitle!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11,
                           color: Colors.grey.shade600,

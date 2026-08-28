@@ -1,4 +1,4 @@
-import 'dart:async' show Completer, unawaited;
+import 'dart:async' show Completer, Timer, unawaited;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
@@ -16,6 +16,10 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/app_permissions.dart';
 import 'package:gestao_yahweh/services/church_avisos_load_service.dart';
 import 'package:gestao_yahweh/services/church_avisos_service.dart';
+import 'package:gestao_yahweh/services/church_photo_preupload.dart';
+import 'package:gestao_yahweh/services/church_video_preupload.dart';
+import 'package:gestao_yahweh/services/high_res_image_pipeline.dart'
+    show kEffectiveMuralFeedWebpQuality;
 import 'package:gestao_yahweh/services/church_instant_upload_pipeline.dart';
 import 'package:gestao_yahweh/services/feed_editor_media_service.dart';
 import 'package:gestao_yahweh/services/media_handler_service.dart';
@@ -2060,6 +2064,18 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   final List<String> _existingImageUrls = [];
   final List<Uint8List> _photos = [];
   String? _localVideoPath;
+
+  /// Envio antecipado do vídeo em curso + progresso 0–1 (null = a preparar).
+  ///
+  /// Sem isto o editor não mostrava nada depois de anexar: o utilizador tocava
+  /// «Publicar» de imediato e pagava o encode + rede inteiros na barra.
+  bool _videoPreuploading = false;
+  double? _videoPreuploadFraction;
+  Timer? _videoPreuploadTicker;
+
+  /// Fotos já no Storage antes de publicar (sonda do envio antecipado).
+  Timer? _photoPreuploadTicker;
+  int _photosReadyCount = 0;
   String? _existingVideoUrl;
   bool _clearVideo = false;
   bool _publishing = false;
@@ -2071,6 +2087,9 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   /// O vídeo já foi entregue à publicação — o editor fecha antes de o envio
   /// terminar, por isso o `dispose` não pode descartá-lo.
   bool _videoHandedOffToPublish = false;
+
+  /// Idem para as fotos pré-enviadas.
+  bool _photosHandedOffToPublish = false;
 
   String get _videoPostId => _isEdit
       ? (widget.initialItem?.id ?? '')
@@ -2126,6 +2145,15 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
 
   @override
   void dispose() {
+    _videoPreuploadTicker?.cancel();
+    _photoPreuploadTicker?.cancel();
+    if (!_photosHandedOffToPublish) {
+      // Editor fechado sem publicar: as fotos enviadas à frente viram lixo no
+      // bucket. Se a publicação já as reclamou, o registo está vazio.
+      unawaited(ChurchAvisosService.cancelPhotoPreuploads(
+        List<Uint8List>.from(_photos),
+      ));
+    }
     final pending = _localVideoPath;
     if (!_videoHandedOffToPublish && pending != null && pending.isNotEmpty) {
       // Editor fechado sem publicar: o vídeo enviado à frente seria lixo no
@@ -2220,6 +2248,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
         postId: postId,
         localPath: localPath,
       );
+      _watchAvisoVideoPreupload(localPath);
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2232,60 +2261,192 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     }
   }
 
+  /// Espelha o progresso do envio antecipado no editor (o pré-envio não tem
+  /// callback próprio para a UI — é sondado).
+  void _watchAvisoVideoPreupload(String localPath) {
+    _videoPreuploadTicker?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _videoPreuploading = true;
+      _videoPreuploadFraction = null;
+    });
+    _videoPreuploadTicker = Timer.periodic(const Duration(milliseconds: 400), (
+      t,
+    ) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      final active = ChurchVideoPreupload.isActive(localPath);
+      final p = ChurchVideoPreupload.progressOf(localPath);
+      if (!active || p >= 1.0) {
+        t.cancel();
+        setState(() {
+          _videoPreuploading = false;
+          _videoPreuploadFraction = null;
+        });
+        return;
+      }
+      setState(() => _videoPreuploadFraction = p <= 0 ? null : p);
+    });
+  }
+
+  void _stopAvisoVideoPreuploadWatch() {
+    _videoPreuploadTicker?.cancel();
+    _videoPreuploadTicker = null;
+    if (!mounted) return;
+    setState(() {
+      _videoPreuploading = false;
+      _videoPreuploadFraction = null;
+    });
+  }
+
   Future<void> _pickPhotos() async {
     final remaining =
         ChurchAvisosService.kMaxPhotos -
         (_photos.length + _existingImageUrls.length);
     if (remaining <= 0) return;
 
-    final files = await MediaHandlerService.instance
-        .pickAndProcessMultipleImages(
-          module: YahwehMediaModule.avisos,
-          context: context,
-        );
-    if (!mounted || files.isEmpty) return;
-
-    // Preparo em paralelo (1 isolate por foto): em série, 5 fotos = 5 compressões
-    // encadeadas e o editor ficava "pendurado" ao montar o aviso.
-    final prepared = await Future.wait(
-      files.take(remaining).map<Future<({Uint8List bytes, String name})?>>((
-        f,
-      ) async {
-        final b = await f.readAsBytes();
-        if (b.isEmpty) return null;
-        final out = await ChurchInstantUploadPipeline.prepareImageBytes(
-          b,
-          postType: kChurchPostTypeAviso,
-        );
-        return (
-          bytes: out.isNotEmpty ? out : b,
-          name: f.name.trim().isNotEmpty ? f.name.trim() : 'foto.webp',
-        );
-      }),
-    );
-    if (!mounted) return;
-
+    // Mesmo pipeline do módulo Eventos (era `pickAndProcessMultipleImages`).
+    // O antigo pedia ao picker a foto ORIGINAL (imageQuality 100, sem
+    // maxWidth/maxHeight), lia-a inteira para memória e comprimia para JPEG
+    // 1024 px — e só depois `prepareImageBytes` reencodava para WebP. Cada
+    // foto era decodificada e recomprimida duas vezes, a partir dos 12 MP do
+    // telemóvel: é isso que «pendurava» o editor de avisos ao anexar 3–5
+    // fotos. Aqui o picker nativo já entrega no tamanho do feed e há um único
+    // encode WebP, em lotes paralelos, com a foto a aparecer assim que fica
+    // pronta — e com a mesma nitidez das fotos de evento no mesmo feed.
     Uint8List? lastBytes;
-    String lastName = 'foto.webp';
-    for (final item in prepared) {
-      if (item == null) continue;
-      _photos.add(item.bytes);
-      lastBytes = item.bytes;
-      lastName = item.name;
+    var lastName = 'foto.webp';
+    var encodeSkipped = 0;
+    // `onEachReady` é disparado sem await, e o preparo de cada foto demora
+    // tempos diferentes: sem indexar pela posição escolhida, as fotos entravam
+    // na ordem em que acabavam de codificar, não na ordem em que o utilizador
+    // as escolheu. `baseCount` isola o que já estava anexado antes deste pick.
+    final baseCount = _photos.length;
+    final picked = <int, Uint8List>{};
+    try {
+      await MediaHandlerService.instance.pickMultiCropEncodeFeedWebpFromGallery(
+        context,
+        maxPickCount: remaining,
+        webpOutputQuality: kEffectiveMuralFeedWebpQuality,
+        module: YahwehMediaModule.avisos,
+        onEachReady: (encoded, index, total) async {
+          if (!mounted) return;
+          if (baseCount + picked.length + _existingImageUrls.length >=
+              ChurchAvisosService.kMaxPhotos) {
+            return;
+          }
+          final raw = await encoded.readAsBytes();
+          if (raw.isEmpty) return;
+          final out = await ChurchInstantUploadPipeline.prepareImageBytes(
+            raw,
+            postType: kChurchPostTypeAviso,
+          );
+          if (!mounted) return;
+          final bytes = out.isNotEmpty ? out : raw;
+          lastBytes = bytes;
+          lastName = encoded.name.trim().isNotEmpty
+              ? encoded.name.trim()
+              : 'foto.webp';
+          picked[index] = bytes;
+          final ordered = (picked.keys.toList()..sort())
+              .map((k) => picked[k]!)
+              .toList();
+          setState(() {
+            if (_photos.length > baseCount) {
+              _photos.removeRange(baseCount, _photos.length);
+            }
+            _photos.addAll(ordered);
+          });
+        },
+        onEncodeSkipped: (_, _) => encodeSkipped++,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(formatUploadErrorForUser(e))),
+        );
+      }
+      return;
     }
-    setState(() {});
-    if (lastBytes != null && mounted) {
+    if (!mounted) return;
+    // Só depois do lote inteiro: durante o pick a ordem ainda muda conforme
+    // cada foto acaba de codificar, e sincronizar a meio faria uma foto subir
+    // para um slot que ela ainda vai deixar.
+    _syncAvisoPhotoPreuploads();
+    if (encodeSkipped > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            encodeSkipped == 1
+                ? 'Não foi possível preparar 1 foto. Tente outra imagem.'
+                : 'Não foi possível preparar $encodeSkipped fotos. Tente outras imagens.',
+          ),
+        ),
+      );
+    }
+    final shownBytes = lastBytes;
+    if (shownBytes != null) {
       final resolution = await ImmediateMediaAttachFeedback.readResolution(
-        lastBytes,
+        shownBytes,
       );
       if (!mounted) return;
       ImmediateMediaAttachFeedback.showFotoAdicionadaSucesso(
         context,
         fileName: lastName,
-        sizeBytes: lastBytes.length,
+        sizeBytes: shownBytes.length,
         resolution: resolution,
       );
     }
+  }
+
+  /// Põe os envios antecipados das fotos em dia com a lista atual.
+  ///
+  /// O slot de cada foto é a sua posição na publicação (depois das que já
+  /// estão no aviso), portanto remover uma foto do meio muda o destino de
+  /// todas as seguintes — o serviço apaga o objeto do caminho antigo e
+  /// reenvia para o novo.
+  void _syncAvisoPhotoPreuploads() {
+    final postId = _videoPostId;
+    if (postId.isEmpty || _photos.isEmpty) return;
+    unawaited(
+      ChurchAvisosService.syncPhotoPreuploads(
+        churchIdHint: widget.tenantId,
+        postId: postId,
+        photos: List<Uint8List>.from(_photos),
+        slotBase: _existingImageUrls.length,
+      ),
+    );
+    _watchAvisoPhotoPreuploads();
+  }
+
+  /// Espelha no editor quantas fotos já estão no Storage.
+  void _watchAvisoPhotoPreuploads() {
+    _photoPreuploadTicker?.cancel();
+    if (!mounted || _photos.isEmpty) return;
+    _photoPreuploadTicker = Timer.periodic(const Duration(milliseconds: 500), (
+      t,
+    ) {
+      if (!mounted || _photos.isEmpty) {
+        t.cancel();
+        return;
+      }
+      final ready = ChurchPhotoPreupload.readyCount(_photos);
+      if (ready != _photosReadyCount) setState(() => _photosReadyCount = ready);
+      if (ready >= _photos.length) t.cancel();
+    });
+  }
+
+  /// Remove a foto [index] e reposiciona os envios antecipados seguintes.
+  void _removeAvisoPhotoAt(int index) {
+    if (index < 0 || index >= _photos.length) return;
+    final removed = _photos[index];
+    setState(() => _photos.removeAt(index));
+    unawaited(() async {
+      await ChurchAvisosService.cancelPhotoPreuploads([removed]);
+      if (mounted) _syncAvisoPhotoPreuploads();
+    }());
   }
 
   Future<void> _pickExpiry() async {
@@ -2448,6 +2609,10 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
           if (localVideo != null && localVideo.isNotEmpty) {
             _videoHandedOffToPublish = true;
           }
+          // A partir daqui o serviço decide (reclamar ou descartar) os
+          // pré-envios: o `dispose` não pode mexer neles, senão apagava do
+          // bucket o que a publicação acabou de escrever nos mesmos slots.
+          _photosHandedOffToPublish = true;
           if (isEdit) {
             await ChurchAvisosService.update(
               churchIdHint: widget.tenantId,
@@ -2861,21 +3026,79 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                 IconButton.filledTonal(
                   tooltip:
                       'Remover vídeo',
-                  onPressed: () => setState(() {
-                    _localVideoPath = null;
-                    _existingVideoUrl = null;
-                    _clearVideo = true;
-                  }),
+                  onPressed: () {
+                    final pending = _localVideoPath;
+                    if (pending != null && pending.isNotEmpty) {
+                      ChurchAvisosService.cancelVideoPreupload(pending);
+                    }
+                    _stopAvisoVideoPreuploadWatch();
+                    setState(() {
+                      _localVideoPath = null;
+                      _existingVideoUrl = null;
+                      _clearVideo = true;
+                    });
+                  },
                   icon: const Icon(Icons.delete_outline_rounded),
                 ),
               ],
             ],
           ),
+          if (_videoPreuploading) ...[
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: _videoPreuploadFraction,
+              minHeight: 4,
+              borderRadius: BorderRadius.circular(2),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _videoPreuploadFraction == null
+                  ? 'A preparar vídeo… (pode publicar quando quiser)'
+                  : 'A enviar vídeo… ${((_videoPreuploadFraction ?? 0) * 100).round()}%',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade700,
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           Text(
             'Fotos (${_existingImageUrls.length + _photos.length}/${ChurchAvisosService.kMaxPhotos})',
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
+          if (_photos.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Icon(
+                  _photosReadyCount >= _photos.length
+                      ? Icons.cloud_done_rounded
+                      : Icons.cloud_upload_rounded,
+                  size: 15,
+                  color: _photosReadyCount >= _photos.length
+                      ? ThemeCleanPremium.success
+                      : Colors.grey.shade600,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _photosReadyCount >= _photos.length
+                        ? 'Fotos já enviadas — publicar vai ser imediato.'
+                        : 'A enviar fotos em segundo plano… '
+                              '$_photosReadyCount/${_photos.length}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _photosReadyCount >= _photos.length
+                          ? ThemeCleanPremium.success
+                          : Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -2903,7 +3126,11 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                       right: 4,
                       child: _avisoRemoveButton(
                         onRemove: () => setState(
-                          () => _existingImageUrls.removeAt(i),
+                          () {
+                            _existingImageUrls.removeAt(i);
+                            // Os slots das fotos novas recuam um lugar.
+                            _syncAvisoPhotoPreuploads();
+                          },
                         ),
                       ),
                     ),
@@ -2957,7 +3184,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                       right: 4,
                       child: _avisoRemoveButton(
                         onRemove: () =>
-                            setState(() => _photos.removeAt(i)),
+                            _removeAvisoPhotoAt(i),
                       ),
                     ),
                   ],

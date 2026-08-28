@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/utilitarios_file_io.dart';
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 
@@ -147,8 +148,10 @@ Future<void> showPdfActions(
                   ),
                 ),
                 padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  runSpacing: 8,
                   children: [
                     FilledButton.icon(
                       onPressed: () async {
@@ -160,20 +163,31 @@ Future<void> showPdfActions(
                       icon: const Icon(Icons.print_rounded),
                       label: const Text('Imprimir'),
                     ),
-                    const SizedBox(width: 10),
                     OutlinedButton.icon(
                       onPressed: () async {
-                        await Printing.sharePdf(
+                        await utilitariosSaveOrShareBytes(
+                          context: ctx,
                           bytes: bytes,
-                          filename: filename,
+                          fileName: filename,
+                          mimeType: 'application/pdf',
+                          chooseSaveLocation: true,
                         );
                       },
-                      icon: Icon(
-                        kIsWeb
-                            ? Icons.download_rounded
-                            : Icons.share_rounded,
-                      ),
-                      label: Text(kIsWeb ? 'Baixar PDF' : 'Partilhar'),
+                      icon: const Icon(Icons.download_rounded),
+                      label: Text(kIsWeb ? 'Baixar PDF' : 'Salvar PDF'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        await utilitariosSaveOrShareBytes(
+                          context: ctx,
+                          bytes: bytes,
+                          fileName: filename,
+                          mimeType: 'application/pdf',
+                          preferShare: true,
+                        );
+                      },
+                      icon: const Icon(Icons.share_rounded),
+                      label: const Text('Compartilhar'),
                     ),
                   ],
                 ),

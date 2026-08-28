@@ -818,11 +818,17 @@ class FirebaseStorageCleanupService {
       ChurchStorageLayout.eventHostedVideoThumbPath(tid, pid, slot),
       ChurchStorageLayout.eventHostedVideoThumbPathLegacy(tid, pid, slot),
     ];
-    for (final p in paths) {
-      try {
-        await firebaseDefaultStorage.ref(p).delete();
-      } catch (_) {}
-    }
+    // Em série e sem teto de tempo isto custava 3 round-trips antes de o vídeo
+    // sequer começar a subir — e num evento novo os 3 são 404 (o objeto nem
+    // existe). Em paralelo e com teto curto: limpa o legado sem atrasar o envio.
+    await Future.wait([
+      for (final p in paths)
+        firebaseDefaultStorage
+            .ref(p)
+            .delete()
+            .timeout(const Duration(seconds: 6))
+            .catchError((Object _) {}),
+    ]);
   }
 
   /// Remove ficheiros gerados por extensões (Resize Images) ou legado `*_thumb`/`*_card`/`*_full`

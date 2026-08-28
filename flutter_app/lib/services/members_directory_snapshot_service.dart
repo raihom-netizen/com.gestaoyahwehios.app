@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart' show ValueNotifier;
 
 import 'package:gestao_yahweh/core/cache/tenant_deleted_doc_tombstones.dart';
 import 'package:gestao_yahweh/core/cache/tenant_module_keys.dart';
@@ -450,6 +451,17 @@ class MembersDirectorySnapshotService {
   );
 
   static final Map<String, MembersDirectorySnapshot> _memoryByTenant = {};
+
+  /// Evento leve para telas ja montadas reagirem a criar/aprovar/inativar/excluir.
+  /// Evita esperar o TTL do diretorio ou manter uma segunda stream da colecao.
+  static final ValueNotifier<String> mutationTenant = ValueNotifier<String>('');
+  static int _mutationEpoch = 0;
+
+  static void notifyTenantMutated(String tenantId) {
+    final tid = tenantId.trim();
+    if (tid.isEmpty) return;
+    mutationTenant.value = '$tid|${++_mutationEpoch}';
+  }
 
   static void rememberInMemory(String tenantId, MembersDirectorySnapshot snap) {
     final tid = tenantId.trim();

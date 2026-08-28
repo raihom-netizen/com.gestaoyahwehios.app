@@ -37,8 +37,15 @@ abstract final class EcofirePublishProgressUi {
       closeEditor();
     }
 
+    // Progresso **monotónico**: cada etapa do publish reporta na sua própria
+    // escala (o vídeo subia até 59% e o gravador do Firestore recomeçava logo
+    // a seguir em 12%). Uma barra a andar para trás lê-se como «travou».
+    var lastProgress = 0.0;
     void reportProgress(double progress) {
-      GlobalUploadProgress.instance.update(progress);
+      final p = (progress.isNaN ? 0.0 : progress).clamp(0.0, 1.0);
+      if (p <= lastProgress) return;
+      lastProgress = p;
+      GlobalUploadProgress.instance.update(p);
     }
 
     try {
@@ -112,12 +119,17 @@ abstract final class EcofirePublishProgressUi {
     String Function(Object error)? formatError,
   }) async {
     GlobalUploadProgress.instance.start('A reenviar mídia…');
+    var lastProgress = 0.0;
+    void reportProgress(double progress) {
+      final p = (progress.isNaN ? 0.0 : progress).clamp(0.0, 1.0);
+      if (p <= lastProgress) return;
+      lastProgress = p;
+      GlobalUploadProgress.instance.update(p);
+    }
+
     try {
       await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
-      await _runPublishActionWithNoAppRetry(
-        action,
-        GlobalUploadProgress.instance.update,
-      );
+      await _runPublishActionWithNoAppRetry(action, reportProgress);
       messenger?.showSnackBar(
         ThemeCleanPremium.successSnackBar(successMessage),
       );

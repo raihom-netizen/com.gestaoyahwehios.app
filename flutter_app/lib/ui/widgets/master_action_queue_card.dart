@@ -28,7 +28,11 @@ class MasterActionQueueCard extends StatelessWidget {
               const SizedBox(width: 8),
               const Text(
                 'Fila de ações',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                  color: ThemeCleanPremium.onSurface,
+                ),
               ),
             ],
           ),
@@ -78,14 +82,19 @@ class MasterActionQueueCard extends StatelessWidget {
                             children: [
                               Text(
                                 item.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 14,
+                                  color: ThemeCleanPremium.onSurface,
                                 ),
                               ),
                               if (item.subtitle.isNotEmpty)
                                 Text(
                                   item.subtitle,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
                                     fontSize: 11,
                                     color: Colors.grey.shade600,

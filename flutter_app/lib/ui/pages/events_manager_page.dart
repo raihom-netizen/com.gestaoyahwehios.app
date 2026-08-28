@@ -29,6 +29,8 @@ import 'package:gestao_yahweh/ui/widgets/aviso_publish_ui.dart';
 import 'package:gestao_yahweh/services/evento_create_publish_service.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
 import 'package:gestao_yahweh/services/evento_media_upload.dart';
+import 'package:gestao_yahweh/services/church_event_template_delete_service.dart';
+import 'package:gestao_yahweh/services/church_photo_preupload.dart';
 import 'package:gestao_yahweh/services/church_ct_module_upload.dart';
 import 'package:gestao_yahweh/services/evento_publish_service.dart';
 import 'package:gestao_yahweh/services/eventos_publish_verification_service.dart';
@@ -420,6 +422,39 @@ Future<bool> _awaitEventosFirebasePanelReady() async {
       return false;
     }
   }
+}
+
+/// Aviso do diálogo: o que vai sair além do próprio evento fixo.
+String _eventoFixoDeleteWarning(({int eventos, int agenda}) gerados) {
+  final total = gerados.eventos + gerados.agenda;
+  if (total <= 0) {
+    return 'A exclusão é definitiva: remove o evento fixo e a capa do Storage. '
+        'Ele não volta a aparecer na lista, no painel nem no site.';
+  }
+  final partes = <String>[
+    if (gerados.eventos > 0)
+      '${gerados.eventos} ${gerados.eventos == 1 ? "evento já gerado" : "eventos já gerados"}',
+    if (gerados.agenda > 0)
+      '${gerados.agenda} ${gerados.agenda == 1 ? "compromisso da agenda" : "compromissos da agenda"}',
+  ];
+  return 'Sai também ${partes.join(" e ")} — é isso que hoje continua a '
+      'aparecer no painel inicial e no site público depois de excluir. '
+      'A exclusão é definitiva e inclui a capa no Storage.';
+}
+
+/// Diz ao utilizador o que saiu junto com o evento fixo — os eventos gerados
+/// e os compromissos de agenda desaparecem com ele, e isso tem de ficar claro.
+String _eventoFixoDeleteMessage(ChurchEventTemplateDeleteResult res) {
+  final extras = <String>[
+    if (res.eventos > 0)
+      '${res.eventos} ${res.eventos == 1 ? "evento gerado" : "eventos gerados"}',
+    if (res.agenda > 0) '${res.agenda} da agenda',
+  ];
+  final base = res.templates == 1
+      ? 'Evento fixo excluído'
+      : '${res.templates} eventos fixos excluídos';
+  if (extras.isEmpty) return '$base.';
+  return '$base (e ${extras.join(" + ")}).';
 }
 
 class _EventsManagerPageState extends State<EventsManagerPage>
@@ -858,6 +893,12 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       return;
     }
     final nome = (doc.data()?['title'] ?? doc.id).toString();
+    // O que este evento fixo já gerou sai com ele — dizer antes, não depois.
+    final geradosCount = await ChurchEventTemplateDeleteService.countGenerated(
+      tenantId: _tid,
+      templateIds: [doc.id],
+    );
+    if (!mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -866,7 +907,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         ),
         title: const Text('Excluir evento fixo'),
         content: Text(
-          'Deseja excluir "$nome"? O evento fixo será removido e não aparecerá mais na lista.',
+          'Deseja excluir "$nome"?\n\n'
+          '${_eventoFixoDeleteWarning(geradosCount)}',
         ),
         actions: [
           TextButton(
@@ -886,24 +928,28 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     if (ok != true) return;
     final tid = _tid;
     final docId = doc.id;
-    // Lápide + cache ANTES do delete — evita o item «voltar» no refresh.
-    TenantDeletedDocTombstones.mark(tid, 'event_templates', [docId]);
     _EventTemplatesRamCache.removeIds(tid, [docId]);
     _fixosTabKey.currentState?._removeTemplateLocally(docId);
     try {
-      await YahwehDocWrite.delete(doc.reference);
-      // Painel/site público servem cache próprio (RAM/disco) — sem isso o
-      // evento fixo excluído continuava aparecendo até o TTL vencer.
-      unawaited(PanelProgramacaoLoader.clear(tid));
-      FirestoreReadResilience.forgetKeysWithPrefix('${tid}_event_templates');
+      // Exclusão completa: o doc do template, os eventos e compromissos de
+      // agenda que ele gerou, a capa no Storage e os caches (RAM + disco).
+      // Apagar só o template deixava tudo isso vivo — era por isso que o
+      // evento «voltava» no painel inicial e no site público.
+      final res = await ChurchEventTemplateDeleteService.deleteTemplates(
+        tenantId: tid,
+        templateIds: [docId],
+      );
+      ChurchEventosLoadService.invalidate(tid);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Evento fixo excluído.'),
+          ThemeCleanPremium.successSnackBar(
+            _eventoFixoDeleteMessage(res),
+          ),
         );
         _fixosTabKey.currentState?._refresh();
       }
     } catch (e) {
-      TenantDeletedDocTombstones.unmark(tid, 'event_templates', docId);
+      ChurchEventTemplateDeleteService.unmarkTombstones(tid, [docId]);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -915,6 +961,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       }
     }
   }
+
+
 
   static const List<Color> _eventoFixoWeekdayColors = [
     Color(0xFF3B82F6),
@@ -8093,6 +8141,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       });
     }
     if (!mounted) return;
+    _syncEventPhotoPreuploads();
     final attachSize = preparedBytes.length ?? 0;
     unawaited(() async {
       String? resolution;
@@ -8120,6 +8169,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (webBytes != null) {
       final i = _newImages.indexOf(webBytes);
       if (i >= 0) {
+        unawaited(() async {
+          await ChurchPhotoPreupload.abandon(_newImages[i]);
+          if (mounted) _syncEventPhotoPreuploads();
+        }());
         _newImages.removeAt(i);
         if (i < _newImagePaths.length) _newImagePaths.removeAt(i);
         if (i < _newNames.length) _newNames.removeAt(i);
@@ -8128,6 +8181,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     } else if (mobilePath != null) {
       final i = _newImagePaths.indexOf(mobilePath);
       if (i >= 0) {
+        if (i < _newImages.length) {
+          unawaited(() async {
+            await ChurchPhotoPreupload.abandon(_newImages[i]);
+            if (mounted) _syncEventPhotoPreuploads();
+          }());
+        }
         _newImagePaths.removeAt(i);
         if (i < _newImages.length) _newImages.removeAt(i);
         if (i < _newNames.length) _newNames.removeAt(i);
@@ -8339,13 +8398,121 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return IosPublishImagePipeline.compressForPublishFromPath(path);
   }
 
+  /// Igreja usada para montar o caminho no Storage.
+  ///
+  /// Tem de ser a **mesma** fórmula de [EventoPublishService.publish], senão o
+  /// caminho pré-enviado não bate com o esperado na publicação e o lote é
+  /// descartado (sem estragar nada — só perde o adiantamento).
+  String get _photoPreuploadChurchId =>
+      ChurchPublishContext.churchIdForPublish(_editorTenantId);
+
+  /// Quantas fotos já publicadas ficam antes das novas.
+  ///
+  /// Tem de ser a contagem **depois** do dedupe, porque é essa que a
+  /// publicação usa como `startSlotIndex`. Contar `_existingUrls` cru daria
+  /// um slot a mais e o lote seria descartado por não bater.
+  int get _eventPhotoSlotBase =>
+      dedupeImageRefsByStorageIdentity(_existingUrls).length;
+
+  /// Caminho definitivo da foto nova de índice [newIndex].
+  String _eventPhotoStoragePathFor(
+    int newIndex, {
+    String? churchId,
+    int? slotBase,
+  }) => ChurchStorageLayout.eventPostPhotoPath(
+    churchId ?? _photoPreuploadChurchId,
+    _eventDocRef.id,
+    (slotBase ?? _eventPhotoSlotBase) + newIndex,
+  );
+
+  /// Põe os envios antecipados em dia com a lista atual de fotos.
+  ///
+  /// Chamado ao anexar e ao remover: o slot de cada foto é a sua posição na
+  /// publicação, portanto remover uma foto do meio muda o destino de todas as
+  /// seguintes. O serviço apaga o objeto do caminho antigo e reenvia para o
+  /// novo — nunca fica um slot com a foto errada.
+  void _syncEventPhotoPreuploads() {
+    if (_newImages.isEmpty) return;
+    final churchId = _photoPreuploadChurchId;
+    if (churchId.isEmpty) return;
+    final slotBase = _eventPhotoSlotBase;
+    final postId = _eventDocRef.id;
+    final desired = <
+      ({
+        Uint8List bytes,
+        String storagePath,
+        Future<String> Function() run,
+        Future<void> Function() cleanup,
+      })
+    >[];
+    for (var i = 0; i < _newImages.length; i++) {
+      final bytes = _newImages[i];
+      if (bytes.isEmpty) continue;
+      final slot = slotBase + i;
+      final path = _eventPhotoStoragePathFor(
+        i,
+        churchId: churchId,
+        slotBase: slotBase,
+      );
+      desired.add((
+        bytes: bytes,
+        storagePath: path,
+        run: () async {
+          final uploaded = await EventoMediaUpload.uploadPhotoSlot(
+            churchId: churchId,
+            postId: postId,
+            slotIndex: slot,
+            rawBytes: bytes,
+            alreadyCompressed: true,
+          );
+          return uploaded.fullUrl;
+        },
+        cleanup: () =>
+            FirebaseStorageCleanupService.deleteManyByUrlPathOrGs([path]),
+      ));
+    }
+    // `syncBatch` apaga primeiro tudo o que muda de destino e só depois envia
+    // — ver a nota da própria função sobre o cruzamento de slots.
+    unawaited(ChurchPhotoPreupload.syncBatch(desired));
+    _watchEventPhotoPreuploads();
+  }
+
+  /// Espelha no editor quantas fotos já estão no Storage.
+  void _watchEventPhotoPreuploads() {
+    _photoPreuploadTicker?.cancel();
+    if (!mounted || _newImages.isEmpty) return;
+    _photoPreuploadTicker = Timer.periodic(const Duration(milliseconds: 500), (
+      t,
+    ) {
+      if (!mounted || _newImages.isEmpty) {
+        t.cancel();
+        return;
+      }
+      final ready = ChurchPhotoPreupload.readyCount(_newImages);
+      if (ready != _photosReadyCount) setState(() => _photosReadyCount = ready);
+      if (ready >= _newImages.length) t.cancel();
+    });
+  }
+
+  /// Descarta todos os envios antecipados de fotos e limpa os órfãos.
+  Future<void> _abandonEventPhotoPreuploads() =>
+      ChurchPhotoPreupload.abandonAll(List<Uint8List>.from(_newImages));
+
   void _removeNewPhotoAt(int index) {
+    final removed = index < _newImages.length ? _newImages[index] : null;
     setState(() {
       if (index < _newImages.length) _newImages.removeAt(index);
       if (index < _newImagePaths.length) _newImagePaths.removeAt(index);
       if (index < _newNames.length) _newNames.removeAt(index);
       if (index < _newSizes.length) _newSizes.removeAt(index);
     });
+    // Apagar o órfão da foto removida e só então reposicionar as seguintes:
+    // os slots deslocaram, e `syncBatch` garante que nenhuma limpeza corre
+    // depois do envio que ocupa o mesmo slot.
+    unawaited(() async {
+      if (removed != null) await ChurchPhotoPreupload.abandon(removed);
+      if (mounted) _syncEventPhotoPreuploads();
+    }());
   }
 
   /// Botão remover (X) ? ?rea tátil =48px + confirmação.
@@ -8470,7 +8637,21 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   String? _firebaseBootstrapError;
   bool _saving = false;
   bool _mediaPicking = false;
-  final bool _uploadingVideo = false;
+
+  /// `true` enquanto o vídeo anexado está a ser preparado/enviado à frente.
+  ///
+  /// Era `final bool _uploadingVideo = false` — constante — e por isso o
+  /// indicador de envio do vídeo no editor nunca aparecia: o utilizador
+  /// anexava, não via nada a acontecer e tocava «Publicar» de imediato,
+  /// pagando o encode + rede inteiros na barra «A publicar mídia…».
+  bool _uploadingVideo = false;
+
+  /// Sonda do envio antecipado (o pré-envio não tem callback para o editor).
+  Timer? _videoPreuploadTicker;
+
+  /// Fotos já no Storage antes de publicar (sonda do envio antecipado).
+  Timer? _photoPreuploadTicker;
+  int _photosReadyCount = 0;
 
   /// Evento já publicado (stub+fotos) enquanto o vídeo ainda sobe — merge ao concluir.
   final bool _publishedAwaitingVideoMerge = false;
@@ -8493,6 +8674,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   /// O vídeo já foi entregue à publicação: o editor fecha antes de o publish
   /// terminar, por isso o `dispose` não pode apagar o envio antecipado.
   bool _videoHandedOffToPublish = false;
+
+  /// Idem para as fotos pré-enviadas.
+  bool _photosHandedOffToPublish = false;
 
   /// Endereço da igreja (com lat/lng) vs. endereço manual por CEP.
   bool _useChurchLocation = false;
@@ -9208,6 +9392,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   @override
   void dispose() {
+    _photoPreuploadTicker?.cancel();
+    _stopEventVideoPreuploadWatch();
+    if (!_photosHandedOffToPublish) {
+      // Editor fechado sem publicar: as fotos enviadas à frente viram lixo no
+      // bucket — descartar apaga-as. Se a publicação já as reclamou o registo
+      // está vazio e isto é um no-op.
+      unawaited(_abandonEventPhotoPreuploads());
+    }
     if (!_videoHandedOffToPublish) {
       // Editor fechado sem publicar: o vídeo enviado à frente vira lixo no
       // bucket se ficar lá — descartar apaga-o quando o envio terminar.
@@ -9306,19 +9498,28 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         _maxPhotosPerEvent,
       );
       var encodeSkipped = 0;
+      // `onEachReady` é disparado sem await e cada foto demora um tempo
+      // diferente a preparar: sem encadear, as fotos entravam nas quatro
+      // listas paralelas (`_newImages`, paths, nomes, tamanhos) na ordem em
+      // que acabavam de codificar — não na ordem em que foram escolhidas.
+      var addQueue = Future<void>.value();
       await MediaHandlerService.instance.pickMultiCropEncodeFeedWebpFromGallery(
         context,
         maxPickCount: remaining,
         webpOutputQuality: kEffectiveMuralFeedWebpQuality,
         module: YahwehMediaModule.eventos,
-        onEachReady: (encoded, index, total) async {
-          if (_existingUrls.length + _newPhotoCount >= _maxPhotosPerEvent) {
-            return;
-          }
-          await _addEncodedEventPhoto(encoded);
+        onEachReady: (encoded, index, total) {
+          addQueue = addQueue.then((_) async {
+            if (!mounted) return;
+            if (_existingUrls.length + _newPhotoCount >= _maxPhotosPerEvent) {
+              return;
+            }
+            await _addEncodedEventPhoto(encoded);
+          });
         },
         onEncodeSkipped: (_, _) => encodeSkipped++,
       );
+      await addQueue;
       if (encodeSkipped > 0 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -9569,7 +9770,16 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     // Envio antecipado em curso para este ficheiro: descartar antes de apagar,
     // senão ele terminava e repunha o objeto no Storage.
     final pendingLocal = (v['localPath'] ?? '').toString().trim();
-    if (pendingLocal.isNotEmpty) ChurchVideoPreupload.abandon(pendingLocal);
+    if (pendingLocal.isNotEmpty) {
+      ChurchVideoPreupload.abandon(pendingLocal);
+      _stopEventVideoPreuploadWatch();
+      if (mounted) {
+        setState(() {
+          _uploadingVideo = false;
+          _videoUploadFraction = null;
+        });
+      }
+    }
     final videoUrl = (v['videoUrl'] ?? '').toString();
     final thumbUrl = (v['thumbUrl'] ?? '').toString();
     final slot = _hostedVideoStorageSlotFromUrl(videoUrl);
@@ -9618,6 +9828,41 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             videoSlot: 0,
           ),
     );
+    _watchEventVideoPreupload(localPath);
+  }
+
+  /// Espelha o progresso do envio antecipado no indicador do editor.
+  void _watchEventVideoPreupload(String localPath) {
+    _videoPreuploadTicker?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _uploadingVideo = true;
+      _videoUploadFraction = null;
+    });
+    _videoPreuploadTicker = Timer.periodic(const Duration(milliseconds: 400), (
+      t,
+    ) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      final active = ChurchVideoPreupload.isActive(localPath);
+      final p = ChurchVideoPreupload.progressOf(localPath);
+      if (!active || p >= 1.0) {
+        t.cancel();
+        setState(() {
+          _uploadingVideo = false;
+          _videoUploadFraction = null;
+        });
+        return;
+      }
+      setState(() => _videoUploadFraction = p <= 0 ? null : p);
+    });
+  }
+
+  void _stopEventVideoPreuploadWatch() {
+    _videoPreuploadTicker?.cancel();
+    _videoPreuploadTicker = null;
   }
 
   /// Igual a [_pendingLocalVideoPath], mas marca que a publicação assumiu o
@@ -10112,6 +10357,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final docRef = ctx.docRef;
     final publishTenantId = ctx.igrejaId;
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
+    // Retry: sobe tudo de raiz. Descartar primeiro (apaga órfãos) evita
+    // deixar objetos de um pré-envio que já não vai ser reclamado — e impede
+    // o `dispose` de apagar depois o que este publish escrever nos mesmos
+    // slots. Se o publish anterior já reclamou, o registo está vazio e isto
+    // é um no-op.
+    await ChurchPhotoPreupload.abandonAll(List<Uint8List>.from(_newImages));
+    _photosHandedOffToPublish = true;
     final pending = _pendingEventPhotosForPublish();
     final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
     double? aspectRatio;
@@ -10402,6 +10654,34 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final hasVideo = _eventHasHostedVideoForPublish(publishTenantId);
       final videoPathForPublish = _videoStoragePathForPublish(publishTenantId);
 
+      // Mesmo reaproveitamento tudo-ou-nada do publish simples. Este caminho
+      // TEM de reclamar (ou descartar) os pré-envios: se ficassem registados,
+      // o `dispose` do editor apagaria do bucket os objetos que a publicação
+      // acabou de escrever nos mesmos slots.
+      var seriesPhotos = compressedPhotos;
+      var seriesRefs = const <String>[];
+      if (compressedPhotos.isNotEmpty) {
+        final claimChurchId = ChurchPublishContext.churchIdForPublish(
+          publishTenantId,
+        );
+        final claimed = await ChurchPhotoPreupload.claimAll([
+          for (var i = 0; i < compressedPhotos.length; i++)
+            (
+              bytes: compressedPhotos[i],
+              storagePath: ChurchStorageLayout.eventPostPhotoPath(
+                claimChurchId,
+                firstDocRef.id,
+                i,
+              ),
+            ),
+        ]);
+        if (claimed != null && claimed.length == compressedPhotos.length) {
+          seriesRefs = dedupeImageRefsByStorageIdentity(claimed);
+          seriesPhotos = const [];
+        }
+      }
+      _photosHandedOffToPublish = true;
+
       // 1? ocorrência: pipeline normal (sobe foto/vídeo de verdade).
       final firstDt = dates.first;
       _date = firstDt;
@@ -10410,7 +10690,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         _allDayEndDate = DateTime(firstDt.year, firstDt.month, firstDt.day);
       }
       final firstPayload = _buildEventCorePayload(
-        allUrls: const [],
+        allUrls: seriesRefs,
         aspectRatio: null,
         isNewDoc: true,
       );
@@ -10419,10 +10699,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         tenantId: publishTenantId,
         corePayload: firstPayload,
         isNewDoc: true,
-        existingUrls: const [],
-        startSlotIndex: 0,
+        existingUrls: seriesRefs,
+        startSlotIndex: seriesRefs.length,
         hasVideo: hasVideo,
-        newImagesBytes: compressedPhotos.isNotEmpty ? compressedPhotos : null,
+        newImagesBytes: seriesPhotos.isNotEmpty ? seriesPhotos : null,
         newImagePaths: null,
         videoStoragePath: videoPathForPublish,
         localVideoPath: localVideoPath,
@@ -10443,37 +10723,54 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final reusedVideoPath = (firstData['videoPath'] ?? '').toString().trim();
       final reusedHasVideo = reusedVideoPath.isNotEmpty;
 
+      // As ocorrências seguintes só reutilizam mídia já no Storage: não há
+      // upload nem dependência entre elas. Em fila, publicar 12 datas eram 12
+      // idas ao Firestore uma a seguir à outra — o «Publicando N eventos…»
+      // ficava minutos no ar. Payloads montados primeiro (leem `_date` e
+      // companhia, que são estado do editor), gravações em lotes concorrentes.
+      final restPayloads =
+          <({DocumentReference<Map<String, dynamic>> ref, DateTime dt, Map<String, dynamic> payload})>[];
       for (final dt in dates.skip(1)) {
-        final ref = widget.noticias.doc();
         _date = dt;
         _endDateTime = _allDay ? dt : dt.add(eventDuration());
         if (_allDay) {
           _allDayEndDate = DateTime(dt.year, dt.month, dt.day);
         }
-        final payload = _buildEventCorePayload(
-          allUrls: reusedPhotoUrls,
-          aspectRatio: null,
-          isNewDoc: true,
-        );
-        await EventoCreatePublishService.publish(
-          docRef: ref,
-          tenantId: publishTenantId,
-          corePayload: payload,
-          isNewDoc: true,
-          existingUrls: reusedPhotoUrls,
-          startSlotIndex: 0,
-          hasVideo: reusedHasVideo,
-          newImagesBytes: null,
-          newImagePaths: null,
-          videoStoragePath: reusedHasVideo ? reusedVideoPath : null,
-          localVideoPath: null,
-          publicSite: _publicSite,
-          eventStartAt: dt,
-          location: _localSalvo(),
-          agendaCategory: _agendaCategoryKeyFromEvent(),
-          agendaColorHex: _agendaColorHexForCategory(),
-        );
-        publishedCount++;
+        restPayloads.add((
+          ref: widget.noticias.doc(),
+          dt: dt,
+          payload: _buildEventCorePayload(
+            allUrls: reusedPhotoUrls,
+            aspectRatio: null,
+            isNewDoc: true,
+          ),
+        ));
+      }
+      const seriesBatch = 4;
+      for (var start = 0; start < restPayloads.length; start += seriesBatch) {
+        final chunk = restPayloads.skip(start).take(seriesBatch).toList();
+        await Future.wait([
+          for (final item in chunk)
+            EventoCreatePublishService.publish(
+              docRef: item.ref,
+              tenantId: publishTenantId,
+              corePayload: item.payload,
+              isNewDoc: true,
+              existingUrls: reusedPhotoUrls,
+              startSlotIndex: 0,
+              hasVideo: reusedHasVideo,
+              newImagesBytes: null,
+              newImagePaths: null,
+              videoStoragePath: reusedHasVideo ? reusedVideoPath : null,
+              localVideoPath: null,
+              publicSite: _publicSite,
+              eventStartAt: item.dt,
+              location: _localSalvo(),
+              agendaCategory: _agendaCategoryKeyFromEvent(),
+              agendaColorHex: _agendaColorHexForCategory(),
+            ),
+        ]);
+        publishedCount += chunk.length;
       }
 
       ChurchEventosLoadService.invalidate(publishTenantId);
@@ -10612,8 +10909,43 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final hasVideo = _eventHasHostedVideoForPublish(publishTenantId);
       final localVideoPath = _takePendingLocalVideoPathForPublish();
       final (eventStart, _) = _computeStartEndForSave();
+
+      // Fotos que já subiram enquanto o formulário era preenchido.
+      // Tudo-ou-nada: `claimAll` só devolve URLs se TODAS as fotos desta
+      // publicação tiverem pré-envio concluído para exatamente o slot em que
+      // vão ficar. Basta uma falhar (ou os slots terem mudado) e ele descarta
+      // o lote — apagando os órfãos — e a publicação sobe tudo pelo caminho
+      // normal. Nunca há reaproveitamento parcial, que é o que poderia pôr a
+      // foto errada num slot.
+      var photosForUpload = compressedPhotos;
+      var refsForPublish = existingUrls;
+      if (compressedPhotos.isNotEmpty) {
+        final claimChurchId = ChurchPublishContext.churchIdForPublish(
+          publishTenantId,
+        );
+        final claimed = await ChurchPhotoPreupload.claimAll([
+          for (var i = 0; i < compressedPhotos.length; i++)
+            (
+              bytes: compressedPhotos[i],
+              storagePath: ChurchStorageLayout.eventPostPhotoPath(
+                claimChurchId,
+                docRef.id,
+                existingUrls.length + i,
+              ),
+            ),
+        ]);
+        if (claimed != null && claimed.length == compressedPhotos.length) {
+          refsForPublish = dedupeImageRefsByStorageIdentity([
+            ...existingUrls,
+            ...claimed,
+          ]);
+          photosForUpload = const [];
+        }
+      }
+      _photosHandedOffToPublish = true;
+
       final payload = _buildEventCorePayload(
-        allUrls: existingUrls,
+        allUrls: refsForPublish,
         aspectRatio: aspectRatio,
         isNewDoc: isNewDoc,
       );
@@ -10647,12 +10979,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               tenantId: publishTenantId,
               corePayload: payload,
               isNewDoc: isNewDoc,
-              existingUrls: existingUrls,
-              startSlotIndex: existingUrls.length,
+              existingUrls: refsForPublish,
+              startSlotIndex: refsForPublish.length,
               hasVideo: hasVideo,
               // Só bytes — igual Web. Paths no Android duplicavam upload e falhavam.
-              newImagesBytes: compressedPhotos.isNotEmpty
-                  ? compressedPhotos
+              newImagesBytes: photosForUpload.isNotEmpty
+                  ? photosForUpload
                   : null,
               newImagePaths: null,
               videoStoragePath: videoPathForPublish,
@@ -11035,7 +11367,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               top: 4,
               right: 4,
               child: _mediaRemoveButton(
-                onRemove: () => setState(() => _existingUrls.removeAt(idx)),
+                onRemove: () {
+                  setState(() => _existingUrls.removeAt(idx));
+                  // Os slots das fotos novas recuam um lugar.
+                  _syncEventPhotoPreuploads();
+                },
               ),
             ),
           ],
@@ -11366,6 +11702,38 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       color: Colors.grey.shade600,
                     ),
                   ),
+                  if (_newImages.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(
+                          _photosReadyCount >= _newImages.length
+                              ? Icons.cloud_done_rounded
+                              : Icons.cloud_upload_rounded,
+                          size: 15,
+                          color: _photosReadyCount >= _newImages.length
+                              ? ThemeCleanPremium.success
+                              : Colors.grey.shade600,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            _photosReadyCount >= _newImages.length
+                                ? 'Fotos já enviadas — publicar vai ser imediato.'
+                                : 'A enviar fotos em segundo plano… '
+                                      '$_photosReadyCount/${_newImages.length}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: _photosReadyCount >= _newImages.length
+                                  ? ThemeCleanPremium.success
+                                  : Colors.grey.shade700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                   if (_uploadingVideo) ...[
                     const SizedBox(height: 10),
                     LinearProgressIndicator(
@@ -13407,6 +13775,11 @@ class _FixosTabState extends State<_FixosTab> {
       }
       return;
     }
+    final gerados = await ChurchEventTemplateDeleteService.countGenerated(
+      tenantId: widget.templates.parent?.id ?? widget.tenantId,
+      templateIds: refs.map((r) => r.id).toList(),
+    );
+    if (!mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -13414,7 +13787,10 @@ class _FixosTabState extends State<_FixosTab> {
           borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
         ),
         title: const Text('Excluir eventos fixos'),
-        content: Text('Deseja excluir ${refs.length} evento(s) fixo(s)?'),
+        content: Text(
+          'Deseja excluir ${refs.length} evento(s) fixo(s)?\n\n'
+          '${_eventoFixoDeleteWarning(gerados)}',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -13434,7 +13810,6 @@ class _FixosTabState extends State<_FixosTab> {
 
     final ids = refs.map((r) => r.id).toList();
     final tid = widget.templates.parent?.id ?? widget.tenantId;
-    TenantDeletedDocTombstones.mark(tid, 'event_templates', ids);
     _EventTemplatesRamCache.removeIds(tid, ids);
     final prev = _lastGoodTemplatesSnap;
     if (prev != null) {
@@ -13447,36 +13822,27 @@ class _FixosTabState extends State<_FixosTab> {
     }
 
     try {
-      const int chunkSize = 400;
-      final ids = refs.map((r) => r.id).toList();
-      final tid = widget.templates.parent?.id ?? widget.tenantId;
-      // A lápide vem antes do commit para fechar a corrida com streams/cache.
-      TenantDeletedDocTombstones.mark(tid, 'event_templates', ids);
-      _EventTemplatesRamCache.removeIds(tid, ids);
-      for (var i = 0; i < refs.length; i += chunkSize) {
-        final batch = YahwehBatch();
-        final chunk = refs.sublist(
-          i,
-          i + chunkSize > refs.length ? refs.length : i + chunkSize,
-        );
-        for (final r in chunk) {
-          batch.deleteDoc(r);
-        }
-        await batch.commit();
-      }
+      // Mesma exclusão completa do botão individual: template + eventos e
+      // agenda gerados + capa no Storage + caches RAM/disco. O batch só com
+      // os refs dos templates deixava tudo o resto vivo, e o evento voltava.
+      final res = await ChurchEventTemplateDeleteService.deleteTemplates(
+        tenantId: tid,
+        templateIds: ids,
+      );
+      ChurchEventosLoadService.invalidate(tid);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.successSnackBar('Eventos fixos excluídos.'),
+          ThemeCleanPremium.successSnackBar(
+            _eventoFixoDeleteMessage(res),
+          ),
         );
         _selectedTemplateIds.clear();
         _selectMode = false;
         _refresh();
       }
     } catch (e) {
-      for (final id in ids) {
-        TenantDeletedDocTombstones.unmark(tid, 'event_templates', id);
-      }
+      ChurchEventTemplateDeleteService.unmarkTombstones(tid, ids);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

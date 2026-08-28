@@ -101,12 +101,17 @@ class FinanceVinculo {
   }
   final v = FinanceVinculo.deFirestore(d);
   if (v != null && v.nome.trim().isNotEmpty) {
-    return (texto: v.nome.trim(), ehFornecedor: !v.ehMembro, multiplo: false);
+    final tipo = v.ehMembro ? 'Membro' : 'Fornecedor';
+    return (
+      texto: '$tipo · ${v.nome.trim()}',
+      ehFornecedor: !v.ehMembro,
+      multiplo: false,
+    );
   }
   // Doação do Pix/site público sem membro ligado: fica o nome de quem doou.
   final doador = _campo(d, ['donorName', 'doadorNome', 'memberName']);
   if (doador.isNotEmpty) {
-    return (texto: doador, ehFornecedor: false, multiplo: false);
+    return (texto: 'Doador · $doador', ehFornecedor: false, multiplo: false);
   }
   // Vínculo com id mas sem nome guardado (registo antigo).
   if (v != null) {

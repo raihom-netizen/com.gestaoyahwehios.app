@@ -578,19 +578,25 @@ abstract final class ChurchFeedLinearPublishService {
       '$postType path=${docRef.path} tenant=$churchId',
     );
 
-    await _logDiagnostic(
-      churchId: churchId,
-      docId: docId,
-      tipo: postType,
-      storagePaths: allPaths,
-      videoPath: videoStoragePath,
-      uploadStatus: hasNewPhotos ? 'ok' : 'skipped',
-      firestoreStatus: 'ok',
-      siteStatus: publicSite ? 'scheduled' : 'skipped',
-      calendarStatus: (isEvento && syncAgenda) || syncCalendar
-          ? 'ok'
-          : 'skipped',
-      notificationStatus: 'cf_on_create',
+    // Diagnóstico em background: é um write no Firestore e segurava a barra
+    // nos 98% (e o «publicado com sucesso») depois de o post já estar gravado.
+    unawaited(
+      _logDiagnostic(
+        churchId: churchId,
+        docId: docId,
+        tipo: postType,
+        storagePaths: allPaths,
+        videoPath: videoStoragePath,
+        uploadStatus: hasNewPhotos ? 'ok' : 'skipped',
+        firestoreStatus: 'ok',
+        siteStatus: publicSite ? 'scheduled' : 'skipped',
+        calendarStatus: (isEvento && syncAgenda) || syncCalendar
+            ? 'ok'
+            : 'skipped',
+        notificationStatus: 'cf_on_create',
+      ).catchError((Object e) {
+        debugPrint('linear publish diagnostic (background): $e');
+      }),
     );
 
     _report(onUploadProgress, 1.0);

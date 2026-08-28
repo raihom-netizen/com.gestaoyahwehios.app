@@ -90,29 +90,80 @@ abstract final class YahwehDesignSystem {
       ];
 
   /// Tipografia **Inter** (padrão app / painéis).
-  static TextTheme textThemeInter(TextTheme base) =>
-      GoogleFonts.interTextTheme(base).copyWith(
-        headlineMedium:
-            GoogleFonts.inter(fontWeight: FontWeight.w600, letterSpacing: 0.3),
-        titleLarge:
-            GoogleFonts.inter(fontWeight: FontWeight.w600, letterSpacing: 0.25),
-        titleMedium:
-            GoogleFonts.inter(fontWeight: FontWeight.w600, letterSpacing: 0.2),
-        bodyLarge: GoogleFonts.inter(fontWeight: FontWeight.normal),
-        bodyMedium: GoogleFonts.inter(fontWeight: FontWeight.normal),
-        labelLarge: GoogleFonts.inter(fontWeight: FontWeight.w600),
-      );
+  ///
+  /// Cada entrada passa o estilo do [base] em `textStyle:`. Sem isso, o
+  /// `copyWith` **substituía** o estilo inteiro por um `GoogleFonts.inter(...)`
+  /// que só traz família e peso — `color`, `fontSize` e `height` ficavam
+  /// `null`. Um `Text` com esse estilo deixa de ter cor própria e passa a
+  /// herdar a do `DefaultTextStyle` mais próximo: em cima de cartão claro
+  /// dentro de superfície escura (o Command Center do master) o rótulo saía
+  /// claro sobre claro — texto que não dava para ler.
+  static TextTheme textThemeInter(TextTheme base) {
+    final t = GoogleFonts.interTextTheme(base);
+    return t.copyWith(
+      headlineMedium: GoogleFonts.inter(
+        textStyle: t.headlineMedium,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.3,
+      ),
+      titleLarge: GoogleFonts.inter(
+        textStyle: t.titleLarge,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.25,
+      ),
+      titleMedium: GoogleFonts.inter(
+        textStyle: t.titleMedium,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.2,
+      ),
+      bodyLarge: GoogleFonts.inter(
+        textStyle: t.bodyLarge,
+        fontWeight: FontWeight.normal,
+      ),
+      bodyMedium: GoogleFonts.inter(
+        textStyle: t.bodyMedium,
+        fontWeight: FontWeight.normal,
+      ),
+      labelLarge: GoogleFonts.inter(
+        textStyle: t.labelLarge,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
 
   /// Tipografia **Poppins** (alternativa para landings / títulos de marca).
-  static TextTheme textThemePoppins(TextTheme base) =>
-      GoogleFonts.poppinsTextTheme(base).copyWith(
-        headlineMedium: GoogleFonts.poppins(
-            fontWeight: FontWeight.w600, letterSpacing: 0.2),
-        titleLarge: GoogleFonts.poppins(
-            fontWeight: FontWeight.w600, letterSpacing: 0.15),
-        titleMedium: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-        bodyLarge: GoogleFonts.poppins(fontWeight: FontWeight.normal),
-        bodyMedium: GoogleFonts.poppins(fontWeight: FontWeight.normal),
-        labelLarge: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-      );
+  ///
+  /// Mesma regra de [textThemeInter]: `textStyle:` preserva cor/tamanho do
+  /// [base] — sem ele o `copyWith` deixa os estilos sem cor própria.
+  static TextTheme textThemePoppins(TextTheme base) {
+    final t = GoogleFonts.poppinsTextTheme(base);
+    return t.copyWith(
+      headlineMedium: GoogleFonts.poppins(
+        textStyle: t.headlineMedium,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.2,
+      ),
+      titleLarge: GoogleFonts.poppins(
+        textStyle: t.titleLarge,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.15,
+      ),
+      titleMedium: GoogleFonts.poppins(
+        textStyle: t.titleMedium,
+        fontWeight: FontWeight.w600,
+      ),
+      bodyLarge: GoogleFonts.poppins(
+        textStyle: t.bodyLarge,
+        fontWeight: FontWeight.normal,
+      ),
+      bodyMedium: GoogleFonts.poppins(
+        textStyle: t.bodyMedium,
+        fontWeight: FontWeight.normal,
+      ),
+      labelLarge: GoogleFonts.poppins(
+        textStyle: t.labelLarge,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
 }

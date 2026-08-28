@@ -227,7 +227,26 @@ class ThemeCleanPremium {
         selectedColor: primary.withValues(alpha: 0.12),
         side: BorderSide(color: Colors.grey.shade200),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radiusSm)),
-        labelStyle: const TextStyle(fontWeight: FontWeight.w600),
+        // `RawChip` faz `chipTheme.labelStyle ?? chipDefaults.labelStyle` —
+        // `??`, não merge: um estilo sem `color`/`fontSize` aqui DESCARTA por
+        // inteiro o default M3 (que traz onSurfaceVariant e 14px) e o rótulo
+        // fica sem cor própria — invisível sobre o fundo branco do chip.
+        // Cor e tamanho explícitos são obrigatórios neste campo.
+        labelStyle: const TextStyle(
+          color: onSurface,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
+        // `ChoiceChip` **selecionado** lê daqui (`choice_chip.dart`): sem este
+        // campo caía no labelStyle sem cor e o filtro escolhido ficava sem
+        // rótulo visível. Cor primária sobre o `selectedColor` (o mesmo azul a
+        // 12%) marca a seleção e mantém contraste.
+        secondaryLabelStyle: const TextStyle(
+          color: primary,
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+        ),
+        iconTheme: const IconThemeData(color: onSurfaceVariant, size: 18),
       ),
       dividerTheme: DividerThemeData(
         color: Colors.grey.shade200,
