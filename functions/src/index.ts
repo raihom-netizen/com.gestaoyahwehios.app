@@ -7472,6 +7472,8 @@ export {
 } from "./masterChurchesListCache";
 
 export { getChurchMembersDirectory } from "./membersDirectoryCache";
+export { deleteChurchCompletely } from "./deleteChurchCompletely";
+export { getChurchStorageFootprint } from "./churchStorageFootprint";
 
 export { getRelatoriosBundle } from "./reportsSnapshot";
 

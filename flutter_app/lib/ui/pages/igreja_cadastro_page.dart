@@ -36,6 +36,7 @@ import 'package:gestao_yahweh/services/church_cadastro_load_service.dart';
 import 'package:gestao_yahweh/services/church_cadastro_save_service.dart';
 import 'package:gestao_yahweh/services/storage_media_service.dart';
 import 'package:gestao_yahweh/services/church_context_service.dart';
+import 'package:gestao_yahweh/core/tenant/church_context.dart';
 import 'package:gestao_yahweh/core/repositories/church_repository.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_skeleton_loading.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_links_card.dart';
@@ -158,11 +159,20 @@ class IgrejaCadastroPage extends StatefulWidget {
   /// No painel embutido ([IgrejaCleanShell]) evita AppBar duplicada com o [ModuleHeaderPremium].
   final bool embeddedInShell;
 
+  /// Endereça a igreja de [tenantId] **exatamente**, sem passar pelo override
+  /// do seletor «Trocar de igreja».
+  ///
+  /// O painel master abre esta tela para uma igreja concreta que não é a que
+  /// está aberta no painel: sem isto, o resolvedor devolveria a igreja do
+  /// override e o operador editaria o cadastro da igreja errada.
+  final bool exactTenant;
+
   const IgrejaCadastroPage({
     super.key,
     required this.tenantId,
     required this.role,
     this.embeddedInShell = false,
+    this.exactTenant = false,
   });
 
   @override
@@ -170,6 +180,15 @@ class IgrejaCadastroPage extends StatefulWidget {
 }
 
 class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
+  /// Id da igreja desta tela.
+  ///
+  /// Com [IgrejaCadastroPage.exactTenant] não passa pelo override do seletor —
+  /// é o que permite ao master editar o cadastro de uma igreja diferente da
+  /// que está aberta no painel.
+  String _resolvedChurchId(String seed) => widget.exactTenant
+      ? ChurchContext.resolveExactChurchId(seed)
+      : _resolvedChurchId(seed);
+
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
 
@@ -355,7 +374,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   Future<void> _bootstrapCadastro({bool forceRefresh = false}) async {
     final seedId = widget.tenantId.trim();
-    final cacheChurchId = ChurchRepository.churchId(seedId);
+    final cacheChurchId = _resolvedChurchId(seedId);
     if (!forceRefresh && !_formHydrated && cacheChurchId.isNotEmpty) {
       await YahwehModuleCaches.igrejaRoot.warmUp(cacheChurchId);
       final cachedDocs = YahwehModuleCaches.igrejaRoot.docs;
@@ -401,7 +420,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     } on TimeoutException {
       if (!mounted) return;
       final id =
-          (_operationalTenantId ?? ChurchRepository.churchId(widget.tenantId))
+          (_operationalTenantId ?? _resolvedChurchId(widget.tenantId))
               .trim();
       if (id.isNotEmpty) {
         _operationalTenantId ??= id;
@@ -423,7 +442,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     } catch (e) {
       if (!mounted) return;
       final id =
-          (_operationalTenantId ?? ChurchRepository.churchId(widget.tenantId))
+          (_operationalTenantId ?? _resolvedChurchId(widget.tenantId))
               .trim();
       if (id.isNotEmpty) {
         _operationalTenantId ??= id;
@@ -449,7 +468,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
 
   Future<void> _bootstrapCadastroInner({bool forceRefresh = false}) async {
     final seed = widget.tenantId.trim();
-    final churchId = ChurchRepository.churchId(seed);
+    final churchId = _resolvedChurchId(seed);
 
     if (churchId.isEmpty) {
       if (!mounted) return;
@@ -1823,7 +1842,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   Future<String> _resolveTenantIdForSave() async {
     final cached = (_operationalTenantId ?? '').trim();
     if (cached.isNotEmpty) return cached;
-    return ChurchRepository.churchId(widget.tenantId);
+    return _resolvedChurchId(widget.tenantId);
   }
 
   Future<void> _save() async {
@@ -2806,7 +2825,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
   @override
   Widget build(BuildContext context) {
     if (!_cadastroBootstrapDone &&
-        ChurchRepository.churchId(widget.tenantId).isEmpty) {
+        _resolvedChurchId(widget.tenantId).isEmpty) {
       return Scaffold(
         backgroundColor: ThemeCleanPremium.surface,
         appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
@@ -2815,7 +2834,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
     }
     if (_cadastroBootstrapError != null &&
         (_operationalTenantId ?? '').trim().isEmpty &&
-        ChurchRepository.churchId(widget.tenantId).isEmpty) {
+        _resolvedChurchId(widget.tenantId).isEmpty) {
       return Scaffold(
         backgroundColor: ThemeCleanPremium.surface,
         appBar: widget.embeddedInShell ? null : _igrejaCadastroAppBar(),
@@ -2982,7 +3001,7 @@ class _IgrejaCadastroPageState extends State<IgrejaCadastroPage> {
                               key: _logoEditorKey,
                               churchIdHint: resolvedId.isNotEmpty
                                   ? resolvedId
-                                  : ChurchRepository.churchId(widget.tenantId),
+                                  : _resolvedChurchId(widget.tenantId),
                               canAdd: _canEdit,
                               canChange: _canEdit,
                               canRemove: _canEdit,

@@ -56,6 +56,19 @@ abstract final class MasterChurchesListService {
     _memCachedAt = null;
   }
 
+  /// Esquece RAM **e** disco.
+  ///
+  /// `invalidateMemory` sozinho não chega depois de apagar uma igreja:
+  /// `loadFast` lê `readAnyLocal()` (SharedPreferences) antes de qualquer
+  /// outra fonte, e a igreja apagada voltava à lista na abertura seguinte.
+  static Future<void> invalidateAll() async {
+    invalidateMemory();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefsKey);
+    } catch (_) {}
+  }
+
   static void _storeMem(List<MasterChurchListItem> items) {
     if (items.isEmpty) return;
     _memCache = List<MasterChurchListItem>.unmodifiable(items);
@@ -109,6 +122,21 @@ abstract final class MasterChurchesListService {
     }
   }
 
+  /// `true` quando o índice anuncia mais igrejas do que a lista que traz.
+  ///
+  /// Aconteceu em produção: a função que monta o índice usava
+  /// `orderBy('createdAt')`, e o Firestore omite quem não tem o campo — o
+  /// índice ficava com `total: 4` e `churches: [3]`. A Lista Igrejas mostrava
+  /// 3 e o KPI, que conta de verdade, mostrava 4. Nesse caso o índice não
+  /// serve: vale ler os documentos reais.
+  static bool _indexIncomplete(
+    Map<String, dynamic>? raw,
+    List<MasterChurchListItem> parsed,
+  ) {
+    final total = _indexTotal(raw);
+    return total > 0 && parsed.length < total;
+  }
+
   static int _indexTotal(Map<String, dynamic>? raw) {
     if (raw == null) return 0;
     final t = raw['total'];
@@ -145,7 +173,7 @@ abstract final class MasterChurchesListService {
       try {
         final cached = await fetch(Source.cache);
         final parsed = _parseChurches(cached.data());
-        if (parsed.isNotEmpty) {
+        if (parsed.isNotEmpty && !_indexIncomplete(cached.data(), parsed)) {
           _storeMem(parsed);
           return parsed;
         }
@@ -161,7 +189,15 @@ abstract final class MasterChurchesListService {
         forceServer ? Source.server : Source.serverAndCache,
       );
       final parsed = _parseChurches(snap.data());
+      if (parsed.isNotEmpty && !_indexIncomplete(snap.data(), parsed)) {
+        _storeMem(parsed);
+        return parsed;
+      }
       if (parsed.isNotEmpty) {
+        // Índice incompleto: ler os documentos reais em vez de mostrar menos
+        // igrejas do que o total anunciado.
+        final direct = await _loadDirectFallback(forceServer: true);
+        if (direct.isNotEmpty) return direct;
         _storeMem(parsed);
         return parsed;
       }

@@ -30,6 +30,8 @@ import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_publication_button.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_notice_button.dart';
 import 'package:gestao_yahweh/app_theme.dart';
+import 'package:gestao_yahweh/ui/pages/master_church_overview_page.dart';
+import 'package:gestao_yahweh/ui/pages/master_nova_igreja_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';

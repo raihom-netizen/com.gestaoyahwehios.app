@@ -1424,11 +1424,13 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                       child: FilledButton.icon(
                                         onPressed: widget.canEdit
                                             ? () async {
-                                                await showDialog(
-                                                  context: context,
-                                                  builder: (_) =>
-                                                      const _NovaIgrejaDialog(),
-                                                );
+                                                await Navigator.of(context)
+                                                    .push<void>(
+                                                      MaterialPageRoute<void>(
+                                                        builder: (_) =>
+                                                            const MasterNovaIgrejaPage(),
+                                                      ),
+                                                    );
                                               }
                                             : null,
                                         icon: const Icon(Icons.add),
@@ -1546,11 +1548,13 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                                         FilledButton.icon(
                                           onPressed: widget.canEdit
                                               ? () async {
-                                                  await showDialog(
-                                                    context: context,
-                                                    builder: (_) =>
-                                                        const _NovaIgrejaDialog(),
-                                                  );
+                                                  await Navigator.of(context)
+                                                      .push<void>(
+                                                        MaterialPageRoute<void>(
+                                                          builder: (_) =>
+                                                              const MasterNovaIgrejaPage(),
+                                                        ),
+                                                      );
                                                 }
                                               : null,
                                           icon: const Icon(Icons.add),
@@ -1894,12 +1898,18 @@ class _IgrejasTabState extends State<_IgrejasTab> {
                               canEdit: widget.canEdit,
                             ),
                             TextButton.icon(
-                              onPressed: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (_) =>
-                                      _DetalhesIgrejaDialog(igreja: ig),
+                              onPressed: () async {
+                                // Tela cheia: membros, líderes, gestores,
+                                // dados, armazenamento, links e ações.
+                                await Navigator.of(context).push<bool>(
+                                  MaterialPageRoute<bool>(
+                                    builder: (_) => MasterChurchOverviewPage(
+                                      tenantId: igrejaId,
+                                      initialData: ig,
+                                    ),
+                                  ),
                                 );
+                                if (context.mounted) setState(() {});
                               },
                               icon: const Icon(
                                 Icons.visibility_rounded,

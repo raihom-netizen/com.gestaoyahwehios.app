@@ -1,4 +1,12 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2249: Master deixa de ver dados da igreja errada. `userCanAccessTenant`
+/// (functions) nao reconhecia o operador global: para uma igreja onde ele nao e
+/// membro nem gestor devolvia false, e `resolveTenantIdForCallable` DESCARTAVA o
+/// tenantId enviado pelo painel e caia no `users/{uid}.igrejaId`. Afetava as
+/// callables de 7 ficheiros (diretorio de membros, dashboard, relatorios, PDFs,
+/// anexos). Lista Igrejas mostrava 3 de 4: o indice era montado com
+/// `orderBy('createdAt')` e o Firestore omite quem nao tem o campo — agora
+/// ordena em memoria, e o app rejeita indice com menos itens que o total.
 /// 11.2.305+2248: Publicar/anexar midia muito mais rapido em Eventos, Avisos e
 /// nas reunioes da Agenda (mesmo pipeline nas 3 plataformas): progresso real do
 /// encode de video, barra que nao anda para tras, fotos pre-enviadas ao anexar
@@ -598,7 +606,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2248';
+const String appBuildNumber = '2249';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,
