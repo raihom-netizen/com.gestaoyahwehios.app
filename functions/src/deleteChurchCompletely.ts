@@ -100,7 +100,7 @@ export const deleteChurchCompletely = functions
       .toLowerCase();
 
     // Só o operador global apaga uma igreja inteira.
-    if (!(await isMasterOperator(uid, email))) {
+    if (!(await isMasterOperator(uid, email, context.auth.token as Record<string, unknown>))) {
       throw new functions.https.HttpsError(
         "permission-denied",
         "Apenas o operador master pode excluir uma igreja.",

@@ -6,6 +6,8 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 
 /// Controle de licença no painel admin (Gestão Yahweh).
 /// Igrejas: prorrogar prazo, alterar plano, remover/reativar.
@@ -31,6 +33,25 @@ class BillingLicenseService {
 
   static Timestamp _tsNow() => Timestamp.now();
 
+  /// Lê um doc **sem** abrir alvo de listen no SDK JS.
+  ///
+  /// O `get()` do SDK na web passa pelo caminho de LISTEN (um alvo por leitura);
+  /// milhares de alvos numa sessão rebentam no `WatchChangeAggregator`
+  /// (`INTERNAL ASSERTION FAILED`). REST não tem agregador.
+  Future<Map<String, dynamic>> _readDocMap(
+    DocumentReference<Map<String, dynamic>> ref,
+  ) async {
+    if (YahwehRestFirst.prefer) {
+      try {
+        return await firestoreRestGetDoc(ref.path) ?? <String, dynamic>{};
+      } catch (_) {
+        return <String, dynamic>{};
+      }
+    }
+    final doc = await ref.get();
+    return doc.data() ?? <String, dynamic>{};
+  }
+
   Future<void> _runLicenseWrite(Future<void> Function() fn) async {
     await FirestoreWebGuard.prepareForCriticalWrite();
     await FirestoreWebGuard.runWithWebRecovery(fn, maxAttempts: 4);
@@ -43,8 +64,7 @@ class BillingLicenseService {
     await _runLicenseWrite(() async {
       final op = await ChurchOperationalPaths.resolveCached(igrejaId);
       final ref = ChurchOperationalPaths.churchDoc(op);
-      final doc = await ref.get();
-      final data = doc.data() ?? {};
+      final data = await _readDocMap(ref);
       DateTime base = DateTime.now();
       final existing = data['licenseExpiresAt'];
       if (existing is Timestamp) {
@@ -458,8 +478,7 @@ class BillingLicenseService {
     await _runLicenseWrite(() async {
       final op = await ChurchOperationalPaths.resolveCached(tenantId);
       final ref = ChurchOperationalPaths.churchDoc(op);
-      final doc = await ref.get();
-      final data = doc.data() ?? {};
+      final data = await _readDocMap(ref);
       DateTime base = DateTime.now();
       final existing = data['licenseExpiresAt'];
       if (existing is Timestamp) {

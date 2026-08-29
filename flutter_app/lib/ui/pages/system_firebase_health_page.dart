@@ -100,34 +100,58 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
       _busy = true;
       _error = null;
     });
-    await _resolveTenant();
     try {
-      if (!FirebaseBootstrapService.isReady()) {
-        await FirebaseBootstrapService.initialize();
-      }
-      final h = await FirebaseBootstrapService.healthCheck(
+      await _resolveTenant().timeout(const Duration(seconds: 8));
+    } catch (_) {}
+    // Cada sonda tem prazo próprio e falha isolada: uma sonda lenta não pode
+    // deixar a tela presa no «a carregar» (era o que acontecia — spinner
+    // eterno sem nunca mostrar as abas com o que já estava pronto).
+    if (!FirebaseBootstrapService.isReady()) {
+      try {
+        await FirebaseBootstrapService.initialize().timeout(
+          const Duration(seconds: 12),
+        );
+      } catch (_) {}
+    }
+    final falhas = <String>[];
+
+    FirebaseHealthReport? h;
+    try {
+      h = await FirebaseBootstrapService.healthCheck(
         requireAuthSession: false,
         logLabel: 'admin_health',
-      );
-      final central = await SystemHealthService.probe(
+      ).timeout(const Duration(seconds: 15));
+    } catch (e) {
+      falhas.add('Firebase: ${formatFirebaseErrorForUser(e, logToCrashlytics: false)}');
+    }
+
+    SystemHealthSnapshot? central;
+    try {
+      central = await SystemHealthService.probe(
         tenantIdHint: _tenantId,
         requireAuth: false,
-      );
-      final diag = await AdminDiagnosticService.load(tenantIdHint: _tenantId);
-      if (!mounted) return;
-      setState(() {
-        _report = h;
-        _health = central;
-        _diagnostic = diag;
-        _busy = false;
-      });
-    } catch (e, st) {
-      if (!mounted) return;
-      setState(() {
-        _error = formatFirebaseErrorForUser(e, stackTrace: st);
-        _busy = false;
-      });
+      ).timeout(const Duration(seconds: 15));
+    } catch (e) {
+      falhas.add('Central: ${formatFirebaseErrorForUser(e, logToCrashlytics: false)}');
     }
+
+    AdminDiagnosticSnapshot? diag;
+    try {
+      diag = await AdminDiagnosticService.load(
+        tenantIdHint: _tenantId,
+      ).timeout(const Duration(seconds: 15));
+    } catch (e) {
+      falhas.add('Diagnóstico: ${formatFirebaseErrorForUser(e, logToCrashlytics: false)}');
+    }
+
+    if (!mounted) return;
+    setState(() {
+      if (h != null) _report = h;
+      if (central != null) _health = central;
+      if (diag != null) _diagnostic = diag;
+      _busy = false;
+      _error = falhas.isEmpty ? null : falhas.join('\n');
+    });
     await _loadLocalQueues();
   }
 
@@ -176,43 +200,182 @@ class _SystemFirebaseHealthPageState extends State<SystemFirebaseHealthPage>
     final r = _report;
     final memQueue = StorageUploadQueueService.instance.pendingCount;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Diagnóstico do Sistema'),
-        bottom: TabBar(
-          controller: _tabs,
-          isScrollable: true,
-          tabs: const [
-            Tab(text: 'Central'),
-            Tab(text: 'Diagnóstico'),
-            Tab(text: 'Modo QA'),
-            Tab(text: 'Métricas'),
-            Tab(text: 'Firebase'),
-            Tab(text: 'Uploads'),
-            Tab(text: 'Filas locais'),
+      backgroundColor: ThemeCleanPremium.surfaceVariant,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Cabeçalho moderno: as abas antigas eram texto branco sobre azul
+            // (indicador fininho) e mal se liam. Agora são pílulas com
+            // contraste real em ambos os estados.
+            Container(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFF1E3A8A), Color(0xFF4F46E5)],
+                ),
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(22),
+                ),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      IconButton(
+                        onPressed: () => Navigator.of(context).maybePop(),
+                        icon: const Icon(
+                          Icons.arrow_back_rounded,
+                          color: Colors.white,
+                        ),
+                        tooltip: 'Voltar',
+                      ),
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.20),
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        child: const Icon(
+                          Icons.health_and_safety_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 11),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Diagnóstico do Sistema',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            Text(
+                              'Firebase, filas, uploads e QA.',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: _busy ? null : _refresh,
+                        tooltip: 'Atualizar',
+                        icon: _busy
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.4,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.refresh_rounded,
+                                color: Colors.white,
+                              ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  TabBar(
+                    controller: _tabs,
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
+                    dividerColor: Colors.transparent,
+                    labelColor: const Color(0xFF1E3A8A),
+                    unselectedLabelColor: Colors.white,
+                    labelStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                    unselectedLabelStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    indicatorSize: TabBarIndicatorSize.tab,
+                    indicatorPadding: const EdgeInsets.symmetric(vertical: 7),
+                    indicator: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    tabs: const [
+                      Tab(text: 'Central'),
+                      Tab(text: 'Diagnóstico'),
+                      Tab(text: 'Modo QA'),
+                      Tab(text: 'Métricas'),
+                      Tab(text: 'Firebase'),
+                      Tab(text: 'Uploads'),
+                      Tab(text: 'Filas locais'),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD97706).withValues(alpha: 0.10),
+                    borderRadius: BorderRadius.circular(
+                      ThemeCleanPremium.radiusMd,
+                    ),
+                    border: Border.all(
+                      color: const Color(0xFFD97706).withValues(alpha: 0.32),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        color: Color(0xFFD97706),
+                        size: 20,
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(fontSize: 12.5, height: 1.35),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _refresh,
+                        child: const Text('Tentar de novo'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            Expanded(
+              child: _busy && r == null && _health == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : TabBarView(
+                      controller: _tabs,
+                      children: [
+                        _centralTab(),
+                        _diagnosticTab(),
+                        _qaTab(),
+                        _metricsTab(),
+                        _firebaseTab(r),
+                        _uploadsTab(),
+                        _localQueuesTab(memQueue),
+                      ],
+                    ),
+            ),
           ],
         ),
-        actions: [
-          IconButton(
-            onPressed: _busy ? null : _refresh,
-            icon: const Icon(Icons.refresh_rounded),
-            tooltip: 'Atualizar',
-          ),
-        ],
       ),
-      body: _busy && r == null
-          ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tabs,
-              children: [
-                _centralTab(),
-                _diagnosticTab(),
-                _qaTab(),
-                _metricsTab(),
-                _firebaseTab(r),
-                _uploadsTab(),
-                _localQueuesTab(memQueue),
-              ],
-            ),
     );
   }
 

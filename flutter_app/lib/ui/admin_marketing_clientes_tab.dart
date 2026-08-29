@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/services/app_storage_image_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/core/yahweh_module_media_gate.dart';
 import 'package:gestao_yahweh/services/church_canonical_media_publish.dart';
@@ -586,7 +587,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                             });
 
                             final list = _cloneItems(
-                              (await _marketingClientesDocRef.get()).data(),
+                              await firestoreReadDocSafe(_marketingClientesDocRef),
                             );
                             if (ref != null) {
                               final oldId = (ref['id'] ?? '').toString();
@@ -643,7 +644,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
                           });
 
                           final list = _cloneItems(
-                            (await _marketingClientesDocRef.get()).data(),
+                            await firestoreReadDocSafe(_marketingClientesDocRef),
                           );
                           if (ref != null) {
                             final oldId = (ref['id'] ?? '').toString();
@@ -779,7 +780,7 @@ class _AdminMarketingClientesTabState extends State<AdminMarketingClientesTab> {
       }
 
       final list = _cloneItems(
-        (await _marketingClientesDocRef.get()).data(),
+        await firestoreReadDocSafe(_marketingClientesDocRef),
       );
       list.removeWhere(
         (e) => (e['id'] ?? '').toString() == (item['id'] ?? '').toString(),

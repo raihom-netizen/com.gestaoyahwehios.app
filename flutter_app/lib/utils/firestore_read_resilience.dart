@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Leituras Firestore estáveis (padrão Controle Total): cache local → rede com retry → último snapshot bom.
@@ -58,6 +60,24 @@ class FirestoreReadResilience {
     int maxAttempts = 3,
     Duration? attemptTimeout,
   }) async {
+    // Web/desktop: REST puro. O `.get()` do SDK JS abre um alvo de listen por
+    // chamada (mesmo com `Source.server`) e o acumular desses alvos rebenta no
+    // `WatchChangeAggregator`. Ver [[project_web_rest_gateway_total_fix]].
+    if (YahwehRestFirst.prefer) {
+      final k = cacheKey.trim();
+      try {
+        final snap = await firestoreRestGetDocSnap(
+          ref.path,
+        ).timeout(attemptTimeout ?? const Duration(seconds: 14));
+        if (k.isNotEmpty) _lastDocByKey[k] = snap;
+        return snap;
+      } catch (e) {
+        final ultimo = k.isEmpty ? null : _lastDocByKey[k];
+        if (ultimo != null) return ultimo;
+        if (!isTransient(e)) rethrow;
+        // Falha transitória sem cache: cai no caminho do SDK abaixo.
+      }
+    }
     if (kIsWeb) {
       await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
     }

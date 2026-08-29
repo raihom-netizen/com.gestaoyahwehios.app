@@ -4,6 +4,7 @@ import 'package:gestao_yahweh/core/yahweh_performance_v4.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 
 /// Resultado do uso de armazenamento Firestore de uma igreja.
 class ChurchStorageUsageResult {
@@ -80,11 +81,9 @@ abstract final class ChurchStorageUsageService {
     Map<String, dynamic>? churchData;
     try {
       final op = await ChurchOperationalPaths.resolveCached(tid.trim());
-      final snap = await MasterAdminFirestore.document(
+      churchData = await firestoreReadDocSafe(
         ChurchOperationalPaths.churchDoc(op),
-        cacheKey: 'storage_church_$tid',
       );
-      churchData = snap.data();
     } catch (_) {}
 
     return ChurchStorageUsageResult(
@@ -103,24 +102,42 @@ abstract final class ChurchStorageUsageService {
     var totalDocs = 0;
     var sampledCollections = 0;
 
-    for (final name in _sampleCollections) {
-      try {
-        final snap = await FirestoreWebGuard.runWithWebRecovery(
-          () => ref
-              .collection(name)
-              .limit(YahwehPerformanceV4.masterStorageEstimateSampleLimit)
-              .get()
-              .timeout(const Duration(seconds: 12)),
-        );
-        final c = snap.docs.length;
-        final atCap =
-            c >= YahwehPerformanceV4.masterStorageEstimateSampleLimit;
-        counts[name] = c;
-        if (atCap) sampledCollections++;
-        totalDocs += c;
-      } catch (_) {
-        counts[name] = 0;
-      }
+    // As 12 coleções em PARALELO e por `count()` (RunAggregationQuery) em vez
+    // de `.get()` sequencial. O `.get()` do SDK JS abre um alvo de listen por
+    // chamada — 12 alvos por igreja, vezes N igrejas, era o que devolvia
+    // «Sincronização com o servidor em curso» nesta tela e a deixava lenta.
+    // A agregação não passa pelo watch stream e traz a contagem real.
+    final resultados = await Future.wait(
+      _sampleCollections.map((name) async {
+        final col = ref.collection(name);
+        try {
+          final agg = await col.count().get().timeout(
+            const Duration(seconds: 12),
+          );
+          return (nome: name, total: agg.count ?? 0, noLimite: false);
+        } catch (_) {
+          try {
+            final docs = await firestoreListDocsSafe(
+              col,
+              limit: YahwehPerformanceV4.masterStorageEstimateSampleLimit,
+            ).timeout(const Duration(seconds: 12));
+            return (
+              nome: name,
+              total: docs.length,
+              noLimite: docs.length >=
+                  YahwehPerformanceV4.masterStorageEstimateSampleLimit,
+            );
+          } catch (_) {
+            return (nome: name, total: 0, noLimite: false);
+          }
+        }
+      }),
+    );
+
+    for (final r in resultados) {
+      counts[r.nome] = r.total;
+      totalDocs += r.total;
+      if (r.noLimite) sampledCollections++;
     }
 
     final estimateBytes = totalDocs * 500;

@@ -1,4 +1,20 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2250: CAUSA RAIZ da INTERNAL ASSERTION do Firestore na web: o poll
+/// que substituiu `snapshots()` usava `.get()`, e no SDK JS o `.get()` TAMBEM
+/// abre um alvo de listen (nem `Source.server` escapa) — um alvo novo por ciclo
+/// ate o `WatchChangeAggregator` rebentar (targetId 1162 em producao). Painel
+/// master passa a ler por REST: Lista Igrejas, Recebimentos, Alertas,
+/// Auditoria, Gestores, Planos & Cobrancas, Marketing, Midias, Usuarios da
+/// igreja e Command Center. Recebimentos reescrito (grafico clicavel mes/ano,
+/// filtro por igreja e periodo). Armazenamento por igreja em paralelo e com
+/// `count()` (era 12 `.get()` sequenciais por igreja). Diagnostico do Sistema
+/// com abas legiveis e timeout por sonda (nao trava mais no spinner).
+/// Diagnostico Multi-Tenant achava a igreja de novo. Mudar plano manual /
+/// deixar FREE deixou de dar «Acesso restrito ao painel Master» (a callable
+/// exigia o claim `role`, que o operador SaaS nao tem). Lista Igrejas com
+/// cartoes coloridos e botoes com rotulo; «Veja mais» em tela cheia. Migrar
+/// membros ganhou transferencia entre igrejas (um, varios ou todos). Editar
+/// precos com cartao colorido por plano e botao «Sincronizar tudo».
 /// 11.2.305+2249: Master deixa de ver dados da igreja errada. `userCanAccessTenant`
 /// (functions) nao reconhecia o operador global: para uma igreja onde ele nao e
 /// membro nem gestor devolvia false, e `resolveTenantIdForCallable` DESCARTAVA o
@@ -606,7 +622,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2249';
+const String appBuildNumber = '2250';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

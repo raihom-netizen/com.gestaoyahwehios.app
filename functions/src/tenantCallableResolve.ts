@@ -23,9 +23,20 @@ const MASTER_CPF = "94536368191";
 export async function isMasterOperator(
   uid: string,
   email: string,
+  token?: Record<string, unknown>,
 ): Promise<boolean> {
   const em = String(email || "").trim().toLowerCase();
   if (em && MASTER_EMAILS.has(em)) return true;
+
+  // Claims do próprio token: não custa nenhuma leitura e cobre o caso de o
+  // e-mail não vir no token (provedores que não o expõem).
+  if (token) {
+    if (token.platformMaster === true) return true;
+    const claimEmail = String(token.email || "").trim().toLowerCase();
+    if (claimEmail && MASTER_EMAILS.has(claimEmail)) return true;
+    if (String(token.cpf || "").trim() === MASTER_CPF) return true;
+  }
+
   const id = String(uid || "").trim();
   if (!id) return false;
   try {
@@ -33,6 +44,16 @@ export async function isMasterOperator(
     if (adminDoc.exists) return true;
   } catch (e) {
     functions.logger.warn("isMasterOperator: admins", { uid: id, e });
+  }
+  // O CPF do master pode estar só nos custom claims — em produção o
+  // `users/{uid}` do operador não tem o campo.
+  try {
+    const tokenUser = await admin.auth().getUser(id);
+    const claims = (tokenUser.customClaims || {}) as Record<string, unknown>;
+    if (claims.platformMaster === true) return true;
+    if (String(claims.cpf || "").trim() === MASTER_CPF) return true;
+  } catch (e) {
+    functions.logger.warn("isMasterOperator: claims", { uid: id, e });
   }
   try {
     const userSnap = await fs().collection("users").doc(id).get();
@@ -57,7 +78,7 @@ export async function resolveTenantIdForCallable(
     .toLowerCase();
 
   const fromBody = String(dataTenantId || "").trim();
-  if (fromBody && (await userCanAccessTenant(uid, email, fromBody))) {
+  if (fromBody && (await userCanAccessTenant(uid, email, fromBody, auth.token))) {
     const ig = await fs().collection("igrejas").doc(fromBody).get();
     if (ig.exists) return fromBody;
   }
@@ -120,6 +141,7 @@ export async function userCanAccessTenant(
   uid: string,
   email: string,
   tenantId: string,
+  token?: Record<string, unknown>,
 ): Promise<boolean> {
   const tid = String(tenantId || "").trim();
   if (!tid) return false;
@@ -129,7 +151,7 @@ export async function userCanAccessTenant(
   // O operador global abre qualquer igreja no painel — é o que o seletor
   // «Trocar de igreja» faz. Esta verificação vem primeiro porque ele
   // tipicamente NÃO é membro nem gestor da igreja visitada.
-  if (await isMasterOperator(uid, email)) return true;
+  if (await isMasterOperator(uid, email, token)) return true;
 
   const byUid = await fs()
     .collection("igrejas")

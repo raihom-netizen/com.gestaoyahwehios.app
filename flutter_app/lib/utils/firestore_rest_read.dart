@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fa;
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 
 /// Leitura Firestore via **REST puro** (`firestore.googleapis.com/v1 :runQuery`).
 ///
@@ -166,6 +168,10 @@ class RestFieldFilter {
   /// `field == value` — converte o valor Dart para o formato REST.
   factory RestFieldFilter.equal(String field, dynamic value) =>
       RestFieldFilter(field, 'EQUAL', _toRestValue(value));
+
+  /// `field > value`.
+  factory RestFieldFilter.greaterThan(String field, dynamic value) =>
+      RestFieldFilter(field, 'GREATER_THAN', _toRestValue(value));
 
   /// `field >= value`.
   factory RestFieldFilter.greaterOrEqual(String field, dynamic value) =>
@@ -564,4 +570,141 @@ Future<List<RestQueryDoc>> firestoreRestCollect({
     out.add(RestQueryDoc(id, data, ref));
   }
   return out;
+}
+
+/// Lista documentos de uma coleção **sem abrir alvo de listen** no SDK.
+///
+/// Substituto 1-para-1 de `col.where(campo, isEqualTo: v).orderBy(...).limit(n).get()`:
+/// na web/desktop vai por REST (`runQuery`), no mobile continua no SDK.
+///
+/// Existe porque cada `.get()` do SDK JS abre um alvo de Listen temporário; o
+/// acúmulo desses alvos numa sessão longa rebenta no `WatchChangeAggregator`
+/// (`FIRESTORE INTERNAL ASSERTION FAILED`) e envenena o cliente inteiro.
+Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> firestoreListDocsSafe(
+  CollectionReference<Map<String, dynamic>> col, {
+  Map<String, Object?> equals = const <String, Object?>{},
+  String? orderByField,
+  bool descending = false,
+  int? limit,
+}) async {
+  if (YahwehRestFirst.prefer) {
+    return firestoreRestCollect(
+      collectionPath: col.path,
+      filters: equals.entries
+          .map((e) => RestFieldFilter.equal(e.key, e.value))
+          .toList(),
+      orderByField: orderByField,
+      descending: descending,
+      limit: limit,
+    );
+  }
+  Query<Map<String, dynamic>> q = col;
+  for (final e in equals.entries) {
+    q = q.where(e.key, isEqualTo: e.value);
+  }
+  if (orderByField != null && orderByField.isNotEmpty) {
+    q = q.orderBy(orderByField, descending: descending);
+  }
+  if (limit != null && limit > 0) q = q.limit(limit);
+  final snap = await q.get();
+  return snap.docs;
+}
+
+/// Snapshot de UM documento sem abrir alvo de listen no SDK (web/desktop →
+/// REST). Troca directa de `ref.get()` — preserva `.exists` e `.data()`.
+Future<DocumentSnapshot<Map<String, dynamic>>> firestoreGetDocSafe(
+  DocumentReference<Map<String, dynamic>> ref,
+) async {
+  if (YahwehRestFirst.prefer) return firestoreRestGetDocSnap(ref.path);
+  return ref.get();
+}
+
+/// Lê UM documento sem abrir alvo de listen no SDK (web/desktop → REST).
+///
+/// Devolve mapa vazio quando o documento não existe ou a leitura falha — os
+/// painéis tratam ausência como "sem dados", nunca como erro fatal.
+Future<Map<String, dynamic>> firestoreReadDocSafe(
+  DocumentReference<Map<String, dynamic>> ref,
+) async {
+  if (YahwehRestFirst.prefer) {
+    try {
+      return await firestoreRestGetDoc(ref.path) ?? <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+  try {
+    final snap = await ref.get();
+    return snap.data() ?? <String, dynamic>{};
+  } catch (_) {
+    return <String, dynamic>{};
+  }
+}
+
+/// Stream de uma coleção **sem abrir alvo de listen** no SDK.
+///
+/// Web/desktop: poll por REST (`runQuery`). Mobile: `snapshots()` nativo.
+///
+/// ⭐ Existe porque o "poll" antigo da web trocava `snapshots()` por `.get()` —
+/// mas no SDK JS o `.get()` TAMBÉM abre um alvo de listen temporário. Cada
+/// ciclo do poll criava um alvo novo; ao fim de uma sessão longa o contador
+/// chegava aos milhares (`targetId:1162` visto em produção) e o
+/// `WatchChangeAggregator` rebentava com `INTERNAL ASSERTION FAILED`,
+/// envenenando o cliente inteiro. O REST não tem agregador nenhum.
+Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> firestoreWatchDocsSafe(
+  CollectionReference<Map<String, dynamic>> col, {
+  Map<String, Object?> equals = const <String, Object?>{},
+  String? orderByField,
+  bool descending = false,
+  int? limit,
+  Duration interval = const Duration(seconds: 45),
+}) {
+  if (!YahwehRestFirst.prefer) {
+    Query<Map<String, dynamic>> q = col;
+    for (final e in equals.entries) {
+      q = q.where(e.key, isEqualTo: e.value);
+    }
+    if (orderByField != null && orderByField.isNotEmpty) {
+      q = q.orderBy(orderByField, descending: descending);
+    }
+    if (limit != null && limit > 0) q = q.limit(limit);
+    return q.snapshots().map((s) => s.docs);
+  }
+
+  late final StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+  controller;
+  Timer? timer;
+  var running = false;
+
+  Future<void> tick() async {
+    if (running || controller.isClosed) return;
+    running = true;
+    try {
+      final docs = await firestoreListDocsSafe(
+        col,
+        equals: equals,
+        orderByField: orderByField,
+        descending: descending,
+        limit: limit,
+      );
+      if (!controller.isClosed) controller.add(docs);
+    } catch (e) {
+      if (!controller.isClosed) controller.addError(e);
+    } finally {
+      running = false;
+    }
+  }
+
+  controller =
+      StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+        onListen: () {
+          unawaited(tick());
+          timer = Timer.periodic(interval, (_) => unawaited(tick()));
+        },
+        onCancel: () {
+          timer?.cancel();
+          timer = null;
+        },
+      );
+  return controller.stream;
 }

@@ -13,6 +13,8 @@ import 'package:gestao_yahweh/ui/widgets/master_action_queue_card.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/utils/admin_user_search.dart';
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:intl/intl.dart';
 
 /// Painel Master — Dashboard SaaS Super Premium: KPIs, gráficos de novas igrejas, usuários, recebimentos PIX/cartão, vencimentos e acessos.
@@ -236,11 +238,18 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       final usersAgg =
           await adminUsersWithEmailQuery(db.collection('users')).count().get();
       usersCount += usersAgg.count ?? 0;
-      final usersSnap =
-          await adminUsersWithEmailQuery(db.collection('users'))
-              .limit(_kUsersSampleLimit)
-              .get();
-      for (final d in usersSnap.docs) {
+      final List<QueryDocumentSnapshot<Map<String, dynamic>>> usersDocs =
+          YahwehRestFirst.prefer
+          ? await firestoreRestCollect(
+              collectionPath: db.collection('users').path,
+              filters: [RestFieldFilter.greaterThan('email', '')],
+              orderByField: 'email',
+              limit: _kUsersSampleLimit,
+            )
+          : (await adminUsersWithEmailQuery(
+              db.collection('users'),
+            ).limit(_kUsersSampleLimit).get()).docs;
+      for (final d in usersDocs) {
         if (!adminUserHasCompleteEmail(d.data())) continue;
         final dt = _parseDate(d.data()['createdAt'] ?? d.data()['created_at']);
         if (dt != null) {
@@ -291,18 +300,20 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       debugPrint('AdminDashboard _carregarDados bloco igrejas: $e\n$st');
     }
     try {
-      final pagSnap = await db
-          .collection('pagamentos')
-          .limit(_kPagamentosSampleLimit)
-          .get();
-      receitaPag = pagSnap.docs.fold(0.0, (a, b) => a + (double.tryParse(b.data()['valor']?.toString() ?? '') ?? 0));
+      final pagDocs = await firestoreListDocsSafe(
+        db.collection('pagamentos'),
+        limit: _kPagamentosSampleLimit,
+      );
+      receitaPag = pagDocs.fold(0.0, (a, b) => a + (double.tryParse(b.data()['valor']?.toString() ?? '') ?? 0));
     } catch (e, st) {
       debugPrint('AdminDashboard _carregarDados bloco pagamentos: $e\n$st');
     }
     try {
-      final salesSnap =
-          await db.collection('sales').limit(_kSalesSampleLimit).get();
-      salesDocs = salesSnap.docs.where((d) {
+      final salesSample = await firestoreListDocsSafe(
+        db.collection('sales'),
+        limit: _kSalesSampleLimit,
+      );
+      salesDocs = salesSample.where((d) {
         final status = (d.data()['status'] ?? '').toString();
         return _isRevenueStatusCountable(status);
       }).toList();
@@ -336,14 +347,15 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       debugPrint('AdminDashboard _carregarDados bloco subscriptions: $e\n$st');
     }
     try {
-      final analyticsSnap = await db
-          .collection('analytics')
-          .orderBy('createdAt', descending: true)
-          .limit(YahwehPerformanceV4.masterAnalyticsSampleLimit)
-          .get();
-      acessosRecentes = analyticsSnap.size;
+      final analyticsDocs = await firestoreListDocsSafe(
+        db.collection('analytics'),
+        orderByField: 'createdAt',
+        descending: true,
+        limit: YahwehPerformanceV4.masterAnalyticsSampleLimit,
+      );
+      acessosRecentes = analyticsDocs.length;
       final byDay = <String, int>{};
-      for (final d in analyticsSnap.docs) {
+      for (final d in analyticsDocs) {
         final dt = _parseDate(d.data()['createdAt']);
         if (dt != null) {
           final key = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
@@ -360,9 +372,9 @@ class _AdminDashboardPageState extends State<AdminDashboardPage> {
       debugPrint('AdminDashboard _carregarDados bloco analytics: $e\n$st');
     }
     try {
-      final configSnap = await db.doc('config/analytics').get();
-      if (configSnap.exists) {
-        final daily = configSnap.data()?['daily'] as Map<String, dynamic>?;
+      final configData = await firestoreReadDocSafe(db.doc('config/analytics'));
+      if (configData.isNotEmpty) {
+        final daily = configData['daily'] as Map<String, dynamic>?;
         if (daily != null && daily.isNotEmpty) {
           final list = daily.entries
               .map((e) => MapEntry(e.key, (e.value is num) ? (e.value as num).toInt() : int.tryParse(e.value.toString()) ?? 0))

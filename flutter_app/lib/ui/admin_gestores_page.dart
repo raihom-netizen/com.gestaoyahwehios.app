@@ -11,6 +11,7 @@ import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/utils/br_input_formatters.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:intl/intl.dart';
 import 'pages/usuarios_permissoes_page.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -264,12 +265,12 @@ class _IgrejaGestoresTileState extends State<_IgrejaGestoresTile> {
   Future<void> _loadStats() async {
     try {
       final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
-      final snap = await ChurchUiCollections.churchDoc(op)
-          .collection('users')
-          .limit(60)
-          .get();
+      final users = await firestoreListDocsSafe(
+        ChurchUiCollections.churchDoc(op).collection('users'),
+        limit: 60,
+      );
       var gestores = 0;
-      for (final u in snap.docs) {
+      for (final u in users) {
         final raw = u.data()['roles'] as List?;
         final roles = raw != null
             ? raw.map((e) => e.toString().toLowerCase()).toList()
@@ -281,7 +282,7 @@ class _IgrejaGestoresTileState extends State<_IgrejaGestoresTile> {
       }
       if (!mounted) return;
       setState(() {
-        _usersTotal = snap.docs.length;
+        _usersTotal = users.length;
         _gestoresCount = gestores;
         _statsLoading = false;
       });
@@ -475,8 +476,9 @@ class _CadastrarGestorDialogState extends State<_CadastrarGestorDialog> {
   Future<void> _carregar() async {
     try {
       final op = ChurchPanelTenantGateway.churchId(widget.tenantId.trim());
-      final doc = await ChurchUiCollections.churchDoc(op).get();
-      final data = doc.data() ?? {};
+      final data = await firestoreReadDocSafe(
+        ChurchUiCollections.churchDoc(op),
+      );
       if (mounted) {
         _nomeCtrl.text = (data['gestorNome'] ??
                 data['gestor_nome'] ??

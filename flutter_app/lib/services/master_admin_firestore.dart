@@ -1,7 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/utils/firestore_web_guard.dart';
 
 /// Leituras e gravações estáveis do **Painel Master** (Firestore Web 11.x).
@@ -56,6 +58,17 @@ abstract final class MasterAdminFirestore {
     Source source = Source.serverAndCache,
   }) async {
     await ensureReady();
+    // Web/desktop: REST — o `get()` do SDK abre alvo de listen e alimenta a
+    // INTERNAL ASSERTION do `WatchChangeAggregator`.
+    if (YahwehRestFirst.prefer) {
+      try {
+        return await firestoreRestGetDocSnap(
+          ref.path,
+        ).timeout(const Duration(seconds: 18));
+      } catch (_) {
+        return FirestoreReadResilience.getDocument(ref, cacheKey: cacheKey);
+      }
+    }
     try {
       return await ref
           .get(GetOptions(source: source))

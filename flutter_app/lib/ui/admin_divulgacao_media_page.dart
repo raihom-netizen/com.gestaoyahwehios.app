@@ -9,6 +9,7 @@ import 'package:gestao_yahweh/core/marketing_gallery_cms.dart';
 import 'package:gestao_yahweh/core/marketing_storage_layout.dart';
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/ui/widgets/institutional_media_period.dart';
 import 'package:gestao_yahweh/ui/widgets/marketing_gestao_yahweh_gallery.dart';
 import 'package:gestao_yahweh/ui/admin_marketing_clientes_tab.dart';
@@ -440,7 +441,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
         );
       }
 
-      final current = await _docRef.get();
+      final current = await firestoreGetDocSafe(_docRef);
       final items = _parseItems(current.data());
       items.add({
         'title': form.title,
@@ -573,7 +574,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
     var firestoreRemoved = false;
     try {
       if (kIsWeb) {
-        final snap = await _docRef.get();
+        final snap = await firestoreGetDocSafe(_docRef);
         if (!snap.exists) throw StateError('GALLERY_DOC_MISSING');
         final fresh = _parseItems(snap.data());
         final remaining =
@@ -721,7 +722,7 @@ DocumentReference<Map<String, dynamic>> get _docRef =>
     var docMissing = false;
 
     try {
-      final snap = await _docRef.get();
+      final snap = await firestoreGetDocSafe(_docRef);
       if (!snap.exists) {
         docMissing = true;
       } else {

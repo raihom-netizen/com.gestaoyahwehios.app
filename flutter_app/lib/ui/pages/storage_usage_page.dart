@@ -971,28 +971,36 @@ class _StorageUsageMasterPageState extends State<StorageUsageMasterPage> {
       }
     });
 
-    for (final church in _tenants) {
+    // Igrejas em PARALELO (lotes de 4). Antes era uma de cada vez: com muitas
+    // igrejas o painel demorava dezenas de segundos a preencher.
+    const lote = 4;
+    for (var i = 0; i < _tenants.length; i += lote) {
       if (!mounted) return;
-      try {
-        final result = await ChurchStorageUsageService.load(church.id);
-        if (!mounted) return;
-        setState(() {
-          _rows[church.id] = _ChurchStorageRowState(
-            church: church,
-            result: result,
-            loading: false,
-          );
-        });
-      } catch (e) {
-        if (!mounted) return;
-        setState(() {
-          _rows[church.id] = _ChurchStorageRowState(
-            church: church,
-            error: MasterAdminFirestore.formatLoadError(e),
-            loading: false,
-          );
-        });
-      }
+      final grupo = _tenants.skip(i).take(lote).toList();
+      await Future.wait(
+        grupo.map((church) async {
+          try {
+            final result = await ChurchStorageUsageService.load(church.id);
+            if (!mounted) return;
+            setState(() {
+              _rows[church.id] = _ChurchStorageRowState(
+                church: church,
+                result: result,
+                loading: false,
+              );
+            });
+          } catch (e) {
+            if (!mounted) return;
+            setState(() {
+              _rows[church.id] = _ChurchStorageRowState(
+                church: church,
+                error: MasterAdminFirestore.formatLoadError(e),
+                loading: false,
+              );
+            });
+          }
+        }),
+      );
     }
 
     if (mounted) setState(() => _loadingUsage = false);

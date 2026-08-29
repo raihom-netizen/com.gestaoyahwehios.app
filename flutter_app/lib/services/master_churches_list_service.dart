@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:gestao_yahweh/services/app_connectivity_service.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
@@ -163,6 +165,32 @@ abstract final class MasterChurchesListService {
   static Future<List<MasterChurchListItem>> readFirestoreIndex({
     bool forceServer = false,
   }) async {
+    // Web/desktop: o índice vem por REST (`runQuery`/`get` HTTP puro). O `get()`
+    // do SDK JS abre um alvo de LISTEN interno — é isso que faz o contador de
+    // targetId subir até milhares e rebentar no `WatchChangeAggregator`
+    // (INTERNAL ASSERTION). Ver [[project_web_rest_gateway_total_fix]].
+    if (YahwehRestFirst.prefer) {
+      try {
+        final raw = await firestoreRestGetDoc(
+          'config/master_churches_index',
+        ).timeout(const Duration(seconds: 14));
+        final parsed = _parseChurches(raw);
+        if (parsed.isNotEmpty && !_indexIncomplete(raw, parsed)) {
+          _storeMem(parsed);
+          return parsed;
+        }
+        if (parsed.isNotEmpty) {
+          final direct = await _loadDirectFallback(forceServer: true);
+          if (direct.isNotEmpty) return direct;
+          _storeMem(parsed);
+          return parsed;
+        }
+      } catch (_) {
+        // Cai no caminho do SDK abaixo (mobile-like) — nunca derruba a lista.
+      }
+      return const [];
+    }
+
     Future<DocumentSnapshot<Map<String, dynamic>>> fetch(Source source) {
       return _indexRef
           .get(GetOptions(source: source))
@@ -302,6 +330,24 @@ abstract final class MasterChurchesListService {
   static Future<List<MasterChurchListItem>> _loadDirectFallback({
     bool forceServer = false,
   }) async {
+    // Web/desktop: `igrejas` por REST — sem abrir alvo de listen no SDK.
+    if (YahwehRestFirst.prefer) {
+      try {
+        final rows = await firestoreRestCollect(
+          collectionPath: 'igrejas',
+          limit: 80,
+        ).timeout(const Duration(seconds: 14));
+        final out = rows
+            .map((d) => MasterChurchListItem(id: d.id, data: d.data()))
+            .toList()
+          ..sort((a, b) => _churchSortName(a).compareTo(_churchSortName(b)));
+        if (out.isNotEmpty) _storeMem(out);
+        return out;
+      } catch (_) {
+        return const [];
+      }
+    }
+
     final db = firebaseDefaultFirestore;
     QuerySnapshot<Map<String, dynamic>> snap;
     try {
@@ -335,4 +381,7 @@ abstract final class MasterChurchesListService {
     if (out.isNotEmpty) _storeMem(out);
     return out;
   }
+
+  static String _churchSortName(MasterChurchListItem item) =>
+      '${item.data['nome'] ?? item.data['name'] ?? item.id}'.toLowerCase();
 }

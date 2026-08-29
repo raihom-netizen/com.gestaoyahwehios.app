@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
 import 'package:gestao_yahweh/services/church_storage_footprint_service.dart';
-import 'package:gestao_yahweh/services/master_church_delete_service.dart';
+import 'package:gestao_yahweh/ui/widgets/master_church_delete_dialog.dart';
 import 'package:gestao_yahweh/services/master_church_overview_service.dart';
 import 'package:gestao_yahweh/ui/pages/igreja_cadastro_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -95,120 +95,19 @@ class _MasterChurchOverviewPageState extends State<MasterChurchOverviewPage> {
   }
 
   Future<void> _confirmDelete(MasterChurchOverview o) async {
-    final ctrl = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setLocal) {
-          final match = ctrl.text.trim() == widget.tenantId.trim();
-          return AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
-            ),
-            title: Row(
-              children: [
-                Icon(
-                  Icons.delete_forever_rounded,
-                  color: ThemeCleanPremium.error,
-                ),
-                const SizedBox(width: 8),
-                const Expanded(child: Text('Excluir igreja')),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Isto apaga DEFINITIVAMENTE "${o.name}":\n\n'
-                  '• todos os dados no Firestore (membros, financeiro, eventos, '
-                  'escalas, documentos — tudo abaixo da igreja)\n'
-                  '• todos os ficheiros no Storage (fotos, vídeos, PDFs, logo)\n'
-                  '• o site público e o link de cadastro de membros\n\n'
-                  'Não é possível desfazer. As contas de login não são '
-                  'apagadas (a mesma pessoa pode pertencer a outra igreja).',
-                  style: TextStyle(
-                    fontSize: 13,
-                    height: 1.45,
-                    color: ThemeCleanPremium.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  'Para confirmar, escreva o ID da igreja:',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: ThemeCleanPremium.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                SelectableText(
-                  widget.tenantId,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: ThemeCleanPremium.error,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: ctrl,
-                  autocorrect: false,
-                  decoration: const InputDecoration(
-                    hintText: 'ID da igreja',
-                    isDense: true,
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (_) => setLocal(() {}),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancelar'),
-              ),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: ThemeCleanPremium.error,
-                ),
-                onPressed: match ? () => Navigator.pop(ctx, true) : null,
-                icon: const Icon(Icons.delete_forever_rounded, size: 18),
-                label: const Text('Excluir tudo'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-    if (ok != true || !mounted) return;
-
     setState(() => _deleting = true);
-    try {
-      final res = await MasterChurchDeleteService.deleteChurch(
-        tenantId: widget.tenantId,
-        confirmTenantId: widget.tenantId,
-      );
-      if (!mounted) return;
-      widget.onDeleted?.call();
-      Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar(
-          'Igreja excluída — ${res.storageFilesDeleted} ficheiro(s) '
-          'removido(s) do Storage.',
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
+    final apagou = await confirmAndDeleteChurch(
+      context: context,
+      tenantId: widget.tenantId,
+      churchName: o.name,
+    );
+    if (!mounted) return;
+    if (!apagou) {
       setState(() => _deleting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Não foi possível excluir: $e'),
-          backgroundColor: ThemeCleanPremium.error,
-        ),
-      );
+      return;
     }
+    widget.onDeleted?.call();
+    Navigator.of(context).pop(true);
   }
 
   @override

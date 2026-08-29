@@ -5,6 +5,7 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import { patchMasterChurchesIndexForTenant } from "./masterChurchesListCache";
+import { isPlatformOperatorToken } from "./masterPlatformAuth";
 
 const db = admin.firestore();
 const GRACE_DAYS = 3;
@@ -294,8 +295,17 @@ export const masterApplyTenantLicense = functions
     if (!context.auth) {
       throw new functions.https.HttpsError("unauthenticated", "Faça login.");
     }
+    // O operador SaaS nem sempre tem o claim `role` no token (o master é
+    // identificado por e-mail/UID nas regras). Exigir só o claim fazia
+    // «mudar plano manual» e «deixar grátis» falharem com
+    // «Acesso restrito ao painel Master» para o próprio dono.
     const role = String(context.auth.token?.role || "").toUpperCase();
-    if (!isMasterRole(role)) {
+    const operador =
+      isPlatformOperatorToken(
+        context.auth.token as Record<string, unknown>,
+        context.auth.uid,
+      ) || isMasterRole(role);
+    if (!operador) {
       throw new functions.https.HttpsError(
         "permission-denied",
         "Acesso restrito ao painel Master.",

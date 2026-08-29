@@ -5,6 +5,7 @@ import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/utils/admin_user_search.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/ui/pages/member_card_page.dart';
 import 'package:gestao_yahweh/ui/pages/members_page.dart';
 import 'package:gestao_yahweh/core/data/church_ui_collections.dart';
@@ -95,10 +96,10 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
         }
         // Usuários dentro da igreja: subcoleção igrejas/{id}/users (painel da igreja)
         try {
-          final usersInIgreja = await ChurchUiCollections.churchDoc(
-            tid,
-          ).collection('users').get();
-          for (final d in usersInIgreja.docs) {
+          final usersInIgreja = await firestoreListDocsSafe(
+            ChurchUiCollections.churchDoc(tid).collection('users'),
+          );
+          for (final d in usersInIgreja) {
             addDoc(d);
           }
         } catch (e, st) {
@@ -106,22 +107,22 @@ class _AdminIgrejaUsuariosPageState extends State<AdminIgrejaUsuariosPage> {
         }
         // users (raiz) com tenantId/igrejaId apontando para esta igreja
         try {
-          final usersT = await db
-              .collection('users')
-              .where('tenantId', isEqualTo: tid)
-              .get();
-          for (final d in usersT.docs) {
+          final usersT = await firestoreListDocsSafe(
+            db.collection('users'),
+            equals: {'tenantId': tid},
+          );
+          for (final d in usersT) {
             if (adminUserHasCompleteEmail(d.data())) addDoc(d);
           }
         } catch (e, st) {
           debugPrint('AdminIgrejaUsuarios users tenantId($tid): $e\n$st');
         }
         try {
-          final usersI = await db
-              .collection('users')
-              .where('igrejaId', isEqualTo: tid)
-              .get();
-          for (final d in usersI.docs) {
+          final usersI = await firestoreListDocsSafe(
+            db.collection('users'),
+            equals: {'igrejaId': tid},
+          );
+          for (final d in usersI) {
             if (adminUserHasCompleteEmail(d.data())) addDoc(d);
           }
         } catch (e, st) {

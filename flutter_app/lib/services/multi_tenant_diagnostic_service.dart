@@ -3,7 +3,9 @@ import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/services/church_tenant_resilient_reads.dart';
 import 'package:gestao_yahweh/services/master_admin_firestore.dart';
 import 'package:gestao_yahweh/services/tenant_resolver_service.dart';
+import 'package:gestao_yahweh/core/tenant/church_tenant_override.dart';
 import 'package:gestao_yahweh/utils/firestore_read_resilience.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 
 enum MultiTenantCheckStatus { ok, warn, error, loading }
 
@@ -39,15 +41,20 @@ abstract final class MultiTenantDiagnosticService {
 
     var seed = (churchSeedId ?? '').trim();
     if (seed.isEmpty) {
+      // Leitura por REST: o `.get()` cru do SDK falhava em silêncio na web
+      // (assertion do agregador) e o diagnóstico dizia «Informe um ID de
+      // igreja» mesmo com `users/{uid}.igrejaId` preenchido logo acima.
       try {
-        final u = await firebaseDefaultFirestore
-            .collection('users')
-            .doc(uid)
-            .get();
-        seed = (u.data()?['igrejaId'] ?? u.data()?['tenantId'] ?? '')
-            .toString()
+        final u = await firestoreReadDocSafe(
+          firebaseDefaultFirestore.collection('users').doc(uid),
+        );
+        seed = '${u['igrejaId'] ?? u['tenantId'] ?? u['churchCanonicalId'] ?? ''}'
             .trim();
       } catch (_) {}
+    }
+    if (seed.isEmpty) {
+      // Master a operar noutra igreja: usa a igreja activa do painel.
+      seed = ChurchTenantOverride.explicit?.trim() ?? '';
     }
 
     if (seed.isEmpty) {

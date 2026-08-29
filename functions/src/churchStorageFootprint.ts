@@ -48,7 +48,11 @@ export const getChurchStorageFootprint = functions
       );
     }
 
-    const master = await isMasterOperator(uid, email);
+    const master = await isMasterOperator(
+      uid,
+      email,
+      context.auth.token as Record<string, unknown>,
+    );
     if (!master && !(await userCanAccessTenant(uid, email, tenantId))) {
       throw new functions.https.HttpsError(
         "permission-denied",

@@ -153,20 +153,27 @@ async function recomputeMasterChurchesIndex() {
             return;
     }
     await lockRef.set({ lastRun: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    let docs = [];
-    try {
-        const ordered = await db
-            .collection("igrejas")
-            .orderBy("createdAt", "desc")
-            .limit(LIST_LIMIT)
-            .get();
-        docs = ordered.docs;
-    }
-    catch (e) {
-        functions.logger.warn("masterChurchesList: orderBy createdAt", { e });
-        const plain = await db.collection("igrejas").limit(LIST_LIMIT).get();
-        docs = plain.docs;
-    }
+    // Sem `orderBy` no servidor: o Firestore OMITE silenciosamente os documentos
+    // que não têm o campo ordenado, e há igrejas sem `createdAt`. Era isso que
+    // fazia a Lista Igrejas mostrar 3 enquanto o KPI (que usa `count()`) mostrava
+    // 4 — a igreja sem `createdAt` desaparecia da lista mas continuava no total.
+    // Lemos tudo e ordenamos em memória; quem não tem data fica no fim.
+    const plain = await db.collection("igrejas").limit(LIST_LIMIT).get();
+    const docs = plain.docs.slice().sort((a, b) => {
+        const ms = (d) => {
+            const v = (d.data() || {}).createdAt;
+            if (v instanceof admin.firestore.Timestamp)
+                return v.toMillis();
+            if (typeof v === "number")
+                return v;
+            return -1;
+        };
+        const da = ms(a);
+        const db2 = ms(b);
+        if (da === db2)
+            return a.id.localeCompare(b.id);
+        return db2 - da; // mais recente primeiro; sem data (-1) vai para o fim
+    });
     const churches = docs.map((d) => lightChurchRow(d.id, d.data()));
     let total = churches.length;
     try {

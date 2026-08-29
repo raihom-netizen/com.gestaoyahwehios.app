@@ -12,6 +12,7 @@ import 'admin_usuarios_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
+import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
 import 'package:gestao_yahweh/services/billing_license_service.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -30,6 +31,7 @@ import 'package:gestao_yahweh/services/master_churches_list_service.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_publication_button.dart';
 import 'package:gestao_yahweh/ui/widgets/master_church_notice_button.dart';
 import 'package:gestao_yahweh/app_theme.dart';
+import 'package:gestao_yahweh/ui/widgets/master_church_delete_dialog.dart';
 import 'package:gestao_yahweh/ui/pages/master_church_overview_page.dart';
 import 'package:gestao_yahweh/ui/pages/master_nova_igreja_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
@@ -1992,7 +1994,7 @@ class _NovaIgrejaDialogState extends State<_NovaIgrejaDialog> {
     try {
       final op = ChurchPanelTenantGateway.churchId(slug.trim());
       final ref = ChurchUiCollections.churchDoc(op);
-      final exists = (await ref.get()).exists;
+      final exists = (await firestoreGetDocSafe(ref)).exists;
       if (exists) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(

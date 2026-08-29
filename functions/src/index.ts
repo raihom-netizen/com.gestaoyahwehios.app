@@ -7425,6 +7425,10 @@ export { syncChurchClusterDataFromRichest } from "./syncChurchClusterData";
 export { consolidateBpcChurchToCanonical, consolidateBpcChurchToCanonicalHttp, syncBpcMemberTenantLinkage, syncBpcMemberTenantLinkageHttp } from "./consolidateBpcCluster";
 
 export { masterApplyTenantLicense } from "./masterTenantLicense";
+export {
+  masterListChurchMembers,
+  masterTransferMembers,
+} from "./masterTransferMembers";
 
 export {
   migrateStorageConsolidated,

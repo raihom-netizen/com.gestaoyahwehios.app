@@ -2,6 +2,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/master_member_transfer_card.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 /// Painel Master — Migração: sincroniza usuários (users) para a tabela de membros
@@ -285,15 +286,71 @@ class _AdminMigrarMembrosPageState extends State<AdminMigrarMembrosPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Migrar membros',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800) ?? const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF4F46E5), Color(0xFF2563EB)],
+                  ),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusLg,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF4F46E5).withValues(alpha: 0.26),
+                      blurRadius: 18,
+                      offset: const Offset(0, 7),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 50,
+                      height: 50,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.20),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: const Icon(
+                        Icons.groups_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                    ),
+                    const SizedBox(width: 13),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Migrar membros',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          SizedBox(height: 3),
+                          Text(
+                            'Transferir entre igrejas, sincronizar users → '
+                            'membros e migrar mídias do Storage.',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                              height: 1.35,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Sincroniza todos os usuários (coleção users) para a tabela de membros de cada igreja (igrejas), com nome, e-mail e foto. Assim o painel da igreja passa a exibir corretamente os membros e as fotos.',
-                style: TextStyle(fontSize: 14, color: Colors.grey.shade700, height: 1.4),
-              ),
+              const SizedBox(height: 20),
+              const MasterMemberTransferCard(),
               const SizedBox(height: 24),
               MasterPremiumCard(
                 padding: const EdgeInsets.all(ThemeCleanPremium.spaceLg),

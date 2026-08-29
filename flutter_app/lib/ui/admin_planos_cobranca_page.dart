@@ -3,6 +3,7 @@ import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/firebase_bootstrap.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart';
 import 'package:gestao_yahweh/ui/widgets/master_premium_surfaces.dart';
 
 class AdminPlanosCobrancaPage extends StatefulWidget {
@@ -30,26 +31,27 @@ class _AdminPlanosCobrancaPageState extends State<AdminPlanosCobrancaPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final planosSnap = await firebaseDefaultFirestore
-          .collection('planos')
-          .limit(_kPlanosLimit)
-          .get();
-      QuerySnapshot<Map<String, dynamic>> recSnap;
+      final planosDocs = await firestoreListDocsSafe(
+        firebaseDefaultFirestore.collection('planos'),
+        limit: _kPlanosLimit,
+      );
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> recDocs;
       try {
-        recSnap = await firebaseDefaultFirestore
-            .collection('pagamentos')
-            .orderBy('data', descending: true)
-            .limit(_kPagamentosLimit)
-            .get();
+        recDocs = await firestoreListDocsSafe(
+          firebaseDefaultFirestore.collection('pagamentos'),
+          orderByField: 'data',
+          descending: true,
+          limit: _kPagamentosLimit,
+        );
       } catch (e, st) {
         debugPrint('_load pagamentos orderBy(data) fallback: $e\n$st');
-        recSnap = await firebaseDefaultFirestore
-            .collection('pagamentos')
-            .limit(_kPagamentosLimit)
-            .get();
+        recDocs = await firestoreListDocsSafe(
+          firebaseDefaultFirestore.collection('pagamentos'),
+          limit: _kPagamentosLimit,
+        );
       }
-      _planos = planosSnap.docs.map((d) => {...d.data(), 'id': d.id}).toList();
-      _recebimentos = recSnap.docs.map((d) => d.data()).toList();
+      _planos = planosDocs.map((d) => {...d.data(), 'id': d.id}).toList();
+      _recebimentos = recDocs.map((d) => d.data()).toList();
       _recebimentos.sort((a, b) {
         final da = a['data'];
         final db = b['data'];

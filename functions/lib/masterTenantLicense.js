@@ -42,6 +42,7 @@ exports.applyMasterTenantLicenseCore = applyMasterTenantLicenseCore;
 const functions = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const masterChurchesListCache_1 = require("./masterChurchesListCache");
+const masterPlatformAuth_1 = require("./masterPlatformAuth");
 const db = admin.firestore();
 const GRACE_DAYS = 3;
 /** Campos que mantêm a igreja bloqueada além de `adminBlocked`. */
@@ -273,8 +274,13 @@ exports.masterApplyTenantLicense = functions
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "Faça login.");
     }
+    // O operador SaaS nem sempre tem o claim `role` no token (o master é
+    // identificado por e-mail/UID nas regras). Exigir só o claim fazia
+    // «mudar plano manual» e «deixar grátis» falharem com
+    // «Acesso restrito ao painel Master» para o próprio dono.
     const role = String(context.auth.token?.role || "").toUpperCase();
-    if (!isMasterRole(role)) {
+    const operador = (0, masterPlatformAuth_1.isPlatformOperatorToken)(context.auth.token, context.auth.uid) || isMasterRole(role);
+    if (!operador) {
         throw new functions.https.HttpsError("permission-denied", "Acesso restrito ao painel Master.");
     }
     const tenantId = String(data?.tenantId || "").trim();
