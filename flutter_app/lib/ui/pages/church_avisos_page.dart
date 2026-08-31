@@ -430,11 +430,9 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
         data: item.toStorageCleanupPayload(),
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(
-            'Aviso excluído.',
-          ),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(ThemeCleanPremium.feedbackSnackBar('Aviso excluído.'));
         await _reload(forceRefresh: true);
       }
     } catch (e) {
@@ -474,9 +472,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar(
-            '$n aviso(s) excluído(s).',
-          ),
+          ThemeCleanPremium.feedbackSnackBar('$n aviso(s) excluído(s).'),
         );
         await _reload(forceRefresh: true);
       }
@@ -504,11 +500,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
           children: [
             Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700),
             const SizedBox(width: 8),
-            const Expanded(
-              child: Text(
-                'Confirmar exclusão',
-              ),
-            ),
+            const Expanded(child: Text('Confirmar exclusão')),
           ],
         ),
         content: Text(
@@ -519,9 +511,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text(
-              'Não',
-            ),
+            child: const Text('Não'),
           ),
           FilledButton(
             style: FilledButton.styleFrom(
@@ -543,8 +533,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
         TextField(
           controller: _searchCtrl,
           decoration: InputDecoration(
-            hintText:
-                'Buscar aviso (texto)…',
+            hintText: 'Buscar aviso (texto)…',
             prefixIcon: const Icon(Icons.search_rounded),
             filled: true,
             fillColor: Colors.white,
@@ -569,8 +558,7 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
               child: TextField(
                 controller: _assuntoCtrl,
                 decoration: InputDecoration(
-                  hintText:
-                      'Assunto / título…',
+                  hintText: 'Assunto / título…',
                   prefixIcon: const Icon(Icons.topic_outlined, size: 20),
                   filled: true,
                   fillColor: Colors.white,
@@ -645,17 +633,10 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
               const SizedBox(width: 8),
               _filterChip('Esta semana', _AvisoListFilter.estaSemana),
               const SizedBox(width: 8),
-              _filterChip(
-                'Este mês',
-                _AvisoListFilter.esteMes,
-              ),
+              _filterChip('Este mês', _AvisoListFilter.esteMes),
               const SizedBox(width: 8),
               FilterChip(
-                label: Text(
-                  _sortDateAsc
-                      ? 'Data ↑'
-                      : 'Data ↓',
-                ),
+                label: Text(_sortDateAsc ? 'Data ↑' : 'Data ↓'),
                 selected: true,
                 onSelected: (_) => setState(() => _sortDateAsc = !_sortDateAsc),
                 showCheckmark: false,
@@ -712,8 +693,9 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
   }
 
   String _formatDate(DateTime? dt) {
-    if (dt == null)
+    if (dt == null) {
       return '—';
+    }
     return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
   }
 
@@ -754,13 +736,11 @@ class _ChurchAvisosPageState extends State<ChurchAvisosPage> {
                   delegate: SliverChildListDelegate([
                     if (_showingStaleCache && _items.isNotEmpty)
                       const ChurchPanelOfflineStaleBanner(
-                        message:
-                            'Mostrando avisos em cache — sincronizando…',
+                        message: 'Mostrando avisos em cache — sincronizando…',
                       ),
                     if (_loadError != null && _items.isEmpty)
                       ChurchPanelErrorBody(
-                        title:
-                            'Não foi possível carregar os avisos.',
+                        title: 'Não foi possível carregar os avisos.',
                         error: _loadError,
                         onRetry: _reload,
                       ),
@@ -1480,8 +1460,9 @@ class _AvisoGridCardState extends State<_AvisoGridCard> {
   }
 
   static String _formatExpiry(DateTime? dt) {
-    if (dt == null)
+    if (dt == null) {
       return '—';
+    }
     return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
   }
 }
@@ -1636,8 +1617,7 @@ class _AvisoListCardState extends State<_AvisoListCard> {
                                 ),
                                 _miniTag(
                                   icon: Icons.photo_library_outlined,
-                                  text:
-                                      avisoMediaLabelFor(widget.item),
+                                  text: avisoMediaLabelFor(widget.item),
                                   color: tone.secondary,
                                 ),
                                 _miniTag(
@@ -1895,9 +1875,7 @@ class _AvisoViewerSheetState extends State<_AvisoViewerSheet> {
                       if (item.hasVideo)
                         _viewerTag(
                           Icons.play_circle_rounded,
-                          ytId.isNotEmpty
-                              ? 'YouTube'
-                              : 'Vídeo',
+                          ytId.isNotEmpty ? 'YouTube' : 'Vídeo',
                           const Color(0xFFE1306C),
                         ),
                     ],
@@ -2091,9 +2069,8 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
   /// Idem para as fotos pré-enviadas.
   bool _photosHandedOffToPublish = false;
 
-  String get _videoPostId => _isEdit
-      ? (widget.initialItem?.id ?? '')
-      : _reservedPostId;
+  String get _videoPostId =>
+      _isEdit ? (widget.initialItem?.id ?? '') : _reservedPostId;
 
   bool get _isEdit => widget.initialItem != null;
 
@@ -2123,12 +2100,13 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     _bodyCtrl.text = item.body;
     _permanent = item.permanent;
     _publicSite = item.rawData['publicSite'] != false;
-    final savedColor = (item.rawData['agendaColorHex'] ??
-            item.rawData['colorHex'] ??
-            item.rawData['color'] ??
-            '')
-        .toString()
-        .trim();
+    final savedColor =
+        (item.rawData['agendaColorHex'] ??
+                item.rawData['colorHex'] ??
+                item.rawData['color'] ??
+                '')
+            .toString()
+            .trim();
     if (savedColor.isNotEmpty) _agendaColorHex = savedColor;
     _expiresAt = item.expiresAt ?? DateTime.now().add(const Duration(days: 7));
     _existingImageUrls.addAll(item.imageUrls);
@@ -2150,9 +2128,11 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     if (!_photosHandedOffToPublish) {
       // Editor fechado sem publicar: as fotos enviadas à frente viram lixo no
       // bucket. Se a publicação já as reclamou, o registo está vazio.
-      unawaited(ChurchAvisosService.cancelPhotoPreuploads(
-        List<Uint8List>.from(_photos),
-      ));
+      unawaited(
+        ChurchAvisosService.cancelPhotoPreuploads(
+          List<Uint8List>.from(_photos),
+        ),
+      );
     }
     final pending = _localVideoPath;
     if (!_videoHandedOffToPublish && pending != null && pending.isNotEmpty) {
@@ -2220,11 +2200,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     if (localPath == null || localPath.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Não foi possível ler o vídeo.',
-            ),
-          ),
+          const SnackBar(content: Text('Não foi possível ler o vídeo.')),
         );
       }
       return;
@@ -2345,6 +2321,24 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
           );
           if (!mounted) return;
           final bytes = out.isNotEmpty ? out : raw;
+          final fingerprint =
+              ChurchInstantUploadPipeline.imageContentFingerprint(bytes);
+          final duplicate =
+              _photos.any(
+                (photo) =>
+                    ChurchInstantUploadPipeline.imageContentFingerprint(
+                      photo,
+                    ) ==
+                    fingerprint,
+              ) ||
+              picked.values.any(
+                (photo) =>
+                    ChurchInstantUploadPipeline.imageContentFingerprint(
+                      photo,
+                    ) ==
+                    fingerprint,
+              );
+          if (duplicate) return;
           lastBytes = bytes;
           lastName = encoded.name.trim().isNotEmpty
               ? encoded.name.trim()
@@ -2364,9 +2358,9 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(formatUploadErrorForUser(e))),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(formatUploadErrorForUser(e))));
       }
       return;
     }
@@ -2545,11 +2539,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
     if (titulo.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Informe o título do aviso.',
-            ),
-          ),
+          const SnackBar(content: Text('Informe o título do aviso.')),
         );
       }
       return;
@@ -2702,10 +2692,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
           ),
           title: Text(
             _isEdit ? 'Editar aviso' : 'Novo aviso',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-            ),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
           ),
           flexibleSpace: const DecoratedBox(
             decoration: BoxDecoration(
@@ -2804,8 +2791,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
           TextField(
             controller: _titleCtrl,
             decoration: const InputDecoration(
-              labelText:
-                  'Título',
+              labelText: 'Título',
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.all(Radius.circular(14)),
               ),
@@ -2898,10 +2884,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
                   onPressed: _pickExpiry,
-                  icon: const Icon(
-                    Icons.calendar_month_rounded,
-                    size: 18,
-                  ),
+                  icon: const Icon(Icons.calendar_month_rounded, size: 18),
                   label: Text(
                     _permanent
                         ? 'Data do aviso: ${_formatDateBr(_expiresAt)} (informativo)'
@@ -2997,13 +2980,8 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _publishing
-                      ? null
-                      : () => unawaited(_pickVideo()),
-                  icon: const Icon(
-                    Icons.video_library_rounded,
-                    size: 18,
-                  ),
+                  onPressed: _publishing ? null : () => unawaited(_pickVideo()),
+                  icon: const Icon(Icons.video_library_rounded, size: 18),
                   label: Text(
                     _localVideoPath != null
                         ? 'Vídeo anexado'
@@ -3024,8 +3002,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                   (_existingVideoUrl != null && !_clearVideo)) ...[
                 const SizedBox(width: 8),
                 IconButton.filledTonal(
-                  tooltip:
-                      'Remover vídeo',
+                  tooltip: 'Remover vídeo',
                   onPressed: () {
                     final pending = _localVideoPath;
                     if (pending != null && pending.isNotEmpty) {
@@ -3108,9 +3085,8 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                 Stack(
                   children: [
                     GestureDetector(
-                      onTap: () => _openAvisoPhotoZoom(
-                        url: _existingImageUrls[i],
-                      ),
+                      onTap: () =>
+                          _openAvisoPhotoZoom(url: _existingImageUrls[i]),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(16),
                         child: SafeNetworkImage(
@@ -3125,13 +3101,11 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                       top: 4,
                       right: 4,
                       child: _avisoRemoveButton(
-                        onRemove: () => setState(
-                          () {
-                            _existingImageUrls.removeAt(i);
-                            // Os slots das fotos novas recuam um lugar.
-                            _syncAvisoPhotoPreuploads();
-                          },
-                        ),
+                        onRemove: () => setState(() {
+                          _existingImageUrls.removeAt(i);
+                          // Os slots das fotos novas recuam um lugar.
+                          _syncAvisoPhotoPreuploads();
+                        }),
                       ),
                     ),
                   ],
@@ -3140,8 +3114,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                 Stack(
                   children: [
                     GestureDetector(
-                      onTap: () =>
-                          _openAvisoPhotoZoom(bytes: _photos[i]),
+                      onTap: () => _openAvisoPhotoZoom(bytes: _photos[i]),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(16),
                         child: Image.memory(
@@ -3183,8 +3156,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                       top: 4,
                       right: 4,
                       child: _avisoRemoveButton(
-                        onRemove: () =>
-                            _removeAvisoPhotoAt(i),
+                        onRemove: () => _removeAvisoPhotoAt(i),
                       ),
                     ),
                   ],
@@ -3202,10 +3174,7 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                       border: Border.all(color: Colors.grey.shade300),
                       color: Colors.grey.shade50,
                     ),
-                    child: const Icon(
-                      Icons.add_a_photo_outlined,
-                      size: 34,
-                    ),
+                    child: const Icon(Icons.add_a_photo_outlined, size: 34),
                   ),
                 ),
             ],
@@ -3232,12 +3201,8 @@ class _ChurchAvisoEditorSheetState extends State<_ChurchAvisoEditorSheet> {
                     ),
                   )
                 : Text(
-                    _isEdit
-                        ? 'Salvar alterações'
-                        : 'Publicar aviso',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                    ),
+                    _isEdit ? 'Salvar alterações' : 'Publicar aviso',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
           ),
         ],

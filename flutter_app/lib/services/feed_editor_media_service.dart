@@ -8,6 +8,13 @@ import 'package:path_provider/path_provider.dart';
 abstract final class FeedEditorMediaService {
   FeedEditorMediaService._();
 
+  static int _tempSequence = 0;
+
+  static String _uniqueTempId() {
+    _tempSequence = (_tempSequence + 1) & 0x7fffffff;
+    return '${DateTime.now().microsecondsSinceEpoch}_$_tempSequence';
+  }
+
   static String _extensionForXFile(XFile file) {
     final name = file.name.trim().toLowerCase();
     if (name.endsWith('.webp')) return 'webp';
@@ -41,8 +48,7 @@ abstract final class FeedEditorMediaService {
       } else if (name.endsWith('.webm')) {
         ext = 'webm';
       }
-      final outPath =
-          '${dir.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      final outPath = '${dir.path}/${prefix}_${_uniqueTempId()}.$ext';
       final out = File(outPath);
       final sink = out.openWrite();
       await sink.addStream(file.openRead());
@@ -67,8 +73,7 @@ abstract final class FeedEditorMediaService {
     }
     final dir = await getTemporaryDirectory();
     final ext = _extensionForXFile(file);
-    final outPath =
-        '${dir.path}/${prefix}_${DateTime.now().millisecondsSinceEpoch}.$ext';
+    final outPath = '${dir.path}/${prefix}_${_uniqueTempId()}.$ext';
 
     try {
       final bytes = await file.readAsBytes();

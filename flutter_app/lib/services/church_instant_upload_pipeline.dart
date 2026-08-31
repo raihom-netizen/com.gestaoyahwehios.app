@@ -2,6 +2,8 @@ import 'dart:async' show unawaited;
 
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/feed_tenant_storage_map.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
@@ -39,6 +41,10 @@ class FeedPhotoSlotResult {
 /// Pipeline instantâneo: **1 JPEG 1080px** por foto ? upload Storage (sem tiers WebP).
 abstract final class ChurchInstantUploadPipeline {
   ChurchInstantUploadPipeline._();
+
+  /// Identidade estável do conteúdo para impedir a mesma foto duas vezes.
+  static String imageContentFingerprint(Uint8List bytes) =>
+      bytes.isEmpty ? '' : sha256.convert(bytes).toString();
 
   /// Comprime automaticamente imagens acima de 3 MB antes do upload.
   /// Avisos: teto [kAvisoCapaMaxUploadBytes] (~150 KB) para publicação rápida.

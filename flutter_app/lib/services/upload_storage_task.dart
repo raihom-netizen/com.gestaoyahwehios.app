@@ -62,14 +62,14 @@ Future<TaskSnapshot> awaitStorageUploadTask(
   UploadTask task, {
   required int payloadBytes,
   void Function(double progress)? onProgress,
-  Duration stallAfter = const Duration(seconds: 120),
+  Duration stallAfter = const Duration(seconds: 35),
 }) async {
   final maxDuration = uploadMaxDurationForPayloadBytes(payloadBytes);
   final effectiveStall = payloadBytes <= kStorageUploadCompressedImageMaxBytes
       ? Duration(seconds: kStorageUploadCompressedImageStallSeconds)
       : payloadBytes <= 3 * 1024 * 1024
-          ? Duration(seconds: kStorageUploadImageStallSeconds)
-          : stallAfter;
+      ? Duration(seconds: kStorageUploadImageStallSeconds)
+      : stallAfter;
   final completer = Completer<TaskSnapshot>();
   StreamSubscription<TaskSnapshot>? sub;
   Timer? stallTimer;

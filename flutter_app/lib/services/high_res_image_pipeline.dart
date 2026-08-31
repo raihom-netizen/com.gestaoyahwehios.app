@@ -2,7 +2,8 @@ import 'dart:io';
 
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show compute, defaultTargetPlatform, kIsWeb, kDebugMode, debugPrint;
+import 'package:flutter/foundation.dart'
+    show compute, defaultTargetPlatform, kIsWeb, kDebugMode, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:gestao_yahweh/core/evento_aviso_media_policy.dart';
 import 'package:gestao_yahweh/core/media_upload_limits.dart';
@@ -19,6 +20,13 @@ import 'package:image_picker/image_picker.dart';
 import 'package:gestao_yahweh/services/biometric_service.dart';
 
 /// Perfil de recorte antes do upload (Yahweh Geral em alta definição).
+int _feedEncodedTempSequence = 0;
+
+String _uniqueFeedEncodedTempId() {
+  _feedEncodedTempSequence = (_feedEncodedTempSequence + 1) & 0x7fffffff;
+  return '${DateTime.now().microsecondsSinceEpoch}_$_feedEncodedTempSequence';
+}
+
 enum HighResCropProfile {
   /// Foto de membro ? quadrado 1:1 (perfil).
   memberSquare,
@@ -83,7 +91,9 @@ Future<XFile?> pickCropEncodeWebp({
   }
   final picked = await picker.pickImage(
     source: source,
-    imageQuality: kIsWeb ? kEventoAvisoFeedWebpQuality : kEffectiveMuralFeedWebpQuality,
+    imageQuality: kIsWeb
+        ? kEventoAvisoFeedWebpQuality
+        : kEffectiveMuralFeedWebpQuality,
     maxWidth: kEffectiveFeedEncodeMaxEdgePx.toDouble(),
     maxHeight: kEffectiveFeedEncodeMaxEdgePx.toDouble(),
   );
@@ -126,11 +136,12 @@ Future<XFile?> _flutterFeedCropAndEncode(
     // ignore: use_build_context_synchronously
     final croppedBytes = await Navigator.of(webCropContext, rootNavigator: true)
         .push<Uint8List?>(
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => PremiumFeedImageCropScreen(imageBytes: previewBytes),
-      ),
-    );
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (_) =>
+                PremiumFeedImageCropScreen(imageBytes: previewBytes),
+          ),
+        );
     if (croppedBytes == null || croppedBytes.isEmpty) {
       if (kIsWeb) return _encodeFeedImageFromXFile(working);
       return null;
@@ -268,7 +279,7 @@ Future<XFile?> _writeFeedEncodedBytesToXFile(
   required String mime,
 }) async {
   if (out.isEmpty) return null;
-  final name = 'gy_${DateTime.now().millisecondsSinceEpoch}.$ext';
+  final name = 'gy_${_uniqueFeedEncodedTempId()}.$ext';
   if (kIsWeb) {
     return XFile.fromData(out, mimeType: mime, name: name);
   }
@@ -307,9 +318,7 @@ Future<XFile?> _encodeFeedImageFile(String pathIn) async {
     );
     if (out != null && out.existsSync() && out.lengthSync() > 0) {
       final lower = out.path.toLowerCase();
-      final mime = lower.endsWith('.webp')
-          ? 'image/webp'
-          : 'image/jpeg';
+      final mime = lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
       final name = out.path.split(Platform.pathSeparator).last;
       return XFile(out.path, mimeType: mime, name: name);
     }
@@ -405,9 +414,7 @@ Future<List<XFile>> pickMultiEncodeFeedTurboFast(
   final batch = kEffectiveFeedCropParallel.clamp(1, 6);
   for (var start = 0; start < stable.length; start += batch) {
     final chunk = stable.skip(start).take(batch).toList();
-    final encoded = await Future.wait(
-      chunk.map(_encodeFeedImageFromXFile),
-    );
+    final encoded = await Future.wait(chunk.map(_encodeFeedImageFromXFile));
     for (var j = 0; j < encoded.length; j++) {
       final file = encoded[j];
       final globalIndex = start + j;
@@ -475,7 +482,10 @@ Future<List<XFile>> pickMultiCropEncodeFeedWebp(
 }) async {
   if (picked.isEmpty) return const [];
   final out = <XFile>[];
-  final batch = (parallel > 0 ? parallel : kEffectiveFeedCropParallel).clamp(1, 6);
+  final batch = (parallel > 0 ? parallel : kEffectiveFeedCropParallel).clamp(
+    1,
+    6,
+  );
   for (var start = 0; start < picked.length; start += batch) {
     final chunk = picked.skip(start).take(batch).toList();
     final encoded = await Future.wait(
@@ -503,8 +513,7 @@ Future<XFile?> encodeMemberPhotoAutoCenterWebp(
 }) async {
   final rawBytes = await _readPickedImageBytes(picked);
   if (rawBytes == null || rawBytes.isEmpty) return null;
-  final prepared =
-      await YahwehUnifiedImagePipeline.prepareMemberFull(rawBytes);
+  final prepared = await YahwehUnifiedImagePipeline.prepareMemberFull(rawBytes);
   if (prepared.isEmpty) return null;
   return _bytesToWebpXFile(
     prepared,
@@ -567,55 +576,57 @@ Future<XFile?> cropEncodePickedToWebp(
         maxHeight: cropMax,
         compressQuality: kCropperCompressQuality,
         compressFormat: ImageCompressFormat.jpg,
-        aspectRatio: square ? const CropAspectRatio(ratioX: 1, ratioY: 1) : null,
+        aspectRatio: square
+            ? const CropAspectRatio(ratioX: 1, ratioY: 1)
+            : null,
         uiSettings: [
-        AndroidUiSettings(
-          toolbarTitle: 'Ajustar enquadramento',
-          toolbarColor: const Color(0xFF1E40AF),
-          toolbarWidgetColor: Colors.white,
-          statusBarLight: false,
-          navBarLight: false,
-          backgroundColor: const Color(0xFF0F172A),
-          activeControlsWidgetColor: const Color(0xFFF59E0B),
-          dimmedLayerColor: const Color(0xB3000000),
-          cropFrameColor: Colors.white,
-          cropGridColor: Colors.white70,
-          cropFrameStrokeWidth: 2,
-          cropGridRowCount: 3,
-          cropGridColumnCount: 3,
-          cropGridStrokeWidth: 1,
-          showCropGrid: true,
-          hideBottomControls: false,
-          initAspectRatio: square
-              ? CropAspectRatioPreset.square
-              : CropAspectRatioPreset.original,
-          lockAspectRatio: square,
-          aspectRatioPresets: square
-              ? [CropAspectRatioPreset.square]
-              : [
-                  CropAspectRatioPreset.original,
-                  CropAspectRatioPreset.ratio16x9,
-                  CropAspectRatioPreset.ratio4x3,
-                  CropAspectRatioPreset.ratio3x2,
-                  CropAspectRatioPreset.square,
-                ],
-        ),
-        IOSUiSettings(
-          title: 'Ajustar enquadramento',
-          doneButtonTitle: 'Confirmar',
-          cancelButtonTitle: 'Cancelar',
-          aspectRatioLockEnabled: square,
-          aspectRatioPresets: square
-              ? [CropAspectRatioPreset.square]
-              : [
-                  CropAspectRatioPreset.original,
-                  CropAspectRatioPreset.square,
-                  CropAspectRatioPreset.ratio16x9,
-                  CropAspectRatioPreset.ratio4x3,
-                ],
-        ),
-      ],
-    );
+          AndroidUiSettings(
+            toolbarTitle: 'Ajustar enquadramento',
+            toolbarColor: const Color(0xFF1E40AF),
+            toolbarWidgetColor: Colors.white,
+            statusBarLight: false,
+            navBarLight: false,
+            backgroundColor: const Color(0xFF0F172A),
+            activeControlsWidgetColor: const Color(0xFFF59E0B),
+            dimmedLayerColor: const Color(0xB3000000),
+            cropFrameColor: Colors.white,
+            cropGridColor: Colors.white70,
+            cropFrameStrokeWidth: 2,
+            cropGridRowCount: 3,
+            cropGridColumnCount: 3,
+            cropGridStrokeWidth: 1,
+            showCropGrid: true,
+            hideBottomControls: false,
+            initAspectRatio: square
+                ? CropAspectRatioPreset.square
+                : CropAspectRatioPreset.original,
+            lockAspectRatio: square,
+            aspectRatioPresets: square
+                ? [CropAspectRatioPreset.square]
+                : [
+                    CropAspectRatioPreset.original,
+                    CropAspectRatioPreset.ratio16x9,
+                    CropAspectRatioPreset.ratio4x3,
+                    CropAspectRatioPreset.ratio3x2,
+                    CropAspectRatioPreset.square,
+                  ],
+          ),
+          IOSUiSettings(
+            title: 'Ajustar enquadramento',
+            doneButtonTitle: 'Confirmar',
+            cancelButtonTitle: 'Cancelar',
+            aspectRatioLockEnabled: square,
+            aspectRatioPresets: square
+                ? [CropAspectRatioPreset.square]
+                : [
+                    CropAspectRatioPreset.original,
+                    CropAspectRatioPreset.square,
+                    CropAspectRatioPreset.ratio16x9,
+                    CropAspectRatioPreset.ratio4x3,
+                  ],
+          ),
+        ],
+      );
     } catch (e) {
       if (kDebugMode) debugPrint('ImageCropper: $e');
       cropped = null;

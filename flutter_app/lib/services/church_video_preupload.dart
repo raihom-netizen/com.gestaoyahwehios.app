@@ -77,7 +77,7 @@ abstract final class ChurchVideoPreupload {
   /// `true` enquanto houver envio antecipado ativo para [localPath].
   static bool isActive(String localPath) {
     final e = _entries[localPath.trim()];
-    return e != null && !e.abandoned;
+    return e != null && !e.abandoned && !e.completed;
   }
 
   /// Progresso 0–1 do envio antecipado (0 quando não existe).

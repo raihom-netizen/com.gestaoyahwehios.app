@@ -10,10 +10,11 @@ abstract final class ResumableUploadService {
   static const int filePutThresholdBytes = 2 * 1024 * 1024;
 
   /// Teto total para um upload resumível (vídeo/ficheiro grande no chat).
+  /// O watchdog interno cancela antes quando não há avanço por 35 segundos.
   /// Sem isto, uma sessão resumível que trava (rede caiu no meio, etc.)
   /// ficava à espera para sempre — sem nunca cair no estado de erro que a
   /// UI já sabe mostrar ("Falha no envio" + tentar de novo).
-  static const Duration uploadTotalTimeout = Duration(minutes: 5);
+  static const Duration uploadTotalTimeout = Duration(minutes: 3);
 
   static bool shouldUseFileUpload(String contentType, int byteLength) {
     if (byteLength >= filePutThresholdBytes) return true;

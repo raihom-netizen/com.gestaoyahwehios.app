@@ -16,13 +16,13 @@ bool churchPostTypeAllowsHostedVideo(String postType) => true;
 
 int churchPostMaxFeedPhotos(String postType) =>
     postType.trim() == kChurchPostTypeEvento
-        ? kMaxEventFeedPhotosPerPost
-        : kMaxAvisoFeedPhotosPerPost;
+    ? kMaxEventFeedPhotosPerPost
+    : kMaxAvisoFeedPhotosPerPost;
 
 int churchPostMaxFeedVideos(String postType) =>
     postType.trim() == kChurchPostTypeEvento
-        ? kMaxEventFeedVideosPerPost
-        : kMaxAvisoFeedVideosPerPost;
+    ? kMaxEventFeedVideosPerPost
+    : kMaxAvisoFeedVideosPerPost;
 
 /// Mantido por compatibilidade — avisos agora **aceitam** vídeo/YouTube.
 @Deprecated('Avisos aceitam vídeo; não remova campos de vídeo.')
@@ -35,27 +35,33 @@ Map<String, dynamic> stripVideoFieldsForAvisoPayload(
 
 /// Eventos + avisos — upload rápido + visual aceitável (padrão Controle Total).
 ///
-/// Compressão feed: máx. **1200px**, JPEG ~**72%**, alvo **~500 KB**.
-const int kEventoAvisoFeedEncodeMaxEdgePx = 1200;
-const int kEventoAvisoFeedJpegQuality = 72;
-const int kEventoAvisoFeedWebpQuality = 72;
-const int kEventoAvisoFeedTargetMaxBytes = 500 * 1024;
+/// Compressão feed: máx. **1024px**, JPEG/WebP **70%**, alvo **~300 KB**.
+const int kEventoAvisoFeedEncodeMaxEdgePx = 1024;
+const int kEventoAvisoFeedJpegQuality = 70;
+const int kEventoAvisoFeedWebpQuality = 70;
+const int kEventoAvisoFeedTargetMaxBytes = 300 * 1024;
 
-/// Capa de aviso — teto por foto (~500 KB) — upload rápido.
-const int kAvisoCapaMaxUploadBytes = 500 * 1024;
+/// Capa de aviso — teto por foto (~300 KB) — upload rápido.
+const int kAvisoCapaMaxUploadBytes = 300 * 1024;
 
-/// Fotos de evento — mesmo teto (~500 KB) por slot.
-const int kEventoFotoMaxUploadBytes = 500 * 1024;
+/// Fotos de evento — mesmo teto (~300 KB) por slot.
+const int kEventoFotoMaxUploadBytes = 300 * 1024;
 
 /// Teto de decode em RAM no feed (listas leves; full no tap/zoom).
 const int kEventoAvisoFeedMemCacheMaxPx = 900;
 
-/// Web e mobile alinhados ao teto 1920px.
+/// Web e mobile alinhados ao teto de 1024px.
 int eventoAvisoFeedEncodeMaxEdgePx() =>
     kIsWeb ? kEventoAvisoFeedEncodeMaxEdgePx : kEventoAvisoFeedEncodeMaxEdgePx;
 
 int eventoAvisoMemCacheWidthPx(double layoutWidth, double devicePixelRatio) =>
-    (layoutWidth * devicePixelRatio).round().clamp(64, kEventoAvisoFeedMemCacheMaxPx);
+    (layoutWidth * devicePixelRatio).round().clamp(
+      64,
+      kEventoAvisoFeedMemCacheMaxPx,
+    );
 
 int eventoAvisoMemCacheHeightPx(double layoutHeight, double devicePixelRatio) =>
-    (layoutHeight * devicePixelRatio).round().clamp(64, kEventoAvisoFeedMemCacheMaxPx);
+    (layoutHeight * devicePixelRatio).round().clamp(
+      64,
+      kEventoAvisoFeedMemCacheMaxPx,
+    );

@@ -126,7 +126,7 @@ const Duration kMediaVideoTranscodeTimeout = Duration(minutes: 4);
 /// muito menos do que subir o bruto em 4G — era este limiar alto (80/40 MB)
 /// que fazia «montar um evento com vídeo» demorar minutos.
 int get mediaVideoSkipTranscodeMaxBytes =>
-    kMediaTurboMobilePreset ? (10 * 1024 * 1024) : (16 * 1024 * 1024);
+    kMediaTurboMobilePreset ? (15 * 1024 * 1024) : (20 * 1024 * 1024);
 
 /// Uploads em lote (avisos/eventos): paralelo limitado (turbo mobile = mais rápido em Wi‑Fi/4G).
 int get mediaFeedUploadMaxConcurrent {
