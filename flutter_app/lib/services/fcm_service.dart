@@ -34,6 +34,7 @@ class FcmService {
   static const _gypushKinds = <String>[
     'aviso',
     'evento',
+    'membro',
     'escala',
     'chat',
     'aniversario',
@@ -437,6 +438,7 @@ class FcmService {
     final topics = <String, String>{
       'pushAvisos': topicPushNovo(tid, 'aviso'),
       'pushEventos': topicPushNovo(tid, 'evento'),
+      'pushMembros': topicPushNovo(tid, 'membro'),
       'pushEscalas': topicPushNovo(tid, 'escala'),
       'pushChat': topicPushNovo(tid, 'chat'),
       'pushAniversariantes': topicPushNovo(tid, 'aniversario'),
@@ -445,6 +447,7 @@ class FcmService {
 
     var pushAvisos = true;
     var pushEventos = true;
+    var pushMembros = true;
     var pushEscalas = true;
     var pushChat = true;
     var pushAniversariantes = true;
@@ -459,6 +462,7 @@ class FcmService {
       if (d != null) {
         if (d['pushAvisos'] is bool) pushAvisos = d['pushAvisos'] as bool;
         if (d['pushEventos'] is bool) pushEventos = d['pushEventos'] as bool;
+        if (d['pushMembros'] is bool) pushMembros = d['pushMembros'] as bool;
         if (d['pushEscalas'] is bool) pushEscalas = d['pushEscalas'] as bool;
         if (d['pushChat'] is bool) pushChat = d['pushChat'] as bool;
         if (d['pushAniversariantes'] is bool) {
@@ -473,6 +477,7 @@ class FcmService {
         final prefs = await SharedPreferences.getInstance();
         pushAvisos = prefs.getBool('notif_avisos') ?? true;
         pushEventos = prefs.getBool('notif_eventos') ?? true;
+        pushMembros = prefs.getBool('notif_membros') ?? true;
         pushEscalas = prefs.getBool('notif_escalas') ?? true;
         pushChat = prefs.getBool('notif_chat') ?? true;
         pushAniversariantes = prefs.getBool('notif_aniversariantes') ?? true;
@@ -487,6 +492,7 @@ class FcmService {
     final flags = {
       'pushAvisos': pushAvisos,
       'pushEventos': pushEventos,
+      'pushMembros': pushMembros,
       'pushEscalas': pushEscalas,
       'pushChat': pushChat,
       'pushAniversariantes': pushAniversariantes,

@@ -71,7 +71,7 @@ async function notifyGestoresNewMember(params) {
         ? `${nome} cadastrou-se pelo site público. Toque para ver ou aprovar.`
         : `${nome} foi cadastrado(a) na igreja. Toque para ver a ficha.`;
     await (0, pushNovoConteudo_1.sendGyTopicPush)(tenantId, "gestores", (churchId) => (0, notificationBranding_1.buildGyTopicMessage)({
-        topic: (0, pushNovoConteudo_1.topicPushNovo)(churchId, "gestores"),
+        topic: (0, pushNovoConteudo_1.topicPushNovo)(churchId, "membro"),
         title: (publicSignup ? "⚡ " : "👤 ") + titulo,
         body,
         data: {

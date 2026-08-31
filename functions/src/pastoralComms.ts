@@ -875,6 +875,74 @@ export const notifySchedulePublished = functions.region("us-central1").https.onC
 });
 
 /**
+ * Ao criar uma escala, notifica automaticamente somente os membros incluídos.
+ * O botão manual continua disponível para reenvio.
+ */
+export const onEscalaCreatedNotifyAssigned = functions
+  .region("us-central1")
+  .firestore.document("igrejas/{tenantId}/escalas/{scheduleId}")
+  .onCreate(async (snap, context) => {
+    const tenantId = String(context.params.tenantId || "").trim();
+    const scheduleId = String(context.params.scheduleId || "").trim();
+    const d = (snap.data() || {}) as Record<string, unknown>;
+    const memberCpfs = Array.isArray(d.memberCpfs)
+      ? (d.memberCpfs as unknown[])
+          .map((v) => String(v || "").replace(/\D/g, ""))
+          .filter((cpf) => cpf.length === 11)
+      : [];
+    if (!tenantId || !scheduleId || !memberCpfs.length) return null;
+
+    const ts = d.date as admin.firestore.Timestamp | undefined;
+    const dateStr =
+      ts && typeof ts.toDate === "function"
+        ? formatDatePtBr(ts.toDate())
+        : "data a definir";
+    const deptName = String(d.departmentName || "").trim();
+    const titleStr = String(d.title || "Escala").trim();
+    const timeStr = String(d.time || "").trim();
+    const messages: admin.messaging.Message[] = [];
+
+    for (const cpf of memberCpfs) {
+      const tokens = await collectFcmTokensForCpfs(tenantId, [cpf]);
+      if (!tokens.length) continue;
+      const nome = await firstNameForCpf(tenantId, cpf);
+      const body = (
+        nome + ", você foi escalado(a) para " + (deptName || "o ministério") +
+        " em " + dateStr + (timeStr ? " às " + timeStr : "") +
+        (titleStr ? " — " + titleStr : "")
+      )
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 220);
+      for (const token of tokens) {
+        messages.push(
+          buildGyTokenMessage({
+            token,
+            title: "📋 Você foi escalado(a)",
+            body,
+            data: {
+              tenantId,
+              type: "escala_publicada",
+              scheduleId,
+              click_action: "FLUTTER_NOTIFICATION_CLICK",
+            },
+            module: "escala",
+          }),
+        );
+      }
+    }
+
+    if (messages.length) await sendEachInBatches(messages);
+    await snap.ref.set(
+      {
+        lastPushNotifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        assignedPushCount: messages.length,
+      },
+      { merge: true },
+    );
+    return null;
+  });
+/**
  * Quando um membro marca indisponível, avisa o tópico do departamento (líderes inscritos em dept_*).
  */
 export const onEscalaImpedimentoNotifyLeaders = functions
@@ -1160,7 +1228,7 @@ export const dayBeforeScaleReminder = functions
     return null;
   });
 
-function confirmedScheduleCpfsForReminders(d: Record<string, unknown>): string[] {
+function assignedScheduleCpfsForReminders(d: Record<string, unknown>): string[] {
   const rawList = (d.memberCpfs as unknown[]) || [];
   const digitsList = rawList
     .map((v) => String(v).replace(/\D/g, ""))
@@ -1176,7 +1244,9 @@ function confirmedScheduleCpfsForReminders(d: Record<string, unknown>): string[]
         break;
       }
     }
-    if (st === "confirmado") {
+    // Todos os escalados recebem lembrete, exceto quem recusou ou informou impedimento.
+    // Confirmação continua válida, mas não é pré-requisito.
+    if (!["recusado", "indisponivel", "indisponível", "impedido"].includes(st.toLowerCase())) {
       out.push(norm);
     }
   }
@@ -1200,6 +1270,42 @@ function eventUtcMsSp(dateTs: admin.firestore.Timestamp, timeStr: string): numbe
  * A cada 10 min: push para quem está com status "confirmado" na escala,
  * na janela ~24h antes ou ~1h antes do horário combinado (fuso SP).
  */
+export const onEscalaReminderPlanChanged = functions
+  .region("us-central1")
+  .firestore.document("igrejas/{tenantId}/escalas/{scheduleId}")
+  .onUpdate(async (change) => {
+    const before = (change.before.data() || {}) as Record<string, unknown>;
+    const after = (change.after.data() || {}) as Record<string, unknown>;
+    const beforeDate = before.date as admin.firestore.Timestamp | undefined;
+    const afterDate = after.date as admin.firestore.Timestamp | undefined;
+    const beforeMs =
+      beforeDate && typeof beforeDate.toMillis === "function"
+        ? beforeDate.toMillis()
+        : null;
+    const afterMs =
+      afterDate && typeof afterDate.toMillis === "function"
+        ? afterDate.toMillis()
+        : null;
+    const beforeCpfs = Array.isArray(before.memberCpfs)
+      ? before.memberCpfs.map(String).sort().join("|")
+      : "";
+    const afterCpfs = Array.isArray(after.memberCpfs)
+      ? after.memberCpfs.map(String).sort().join("|")
+      : "";
+    const changed =
+      beforeMs !== afterMs ||
+      String(before.time || "") !== String(after.time || "") ||
+      beforeCpfs !== afterCpfs;
+    if (!changed) return null;
+    await change.after.ref.set(
+      {
+        scaleReminder24hSent: admin.firestore.FieldValue.delete(),
+        scaleReminder1hSent: admin.firestore.FieldValue.delete(),
+      },
+      { merge: true },
+    );
+    return null;
+  });
 export const rollingScaleRemindersConfirmed = functions
   .region("us-central1")
   .pubsub.schedule("*/10 * * * *")
@@ -1230,7 +1336,7 @@ export const rollingScaleRemindersConfirmed = functions
           const msUntil = evtMs - nowMs;
           if (msUntil < 0) continue;
 
-          const cpfs = confirmedScheduleCpfsForReminders(d);
+          const cpfs = assignedScheduleCpfsForReminders(d);
           if (!cpfs.length) continue;
 
           const w24a = 22 * 3600000;

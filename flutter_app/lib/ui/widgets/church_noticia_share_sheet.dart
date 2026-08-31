@@ -1,4 +1,4 @@
-import 'dart:async' show TimeoutException, unawaited;
+import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -40,7 +40,7 @@ Rect? shareRectFromContext(BuildContext context) {
   return o & box.size;
 }
 
-/// Partilha nativa: tenta vídeo (app), imagem, senão só texto ([Share.share]).
+/// Partilha nativa: tenta vídeo (app), imagem, senão só texto ([SharePlus.instance.share]).
 Future<void> noticiaShareNativeRich({
   required String message,
   required String subject,
@@ -51,7 +51,8 @@ Future<void> noticiaShareNativeRich({
   if (videoPlayUrl != null && videoPlayUrl.trim().isNotEmpty) {
     var vu = sanitizeImageUrl(videoPlayUrl.trim());
     if (!isValidImageUrl(vu) && firebaseStorageMediaUrlLooksLike(vu)) {
-      vu = (await AppStorageImageService.instance.resolveImageUrl(
+      vu =
+          (await AppStorageImageService.instance.resolveImageUrl(
             imageUrl: vu,
           )) ??
           vu;
@@ -91,21 +92,13 @@ Future<void> noticiaShareNativeRich({
       }
       if (bytes == null) {
         final response = await http
-            .get(
-              Uri.parse(u),
-              headers: const {'Accept': 'image/*,*/*;q=0.8'},
-            )
+            .get(Uri.parse(u), headers: const {'Accept': 'image/*,*/*;q=0.8'})
             .timeout(const Duration(seconds: 12));
         if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
           bytes = response.bodyBytes;
         }
       }
       if (bytes != null && bytes.length > 32) {
-        final xFile = XFile.fromData(
-          bytes,
-          name: 'convite.jpg',
-          mimeType: 'image/jpeg',
-        );
         await YahwehShareService.shareBytes(
           bytes: bytes,
           fileName: 'convite.jpg',
@@ -170,17 +163,20 @@ Future<void> _runNativeShareWithOptionalLazyMedia({
     try {
       final media = await fetchNoticiaShareMediaBundle(
         noticiaDataForLazyMedia,
-        maxPhotos: 5,
+        // Eventos admitem até 10 fotos; avisos continuam limitados pelos dados.
+        maxPhotos: 10,
         includeVideo: true,
-        tenantId: (noticiaDataForLazyMedia['tenantId'] ??
-                noticiaDataForLazyMedia['churchId'])
-            ?.toString(),
-        postId: (noticiaDataForLazyMedia['id'] ??
-                noticiaDataForLazyMedia['postId'])
-            ?.toString(),
-        collection: (noticiaDataForLazyMedia['collection'] ??
-                noticiaDataForLazyMedia['type'])
-            ?.toString(),
+        tenantId:
+            (noticiaDataForLazyMedia['tenantId'] ??
+                    noticiaDataForLazyMedia['churchId'])
+                ?.toString(),
+        postId:
+            (noticiaDataForLazyMedia['id'] ?? noticiaDataForLazyMedia['postId'])
+                ?.toString(),
+        collection:
+            (noticiaDataForLazyMedia['collection'] ??
+                    noticiaDataForLazyMedia['type'])
+                ?.toString(),
       ).timeout(const Duration(seconds: 40)); // era 28s — margem p/ vídeo + fotos
       // Fecha o loading ANTES de abrir a folha nativa (sem spinner preso).
       popLoading();
@@ -274,41 +270,50 @@ Future<void> showChurchNoticiaShareSheet(
     }
     return eventNoticiaVideosFromDoc(noticiaDataForLazyMedia).isNotEmpty;
   })();
-  final bool canShareWhatsAppMedia = noticiaDataForLazyMedia != null &&
+  final bool canShareWhatsAppMedia =
+      noticiaDataForLazyMedia != null &&
       (galleryUrls.isNotEmpty || hasVideoForShare);
   final int photoCount = galleryUrls.length;
   final String whatsAppSubtitle = canShareWhatsAppMedia
       ? (photoCount > 1
-          ? 'Vão as $photoCount fotos${hasVideoForShare ? ' e vídeos' : ''} + texto'
-          : (hasVideoForShare
-              ? 'Vão foto e vídeo + texto premium'
-              : 'Vai a foto + texto premium'))
+            ? 'Vão as $photoCount fotos${hasVideoForShare ? ' e vídeos' : ''} + texto'
+            : (hasVideoForShare
+                  ? 'Vão foto e vídeo + texto premium'
+                  : 'Vai a foto + texto premium'))
       : 'Texto premium + link com prévia (fotos/vídeos)';
 
   if (noticiaDataForLazyMedia != null) {
-    final tid = (noticiaDataForLazyMedia['tenantId'] ??
-            noticiaDataForLazyMedia['churchId'] ??
-            '')
-        .toString()
-        .trim();
-    final pid = (noticiaDataForLazyMedia['id'] ??
-            noticiaDataForLazyMedia['postId'] ??
-            noticiaDataForLazyMedia['docId'] ??
-            '')
-        .toString()
-        .trim();
+    final tid =
+        (noticiaDataForLazyMedia['tenantId'] ??
+                noticiaDataForLazyMedia['churchId'] ??
+                '')
+            .toString()
+            .trim();
+    final pid =
+        (noticiaDataForLazyMedia['id'] ??
+                noticiaDataForLazyMedia['postId'] ??
+                noticiaDataForLazyMedia['docId'] ??
+                '')
+            .toString()
+            .trim();
     final colRaw =
-        (noticiaDataForLazyMedia['collection'] ?? noticiaDataForLazyMedia['type'] ?? 'eventos')
+        (noticiaDataForLazyMedia['collection'] ??
+                noticiaDataForLazyMedia['type'] ??
+                'eventos')
             .toString()
             .trim()
             .toLowerCase();
-    final col = (colRaw == 'avisos' || colRaw == 'aviso') ? 'avisos' : 'eventos';
+    final col = (colRaw == 'avisos' || colRaw == 'aviso')
+        ? 'avisos'
+        : 'eventos';
     if (tid.isNotEmpty && pid.isNotEmpty) {
-      unawaited(NoticiaSharePrefetchService.warm(
-        tenantId: tid,
-        postId: pid,
-        collection: col,
-      ));
+      unawaited(
+        NoticiaSharePrefetchService.warm(
+          tenantId: tid,
+          postId: pid,
+          collection: col,
+        ),
+      );
     }
     unawaited(
       resolveNoticiaShareSheetMedia(
@@ -334,7 +339,8 @@ Future<void> showChurchNoticiaShareSheet(
           decoration: BoxDecoration(
             color: ThemeCleanPremium.cardBackground,
             borderRadius: const BorderRadius.all(
-                Radius.circular(ThemeCleanPremium.radiusMd)),
+              Radius.circular(ThemeCleanPremium.radiusMd),
+            ),
             boxShadow: ThemeCleanPremium.softUiCardShadow,
             border: Border.all(color: const Color(0xFFE8EDF3)),
           ),
@@ -366,7 +372,9 @@ Future<void> showChurchNoticiaShareSheet(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
                 child: Material(
                   color: const Color(0xFF16A34A),
-                  borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusMd,
+                  ),
                   clipBehavior: Clip.antiAlias,
                   child: InkWell(
                     onTap: () {
@@ -374,22 +382,26 @@ Future<void> showChurchNoticiaShareSheet(
                       if (canShareWhatsAppMedia) {
                         // Com mídia: folha nativa leva TODAS as fotos + vídeos
                         // + legenda para o WhatsApp (API wa.me não anexa mídia).
-                        unawaited(_runNativeShareWithOptionalLazyMedia(
-                          rootContext: rootContext,
-                          shareMessage: shareMessage,
-                          shareSubject: shareSubject,
-                          previewImageUrl: previewImageUrl,
-                          videoPlayUrl: videoPlayUrl,
-                          sharePositionOrigin: sharePositionOrigin,
-                          noticiaDataForLazyMedia: noticiaDataForLazyMedia,
-                        ));
+                        unawaited(
+                          _runNativeShareWithOptionalLazyMedia(
+                            rootContext: rootContext,
+                            shareMessage: shareMessage,
+                            shareSubject: shareSubject,
+                            previewImageUrl: previewImageUrl,
+                            videoPlayUrl: videoPlayUrl,
+                            sharePositionOrigin: sharePositionOrigin,
+                            noticiaDataForLazyMedia: noticiaDataForLazyMedia,
+                          ),
+                        );
                       } else {
                         unawaited(() async {
-                          final ok =
-                              await noticiaOpenWhatsAppWithText(shareMessage);
+                          final ok = await noticiaOpenWhatsAppWithText(
+                            shareMessage,
+                          );
                           if (!ok && rootContext.mounted) {
                             YahwehWhatsAppService.showOpenFailedSnack(
-                                rootContext);
+                              rootContext,
+                            );
                           }
                         }());
                       }
@@ -401,7 +413,10 @@ Future<void> showChurchNoticiaShareSheet(
                       ),
                       child: Row(
                         children: [
-                          const WhatsappBrandIcon(size: 22, color: Colors.white),
+                          const WhatsappBrandIcon(
+                            size: 22,
+                            color: Colors.white,
+                          ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
@@ -449,7 +464,9 @@ Future<void> showChurchNoticiaShareSheet(
                       itemBuilder: (_, i) {
                         final u = sanitizeImageUrl(galleryUrls[i]);
                         final path = eventNoticiaPhotoStoragePathAt(
-                            noticiaDataForLazyMedia, i);
+                          noticiaDataForLazyMedia,
+                          i,
+                        );
                         return Material(
                           color: Colors.transparent,
                           borderRadius: BorderRadius.circular(12),
@@ -465,8 +482,8 @@ Future<void> showChurchNoticiaShareSheet(
                                     firestoreData: noticiaDataForLazyMedia,
                                     imageRefs: galleryUrls,
                                     title: shareSubject,
-                                    isEvento: (noticiaDataForLazyMedia['type'] ??
-                                                '')
+                                    isEvento:
+                                        (noticiaDataForLazyMedia['type'] ?? '')
                                             .toString() ==
                                         'evento',
                                     initialIndex: i,
@@ -481,8 +498,7 @@ Future<void> showChurchNoticiaShareSheet(
                                 color: const Color(0xFFF1F5F9),
                                 child: StableStorageImage(
                                   storagePath: path,
-                                  imageUrl:
-                                      isValidImageUrl(u) ? u : null,
+                                  imageUrl: isValidImageUrl(u) ? u : null,
                                   width: 86,
                                   height: 86,
                                   fit: BoxFit.cover,
@@ -494,7 +510,8 @@ Future<void> showChurchNoticiaShareSheet(
                                       width: 22,
                                       height: 22,
                                       child: CircularProgressIndicator(
-                                          strokeWidth: 2),
+                                        strokeWidth: 2,
+                                      ),
                                     ),
                                   ),
                                   errorWidget: Icon(
@@ -528,15 +545,17 @@ Future<void> showChurchNoticiaShareSheet(
                 subtitle: 'Escolher app (mensagens, e-mail, etc.)',
                 onTap: () {
                   Navigator.pop(ctx);
-                  unawaited(_runNativeShareWithOptionalLazyMedia(
-                    rootContext: rootContext,
-                    shareMessage: shareMessage,
-                    shareSubject: shareSubject,
-                    previewImageUrl: previewImageUrl,
-                    videoPlayUrl: videoPlayUrl,
-                    sharePositionOrigin: sharePositionOrigin,
-                    noticiaDataForLazyMedia: noticiaDataForLazyMedia,
-                  ));
+                  unawaited(
+                    _runNativeShareWithOptionalLazyMedia(
+                      rootContext: rootContext,
+                      shareMessage: shareMessage,
+                      shareSubject: shareSubject,
+                      previewImageUrl: previewImageUrl,
+                      videoPlayUrl: videoPlayUrl,
+                      sharePositionOrigin: sharePositionOrigin,
+                      noticiaDataForLazyMedia: noticiaDataForLazyMedia,
+                    ),
+                  );
                 },
               ),
               const SizedBox(height: 8),
@@ -547,11 +566,14 @@ Future<void> showChurchNoticiaShareSheet(
                   child: TextButton(
                     onPressed: () => Navigator.pop(ctx),
                     style: TextButton.styleFrom(
-                      minimumSize:
-                          const Size(0, ThemeCleanPremium.minTouchTarget),
+                      minimumSize: const Size(
+                        0,
+                        ThemeCleanPremium.minTouchTarget,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(
-                            ThemeCleanPremium.radiusMd),
+                          ThemeCleanPremium.radiusMd,
+                        ),
                       ),
                     ),
                     child: Text(
@@ -604,8 +626,9 @@ class _ShareSheetTile extends StatelessWidget {
                 height: 44,
                 decoration: BoxDecoration(
                   color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
-                  borderRadius:
-                      BorderRadius.circular(ThemeCleanPremium.radiusSm),
+                  borderRadius: BorderRadius.circular(
+                    ThemeCleanPremium.radiusSm,
+                  ),
                 ),
                 child: Icon(icon, color: ThemeCleanPremium.primary, size: 22),
               ),

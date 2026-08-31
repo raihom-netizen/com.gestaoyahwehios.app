@@ -38,20 +38,21 @@ import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 const String _keyNotifAvisos = 'notif_avisos';
 const String _keyNotifEscalas = 'notif_escalas';
 const String _keyNotifEventos = 'notif_eventos';
+const String _keyNotifMembros = 'notif_membros';
 const String _keyNotifAniversariantes = 'notif_aniversariantes';
 const String _keyNotifFornecedor = 'notif_fornecedor';
 const String _keyNotifEmail = 'notif_email';
 const String _keyNotifCelular = 'notif_celular';
 const String _keyNotifWeb = 'notif_web';
-const String _keyNotif1Dia = 'notif_1dia';
-const String _keyNotif60Min = 'notif_60min';
 const String _keyNotifMinutos = 'notif_minutos'; // personalizado
 
 class ConfiguracoesPage extends StatefulWidget {
   final String tenantId;
   final String role;
+
   /// Permissões granulares (ex.: `configuracoes_banco`) definidas pelo gestor no cadastro.
   final List<String>? permissions;
+
   /// Doc `subscriptions` mais recente (mesmo do shell) — exibir estado da licença da igreja.
   final Map<String, dynamic>? subscription;
   final bool embeddedInShell;
@@ -70,11 +71,15 @@ class ConfiguracoesPage extends StatefulWidget {
 }
 
 class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
-  late bool _notifAvisos, _notifEscalas, _notifEventos, _notifChat,
-      _notifAniversariantes, _notifFornecedor;
+  late bool _notifAvisos,
+      _notifEscalas,
+      _notifEventos,
+      _notifChat,
+      _notifAniversariantes,
+      _notifFornecedor,
+      _notifMembros;
   late String _notifChatAlertMode;
   late bool _notifEmail, _notifCelular, _notifWeb;
-  late bool _notif1Dia, _notif60Min;
   late TextEditingController _notifMinutosCtrl;
   bool _loading = true;
   Object? _churchLoadError;
@@ -92,10 +97,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   String? _operationalTenantId;
 
   String get _effectiveTenantId => ChurchPanelTenant.resolve(
-        (_operationalTenantId ?? '').isNotEmpty
-            ? _operationalTenantId
-            : widget.tenantId,
-      );
+    (_operationalTenantId ?? '').isNotEmpty
+        ? _operationalTenantId
+        : widget.tenantId,
+  );
 
   @override
   void initState() {
@@ -128,6 +133,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       _notifAvisos = prefs.getBool(_keyNotifAvisos) ?? true;
       _notifEscalas = prefs.getBool(_keyNotifEscalas) ?? true;
       _notifEventos = prefs.getBool(_keyNotifEventos) ?? true;
+      _notifMembros = prefs.getBool(_keyNotifMembros) ?? true;
       _notifChat =
           prefs.getBool(ChurchChatNotificationPrefs.sharedPrefsKey) ?? true;
       _notifChatAlertMode = ChurchChatNotificationPrefs.normalizeAlertMode(
@@ -139,8 +145,6 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       _notifEmail = prefs.getBool(_keyNotifEmail) ?? true;
       _notifCelular = prefs.getBool(_keyNotifCelular) ?? true;
       _notifWeb = prefs.getBool(_keyNotifWeb) ?? true;
-      _notif1Dia = prefs.getBool(_keyNotif1Dia) ?? true;
-      _notif60Min = prefs.getBool(_keyNotif60Min) ?? true;
       _cacheFotosPerfilNoAparelho =
           prefs.getBool(kPrefMemberPhotoDiskCacheV1) ?? true;
       _accountEmailDisplay = email.isNotEmpty ? email : '—';
@@ -158,8 +162,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
         final capable = await _biometricService
             .isDeviceBiometricCapable()
             .timeout(const Duration(seconds: 4));
-        final bioOn =
-            await _biometricService.isEnabled().timeout(const Duration(seconds: 4));
+        final bioOn = await _biometricService.isEnabled().timeout(
+          const Duration(seconds: 4),
+        );
         if (mounted) {
           setState(() {
             _bioCapable = capable;
@@ -172,6 +177,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     var av = prefs.getBool(_keyNotifAvisos) ?? true;
     var ev = prefs.getBool(_keyNotifEventos) ?? true;
     var es = prefs.getBool(_keyNotifEscalas) ?? true;
+    var membros = prefs.getBool(_keyNotifMembros) ?? true;
     var ch = prefs.getBool(ChurchChatNotificationPrefs.sharedPrefsKey) ?? true;
     var aniv = prefs.getBool(_keyNotifAniversariantes) ?? true;
     var forn = prefs.getBool(_keyNotifFornecedor) ?? false;
@@ -193,6 +199,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           if (d['pushAvisos'] is bool) av = d['pushAvisos'] as bool;
           if (d['pushEventos'] is bool) ev = d['pushEventos'] as bool;
           if (d['pushEscalas'] is bool) es = d['pushEscalas'] as bool;
+          if (d['pushMembros'] is bool) membros = d['pushMembros'] as bool;
           if (d['pushChat'] is bool) ch = d['pushChat'] as bool;
           if (d['pushAniversariantes'] is bool) {
             aniv = d['pushAniversariantes'] as bool;
@@ -202,8 +209,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           }
           final rawAlertMode = d['pushChatAlertMode'];
           if (rawAlertMode is String && rawAlertMode.trim().isNotEmpty) {
-            chatAlertMode =
-                ChurchChatNotificationPrefs.normalizeAlertMode(rawAlertMode);
+            chatAlertMode = ChurchChatNotificationPrefs.normalizeAlertMode(
+              rawAlertMode,
+            );
           }
         }
       } catch (_) {
@@ -213,6 +221,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     await prefs.setBool(_keyNotifAvisos, av);
     await prefs.setBool(_keyNotifEventos, ev);
     await prefs.setBool(_keyNotifEscalas, es);
+    await prefs.setBool(_keyNotifMembros, membros);
     await prefs.setBool(ChurchChatNotificationPrefs.sharedPrefsKey, ch);
     await prefs.setBool(_keyNotifAniversariantes, aniv);
     await prefs.setBool(_keyNotifFornecedor, forn);
@@ -226,6 +235,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       _notifAvisos = av;
       _notifEscalas = es;
       _notifEventos = ev;
+      _notifMembros = membros;
       _notifChat = ch;
       _notifAniversariantes = aniv;
       _notifFornecedor = forn;
@@ -250,9 +260,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
         if (kIsWeb) {
           await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
         }
-        final loaded = await ChurchRepository.loadChurchData(
-          seedTenantId: tid,
-        );
+        final loaded = await ChurchRepository.loadChurchData(seedTenantId: tid);
         churchData = loaded.data;
         if (loaded.churchId.trim().isNotEmpty) {
           _operationalTenantId = loaded.churchId.trim();
@@ -317,7 +325,8 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
         title: const Text('Trocar de conta'),
         content: const Text(
           'Você sairá desta sessão neste aparelho e poderá entrar com outra conta '
@@ -353,7 +362,11 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           _bioToggling = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Desbloqueio por digital/Face ID desativado neste aparelho.')),
+          const SnackBar(
+            content: Text(
+              'Desbloqueio por digital/Face ID desativado neste aparelho.',
+            ),
+          ),
         );
       }
       return;
@@ -367,6 +380,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       if (FirebaseAuth.instance.currentUser != null) {
         await ChurchAutoSessionService.persistAfterSuccessfulPainelLogin();
       }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -378,7 +392,11 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Não foi possível confirmar a biometria. Tente de novo ou verifique as configurações do aparelho.')),
+        const SnackBar(
+          content: Text(
+            'Não foi possível confirmar a biometria. Tente de novo ou verifique as configurações do aparelho.',
+          ),
+        ),
       );
     }
   }
@@ -390,7 +408,11 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   }
 
   /// Preferências de push — cache local + Firestore + tópicos FCM.
-  Future<void> _savePushPref(String spKey, String firestoreField, bool v) async {
+  Future<void> _savePushPref(
+    String spKey,
+    String firestoreField,
+    bool v,
+  ) async {
     await _saveNotif(spKey, v);
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -398,6 +420,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       final prefs = ChurchMemberNotificationPrefs(
         receberAvisos: _notifAvisos,
         receberEscalas: _notifEscalas,
+        receberNovosMembros: _notifMembros,
         receberEventosTempo: _notifEventos,
         receberAniversariantes: _notifAniversariantes,
         receberChat: _notifChat,
@@ -410,10 +433,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       );
     } catch (_) {
       try {
-        await firebaseDefaultFirestore.collection('users').doc(user.uid).set(
-          {firestoreField: v},
-          SetOptions(merge: true),
-        );
+        await firebaseDefaultFirestore.collection('users').doc(user.uid).set({
+          firestoreField: v,
+        }, SetOptions(merge: true));
       } catch (_) {}
     }
     if (!kIsWeb) {
@@ -425,10 +447,13 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     }
   }
 
-  bool get _showFornecedorNotifToggle =>
-      AppPermissions.canViewFornecedores(widget.role, permissions: widget.permissions);
+  bool get _showFornecedorNotifToggle => AppPermissions.canViewFornecedores(
+    widget.role,
+    permissions: widget.permissions,
+  );
 
-  bool get _restrictedMemberSettings => AppPermissions.isRestrictedMember(widget.role);
+  bool get _restrictedMemberSettings =>
+      AppPermissions.isRestrictedMember(widget.role);
 
   bool get _showPaymentReceivingSettings =>
       AppPermissions.canManageChurchPaymentReceiving(
@@ -466,10 +491,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
       appBar: widget.embeddedInShell || isMobile
           ? null
           : AppBar(
-        title: const Text('Configurações'),
-        backgroundColor: ThemeCleanPremium.primary,
-        foregroundColor: Colors.white,
-      ),
+              title: const Text('Configurações'),
+              backgroundColor: ThemeCleanPremium.primary,
+              foregroundColor: Colors.white,
+            ),
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
@@ -512,353 +537,416 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                     ..._buildLegalAndVersionSection(context),
                     const SizedBox(height: 32),
                   ] else ...[
-                  _SectionTitle(
-                    icon: Icons.switch_account_rounded,
-                    title: 'Conta Google / e-mail',
-                  ),
-                  _Card(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF0F766E).withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Icon(
-                                Icons.smartphone_rounded,
-                                color: Color(0xFF0F766E),
-                                size: 22,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Quem está ligado neste aparelho',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.grey.shade900,
-                                      height: 1.25,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Forma de entrada: $_connectedLoginMethodLabel',
-                                    style: TextStyle(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.grey.shade700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(
-                                Icons.alternate_email_rounded,
-                                color: ThemeCleanPremium.primary,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'E-mail da sessão',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  SelectableText(
-                                    _accountEmailDisplay,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEFF6FF),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: ThemeCleanPremium.primary.withValues(alpha: 0.22),
-                            ),
-                          ),
-                          child: Column(
+                    _SectionTitle(
+                      icon: Icons.switch_account_rounded,
+                      title: 'Conta Google / e-mail',
+                    ),
+                    _Card(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
-                                children: [
-                                  Icon(
-                                    Icons.info_outline_rounded,
-                                    size: 20,
-                                    color: ThemeCleanPremium.primary,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'Para usar outra conta neste telemóvel',
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(
+                                    0xFF0F766E,
+                                  ).withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.smartphone_rounded,
+                                  color: Color(0xFF0F766E),
+                                  size: 22,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Quem está ligado neste aparelho',
                                       style: TextStyle(
-                                        fontSize: 13,
+                                        fontSize: 14,
                                         fontWeight: FontWeight.w800,
                                         color: Colors.grey.shade900,
+                                        height: 1.25,
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              const _ConfigHelpBullet(
-                                text:
-                                    'Toque no botão verde «Trocar de conta» abaixo.',
-                              ),
-                              const _ConfigHelpBullet(
-                                text:
-                                    'Na tela Entrar, pode escolher outra conta Google, entrar com Apple (iPhone) ou outro e-mail e senha.',
-                              ),
-                              const _ConfigHelpBullet(
-                                text:
-                                    'Se usa Google, o telemóvel mostra o seletor de contas para escolher qual usar.',
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Forma de entrada: $_connectedLoginMethodLabel',
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.grey.shade700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                          onPressed: () => _trocarConta(context),
-                          icon: const Icon(Icons.logout_rounded, size: 22),
-                          label: const Text('Trocar de conta'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: const Color(0xFF0F766E),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 16,
-                              horizontal: 16,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'Digital ou Face ID continuam iguais às opções que marcou na tela Entrar '
-                          '(«Lembrar neste aparelho» + biometria).',
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.4,
-                            color: Colors.grey.shade600,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  _SectionTitle(
-                    icon: Icons.verified_user_rounded,
-                    title: 'Estado e licença da igreja',
-                  ),
-                  _Card(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _MiniStatusChip(
-                                label: 'Utilizador',
-                                value: _userAtivoNoPainel ? 'Ativo' : 'Verificar cadastro',
-                                ok: _userAtivoNoPainel,
+                          const SizedBox(height: 14),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: ThemeCleanPremium.primary.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(
+                                  Icons.alternate_email_rounded,
+                                  color: ThemeCleanPremium.primary,
+                                ),
                               ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _MiniStatusChip(
-                                label: 'Licença igreja',
-                                value: _subscriptionGuard?.masterBadgeLabel ?? '—',
-                                ok: _subscriptionGuard != null &&
-                                    !(_subscriptionGuard!.blocked),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'E-mail da sessão',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    SelectableText(
+                                      _accountEmailDisplay,
+                                      style: const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                        if (_subscriptionGuard?.dataVencimento != null) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            'Referência de vigência: ${_fmtShortDate(_subscriptionGuard!.dataVencimento!)}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade600,
-                            ),
+                            ],
                           ),
-                        ],
-                        const SizedBox(height: 14),
-                        Divider(height: 1, color: Colors.grey.shade200),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Versão do aplicativo (controlo interno)',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey.shade600,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        SelectableText(
-                          appVersionFull,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.2,
-                          ),
-                        ),
-                        Text(
-                          'Build $appBuildNumber · marketing $appVersion',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: Colors.grey.shade500,
-                            height: 1.35,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  if (!_restrictedMemberSettings) ...[
-                    _SectionTitle(icon: Icons.palette_outlined, title: 'Aparência'),
-                    _Card(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          ListTile(
-                            leading: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(Icons.light_mode_rounded, color: ThemeCleanPremium.primary),
-                            ),
-                            title: const Text('Modo claro', style: TextStyle(fontWeight: FontWeight.w700)),
-                            subtitle: const Text('O app utiliza apenas o tema claro.'),
-                            trailing: const Icon(Icons.check_circle_rounded, color: ThemeCleanPremium.success),
-                          ),
-                          const SizedBox(height: 8),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Text(
-                              'Para melhor leitura e consistência, o Gestão YAHWEH está disponível somente no modo claro.',
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                            ),
-                          ),
-                          if (ThemeModeScope.of(context) != null)
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                              child: SizedBox(
-                                width: double.infinity,
-                                child: OutlinedButton.icon(
-                                  onPressed: () {
-                                    ThemeModeScope.of(context)?.setMode(ThemeMode.light);
-                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tema: modo claro ativado.')));
-                                  },
-                                  icon: const Icon(Icons.light_mode_rounded, size: 18),
-                                  label: const Text('Garantir modo claro'),
+                          const SizedBox(height: 16),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFF6FF),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: ThemeCleanPremium.primary.withValues(
+                                  alpha: 0.22,
                                 ),
                               ),
                             ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.info_outline_rounded,
+                                      size: 20,
+                                      color: ThemeCleanPremium.primary,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        'Para usar outra conta neste telemóvel',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.grey.shade900,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                const _ConfigHelpBullet(
+                                  text:
+                                      'Toque no botão verde «Trocar de conta» abaixo.',
+                                ),
+                                const _ConfigHelpBullet(
+                                  text:
+                                      'Na tela Entrar, pode escolher outra conta Google, entrar com Apple (iPhone) ou outro e-mail e senha.',
+                                ),
+                                const _ConfigHelpBullet(
+                                  text:
+                                      'Se usa Google, o telemóvel mostra o seletor de contas para escolher qual usar.',
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          FilledButton.icon(
+                            onPressed: () => _trocarConta(context),
+                            icon: const Icon(Icons.logout_rounded, size: 22),
+                            label: const Text('Trocar de conta'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF0F766E),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 16,
+                                horizontal: 16,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Digital ou Face ID continuam iguais às opções que marcou na tela Entrar '
+                            '(«Lembrar neste aparelho» + biometria).',
+                            style: TextStyle(
+                              fontSize: 12,
+                              height: 1.4,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    _SectionTitle(
+                      icon: Icons.verified_user_rounded,
+                      title: 'Estado e licença da igreja',
+                    ),
+                    _Card(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _MiniStatusChip(
+                                  label: 'Utilizador',
+                                  value: _userAtivoNoPainel
+                                      ? 'Ativo'
+                                      : 'Verificar cadastro',
+                                  ok: _userAtivoNoPainel,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: _MiniStatusChip(
+                                  label: 'Licença igreja',
+                                  value:
+                                      _subscriptionGuard?.masterBadgeLabel ??
+                                      '—',
+                                  ok:
+                                      _subscriptionGuard != null &&
+                                      !(_subscriptionGuard!.blocked),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_subscriptionGuard?.dataVencimento != null) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              'Referência de vigência: ${_fmtShortDate(_subscriptionGuard!.dataVencimento!)}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 14),
+                          Divider(height: 1, color: Colors.grey.shade200),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Versão do aplicativo (controlo interno)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          SelectableText(
+                            appVersionFull,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                          Text(
+                            'Build $appBuildNumber · marketing $appVersion',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade500,
+                              height: 1.35,
+                            ),
+                          ),
                         ],
                       ),
                     ),
                     const SizedBox(height: 24),
-                  ],
-                  if (_showPaymentReceivingSettings) ...[
-                    // Credenciais Mercado Pago saíram daqui — agora ficam em
-                    // Financeiro → Contas → conta "Mercado Pago" → Integração.
-                    ChurchPaymentReceivingSettingsSection(
-                      tenantId: widget.tenantId,
-                      showMercadoPagoCredentials: false,
-                    ),
-                  ],
-                  _SectionTitle(icon: Icons.fingerprint_rounded, title: 'Acesso ao app'),
-                  _buildBiometricCard(),
-                  if (!kIsWeb) ...[
-                    ..._buildNativeAppStoreUpdateSection(context),
-                    _SectionTitle(
-                        icon: Icons.speed_rounded, title: 'Desempenho do app'),
-                    _Card(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            secondary: Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: ThemeCleanPremium.primary.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Icon(Icons.photo_library_rounded,
-                                  color: ThemeCleanPremium.primary),
-                            ),
-                            title: const Text(
-                              'Guardar fotos de perfil no aparelho',
-                              style: TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                            subtitle: const Text(
-                              'Membros, escalas e módulos carregam mais rápido com cache local. '
-                              'O app sincroniza em segundo plano ao voltar ao painel (sem avisos). '
-                              'Desligue para poupar espaço — as fotos voltam a baixar da internet.',
-                              style: TextStyle(fontSize: 12.5),
-                            ),
-                            value: _cacheFotosPerfilNoAparelho,
-                            onChanged: (v) async {
-                              setState(() => _cacheFotosPerfilNoAparelho = v);
-                              await MediaCachePreferences
-                                  .setMemberPhotoDiskCacheEnabled(v);
-                            },
-                          ),
-                        ],
+                    if (!_restrictedMemberSettings) ...[
+                      _SectionTitle(
+                        icon: Icons.palette_outlined,
+                        title: 'Aparência',
                       ),
+                      _Card(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ListTile(
+                              leading: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: ThemeCleanPremium.primary.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(
+                                  Icons.light_mode_rounded,
+                                  color: ThemeCleanPremium.primary,
+                                ),
+                              ),
+                              title: const Text(
+                                'Modo claro',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                              subtitle: const Text(
+                                'O app utiliza apenas o tema claro.',
+                              ),
+                              trailing: const Icon(
+                                Icons.check_circle_rounded,
+                                color: ThemeCleanPremium.success,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              child: Text(
+                                'Para melhor leitura e consistência, o Gestão YAHWEH está disponível somente no modo claro.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ),
+                            if (ThemeModeScope.of(context) != null)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  12,
+                                  16,
+                                  8,
+                                ),
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: () {
+                                      ThemeModeScope.of(
+                                        context,
+                                      )?.setMode(ThemeMode.light);
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Tema: modo claro ativado.',
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(
+                                      Icons.light_mode_rounded,
+                                      size: 18,
+                                    ),
+                                    label: const Text('Garantir modo claro'),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+                    if (_showPaymentReceivingSettings) ...[
+                      // Credenciais Mercado Pago saíram daqui — agora ficam em
+                      // Financeiro → Contas → conta "Mercado Pago" → Integração.
+                      ChurchPaymentReceivingSettingsSection(
+                        tenantId: widget.tenantId,
+                        showMercadoPagoCredentials: false,
+                      ),
+                    ],
+                    _SectionTitle(
+                      icon: Icons.fingerprint_rounded,
+                      title: 'Acesso ao app',
                     ),
-                  ],
-                  const SizedBox(height: 24),
-                  _SectionTitle(icon: Icons.notifications_active_rounded, title: 'Notificações e acesso'),
-                  _buildNotificacoesCard(),
-                  const SizedBox(height: 24),
-                  ..._buildBackupSection(context),
-                  ..._buildDicasSection(),
-                  const SizedBox(height: 24),
-                  ..._buildLegalAndVersionSection(context),
-                  const SizedBox(height: 32),
+                    _buildBiometricCard(),
+                    if (!kIsWeb) ...[
+                      ..._buildNativeAppStoreUpdateSection(context),
+                      _SectionTitle(
+                        icon: Icons.speed_rounded,
+                        title: 'Desempenho do app',
+                      ),
+                      _Card(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              secondary: Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: ThemeCleanPremium.primary.withValues(
+                                    alpha: 0.1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(
+                                  Icons.photo_library_rounded,
+                                  color: ThemeCleanPremium.primary,
+                                ),
+                              ),
+                              title: const Text(
+                                'Guardar fotos de perfil no aparelho',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                              subtitle: const Text(
+                                'Membros, escalas e módulos carregam mais rápido com cache local. '
+                                'O app sincroniza em segundo plano ao voltar ao painel (sem avisos). '
+                                'Desligue para poupar espaço — as fotos voltam a baixar da internet.',
+                                style: TextStyle(fontSize: 12.5),
+                              ),
+                              value: _cacheFotosPerfilNoAparelho,
+                              onChanged: (v) async {
+                                setState(() => _cacheFotosPerfilNoAparelho = v);
+                                await MediaCachePreferences.setMemberPhotoDiskCacheEnabled(
+                                  v,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 24),
+                    _SectionTitle(
+                      icon: Icons.notifications_active_rounded,
+                      title: 'Notificações e acesso',
+                    ),
+                    _buildNotificacoesCard(),
+                    const SizedBox(height: 24),
+                    ..._buildBackupSection(context),
+                    ..._buildDicasSection(),
+                    const SizedBox(height: 24),
+                    ..._buildLegalAndVersionSection(context),
+                    const SizedBox(height: 32),
                   ],
                 ],
               ),
@@ -868,18 +956,17 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
 
   List<Widget> _buildLegalAndVersionSection(BuildContext context) {
     return [
-      _SectionTitle(
-        icon: Icons.policy_outlined,
-        title: 'Legal e versão',
-      ),
+      _SectionTitle(icon: Icons.policy_outlined, title: 'Legal e versão'),
       _Card(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.description_outlined,
-                  color: ThemeCleanPremium.primary),
+              leading: Icon(
+                Icons.description_outlined,
+                color: ThemeCleanPremium.primary,
+              ),
               title: const Text(
                 'Termos de uso',
                 style: TextStyle(fontWeight: FontWeight.w700),
@@ -890,8 +977,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             Divider(height: 1, color: Colors.grey.shade200),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: Icon(Icons.privacy_tip_outlined,
-                  color: ThemeCleanPremium.primary),
+              leading: Icon(
+                Icons.privacy_tip_outlined,
+                color: ThemeCleanPremium.primary,
+              ),
               title: const Text(
                 'Política de privacidade',
                 style: TextStyle(fontWeight: FontWeight.w700),
@@ -1011,7 +1100,11 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           const SizedBox(height: 8),
           Text(
             AppConstants.marketingDownloadIosTestFlightHint,
-            style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600, height: 1.35),
+            style: TextStyle(
+              fontSize: 12.5,
+              color: Colors.grey.shade600,
+              height: 1.35,
+            ),
           ),
           const SizedBox(height: 14),
           FilledButton.icon(
@@ -1021,7 +1114,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
-                    content: Text('Não foi possível abrir o link do TestFlight.'),
+                    content: Text(
+                      'Não foi possível abrir o link do TestFlight.',
+                    ),
                   ),
                 );
                 return;
@@ -1048,10 +1143,7 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
         children: [
           SelectableText(
             _accountEmailDisplay,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-            ),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 14),
           FilledButton.icon(
@@ -1131,7 +1223,11 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
           const SizedBox(height: 4),
           Text(
             'Escolha quais alertas receber no celular. Lembretes de eventos disparam 24h e 1h antes.',
-            style: TextStyle(fontSize: 12.5, color: Colors.grey.shade600, height: 1.35),
+            style: TextStyle(
+              fontSize: 12.5,
+              color: Colors.grey.shade600,
+              height: 1.35,
+            ),
           ),
           const SizedBox(height: 14),
           _PushPrefTile(
@@ -1157,6 +1253,17 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             },
           ),
           _PushPrefTile(
+            icon: Icons.person_add_alt_1_rounded,
+            color: const Color(0xFF2563EB),
+            title: 'Novos membros',
+            subtitle: 'Avisar quando um novo membro for cadastrado',
+            value: _notifMembros,
+            onChanged: (v) {
+              setState(() => _notifMembros = v);
+              unawaited(_savePushPref(_keyNotifMembros, 'pushMembros', v));
+            },
+          ),
+          _PushPrefTile(
             icon: Icons.calendar_month_rounded,
             color: const Color(0xFF14B8A6),
             title: 'Escalas',
@@ -1176,11 +1283,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
               value: _notifFornecedor,
               onChanged: (v) {
                 setState(() => _notifFornecedor = v);
-                unawaited(_savePushPref(
-                  _keyNotifFornecedor,
-                  'pushFornecedorAgenda',
-                  v,
-                ));
+                unawaited(
+                  _savePushPref(_keyNotifFornecedor, 'pushFornecedorAgenda', v),
+                );
               },
             ),
           _PushPrefTile(
@@ -1191,11 +1296,13 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             value: _notifAniversariantes,
             onChanged: (v) {
               setState(() => _notifAniversariantes = v);
-              unawaited(_savePushPref(
-                _keyNotifAniversariantes,
-                'pushAniversariantes',
-                v,
-              ));
+              unawaited(
+                _savePushPref(
+                  _keyNotifAniversariantes,
+                  'pushAniversariantes',
+                  v,
+                ),
+              );
             },
           ),
           _PushPrefTile(
@@ -1206,11 +1313,13 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             value: _notifChat,
             onChanged: (v) {
               setState(() => _notifChat = v);
-              unawaited(_savePushPref(
-                ChurchChatNotificationPrefs.sharedPrefsKey,
-                'pushChat',
-                v,
-              ));
+              unawaited(
+                _savePushPref(
+                  ChurchChatNotificationPrefs.sharedPrefsKey,
+                  'pushChat',
+                  v,
+                ),
+              );
             },
           ),
           if (!_restrictedMemberSettings) ...[
@@ -1235,8 +1344,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.person_add_alt_1_rounded,
-                      color: Color(0xFF2563EB)),
+                  const Icon(
+                    Icons.person_add_alt_1_rounded,
+                    color: Color(0xFF2563EB),
+                  ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
@@ -1289,7 +1400,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('Exportar e importar dados do painel.', style: TextStyle(fontSize: 13)),
+            const Text(
+              'Exportar e importar dados do painel.',
+              style: TextStyle(fontSize: 13),
+            ),
             const SizedBox(height: 14),
             Row(
               children: [
@@ -1298,7 +1412,10 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                     onPressed: () => _exportarBackup(context),
                     icon: const Icon(Icons.upload_file_rounded, size: 20),
                     label: const Text('Exportar'),
-                    style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.primary, padding: const EdgeInsets.symmetric(vertical: 12)),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: ThemeCleanPremium.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1307,7 +1424,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                     onPressed: () => _importarBackup(context),
                     icon: const Icon(Icons.download_rounded, size: 20),
                     label: const Text('Importar'),
-                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 12)),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
                   ),
                 ),
               ],
@@ -1322,12 +1441,18 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
   List<Widget> _buildDicasSection() {
     if (_restrictedMemberSettings) return const [];
     return [
-      _SectionTitle(icon: Icons.lightbulb_outline_rounded, title: 'Dicas, sugestões e críticas'),
+      _SectionTitle(
+        icon: Icons.lightbulb_outline_rounded,
+        title: 'Dicas, sugestões e críticas',
+      ),
       _Card(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Envie sua opinião ao criador do sistema. Sua mensagem será lida e agradecemos pelo feedback!', style: TextStyle(fontSize: 13)),
+            const Text(
+              'Envie sua opinião ao criador do sistema. Sua mensagem será lida e agradecemos pelo feedback!',
+              style: TextStyle(fontSize: 13),
+            ),
             const SizedBox(height: 14),
             TextField(
               controller: _sugestaoCtrl,
@@ -1343,12 +1468,28 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: (_sugestaoEnviando || _sugestaoEnviada) ? null : _enviarSugestao,
+                onPressed: (_sugestaoEnviando || _sugestaoEnviada)
+                    ? null
+                    : _enviarSugestao,
                 icon: _sugestaoEnviando
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
                     : const Icon(Icons.send_rounded, size: 20),
-                label: Text(_sugestaoEnviada ? 'Enviado!' : (_sugestaoEnviando ? 'Enviando...' : 'Enviar')),
-                style: FilledButton.styleFrom(backgroundColor: ThemeCleanPremium.primary, padding: const EdgeInsets.symmetric(vertical: 14)),
+                label: Text(
+                  _sugestaoEnviada
+                      ? 'Enviado!'
+                      : (_sugestaoEnviando ? 'Enviando...' : 'Enviar'),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: ThemeCleanPremium.primary,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
               ),
             ),
             if (_sugestaoEnviada)
@@ -1358,16 +1499,25 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
                 decoration: BoxDecoration(
                   color: ThemeCleanPremium.success.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: ThemeCleanPremium.success.withValues(alpha: 0.3)),
+                  border: Border.all(
+                    color: ThemeCleanPremium.success.withValues(alpha: 0.3),
+                  ),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.thumb_up_rounded, color: ThemeCleanPremium.success),
+                    Icon(
+                      Icons.thumb_up_rounded,
+                      color: ThemeCleanPremium.success,
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         'Obrigado! Sua mensagem foi recebida. O criador do sistema agradece sua contribuição e retornará quando possível.',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: ThemeCleanPremium.success),
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: ThemeCleanPremium.success,
+                        ),
                       ),
                     ),
                   ],
@@ -1398,14 +1548,27 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             .toList(),
       };
       final json = const JsonEncoder.withIndent('  ').convert(data);
-      await Share.share(
-        json,
-        subject: 'Backup Gestão YAHWEH - ${DateTime.now().day.toString().padLeft(2, '0')}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().year}',
-        sharePositionOrigin: const Rect.fromLTWH(0, 0, 1, 1),
+      await SharePlus.instance.share(
+        ShareParams(
+          text: json,
+          subject:
+              'Backup Gestão YAHWEH - ${DateTime.now().day.toString().padLeft(2, '0')}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().year}',
+          sharePositionOrigin: const Rect.fromLTWH(0, 0, 1, 1),
+        ),
       );
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Exportação gerada. Use Compartilhar para salvar.')));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Exportação gerada. Use Compartilhar para salvar.'),
+          ),
+        );
+      }
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao exportar: $e')));
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao exportar: $e')));
+      }
     }
   }
 
@@ -1423,7 +1586,9 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
+        ),
         title: const Text('Importar backup'),
         content: SizedBox(
           width: 400,
@@ -1431,19 +1596,31 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Cole aqui o conteúdo JSON exportado anteriormente. Atenção: isso pode sobrescrever dados.', style: TextStyle(fontSize: 13)),
+              const Text(
+                'Cole aqui o conteúdo JSON exportado anteriormente. Atenção: isso pode sobrescrever dados.',
+                style: TextStyle(fontSize: 13),
+              ),
               const SizedBox(height: 12),
               TextField(
                 controller: ctrl,
                 maxLines: 8,
-                decoration: const InputDecoration(hintText: '{"tenantId": "...", "members": [...]}', border: OutlineInputBorder()),
+                decoration: const InputDecoration(
+                  hintText: '{"tenantId": "...", "members": [...]}',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ],
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Importar')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Importar'),
+          ),
         ],
       ),
     );
@@ -1463,16 +1640,26 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
         batch.set(col.doc(id), docData, merge: true);
       }
       await batch.commit();
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Importados ${members.length} registros.')));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Importados ${members.length} registros.')),
+        );
+      }
     } catch (e) {
-      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao importar: $e')));
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao importar: $e')));
+      }
     }
   }
 
   Future<void> _enviarSugestao() async {
     final texto = _sugestaoCtrl.text.trim();
     if (texto.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Digite sua mensagem.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Digite sua mensagem.')));
       return;
     }
     setState(() => _sugestaoEnviando = true);
@@ -1489,15 +1676,25 @@ class _ConfiguracoesPageState extends State<ConfiguracoesPage> {
         'tipo': 'dica_sugestao_critica',
       });
       _sugestaoCtrl.clear();
-      setState(() { _sugestaoEnviando = false; _sugestaoEnviada = true; });
+      setState(() {
+        _sugestaoEnviando = false;
+        _sugestaoEnviada = true;
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Obrigado! Sua mensagem foi enviada ao criador do sistema.'), backgroundColor: ThemeCleanPremium.success),
+          const SnackBar(
+            content: Text(
+              'Obrigado! Sua mensagem foi enviada ao criador do sistema.',
+            ),
+            backgroundColor: ThemeCleanPremium.success,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao enviar: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erro ao enviar: $e')));
         setState(() => _sugestaoEnviando = false);
       }
     }
@@ -1556,7 +1753,10 @@ class _SectionTitle extends StatelessWidget {
         children: [
           Icon(icon, size: 22, color: ThemeCleanPremium.primary),
           const SizedBox(width: 10),
-          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+          ),
         ],
       ),
     );
@@ -1655,7 +1855,11 @@ class _SwitchRow extends StatelessWidget {
       child: Row(
         children: [
           Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
-          Switch(value: value, onChanged: onChanged, materialTapTargetSize: MaterialTapTargetSize.shrinkWrap),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
         ],
       ),
     );
@@ -1666,10 +1870,7 @@ class _ChatAlertModeRow extends StatelessWidget {
   final String value;
   final ValueChanged<String?> onChanged;
 
-  const _ChatAlertModeRow({
-    required this.value,
-    required this.onChanged,
-  });
+  const _ChatAlertModeRow({required this.value, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -1690,7 +1891,10 @@ class _ChatAlertModeRow extends StatelessWidget {
               initialValue: normalized,
               decoration: const InputDecoration(
                 isDense: true,
-                contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 border: OutlineInputBorder(),
               ),
               items: const [

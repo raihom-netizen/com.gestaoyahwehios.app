@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onEscalaTrocaInviteTarget = exports.respondScheduleSwap = exports.hourlyDevotionalBroadcast = exports.rollingScaleRemindersConfirmed = exports.dayBeforeScaleReminder = exports.dailyBirthdayTopicPush = exports.onEscalaImpedimentoNotifyLeaders = exports.notifySchedulePublished = exports.deleteDevotionalEnvio = exports.resendDevotionalEnvio = exports.resendPastoralMessage = exports.updatePastoralMessage = exports.archivePastoralMessage = exports.sendSegmentedPush = void 0;
+exports.onEscalaTrocaInviteTarget = exports.respondScheduleSwap = exports.hourlyDevotionalBroadcast = exports.rollingScaleRemindersConfirmed = exports.onEscalaReminderPlanChanged = exports.dayBeforeScaleReminder = exports.dailyBirthdayTopicPush = exports.onEscalaImpedimentoNotifyLeaders = exports.onEscalaCreatedNotifyAssigned = exports.notifySchedulePublished = exports.deleteDevotionalEnvio = exports.resendDevotionalEnvio = exports.resendPastoralMessage = exports.updatePastoralMessage = exports.archivePastoralMessage = exports.sendSegmentedPush = void 0;
 exports.slugTopicPart = slugTopicPart;
 /**
  * Comunicação pastoral: push segmentado (tópicos), lembrete de escala (véspera), devocional diário.
@@ -792,6 +792,66 @@ exports.notifySchedulePublished = functions.region("us-central1").https.onCall(a
     return { ok: true, count: messages.length, emailsSent };
 });
 /**
+ * Ao criar uma escala, notifica automaticamente somente os membros incluídos.
+ * O botão manual continua disponível para reenvio.
+ */
+exports.onEscalaCreatedNotifyAssigned = functions
+    .region("us-central1")
+    .firestore.document("igrejas/{tenantId}/escalas/{scheduleId}")
+    .onCreate(async (snap, context) => {
+    const tenantId = String(context.params.tenantId || "").trim();
+    const scheduleId = String(context.params.scheduleId || "").trim();
+    const d = (snap.data() || {});
+    const memberCpfs = Array.isArray(d.memberCpfs)
+        ? d.memberCpfs
+            .map((v) => String(v || "").replace(/\D/g, ""))
+            .filter((cpf) => cpf.length === 11)
+        : [];
+    if (!tenantId || !scheduleId || !memberCpfs.length)
+        return null;
+    const ts = d.date;
+    const dateStr = ts && typeof ts.toDate === "function"
+        ? formatDatePtBr(ts.toDate())
+        : "data a definir";
+    const deptName = String(d.departmentName || "").trim();
+    const titleStr = String(d.title || "Escala").trim();
+    const timeStr = String(d.time || "").trim();
+    const messages = [];
+    for (const cpf of memberCpfs) {
+        const tokens = await collectFcmTokensForCpfs(tenantId, [cpf]);
+        if (!tokens.length)
+            continue;
+        const nome = await firstNameForCpf(tenantId, cpf);
+        const body = (nome + ", você foi escalado(a) para " + (deptName || "o ministério") +
+            " em " + dateStr + (timeStr ? " às " + timeStr : "") +
+            (titleStr ? " — " + titleStr : ""))
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 220);
+        for (const token of tokens) {
+            messages.push((0, notificationBranding_1.buildGyTokenMessage)({
+                token,
+                title: "📋 Você foi escalado(a)",
+                body,
+                data: {
+                    tenantId,
+                    type: "escala_publicada",
+                    scheduleId,
+                    click_action: "FLUTTER_NOTIFICATION_CLICK",
+                },
+                module: "escala",
+            }));
+        }
+    }
+    if (messages.length)
+        await sendEachInBatches(messages);
+    await snap.ref.set({
+        lastPushNotifiedAt: admin.firestore.FieldValue.serverTimestamp(),
+        assignedPushCount: messages.length,
+    }, { merge: true });
+    return null;
+});
+/**
  * Quando um membro marca indisponível, avisa o tópico do departamento (líderes inscritos em dept_*).
  */
 exports.onEscalaImpedimentoNotifyLeaders = functions
@@ -1064,7 +1124,7 @@ exports.dayBeforeScaleReminder = functions
     functions.logger.info("dayBeforeScaleReminder: no-op — usar rollingScaleRemindersConfirmed (confirmados, 24h e 1h).");
     return null;
 });
-function confirmedScheduleCpfsForReminders(d) {
+function assignedScheduleCpfsForReminders(d) {
     const rawList = d.memberCpfs || [];
     const digitsList = rawList
         .map((v) => String(v).replace(/\D/g, ""))
@@ -1081,7 +1141,9 @@ function confirmedScheduleCpfsForReminders(d) {
                 break;
             }
         }
-        if (st === "confirmado") {
+        // Todos os escalados recebem lembrete, exceto quem recusou ou informou impedimento.
+        // Confirmação continua válida, mas não é pré-requisito.
+        if (!["recusado", "indisponivel", "indisponível", "impedido"].includes(st.toLowerCase())) {
             out.push(norm);
         }
     }
@@ -1104,6 +1166,37 @@ function eventUtcMsSp(dateTs, timeStr) {
  * A cada 10 min: push para quem está com status "confirmado" na escala,
  * na janela ~24h antes ou ~1h antes do horário combinado (fuso SP).
  */
+exports.onEscalaReminderPlanChanged = functions
+    .region("us-central1")
+    .firestore.document("igrejas/{tenantId}/escalas/{scheduleId}")
+    .onUpdate(async (change) => {
+    const before = (change.before.data() || {});
+    const after = (change.after.data() || {});
+    const beforeDate = before.date;
+    const afterDate = after.date;
+    const beforeMs = beforeDate && typeof beforeDate.toMillis === "function"
+        ? beforeDate.toMillis()
+        : null;
+    const afterMs = afterDate && typeof afterDate.toMillis === "function"
+        ? afterDate.toMillis()
+        : null;
+    const beforeCpfs = Array.isArray(before.memberCpfs)
+        ? before.memberCpfs.map(String).sort().join("|")
+        : "";
+    const afterCpfs = Array.isArray(after.memberCpfs)
+        ? after.memberCpfs.map(String).sort().join("|")
+        : "";
+    const changed = beforeMs !== afterMs ||
+        String(before.time || "") !== String(after.time || "") ||
+        beforeCpfs !== afterCpfs;
+    if (!changed)
+        return null;
+    await change.after.ref.set({
+        scaleReminder24hSent: admin.firestore.FieldValue.delete(),
+        scaleReminder1hSent: admin.firestore.FieldValue.delete(),
+    }, { merge: true });
+    return null;
+});
 exports.rollingScaleRemindersConfirmed = functions
     .region("us-central1")
     .pubsub.schedule("*/10 * * * *")
@@ -1136,7 +1229,7 @@ exports.rollingScaleRemindersConfirmed = functions
                 const msUntil = evtMs - nowMs;
                 if (msUntil < 0)
                     continue;
-                const cpfs = confirmedScheduleCpfsForReminders(d);
+                const cpfs = assignedScheduleCpfsForReminders(d);
                 if (!cpfs.length)
                     continue;
                 const w24a = 22 * 3600000;

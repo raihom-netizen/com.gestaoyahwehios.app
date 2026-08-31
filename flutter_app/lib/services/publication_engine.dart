@@ -566,40 +566,42 @@ abstract final class PublicationEngine {
       'DISTRIBUTION_${phase.name}_${kind.name}_$postId',
     );
 
-    await _distStep('dashboard', () async {
-      if (!isNewDoc) return;
-      await ChurchTenantDashboardDocService.mergeCounters(
-        tenantId,
-        avisosDelta:
-            kind == PublicationKind.aviso ||
-                kind == PublicationKind.mural ||
-                kind == PublicationKind.feedPublico
-            ? 1
-            : null,
-        eventosDelta:
-            kind == PublicationKind.evento || kind == PublicationKind.noticia
-            ? 1
-            : null,
-      );
-    });
-
-    await _distStep('panel', () async {
-      // Após publicação, força recomputação para que evento/aviso apareça
-      // imediatamente no painel inicial (em vez de esperar 6 min de stale).
-      await PanelDashboardSnapshotService.forceRecomputeFromCallable(
-        tenantId: tenantId,
-      );
-    });
+    // Painel e site são destinos independentes. Executar em série fazia o site
+    // esperar até 120 s pela callable do painel. Além disso, o teste de cache
+    // "ainda fresco" podia conservar um snapshot criado segundos antes da
+    // publicação e esconder precisamente o novo aviso/evento.
+    await Future.wait<void>([
+      _distStep('dashboard', () async {
+        if (!isNewDoc) return;
+        await ChurchTenantDashboardDocService.mergeCounters(
+          tenantId,
+          avisosDelta:
+              kind == PublicationKind.aviso ||
+                  kind == PublicationKind.mural ||
+                  kind == PublicationKind.feedPublico
+              ? 1
+              : null,
+          eventosDelta:
+              kind == PublicationKind.evento || kind == PublicationKind.noticia
+              ? 1
+              : null,
+        );
+      }),
+      _distStep('panel', () async {
+        await PanelDashboardSnapshotService.forceRecomputeFromCallable(
+          tenantId: tenantId,
+        );
+      }),
+      _distStep('public_site', () async {
+        if (!publicSite) return;
+        await ChurchPerformanceCacheService.warmPublicFeedCacheFromCallable(
+          tenantId,
+        );
+      }),
+    ]);
 
     await _distStep('feed', () async {
       // Feed/mural no app: streams Firestore + cache local — nada bloqueante extra.
-    });
-
-    await _distStep('public_site', () async {
-      if (!publicSite) return;
-      await ChurchPerformanceCacheService.warmPublicFeedCacheFromCallableIfStale(
-        tenantId,
-      );
     });
 
     await _distStep('push', () async {

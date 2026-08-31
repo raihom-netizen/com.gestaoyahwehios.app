@@ -6512,26 +6512,6 @@ export const onScheduleCreate = functions
         memberCpfs,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-
-    try {
-      await sendGyTopicPush(tenantId, "escala", (churchId) =>
-        buildGyTopicMessage({
-          topic: topicPushNovo(churchId, "escala"),
-          title: "📋 Nova escala",
-          body,
-          data: {
-            tenantId: churchId,
-            departmentId: deptId,
-            scheduleId: context.params.id,
-            type: "nova_escala",
-            click_action: "FLUTTER_NOTIFICATION_CLICK",
-          },
-          module: "escala",
-        }),
-      );
-    } catch (e) {
-      console.error("FCM send error (nova escala / gypush):", e);
-    }
   });
 
 /**
@@ -7356,11 +7336,13 @@ export {
   resendDevotionalEnvio,
   deleteDevotionalEnvio,
   notifySchedulePublished,
+  onEscalaCreatedNotifyAssigned,
   onEscalaImpedimentoNotifyLeaders,
   respondScheduleSwap,
   onEscalaTrocaInviteTarget,
   dailyBirthdayTopicPush,
   dayBeforeScaleReminder,
+  onEscalaReminderPlanChanged,
   rollingScaleRemindersConfirmed,
   hourlyDevotionalBroadcast,
 } from "./pastoralComms";
@@ -7386,7 +7368,11 @@ export {
   onNovaAgendaNotifyPush,
 } from "./pushNovoConteudo";
 export { scheduledFornecedorAgendaReminders } from "./fornecedorAgendaReminders";
-export { scheduledEventoReminders } from "./eventoReminders";
+export {
+  scheduledEventoReminders,
+  onEventoReminderScheduleChanged,
+  onAvisoReminderScheduleChanged,
+} from "./eventoReminders";
 export {
   scheduledFinanceDailyDigest,
   scheduledFinanceVencimento24h,

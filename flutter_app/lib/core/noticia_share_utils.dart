@@ -37,7 +37,8 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 
 /// Extensão/MIME coerentes com os bytes (evita anexar PNG como `*.jpg` no share / galeria).
 ({String mime, String filename}) noticiaShareImageDescriptorFromBytes(
-    Uint8List bytes) {
+  Uint8List bytes,
+) {
   if (bytes.length >= 8 &&
       bytes[0] == 0x89 &&
       bytes[1] == 0x50 &&
@@ -92,22 +93,23 @@ Uint8List _shrinkSharePhotoIsolate(Uint8List raw) {
 }
 
 /// Baixa a mesma capa usada na partilha nativa (até ~4?MB).
-Future<Uint8List?> fetchNoticiaCoverImageBytes(Map<String, dynamic> post) async {
+Future<Uint8List?> fetchNoticiaCoverImageBytes(
+  Map<String, dynamic> post,
+) async {
   final imgHttps = await resolveNoticiaSharePreviewImageUrl(post);
   if (imgHttps == null || !isValidImageUrl(imgHttps)) return null;
   final u = sanitizeImageUrl(imgHttps);
   Uint8List? bytes;
   try {
     if (isFirebaseStorageHttpUrl(u)) {
-      bytes = await firebaseStorageBytesFromDownloadUrl(u,
-          maxBytes: 2 * 1024 * 1024);
+      bytes = await firebaseStorageBytesFromDownloadUrl(
+        u,
+        maxBytes: 2 * 1024 * 1024,
+      );
     }
     if (bytes == null) {
       final response = await http
-          .get(
-            Uri.parse(u),
-            headers: const {'Accept': 'image/*'},
-          )
+          .get(Uri.parse(u), headers: const {'Accept': 'image/*'})
           .timeout(const Duration(seconds: 12));
       if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
         bytes = response.bodyBytes;
@@ -151,7 +153,8 @@ String buildNoticiaInviteShareMessage({
   final cleanText = bodyText.trim();
 
   NoticiaShareLinks? links;
-  if ((tenantId ?? '').trim().isNotEmpty && (noticiaId ?? '').trim().isNotEmpty) {
+  if ((tenantId ?? '').trim().isNotEmpty &&
+      (noticiaId ?? '').trim().isNotEmpty) {
     links = resolveNoticiaShareLinks(
       tenantId: tenantId!.trim(),
       noticiaId: noticiaId!.trim(),
@@ -163,11 +166,9 @@ String buildNoticiaInviteShareMessage({
   final site = (publicSiteUrl ?? links?.publicSiteUrl ?? '').trim();
   // Preferir URL OG (shareEvento) — WhatsApp/Telegram leem og:image/vídeo.
   // A URL SPA `/{slug}/{id}` NÃO passa pela Cloud Function e perde a prévia com foto.
-  final eventUrl = (inviteCardUrl ??
-          links?.socialPreviewUrl ??
-          links?.eventPageUrl ??
-          '')
-      .trim();
+  final eventUrl =
+      (inviteCardUrl ?? links?.socialPreviewUrl ?? links?.eventPageUrl ?? '')
+          .trim();
 
   final buf = StringBuffer();
   final kindEmoji = noticiaKind == 'evento' ? '📅' : '📢';
@@ -204,7 +205,10 @@ String buildNoticiaInviteShareMessage({
   // Quem recebe vê logo que vem mídia junto — antes a mensagem não dizia
   // nada e as fotos/vídeo chegavam como anexos «soltos».
   final mediaBits = <String>[
-    if (photoCount == 1) '📸 1 foto' else if (photoCount > 1) '📸 $photoCount fotos',
+    if (photoCount == 1)
+      '📸 1 foto'
+    else if (photoCount > 1)
+      '📸 $photoCount fotos',
     if (hasVideo) '🎬 1 vídeo',
   ];
   if (mediaBits.isNotEmpty) {
@@ -302,11 +306,7 @@ String? _eventCountdownHighlight(DateTime startAt) {
   return null;
 }
 
-String _formatShareLocationBlock({
-  String? location,
-  double? lat,
-  double? lng,
-}) {
+String _formatShareLocationBlock({String? location, double? lat, double? lng}) {
   final mapsUrl = AppConstants.mapsShortUrl(
     lat: lat,
     lng: lng,
@@ -402,10 +402,17 @@ void warmNoticiaShareMediaBundle(
   String? postId,
   String? collection,
 }) {
-  final tid = (tenantId ?? data['tenantId'] ?? data['churchId'] ?? '').toString().trim();
-  final pid = (postId ?? data['id'] ?? data['postId'] ?? data['docId'] ?? '').toString().trim();
+  final tid = (tenantId ?? data['tenantId'] ?? data['churchId'] ?? '')
+      .toString()
+      .trim();
+  final pid = (postId ?? data['id'] ?? data['postId'] ?? data['docId'] ?? '')
+      .toString()
+      .trim();
   if (tid.isEmpty || pid.isEmpty) return;
-  final colRaw = (collection ?? data['collection'] ?? data['type'] ?? 'eventos').toString().trim().toLowerCase();
+  final colRaw = (collection ?? data['collection'] ?? data['type'] ?? 'eventos')
+      .toString()
+      .trim()
+      .toLowerCase();
   final col = (colRaw == 'avisos' || colRaw == 'aviso') ? 'avisos' : 'eventos';
   final k = NoticiaShareMediaBytesCache.key(tid, col, pid);
   if (NoticiaShareMediaBytesCache.peek(k) != null) return;
@@ -423,16 +430,23 @@ void warmNoticiaShareMediaBundle(
 /// Galeria estilo Instagram: até [maxPhotos] fotos + 1 vídeo hospedado (em paralelo).
 Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
   Map<String, dynamic> data, {
-  int maxPhotos = 5,
+  int maxPhotos = 10,
   bool includeVideo = true,
   String? tenantId,
   String? postId,
   String? collection,
 }) async {
   final out = <NoticiaShareMediaFile>[];
-  final tid = (tenantId ?? data['tenantId'] ?? data['churchId'] ?? '').toString().trim();
-  final pid = (postId ?? data['id'] ?? data['postId'] ?? data['docId'] ?? '').toString().trim();
-  final colRaw = (collection ?? data['collection'] ?? data['type'] ?? 'eventos').toString().trim().toLowerCase();
+  final tid = (tenantId ?? data['tenantId'] ?? data['churchId'] ?? '')
+      .toString()
+      .trim();
+  final pid = (postId ?? data['id'] ?? data['postId'] ?? data['docId'] ?? '')
+      .toString()
+      .trim();
+  final colRaw = (collection ?? data['collection'] ?? data['type'] ?? 'eventos')
+      .toString()
+      .trim()
+      .toLowerCase();
   final col = (colRaw == 'avisos' || colRaw == 'aviso') ? 'avisos' : 'eventos';
 
   String? cacheKey;
@@ -445,8 +459,9 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
   final httpUrls = <String>[
     ...NoticiaSharePrefetchService.httpPhotoUrlsFromPost(data),
   ];
-  String? packVideoUrl =
-      NoticiaSharePrefetchService.hostedVideoUrlFromPost(data);
+  String? packVideoUrl = NoticiaSharePrefetchService.hostedVideoUrlFromPost(
+    data,
+  );
 
   if ((httpUrls.length < maxPhotos ||
           (includeVideo && (packVideoUrl == null || packVideoUrl.isEmpty))) &&
@@ -474,12 +489,10 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
   }
 
   // Deduplica capa+galeria (mesma foto com tokens/URLs diferentes).
-  final dedupedHttp = feedPostCarouselPhotoUrlsFromRawRefs(httpUrls)
-      .where((u) {
-        final s = sanitizeImageUrl(u);
-        return s.startsWith('http://') || s.startsWith('https://');
-      })
-      .toList();
+  final dedupedHttp = feedPostCarouselPhotoUrlsFromRawRefs(httpUrls).where((u) {
+    final s = sanitizeImageUrl(u);
+    return s.startsWith('http://') || s.startsWith('https://');
+  }).toList();
   httpUrls
     ..clear()
     ..addAll(dedupedHttp);
@@ -500,9 +513,11 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
       bytes ??= await http
           .get(Uri.parse(u), headers: const {'Accept': 'image/*'})
           .timeout(const Duration(seconds: 8)) // era 2s
-          .then((r) => r.statusCode == 200 && r.bodyBytes.isNotEmpty
-              ? r.bodyBytes
-              : null);
+          .then(
+            (r) => r.statusCode == 200 && r.bodyBytes.isNotEmpty
+                ? r.bodyBytes
+                : null,
+          );
       if (bytes == null || bytes.length <= 32) return null;
       if (bytes.length > kNoticiaSharePhotoMaxBytes) {
         bytes = await YahwehHeavyWork.run(_shrinkSharePhotoIsolate, bytes);
@@ -539,13 +554,13 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
       final ext = low.endsWith('.webm')
           ? 'webm'
           : low.endsWith('.mov')
-              ? 'mov'
-              : 'mp4';
+          ? 'mov'
+          : 'mp4';
       final mime = ext == 'webm'
           ? 'video/webm'
           : ext == 'mov'
-              ? 'video/quicktime'
-              : 'video/mp4';
+          ? 'video/quicktime'
+          : 'video/mp4';
       return NoticiaShareMediaFile(
         bytes: vBytes,
         fileName: 'video_publicacao.$ext',
@@ -583,11 +598,13 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
     final cover = await fetchNoticiaCoverImageBytes(data);
     if (cover != null && cover.length > 32) {
       final desc = noticiaShareImageDescriptorFromBytes(cover);
-      out.add(NoticiaShareMediaFile(
-        bytes: cover,
-        fileName: desc.filename,
-        mimeType: desc.mime,
-      ));
+      out.add(
+        NoticiaShareMediaFile(
+          bytes: cover,
+          fileName: desc.filename,
+          mimeType: desc.mime,
+        ),
+      );
     }
   }
 
@@ -596,11 +613,16 @@ Future<List<NoticiaShareMediaFile>> fetchNoticiaShareMediaBundle(
     if (vf != null) out.add(vf);
   }
 
+  if (cacheKey != null && out.isNotEmpty) {
+    NoticiaShareMediaBytesCache.put(cacheKey, out);
+  }
   return out;
 }
 
 /// Resolve URL https da capa/miniatura para anexar na partilha (foto ou poster de vídeo).
-Future<String?> resolveNoticiaSharePreviewImageUrl(Map<String, dynamic> p) async {
+Future<String?> resolveNoticiaSharePreviewImageUrl(
+  Map<String, dynamic> p,
+) async {
   Future<String?> fromRef(String? raw) async {
     final s = sanitizeImageUrl(raw ?? '');
     if (s.isEmpty || looksLikeHostedVideoFileUrl(s)) return null;
@@ -628,12 +650,14 @@ Future<String?> resolveNoticiaSharePreviewImageUrl(Map<String, dynamic> p) async
   if (cover != null && isValidImageUrl(cover)) return cover;
   if (thumb != null && isValidImageUrl(thumb)) return thumb;
 
-  final sp = eventNoticiaPhotoStoragePathAt(p, 0) ??
+  final sp =
+      eventNoticiaPhotoStoragePathAt(p, 0) ??
       eventNoticiaImageStoragePath(p) ??
       eventNoticiaThumbStoragePath(p);
   if (sp != null && sp.isNotEmpty) {
-    final url =
-        await AppStorageImageService.instance.resolveImageUrl(storagePath: sp);
+    final url = await AppStorageImageService.instance.resolveImageUrl(
+      storagePath: sp,
+    );
     if (url != null && isValidImageUrl(url)) return url;
   }
   return null;
@@ -641,7 +665,8 @@ Future<String?> resolveNoticiaSharePreviewImageUrl(Map<String, dynamic> p) async
 
 /// Capa + vídeo para o bottom sheet de partilha — **em paralelo** e com limite de tempo
 /// para o painel abrir rápido (link/texto sempre disponíveis; mídia é opcional).
-Future<({String? previewImageUrl, String? videoPlayUrl})> resolveNoticiaShareSheetMedia(
+Future<({String? previewImageUrl, String? videoPlayUrl})>
+resolveNoticiaShareSheetMedia(
   Map<String, dynamic> data, {
   Duration resolveTimeout = const Duration(seconds: 5),
 }) async {
@@ -657,7 +682,9 @@ Future<({String? previewImageUrl, String? videoPlayUrl})> resolveNoticiaShareShe
 }
 
 /// Primeiro vídeo hospedado (MP4/Storage) com URL https — partilha nativa.
-Future<String?> resolveNoticiaHostedVideoShareUrl(Map<String, dynamic> d) async {
+Future<String?> resolveNoticiaHostedVideoShareUrl(
+  Map<String, dynamic> d,
+) async {
   for (final m in eventNoticiaVideosFromDoc(d)) {
     var raw = sanitizeImageUrl((m['videoUrl'] ?? '').toString());
     if (raw.isEmpty) continue;
@@ -668,7 +695,8 @@ Future<String?> resolveNoticiaHostedVideoShareUrl(Map<String, dynamic> d) async 
       continue;
     }
     if (!isValidImageUrl(raw) && firebaseStorageMediaUrlLooksLike(raw)) {
-      raw = (await AppStorageImageService.instance.resolveImageUrl(
+      raw =
+          (await AppStorageImageService.instance.resolveImageUrl(
             imageUrl: raw,
           )) ??
           raw;
@@ -705,7 +733,8 @@ List<String> noticiaGalleryRefsForShare(Map<String, dynamic> p) {
         low.contains('vimeo.com')) {
       return;
     }
-    final ok = isValidImageUrl(s) ||
+    final ok =
+        isValidImageUrl(s) ||
         isDataImageUrl(s) ||
         low.startsWith('gs://') ||
         firebaseStorageMediaUrlLooksLike(s);

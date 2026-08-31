@@ -35,6 +35,7 @@ export function topicPushNovo(
   kind:
     | "aviso"
     | "evento"
+    | "membro"
     | "escala"
     | "aniversario"
     | "fornecedor_agenda"

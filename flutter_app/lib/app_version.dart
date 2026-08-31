@@ -1,4 +1,7 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2252: Eventos e avisos com distribuicao para painel/site publico,
+/// push configuravel por usuario (incluindo novos membros e lembretes),
+/// partilha de fotos/videos com cache e revisao da fila de upload resiliente.
 /// 11.2.305+2250: CAUSA RAIZ da INTERNAL ASSERTION do Firestore na web: o poll
 /// que substituiu `snapshots()` usava `.get()`, e no SDK JS o `.get()` TAMBEM
 /// abre um alvo de listen (nem `Source.server` escapa) — um alvo novo por ciclo
@@ -622,7 +625,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2251';
+const String appBuildNumber = '2252';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

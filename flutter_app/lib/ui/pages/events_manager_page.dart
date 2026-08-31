@@ -180,7 +180,7 @@ import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart'
 import 'package:gestao_yahweh/services/church_context_service.dart';
 import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 
-/// BotÃ£o "colar" num campo de link â€” evita digitar/copiar manualmente.
+/// Botão "colar" num campo de link — evita digitar/copiar manualmente.
 Widget _pasteFieldButton(TextEditingController controller) {
   return IconButton(
     tooltip: 'Colar',
@@ -195,8 +195,8 @@ Widget _pasteFieldButton(TextEditingController controller) {
   );
 }
 
-/// Copiar + colar juntos â€” Ãºtil quando o campo jÃ¡ tem um link/texto salvo
-/// que o usuÃ¡rio quer reaproveitar noutro lugar, e para colar rapidamente.
+/// Copiar + colar juntos — útil quando o campo já tem um link/texto salvo
+/// que o usuário quer reaproveitar noutro lugar, e para colar rapidamente.
 Widget _copyPasteFieldButtons(TextEditingController controller) {
   return Row(
     mainAxisSize: MainAxisSize.min,
@@ -219,20 +219,20 @@ class EventsManagerPage extends StatefulWidget {
   final String tenantId;
   final String role;
 
-  /// PermissÃµes granulares (`igrejas/.../users/{uid}`) â€” ex.: `eventos` para publicar no feed.
+  /// Permissões granulares (`igrejas/.../users/{uid}`) — ex.: `eventos` para publicar no feed.
   final List<String>? permissions;
 
   /// Dentro do shell: sem AppBar azul duplicada; abas compactas no corpo.
   final bool embeddedInShell;
   final VoidCallback? onShellBack;
 
-  /// PrÃ©-preenche a busca do feed (ex.: busca global).
+  /// Pré-preenche a busca do feed (ex.: busca global).
   final String? initialFeedSearchQuery;
 
   /// Reabre o evento onde o utilizador parou ([AppResumeStateService]).
   final String? initialOpenEventDocId;
 
-  /// Aba inicial (0=Feed, 1=Galeria Arquivo, demais conforme permissÃµes).
+  /// Aba inicial (0=Feed, 1=Galeria Arquivo, demais conforme permissões).
   final int initialTabIndex;
 
   const EventsManagerPage({
@@ -251,8 +251,8 @@ class EventsManagerPage extends StatefulWidget {
   State<EventsManagerPage> createState() => _EventsManagerPageState();
 }
 
-/// Abre o formulÃ¡rio completo de Eventos/Cultos a partir da Agenda.
-/// MantÃ©m o mesmo pipeline de galeria, vÃ­deo, Storage e publicaÃ§Ã£o no mural.
+/// Abre o formulário completo de Eventos/Cultos a partir da Agenda.
+/// Mantém o mesmo pipeline de galeria, vídeo, Storage e publicação no mural.
 Future<dynamic> openChurchEventEditor({
   required BuildContext context,
   required String tenantId,
@@ -274,7 +274,7 @@ Future<dynamic> openChurchEventEditor({
   );
 }
 
-/// Cache RAM â€” eventos/notÃ­cias instantÃ¢neo ao reabrir Feed/Galeria/Dashboard.
+/// Cache RAM — eventos/notícias instantÃ¢neo ao reabrir Feed/Galeria/Dashboard.
 abstract final class _EventosNoticiasRamCache {
   _EventosNoticiasRamCache._();
 
@@ -297,7 +297,7 @@ abstract final class _EventosNoticiasRamCache {
       _byTenant.remove(key);
       return null;
     }
-    // Filtra docs recÃ©m-excluÃ­dos (lÃ¡pides) â€” Â«excluiu, nÃ£o voltaÂ».
+    // Filtra docs recém-excluídos (lápides) — «excluiu, não volta».
     return TenantDeletedDocTombstones.filter(
       key,
       TenantModuleKeys.eventos,
@@ -369,7 +369,7 @@ abstract final class _EventTemplatesRamCache {
       List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(docs),
       (d) => d.id,
     );
-    // Lista vazia = limpar cache (ex.: apagou o Ãºltimo evento fixo).
+    // Lista vazia = limpar cache (ex.: apagou o último evento fixo).
     if (safeDocs.isEmpty) {
       _byTenant.remove(key);
       return;
@@ -377,7 +377,7 @@ abstract final class _EventTemplatesRamCache {
     _byTenant[key] = (docs: safeDocs, at: DateTime.now());
   }
 
-  /// Remove IDs excluÃ­dos do cache RAM (exclusÃ£o otimista).
+  /// Remove IDs excluídos do cache RAM (exclusão otimista).
   static void removeIds(String tenantId, Iterable<String> docIds) {
     final key = ChurchRepository.churchId(tenantId).trim();
     if (key.isEmpty) return;
@@ -406,7 +406,7 @@ abstract final class _EventTemplatesRamCache {
 String _eventTemplatesMemKey(String tenantId) =>
     '${ChurchRepository.churchId(tenantId).trim()}_event_templates_all';
 
-/// Garante nÃºcleo Firebase antes de qualquer leitura/gravaÃ§Ã£o do mÃ³dulo Eventos.
+/// Garante núcleo Firebase antes de qualquer leitura/gravação do módulo Eventos.
 Future<bool> _awaitEventosFirebasePanelReady() async {
   try {
     await ensureFirebaseReadyForPanelRead();
@@ -423,25 +423,25 @@ Future<bool> _awaitEventosFirebasePanelReady() async {
   }
 }
 
-/// Aviso do diÃ¡logo: o que vai sair alÃ©m do prÃ³prio evento fixo.
+/// Aviso do diálogo: o que vai sair além do próprio evento fixo.
 String _eventoFixoDeleteWarning(({int eventos, int agenda}) gerados) {
   final total = gerados.eventos + gerados.agenda;
   if (total <= 0) {
-    return 'A exclusÃ£o Ã© definitiva: remove o evento fixo e a capa do Storage. '
-        'Ele nÃ£o volta a aparecer na lista, no painel nem no site.';
+    return 'A exclusão é definitiva: remove o evento fixo e a capa do Storage. '
+        'Ele não volta a aparecer na lista, no painel nem no site.';
   }
   final partes = <String>[
     if (gerados.eventos > 0)
-      '${gerados.eventos} ${gerados.eventos == 1 ? "evento jÃ¡ gerado" : "eventos jÃ¡ gerados"}',
+      '${gerados.eventos} ${gerados.eventos == 1 ? "evento já gerado" : "eventos já gerados"}',
     if (gerados.agenda > 0)
       '${gerados.agenda} ${gerados.agenda == 1 ? "compromisso da agenda" : "compromissos da agenda"}',
   ];
-  return 'Sai tambÃ©m ${partes.join(" e ")} â€” Ã© isso que hoje continua a '
-      'aparecer no painel inicial e no site pÃºblico depois de excluir. '
-      'A exclusÃ£o Ã© definitiva e inclui a capa no Storage.';
+  return 'Sai também ${partes.join(" e ")} — é isso que hoje continua a '
+      'aparecer no painel inicial e no site público depois de excluir. '
+      'A exclusão é definitiva e inclui a capa no Storage.';
 }
 
-/// Diz ao utilizador o que saiu junto com o evento fixo â€” os eventos gerados
+/// Diz ao utilizador o que saiu junto com o evento fixo — os eventos gerados
 /// e os compromissos de agenda desaparecem com ele, e isso tem de ficar claro.
 String _eventoFixoDeleteMessage(ChurchEventTemplateDeleteResult res) {
   final extras = <String>[
@@ -450,8 +450,8 @@ String _eventoFixoDeleteMessage(ChurchEventTemplateDeleteResult res) {
     if (res.agenda > 0) '${res.agenda} da agenda',
   ];
   final base = res.templates == 1
-      ? 'Evento fixo excluÃ­do'
-      : '${res.templates} eventos fixos excluÃ­dos';
+      ? 'Evento fixo excluído'
+      : '${res.templates} eventos fixos excluídos';
   if (extras.isEmpty) return '$base.';
   return '$base (e ${extras.join(" + ")}).';
 }
@@ -461,7 +461,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   late final TabController _tab;
   Map<String, dynamic>? _tenantData;
 
-  /// Mesmo critÃ©rio que Chat/Mural: ID em `users` ganha sobre doc â€œirmÃ£oâ€ do resolver.
+  /// Mesmo critério que Chat/Mural: ID em `users` ganha sobre doc â€œirmãoâ€ do resolver.
   String? _firestoreTenantId;
   bool _firebaseReady = FirebaseBootstrapService.isReady();
   String? _firebaseInitError;
@@ -475,7 +475,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
   String get _churchId =>
       ChurchRepository.churchId((_firestoreTenantId ?? widget.tenantId).trim());
 
-  /// Alinhado Ã s regras Firestore [canWriteMuralFeed]: gestor, pastoral, secretÃ¡rio, tesoureiro, lÃ­der depto.
+  /// Alinhado às regras Firestore [canWriteMuralFeed]: gestor, pastoral, secretário, tesoureiro, líder depto.
   bool get _canWrite => AppPermissions.canManageChurchMuralEventsAgenda(
     widget.role,
     permissions: widget.permissions,
@@ -537,7 +537,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('DiagnÃ³stico Eventos'),
+        title: const Text('Diagnóstico Eventos'),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -547,18 +547,18 @@ class _EventsManagerPageState extends State<EventsManagerPage>
               const SizedBox(height: 8),
               Text('Tenant resolvido: ${report.tenantResolvido}'),
               const SizedBox(height: 8),
-              Text('ColeÃ§Ã£o: ${report.colecaoUtilizada}'),
+              Text('Coleção: ${report.colecaoUtilizada}'),
               const SizedBox(height: 8),
               Text('Quantidade de eventos: ${report.quantidadeEventos}'),
               const SizedBox(height: 8),
-              Text('Fotos no Ãºltimo evento: ${report.fotosEncontradas}'),
+              Text('Fotos no último evento: ${report.fotosEncontradas}'),
               Text(
-                'VÃ­deo no Ãºltimo evento: ${report.videoEncontrado ? 'sim' : 'nÃ£o'}',
+                'Vídeo no último evento: ${report.videoEncontrado ? 'sim' : 'não'}',
               ),
               if (report.ultimoEventoDocId != null) ...[
                 const SizedBox(height: 8),
                 Text(
-                  'Ãšltimo evento: ${report.ultimoEventoTitulo ?? '(sem tÃ­tulo)'}',
+                  'Ãšltimo evento: ${report.ultimoEventoTitulo ?? '(sem título)'}',
                 ),
                 Text('Doc ID: ${report.ultimoEventoDocId}'),
                 if (report.ultimoEventoCreatedAt != null)
@@ -686,7 +686,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       if (!ok) {
         setState(() {
           _firebaseInitError =
-              'A sincronizar com o servidor â€” tente de novo em instantes.';
+              'A sincronizar com o servidor — tente de novo em instantes.';
         });
         return;
       }
@@ -759,7 +759,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text(
-              'A ligaÃ§Ã£o ao Firebase serÃ¡ verificada ao publicar. '
+              'A ligação ao Firebase será verificada ao publicar. '
               'Pode continuar a editar o evento.',
             ),
             backgroundColor: Colors.orange.shade800,
@@ -799,7 +799,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         try {
           await awaitPublish;
         } catch (_) {
-          // Erro jÃ¡ foi mostrado no formulÃ¡rio / runSilentControleTotal.
+          // Erro já foi mostrado no formulário / runSilentControleTotal.
         }
       }
       ChurchEventosLoadService.invalidate(_tid);
@@ -815,7 +815,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-            'Sem permissÃ£o para excluir este evento.',
+            'Sem permissão para excluir este evento.',
           ),
         );
       }
@@ -852,15 +852,15 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           docId: doc.id,
           data: doc.data(),
         );
-        // Painel Â«PrÃ³ximos diasÂ» e site pÃºblico servem cache prÃ³prio (RAM/disco).
-        // Sem limpar, o evento excluÃ­do continuava no card/site atÃ© o TTL vencer
-        // (o mesmo jÃ¡ era feito para eventos fixos em _deleteTemplate).
+        // Painel «Próximos dias» e site público servem cache próprio (RAM/disco).
+        // Sem limpar, o evento excluído continuava no card/site até o TTL vencer
+        // (o mesmo já era feito para eventos fixos em _deleteTemplate).
         unawaited(PanelProgramacaoLoader.clear(_tid));
         FirestoreReadResilience.forgetKeysWithPrefix('panel_$_tid');
         if (mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(ThemeCleanPremium.successSnackBar('Evento excluÃ­do.'));
+          ).showSnackBar(ThemeCleanPremium.successSnackBar('Evento excluído.'));
           _feedTabKey.currentState?._refresh();
           _galleryTabKey.currentState?._refreshAfterDelete([doc.id]);
         }
@@ -885,14 +885,14 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-            'Apenas gestÃ£o da igreja pode excluir eventos fixos.',
+            'Apenas gestão da igreja pode excluir eventos fixos.',
           ),
         );
       }
       return;
     }
     final nome = (doc.data()?['title'] ?? doc.id).toString();
-    // O que este evento fixo jÃ¡ gerou sai com ele â€” dizer antes, nÃ£o depois.
+    // O que este evento fixo já gerou sai com ele — dizer antes, não depois.
     final geradosCount = await ChurchEventTemplateDeleteService.countGenerated(
       tenantId: _tid,
       templateIds: [doc.id],
@@ -930,10 +930,10 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     _EventTemplatesRamCache.removeIds(tid, [docId]);
     _fixosTabKey.currentState?._removeTemplateLocally(docId);
     try {
-      // ExclusÃ£o completa: o doc do template, os eventos e compromissos de
+      // Exclusão completa: o doc do template, os eventos e compromissos de
       // agenda que ele gerou, a capa no Storage e os caches (RAM + disco).
-      // Apagar sÃ³ o template deixava tudo isso vivo â€” era por isso que o
-      // evento Â«voltavaÂ» no painel inicial e no site pÃºblico.
+      // Apagar só o template deixava tudo isso vivo — era por isso que o
+      // evento «voltava» no painel inicial e no site público.
       final res = await ChurchEventTemplateDeleteService.deleteTemplates(
         tenantId: tid,
         templateIds: [docId],
@@ -950,7 +950,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('NÃ£o foi possÃ­vel excluir: $e'),
+            content: Text('Não foi possível excluir: $e'),
             backgroundColor: ThemeCleanPremium.error,
           ),
         );
@@ -975,18 +975,20 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     'Qua',
     'Qui',
     'Sex',
-    'SÃ¡b',
+    'Sáb',
     'Dom',
   ];
 
+  // ignore: unused_element
   Future<Uint8List> _compressEventoFixoCoverBytes(XFile file) =>
       SafeImageBytes.fromPickerFile(file, maxEdge: 1920, quality: 85);
 
+  // ignore: unused_element
   Future<({String url, String storagePath})?> _pickAndUploadEventoFixoCover({
     required String tenantId,
     required String templateStorageId,
   }) async {
-    // PadrÃ£o CT: pick bytes uma vez ? Facade (sem double compress).
+    // Padrão CT: pick bytes uma vez ? Facade (sem double compress).
     final picked = await ChurchCtModuleUpload.pickImage(
       source: ImageSource.gallery,
       imageQuality: 78,
@@ -1026,7 +1028,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final titleCtrl = TextEditingController(
       text: (data['title'] ?? '').toString(),
     );
-    // Multi-dias da semana: lÃª `weekdays` (array) ou cai no `weekday` Ãºnico
+    // Multi-dias da semana: lê `weekdays` (array) ou cai no `weekday` único
     // legado. Guarda um Set<int> (1=Seg ? 7=Dom).
     final initWeekdays = <int>{};
     final wdListInit = data['weekdays'];
@@ -1054,14 +1056,14 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     final includeInAgenda = ValueNotifier<bool>(
       data['includeInAgenda'] != false,
     );
-    // VigÃªncia opcional â€” "toda sexta, sÃ³ entre 07/08 e 18/09" em vez de indefinido.
+    // Vigência opcional — "toda sexta, só entre 07/08 e 18/09" em vez de indefinido.
     final validFrom = ValueNotifier<DateTime?>(
       (data['validFrom'] as Timestamp?)?.toDate(),
     );
     final validUntil = ValueNotifier<DateTime?>(
       (data['validUntil'] as Timestamp?)?.toDate(),
     );
-    // Mesma extraÃ§Ã£o do feed/eventos: imageUrls (lista ou mapas), imageUrl, defaultImageUrl, fotos, etc.
+    // Mesma extração do feed/eventos: imageUrls (lista ou mapas), imageUrl, defaultImageUrl, fotos, etc.
     final urls = _eventImageUrlsFromData(data);
     final initialPhoto = urls.isNotEmpty ? urls.first : '';
     final initialCoverPath =
@@ -1087,7 +1089,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       if (uploadingPhoto.value) return;
       try {
         // Capa moderna: mesmo editor de recorte do mural (avisos/eventos) ?
-        // enquadramento antes do upload, nÃ£o sÃ³ escolher e mandar direto.
+        // enquadramento antes do upload, não só escolher e mandar direto.
         final encoded = await pickCropEncodeWebp(
           source: ImageSource.gallery,
           profile: HighResCropProfile.feedFree,
@@ -1116,7 +1118,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           final url = sanitizeImageUrl(uploaded.url);
           coverStoragePath.value = uploaded.storagePath;
           defaultPhotoUrl.value = url;
-          // URL vazia (timeout getDownloadURL) â€” mantÃ©m bytes locais no preview.
+          // URL vazia (timeout getDownloadURL) — mantém bytes locais no preview.
           if (url.isNotEmpty) {
             pendingCoverBytes.value = null;
           }
@@ -1128,7 +1130,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
             );
           }
         } catch (e) {
-          // MantÃ©m pendingCoverBytes â€” Salvar tenta enviar de novo.
+          // Mantém pendingCoverBytes — Salvar tenta enviar de novo.
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -1200,8 +1202,9 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           if (bairro.isNotEmpty) parts.add(bairro);
           if (cidade.isNotEmpty && estado.isNotEmpty) {
             parts.add('$cidade - $estado');
-          } else if (cidade.isNotEmpty)
+          } else if (cidade.isNotEmpty) {
             parts.add(cidade);
+          }
           if (cep.isNotEmpty) parts.add('CEP $cep');
           locCtrl.text = parts.join(', ');
         } else {
@@ -1210,7 +1213,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
-              'Local preenchido com o endereÃ§o do cadastro da igreja.',
+              'Local preenchido com o endereço do cadastro da igreja.',
             ),
           );
         }
@@ -1218,7 +1221,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
-              'Cadastre o endereÃ§o em Cadastro da Igreja primeiro.',
+              'Cadastre o endereço em Cadastro da Igreja primeiro.',
             ),
           );
         }
@@ -1295,7 +1298,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'ProgramaÃ§Ã£o semanal com capa personalizada',
+                          'Programação semanal com capa personalizada',
                           style: TextStyle(
                             fontSize: 13,
                             color: Colors.white.withValues(alpha: 0.9),
@@ -1313,7 +1316,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                         TextField(
                           controller: titleCtrl,
                           decoration: eventoFixoFieldDecoration(
-                            label: 'TÃ­tulo do culto',
+                            label: 'Título do culto',
                             icon: Icons.title_rounded,
                           ),
                         ),
@@ -1341,7 +1344,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                   color: Colors.transparent,
                                   child: InkWell(
                                     onTap: () {
-                                      // Multi-seleÃ§Ã£o: liga/desliga o dia,
+                                      // Multi-seleção: liga/desliga o dia,
                                       // mantendo pelo menos 1 selecionado.
                                       final next = Set<int>.from(selectedDow);
                                       if (next.contains(day)) {
@@ -1449,7 +1452,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                         TextField(
                           controller: timeCtrl,
                           decoration: eventoFixoFieldDecoration(
-                            label: 'HorÃ¡rio',
+                            label: 'Horário',
                             icon: Icons.schedule_rounded,
                           ),
                         ),
@@ -1577,7 +1580,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                               ),
                                               const SizedBox(height: 6),
                                               Text(
-                                                'Aparece na lista de Eventos Fixos, agenda e programaÃ§Ã£o pÃºblica.',
+                                                'Aparece na lista de Eventos Fixos, agenda e programação pública.',
                                                 style: TextStyle(
                                                   fontSize: 12,
                                                   height: 1.35,
@@ -1790,7 +1793,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          'RecorrÃªncia',
+                          'Recorrência',
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
@@ -1877,14 +1880,14 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                 .withValues(alpha: 0.45),
                             activeThumbColor: ThemeCleanPremium.primary,
                             title: const Text(
-                              'Gerar na agenda e na programaÃ§Ã£o pÃºblica',
+                              'Gerar na agenda e na programação pública',
                               style: TextStyle(
                                 fontWeight: FontWeight.w800,
                                 fontSize: 14,
                               ),
                             ),
                             subtitle: Text(
-                              'Desligado: mantÃ©m o culto no resumo de horÃ¡rios do site, sem expandir datas na agenda interna nem na programaÃ§Ã£o pÃºblica; tambÃ©m nÃ£o permite Â«Gerar no feedÂ» em massa.',
+                              'Desligado: mantém o culto no resumo de horários do site, sem expandir datas na agenda interna nem na programação pública; também não permite «Gerar no feed» em massa.',
                               style: TextStyle(
                                 fontSize: 12,
                                 height: 1.35,
@@ -1895,7 +1898,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'VigÃªncia (opcional)',
+                          'Vigência (opcional)',
                           style: TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 14,
@@ -1903,7 +1906,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                           ),
                         ),
                         Text(
-                          'Deixe em branco para repetir sem data final. Preencha para um perÃ­odo fixo â€” ex.: toda sexta, sÃ³ entre 07/08 e 18/09.',
+                          'Deixe em branco para repetir sem data final. Preencha para um período fixo — ex.: toda sexta, só entre 07/08 e 18/09.',
                           style: TextStyle(
                             fontSize: 12,
                             height: 1.35,
@@ -1934,7 +1937,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                   ),
                                   label: Text(
                                     v == null
-                                        ? 'InÃ­cio'
+                                        ? 'Início'
                                         : formatPublicDatePt(v),
                                   ),
                                 ),
@@ -1978,7 +1981,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                                         (vf == null && vu == null)
                                         ? const SizedBox.shrink()
                                         : IconButton(
-                                            tooltip: 'Limpar vigÃªncia',
+                                            tooltip: 'Limpar vigência',
                                             icon: const Icon(
                                               Icons.close_rounded,
                                               size: 20,
@@ -2080,7 +2083,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('NÃ£o foi possÃ­vel gravar a capa: $e'),
+              content: Text('Não foi possível gravar a capa: $e'),
               backgroundColor: ThemeCleanPremium.error,
             ),
           );
@@ -2098,8 +2101,8 @@ class _EventsManagerPageState extends State<EventsManagerPage>
     }
     final payload = <String, dynamic>{
       'title': titleCtrl.text.trim(),
-      // `weekday` (primeiro dia) mantÃ©m retrocompatibilidade com a expansÃ£o
-      // legada; `weekdays` Ã© a lista completa (multi-dias).
+      // `weekday` (primeiro dia) mantém retrocompatibilidade com a expansão
+      // legada; `weekdays` é a lista completa (multi-dias).
       'weekday': (dow.value.toList()..sort()).isEmpty
           ? 7
           : (dow.value.toList()..sort()).first,
@@ -2165,7 +2168,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text(
-              'Este modelo estÃ¡ com Â«Gerar na agendaÂ» desligado. Ative na ediÃ§Ã£o do evento fixo para gerar entradas em massa.',
+              'Este modelo está com «Gerar na agenda» desligado. Ative na edição do evento fixo para gerar entradas em massa.',
             ),
             behavior: SnackBarBehavior.floating,
           ),
@@ -2192,7 +2195,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Cria entradas em massa no banco (Ãºtil para relatÃ³rios). Esses itens nÃ£o aparecem no Feed â€” o Feed Ã© sÃ³ para eventos especiais publicados manualmente.',
+                'Cria entradas em massa no banco (útil para relatórios). Esses itens não aparecem no Feed — o Feed é só para eventos especiais publicados manualmente.',
                 style: TextStyle(
                   fontSize: 12,
                   color: Colors.grey.shade700,
@@ -2203,7 +2206,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
               TextField(
                 controller: daysCtrl,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'PrÃ³ximos X dias'),
+                decoration: const InputDecoration(labelText: 'Próximos X dias'),
                 onChanged: (_) => setDialogState(() {}),
               ),
               const SizedBox(height: 12),
@@ -2244,7 +2247,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         : (int.tryParse(daysCtrl.text.trim()) ?? 60);
     var now = DateTime.now();
     var until = now.add(Duration(days: daysAhead));
-    // VigÃªncia do evento fixo (opcional) â€” nÃ£o gerar fora do perÃ­odo definido.
+    // Vigência do evento fixo (opcional) — não gerar fora do período definido.
     final templateValidFrom = (data['validFrom'] as Timestamp?)?.toDate();
     final templateValidUntil = (data['validUntil'] as Timestamp?)?.toDate();
     if (templateValidFrom != null && templateValidFrom.isAfter(now)) {
@@ -2262,7 +2265,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Fora da vigÃªncia definida para este evento fixo â€” nada a gerar.',
+              'Fora da vigência definida para este evento fixo — nada a gerar.',
             ),
           ),
         );
@@ -2274,10 +2277,11 @@ class _EventsManagerPageState extends State<EventsManagerPage>
       dates.add(DateTime(cursor.year, cursor.month, cursor.day, hh, mm));
       if (recurrence == 'biweekly') {
         cursor = cursor.add(const Duration(days: 14));
-      } else if (recurrence == 'monthly')
+      } else if (recurrence == 'monthly') {
         cursor = DateTime(cursor.year, cursor.month + 1, cursor.day);
-      else
+      } else {
         cursor = cursor.add(const Duration(days: 7));
+      }
     }
     final batch = YahwehBatch();
     final tsNow = Timestamp.now();
@@ -2366,7 +2370,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           child: ChurchPanelResilientLoadBanner(
             hasLocalData: false,
             isSyncing: false,
-            errorTitle: 'Firebase ainda nÃ£o estÃ¡ pronto',
+            errorTitle: 'Firebase ainda não está pronto',
             error: _firebaseInitError,
             onRetry: () => unawaited(_bootstrapFirestoreTenant()),
           ),
@@ -2407,7 +2411,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
               actions: [
                 if (_canManageAll)
                   IconButton(
-                    tooltip: 'DiagnÃ³stico Eventos',
+                    tooltip: 'Diagnóstico Eventos',
                     onPressed: () => unawaited(_showEventosDiagnostic()),
                     icon: Icon(
                       Icons.medical_information_outlined,
@@ -2622,7 +2626,7 @@ class _EventsGalleryHeroHeader extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '$total Ã¡lbum(ns) arquivados',
+                  '$total álbum(ns) arquivados',
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.92),
                     fontSize: 13,
@@ -2740,7 +2744,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
       if (!mounted) return;
       setState(() {
         _fetching = false;
-        _loadError = 'Igreja nÃ£o identificada.';
+        _loadError = 'Igreja não identificada.';
       });
       return;
     }
@@ -2750,7 +2754,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
         setState(() {
           _fetching = false;
           _loadError =
-              'A sincronizar com o servidor â€” tente de novo em instantes.';
+              'A sincronizar com o servidor — tente de novo em instantes.';
         });
         return;
       }
@@ -2893,7 +2897,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-            'Sem permissÃ£o para excluir o(s) evento(s) selecionado(s).',
+            'Sem permissão para excluir o(s) evento(s) selecionado(s).',
           ),
         );
       }
@@ -2902,7 +2906,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     if (allowedRefs.length < refs.length && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.feedbackSnackBar(
-          'Alguns itens foram ignorados por falta de permissÃ£o.',
+          'Alguns itens foram ignorados por falta de permissão.',
         ),
       );
     }
@@ -2957,7 +2961,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        ThemeCleanPremium.successSnackBar('Evento(s) excluÃ­do(s).'),
+        ThemeCleanPremium.successSnackBar('Evento(s) excluído(s).'),
       );
     } catch (e) {
       if (!mounted) return;
@@ -3009,7 +3013,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     const months = <String>[
       'Janeiro',
       'Fevereiro',
-      'MarÃ§o',
+      'Março',
       'Abril',
       'Maio',
       'Junho',
@@ -3150,7 +3154,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
         child: ChurchPanelResilientLoadBanner(
           hasLocalData: false,
           isSyncing: false,
-          errorTitle: 'NÃ£o foi possÃ­vel carregar a galeria',
+          errorTitle: 'Não foi possível carregar a galeria',
           error: _loadError,
           onRetry: _refresh,
         ),
@@ -3284,7 +3288,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
         icon: Icons.photo_library_outlined,
         title: 'Galeria de eventos vazia',
         subtitle:
-            'Quando um evento marcado como permanente terminar, ele ficarÃ¡ no Feed por 1 dia e depois virÃ¡ para esta galeria de arquivo.',
+            'Quando um evento marcado como permanente terminar, ele ficará no Feed por 1 dia e depois virá para esta galeria de arquivo.',
       );
     }
     return RefreshIndicator(
@@ -3313,7 +3317,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                       hasLocalData: true,
                       isSyncing: _fetching,
                       showStaleCache: !_fetching,
-                      errorTitle: 'NÃ£o foi possÃ­vel carregar a galeria',
+                      errorTitle: 'Não foi possível carregar a galeria',
                       error: _loadError,
                       onRetry: _refresh,
                     ),
@@ -3333,7 +3337,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                       TextField(
                         controller: _searchCtrl,
                         decoration: InputDecoration(
-                          hintText: 'Pesquisar evento por tÃ­tulo ou descriÃ§Ã£o',
+                          hintText: 'Pesquisar evento por título ou descrição',
                           prefixIcon: const Icon(Icons.search_rounded),
                           filled: true,
                           fillColor: const Color(0xFFF8FAFC),
@@ -3560,7 +3564,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
                                   ),
                                   _miniChip(
                                     Icons.videocam_rounded,
-                                    '${videos.length} vÃ­deo(s)',
+                                    '${videos.length} vídeo(s)',
                                   ),
                                 ],
                               ),
@@ -3635,7 +3639,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
     );
   }
 
-  /// Grelha responsiva: 2 colunas em telemÃ³vel estreito, 3 em mÃ©dio, atÃ© 4 em web/tablet.
+  /// Grelha responsiva: 2 colunas em telemóvel estreito, 3 em médio, até 4 em web/tablet.
   SliverGridDelegate _muralArchiveGridDelegate(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width - ThemeCleanPremium.spaceMd * 2;
     final maxExt = w < 400
@@ -3774,7 +3778,7 @@ class _EventGalleryDetailPage extends StatelessWidget {
           ],
           if (videos.isNotEmpty) ...[
             const Text(
-              'VÃ­deos',
+              'Vídeos',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 10),
@@ -3914,7 +3918,7 @@ class _EventCategoriesManagerPageState
       builder: (ctx) => AlertDialog(
         title: const Text('Excluir categoria'),
         content: Text(
-          'Remover "${(doc.data()?['nome'] ?? doc.id)}"? Eventos antigos mantÃªm a cor gravada.',
+          'Remover "${(doc.data()?['nome'] ?? doc.id)}"? Eventos antigos mantêm a cor gravada.',
         ),
         actions: [
           TextButton(
@@ -4063,7 +4067,7 @@ class _EventCategoriesManagerPageState
                         ),
                       )
                     : const Icon(Icons.add_rounded),
-                label: Text(_saving ? 'Salvandoâ€¦' : 'Adicionar categoria'),
+                label: Text(_saving ? 'Salvando…' : 'Adicionar categoria'),
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
@@ -4096,7 +4100,7 @@ class _EventCategoriesManagerPageState
                   child: ChurchPanelResilientLoadBanner(
                     hasLocalData: false,
                     isSyncing: _loadingList,
-                    errorTitle: 'NÃ£o foi possÃ­vel carregar categorias',
+                    errorTitle: 'Não foi possível carregar categorias',
                     error: _loadError,
                     onRetry: () => _reloadList(forceRefresh: true),
                   ),
@@ -4240,9 +4244,9 @@ class _FeedTabState extends State<_FeedTab> {
     if (!filtered) {
       return col.orderBy('startAt', descending: true);
     }
-    // Legacy-safe: alguns eventos antigos nÃ£o possuem flags explÃ­citas
-    // `ativo/publicado`. O filtro final de visibilidade jÃ¡ Ã© aplicado
-    // em `_applyFilters`, entÃ£o aqui priorizamos nÃ£o "sumir" com dados.
+    // Legacy-safe: alguns eventos antigos não possuem flags explícitas
+    // `ativo/publicado`. O filtro final de visibilidade já é aplicado
+    // em `_applyFilters`, então aqui priorizamos não "sumir" com dados.
     return col.orderBy('startAt', descending: true);
   }
 
@@ -4296,7 +4300,7 @@ class _FeedTabState extends State<_FeedTab> {
         setState(() {
           _isInitialLoading = false;
           _feedLoadError = StateError(
-            'A sincronizar com o servidor â€” tente de novo em instantes.',
+            'A sincronizar com o servidor — tente de novo em instantes.',
           );
         });
       }
@@ -4383,7 +4387,7 @@ class _FeedTabState extends State<_FeedTab> {
     bool forceServer = false,
   }) async {
     if (!backgroundRefresh && !await _awaitEventosFirebasePanelReady()) {
-      // Sem bloquear: se jÃ¡ hÃ¡ docs locais, mantÃ©m; senÃ£o deixa o load tentar cache.
+      // Sem bloquear: se já há docs locais, mantém; senão deixa o load tentar cache.
       if (_loadedDocs.isNotEmpty) {
         if (mounted) {
           setState(() {
@@ -4405,8 +4409,9 @@ class _FeedTabState extends State<_FeedTab> {
           _feedLastCursor = null;
           if (forceServer) {
             _loadedDocs.clear();
-          } else if (_loadedDocs.isEmpty)
+          } else if (_loadedDocs.isEmpty) {
             _loadedDocs.clear();
+          }
         }
       });
     }
@@ -4414,7 +4419,7 @@ class _FeedTabState extends State<_FeedTab> {
       if (kIsWeb) {
         await FirestoreWebGuard.ensurePanelReadReady().catchError((_) {});
       }
-      // Caminho direto â€” ChurchEventosLoadService jÃ¡ tem cache/resilience;
+      // Caminho direto — ChurchEventosLoadService já tem cache/resilience;
       // runWithWebRecovery aqui multiplicava timeouts na Web.
       final result = await ChurchEventosLoadService.loadFeed(
         seedTenantId: widget.tenantId.trim(),
@@ -4585,7 +4590,7 @@ class _FeedTabState extends State<_FeedTab> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-            'Somente gestor, pastor ou quem eles delegarem pode excluir vÃ¡rios eventos de uma vez.',
+            'Somente gestor, pastor ou quem eles delegarem pode excluir vários eventos de uma vez.',
           ),
         );
       }
@@ -4611,7 +4616,7 @@ class _FeedTabState extends State<_FeedTab> {
         ),
         content: Text(
           refs.length > 1
-              ? 'Esta aÃ§Ã£o nÃ£o pode ser desfeita. ${refs.length} evento(s) serÃ£o removidos do feed e da galeria.'
+              ? 'Esta ação não pode ser desfeita. ${refs.length} evento(s) serão removidos do feed e da galeria.'
               : 'Deseja excluir ${refs.length} evento(s)?',
         ),
         actions: [
@@ -4653,7 +4658,7 @@ class _FeedTabState extends State<_FeedTab> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(ThemeCleanPremium.successSnackBar('Eventos excluÃ­dos.'));
+      ).showSnackBar(ThemeCleanPremium.successSnackBar('Eventos excluídos.'));
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -4710,7 +4715,7 @@ class _FeedTabState extends State<_FeedTab> {
     int weekday,
     String searchQuery,
   ) {
-    // Feed = sÃ³ eventos especiais; data passada ? Galeria, nÃ£o o Feed.
+    // Feed = só eventos especiais; data passada ? Galeria, não o Feed.
     var out = docs.where(eventoDocApareceNoFeedPainel).where((d) {
       final data = d.data();
       if (data['ativo'] == false) return false;
@@ -4787,7 +4792,7 @@ class _FeedTabState extends State<_FeedTab> {
         child: ChurchPanelResilientLoadBanner(
           hasLocalData: false,
           isSyncing: false,
-          errorTitle: 'NÃ£o foi possÃ­vel carregar avisos e eventos',
+          errorTitle: 'Não foi possível carregar avisos e eventos',
           error: _feedLoadError,
           onRetry: _refresh,
         ),
@@ -4843,7 +4848,7 @@ class _FeedTabState extends State<_FeedTab> {
         icon: Icons.event_available_rounded,
         title: 'Nenhum evento ainda',
         subtitle:
-            'Use o Feed para cultos especiais, campanhas e datas comemorativas. A programaÃ§Ã£o semanal fica em Eventos Fixos.',
+            'Use o Feed para cultos especiais, campanhas e datas comemorativas. A programação semanal fica em Eventos Fixos.',
         action: widget.canWrite
             ? FilledButton.icon(
                 onPressed: widget.onNovoEvento,
@@ -4883,7 +4888,7 @@ class _FeedTabState extends State<_FeedTab> {
                     hasLocalData: true,
                     isSyncing: _isInitialLoading,
                     showStaleCache: !_isInitialLoading,
-                    errorTitle: 'NÃ£o foi possÃ­vel carregar avisos e eventos',
+                    errorTitle: 'Não foi possível carregar avisos e eventos',
                     onRetry: _refresh,
                   ),
                 );
@@ -4924,7 +4929,7 @@ class _FeedTabState extends State<_FeedTab> {
                             child: DropdownButtonFormField<String>(
                               initialValue: _filterPeriod,
                               decoration: const InputDecoration(
-                                labelText: 'PerÃ­odo',
+                                labelText: 'Período',
                                 isDense: true,
                                 contentPadding: EdgeInsets.symmetric(
                                   horizontal: 12,
@@ -4942,11 +4947,11 @@ class _FeedTabState extends State<_FeedTab> {
                                 ),
                                 DropdownMenuItem(
                                   value: 'month',
-                                  child: Text('Este mÃªs'),
+                                  child: Text('Este mês'),
                                 ),
                                 DropdownMenuItem(
                                   value: 'last_month',
-                                  child: Text('MÃªs anterior'),
+                                  child: Text('Mês anterior'),
                                 ),
                                 DropdownMenuItem(
                                   value: 'year',
@@ -4980,7 +4985,7 @@ class _FeedTabState extends State<_FeedTab> {
                                 DropdownMenuItem(value: 3, child: Text('Qua')),
                                 DropdownMenuItem(value: 4, child: Text('Qui')),
                                 DropdownMenuItem(value: 5, child: Text('Sex')),
-                                DropdownMenuItem(value: 6, child: Text('SÃ¡b')),
+                                DropdownMenuItem(value: 6, child: Text('Sáb')),
                                 DropdownMenuItem(value: 7, child: Text('Dom')),
                               ],
                               onChanged: (v) =>
@@ -5075,7 +5080,7 @@ class _FeedTabState extends State<_FeedTab> {
   }
 }
 
-/// AÃ§Ãµes de seleÃ§Ã£o / exclusÃ£o do feed do Mural â€” botÃµes com gradiente e sombra soft.
+/// Ações de seleção / exclusão do feed do Mural — botões com gradiente e sombra soft.
 class _MuralFeedSelectionRow extends StatelessWidget {
   final bool selectMode;
   final int selectedCount;
@@ -5102,7 +5107,7 @@ class _MuralFeedSelectionRow extends StatelessWidget {
         _SoftOutlinePillButton(
           onPressed: onToggleSelect,
           icon: selectMode ? Icons.close_rounded : Icons.check_box_outlined,
-          label: selectMode ? 'Cancelar seleÃ§Ã£o' : 'Selecionar',
+          label: selectMode ? 'Cancelar seleção' : 'Selecionar',
           borderColor: selectMode
               ? const Color(0xFF94A3B8)
               : p.withValues(alpha: 0.5),
@@ -5118,7 +5123,7 @@ class _MuralFeedSelectionRow extends StatelessWidget {
           _CoralActionPillButton(
             onPressed: onExcluirPorPeriodo,
             icon: Icons.event_busy_rounded,
-            label: 'Excluir por perÃ­odo',
+            label: 'Excluir por período',
           ),
       ],
     );
@@ -5259,6 +5264,7 @@ class _CoralActionPillButton extends StatelessWidget {
 // -------------------------------------------------------------------------------
 // Stories Bar ? estilo Instagram
 // -------------------------------------------------------------------------------
+// ignore: unused_element
 class _StoriesBar extends StatelessWidget {
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
   final String nomeIgreja, logoUrl, tenantId;
@@ -5337,7 +5343,7 @@ class _StoriesBar extends StatelessWidget {
       dt = (data['startAt'] as Timestamp).toDate();
     } catch (_) {}
     final dateStr = dt != null
-        ? '${_wn(dt.weekday)}, ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} Ã s ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
+        ? '${_wn(dt.weekday)}, ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
         : '';
 
     showDialog(
@@ -5515,7 +5521,7 @@ class _StoriesBar extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 10),
                                 Text(
-                                  'Toque para assistir ao vÃ­deo',
+                                  'Toque para assistir ao vídeo',
                                   style: TextStyle(
                                     color: Colors.white.withValues(alpha: 0.85),
                                     fontSize: 14,
@@ -5794,7 +5800,7 @@ class _StoriesBar extends StatelessWidget {
     'Qua',
     'Qui',
     'Sex',
-    'SÃ¡b',
+    'Sáb',
     'Dom',
   ][w.clamp(0, 7)];
 }
@@ -5867,8 +5873,8 @@ class _StoryCircle extends StatelessWidget {
 List<String> _eventImageUrlsFromData(Map<String, dynamic> data) =>
     eventNoticiaPhotoUrls(data);
 
-/// Fotos do card do Feed sem repetir a capa/miniatura do vÃ­deo (evita faixa cinza/branca + vÃ­deo).
-/// Ãndice da foto no doc original (para [eventNoticiaPhotoStoragePathAt]) a partir da URL filtrada.
+/// Fotos do card do Feed sem repetir a capa/miniatura do vídeo (evita faixa cinza/branca + vídeo).
+/// Índice da foto no doc original (para [eventNoticiaPhotoStoragePathAt]) a partir da URL filtrada.
 int? _eventPhotoUrlIndexInDoc(Map<String, dynamic> data, String candidateUrl) {
   final target = candidateUrl.trim();
   if (target.isEmpty) return null;
@@ -5895,15 +5901,15 @@ int? _eventPhotoUrlIndexInDoc(Map<String, dynamic> data, String candidateUrl) {
 
 List<String> _eventFeedCardPhotoUrls(Map<String, dynamic> data) {
   final raw = noticiaGalleryRefsForShare(data);
-  // SÃ³ exclui thumbs de vÃ­deo quando HÃ vÃ­deo. Sem vÃ­deo, displayVideoThumbnail
-  // caÃ­a na 1? foto e o feed ficava branco (Ampliar sem imagem).
+  // Só exclui thumbs de vídeo quando HÁ vídeo. Sem vídeo, displayVideoThumbnail
+  // caía na 1? foto e o feed ficava branco (Ampliar sem imagem).
   if (!eventNoticiaDocHasPlayableVideo(data)) {
     return dedupeImageRefsByStorageIdentity(raw);
   }
   final thumbUrls = <String>{
     sanitizeImageUrl(eventNoticiaVideoThumbUrl(data) ?? ''),
   }..removeWhere((e) => e.isEmpty);
-  // Poster dedicado (nÃ£o a 1? foto da galeria, se for a ?nica).
+  // Poster dedicado (não a 1? foto da galeria, se for a ?nica).
   final dedicatedPoster = sanitizeImageUrl(
     (data['posterUrl'] ??
             data['videoPosterUrl'] ??
@@ -5934,7 +5940,7 @@ List<String> _eventFeedCardPhotoUrls(Map<String, dynamic> data) {
       return true;
     }).toList(),
   );
-  // Nunca deixar o card sem foto se a galeria tinha imagem e sÃ³ sobrou thumb.
+  // Nunca deixar o card sem foto se a galeria tinha imagem e só sobrou thumb.
   if (filtered.isEmpty && raw.isNotEmpty) {
     return dedupeImageRefsByStorageIdentity(raw);
   }
@@ -5945,7 +5951,7 @@ List<Map<String, String>> _eventVideosFromData(Map<String, dynamic> data) =>
     eventNoticiaVideosFromDoc(data);
 
 // -------------------------------------------------------------------------------
-// Post do Evento â€” Instagram completo (foto, vÃ­deo, comentÃ¡rios)
+// Post do Evento — Instagram completo (foto, vídeo, comentários)
 // -------------------------------------------------------------------------------
 class _EventoPost extends StatefulWidget {
   final String tenantId;
@@ -5975,14 +5981,16 @@ class _EventoPost extends StatefulWidget {
 
 class _EventoPostState extends State<_EventoPost>
     with SingleTickerProviderStateMixin {
+  // Mantido para a animação de reação do card legado.
+  // ignore: unused_field
   bool _showHeart = false;
   final int _carouselIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    // PrÃ©-aquece foto/vÃ­deo assim que o card aparece â€” ao tocar em
-    // "Compartilhar" minutos depois, jÃ¡ estÃ¡ em cache (instantÃ¢neo).
+    // Pré-aquece foto/vídeo assim que o card aparece — ao tocar em
+    // "Compartilhar" minutos depois, já está em cache (instantÃ¢neo).
     warmNoticiaShareMediaBundle(
       widget.doc.data(),
       tenantId: widget.tenantId,
@@ -6032,7 +6040,7 @@ class _EventoPostState extends State<_EventoPost>
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          ThemeCleanPremium.feedbackSnackBar('NÃ£o foi possÃ­vel curtir agora.'),
+          ThemeCleanPremium.feedbackSnackBar('Não foi possível curtir agora.'),
         );
       }
     }
@@ -6056,6 +6064,7 @@ class _EventoPostState extends State<_EventoPost>
     });
   }
 
+  // ignore: unused_element
   Future<void> _toggleRsvp() async {
     if (_myUid == null) return;
     final data = widget.doc.data();
@@ -6078,7 +6087,7 @@ class _EventoPostState extends State<_EventoPost>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.feedbackSnackBar(
-            'NÃ£o foi possÃ­vel atualizar a confirmaÃ§Ã£o.',
+            'Não foi possível atualizar a confirmação.',
           ),
         );
       }
@@ -6094,6 +6103,7 @@ class _EventoPostState extends State<_EventoPost>
     );
   }
 
+  // ignore: unused_element
   Future<void> _openShareSheet(Rect? shareOrigin) async {
     final data = Map<String, dynamic>.from(widget.doc.data());
     data['tenantId'] = widget.tenantId.trim();
@@ -6152,6 +6162,7 @@ class _EventoPostState extends State<_EventoPost>
     );
   }
 
+  // ignore: unused_element
   void _openFullScreen(List<String> images) {
     Navigator.push(
       context,
@@ -6171,6 +6182,7 @@ class _EventoPostState extends State<_EventoPost>
     return 'agora';
   }
 
+  // ignore: unused_element
   Widget _buildEventFeedPhotoSlide({
     required Map<String, dynamic> data,
     required String imageUrl,
@@ -6304,7 +6316,7 @@ class _EventoPostState extends State<_EventoPost>
       createdDt = (data['createdAt'] as Timestamp).toDate();
     } catch (_) {}
     final eventDateStr = eventDt != null
-        ? '${_wn(eventDt.weekday)}, ${eventDt.day.toString().padLeft(2, '0')}/${eventDt.month.toString().padLeft(2, '0')}/${eventDt.year} Ã s ${eventDt.hour.toString().padLeft(2, '0')}:${eventDt.minute.toString().padLeft(2, '0')}'
+        ? '${_wn(eventDt.weekday)}, ${eventDt.day.toString().padLeft(2, '0')}/${eventDt.month.toString().padLeft(2, '0')}/${eventDt.year} às ${eventDt.hour.toString().padLeft(2, '0')}:${eventDt.minute.toString().padLeft(2, '0')}'
         : '';
     final createdAgo = createdDt != null ? _timeAgo(createdDt) : '';
     return Container(
@@ -6319,7 +6331,7 @@ class _EventoPostState extends State<_EventoPost>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header (endereÃ§o vai para os links no fim do card)
+          // Header (endereço vai para os links no fim do card)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 6, 8),
             child: Row(
@@ -6405,8 +6417,8 @@ class _EventoPostState extends State<_EventoPost>
               ],
             ),
           ),
-          // TÃ­tulo + data ficam sÃ³ como barra fina sobre foto/vÃ­deo (estilo avisos / EcoFire)
-          // Fotos e vÃ­deo (preview visÃ­vel)
+          // Título + data ficam só como barra fina sobre foto/vídeo (estilo avisos / EcoFire)
+          // Fotos e vídeo (preview visível)
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -6568,9 +6580,9 @@ class _EventoPostState extends State<_EventoPost>
                     },
                   ),
                 ),
-              // Fotos e vÃ­deo no MESMO carrossel. Antes as fotos vinham num
-              // bloco e o vÃ­deo noutro por baixo: quem via o card nÃ£o percebia
-              // que havia vÃ­deo, nem quantas fotos existiam.
+              // Fotos e vídeo no MESMO carrossel. Antes as fotos vinham num
+              // bloco e o vídeo noutro por baixo: quem via o card não percebia
+              // que havia vídeo, nem quantas fotos existiam.
               if (cardMediaItems.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -6650,7 +6662,7 @@ class _EventoPostState extends State<_EventoPost>
             )
           else
             const SizedBox(height: 8),
-          // Texto de divulgaÃ§Ã£o (tÃ­tulo jÃ¡ estÃ¡ na faixa)
+          // Texto de divulgação (título já está na faixa)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: ChurchPostRichTextViewer(
@@ -6660,7 +6672,7 @@ class _EventoPostState extends State<_EventoPost>
               data: Map<String, dynamic>.from(data),
             ),
           ),
-          // Convite, site pÃºblico e mapa
+          // Convite, site público e mapa
           _EventPostLinksRow(
             tenantId: widget.tenantId,
             churchSlug: widget.churchSlug,
@@ -6675,7 +6687,7 @@ class _EventoPostState extends State<_EventoPost>
             eventLat: _eventPostParseDouble(data['locationLat']),
             eventLng: _eventPostParseDouble(data['locationLng']),
           ),
-          // Link(s) do(s) vÃ­deo(s)
+          // Link(s) do(s) vídeo(s)
           if (eventVideos.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -6719,8 +6731,8 @@ class _EventoPostState extends State<_EventoPost>
                           const SizedBox(width: 8),
                           Text(
                             eventVideos.length > 1
-                                ? 'VÃ­deo ${e.key + 1}'
-                                : 'Assistir vÃ­deo',
+                                ? 'Vídeo ${e.key + 1}'
+                                : 'Assistir vídeo',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -6740,7 +6752,7 @@ class _EventoPostState extends State<_EventoPost>
             child: GestureDetector(
               onTap: _openComments,
               child: Text(
-                'Ver comentÃ¡rios',
+                'Ver comentários',
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
               ),
             ),
@@ -6749,7 +6761,7 @@ class _EventoPostState extends State<_EventoPost>
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 2, 16, 12),
             child: Text(
-              createdAgo.isNotEmpty ? 'hÃ¡ $createdAgo' : '',
+              createdAgo.isNotEmpty ? 'há $createdAgo' : '',
               style: TextStyle(fontSize: 10, color: Colors.grey.shade400),
             ),
           ),
@@ -6765,13 +6777,13 @@ class _EventoPostState extends State<_EventoPost>
     'Qua',
     'Qui',
     'Sex',
-    'SÃ¡b',
+    'Sáb',
     'Dom',
   ][w.clamp(0, 7)];
 }
 
 // -------------------------------------------------------------------------------
-// VÃ­deo hospedado: foto/vÃ­deo em destaque + barra fina no topo + toque ? teatro ? tela cheia
+// Vídeo hospedado: foto/vídeo em destaque + barra fina no topo + toque ? teatro ? tela cheia
 // -------------------------------------------------------------------------------
 class _HostedVideoInlinePanel extends StatefulWidget {
   final String videoUrl;
@@ -6842,9 +6854,9 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
               fit: StackFit.expand,
               clipBehavior: Clip.hardEdge,
               children: [
-                // Web: player inline (estilo IG/YouTube) â€” o vÃ­deo TOCA no feed,
-                // nÃ£o Ã© sÃ³ um poster estÃ¡tico. Mudo por padrÃ£o (o usuÃ¡rio dÃ¡ play
-                // com som pelos controles nativos) + botÃ£o Tela cheia no canto.
+                // Web: player inline (estilo IG/YouTube) — o vídeo TOCA no feed,
+                // não é só um poster estático. Mudo por padrão (o usuário dá play
+                // com som pelos controles nativos) + botão Tela cheia no canto.
                 if (kIsWeb)
                   buildPremiumHtmlVideo(
                     widget.videoUrl,
@@ -6989,7 +7001,7 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
                           size: 20,
                         ),
                         label: const Text(
-                          'Abrir vÃ­deo',
+                          'Abrir vídeo',
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
@@ -7021,7 +7033,7 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
                     ),
                   ),
                 ),
-                // Play central sÃ³ no mobile â€” no web o player nativo jÃ¡ tem controles.
+                // Play central só no mobile — no web o player nativo já tem controles.
                 if (!kIsWeb && !_failed && !_posterLoading)
                   Material(
                     color: Colors.transparent,
@@ -7045,7 +7057,7 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
           child: Text(
             kIsWeb
                 ? 'Controles do navegador ? ?cone Tela cheia para ampliar'
-                : 'Toque no vÃ­deo para abrir em tela cheia nesta mesma sessÃ£o',
+                : 'Toque no vídeo para abrir em tela cheia nesta mesma sessão',
             style: TextStyle(
               fontSize: 10,
               color: Colors.grey.shade600,
@@ -7060,7 +7072,7 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
 }
 
 // -------------------------------------------------------------------------------
-// Bloco de vÃ­deo do evento â€” Storage inline; YouTube embed in-app (padrÃ£o Cursos)
+// Bloco de vídeo do evento — Storage inline; YouTube embed in-app (padrão Cursos)
 // -------------------------------------------------------------------------------
 class _EventVideoBlock extends StatelessWidget {
   final String title, dateStr;
@@ -7100,7 +7112,7 @@ class _EventVideoBlock extends StatelessWidget {
     final safeThumb = sanitizeImageUrl(thumbUrl);
     final useThumb = isValidImageUrl(safeThumb);
 
-    // YouTube ? player in-app (capa ? embed), padrÃ£o mÃ³dulo Cursos.
+    // YouTube ? player in-app (capa ? embed), padrão módulo Cursos.
     if (ytId != null && ytId.isNotEmpty) {
       final caption = [
         if (title.isNotEmpty) title,
@@ -7289,7 +7301,7 @@ class _EventVideoBlock extends StatelessWidget {
           padding: const EdgeInsets.only(top: 6),
           child: Text(
             openExternalInTheater
-                ? 'Toque no vÃ­deo para prÃ©-visualizaÃ§Ã£o; Ã­cone no canto para tela cheia (sem abrir o navegador).'
+                ? 'Toque no vídeo para pré-visualização; ícone no canto para tela cheia (sem abrir o navegador).'
                 : 'Toque para abrir no navegador (YouTube / Vimeo)',
             style: TextStyle(
               fontSize: 10,
@@ -7336,6 +7348,7 @@ class _EventVideoBlock extends StatelessWidget {
 }
 
 /// Erro de imagem no feed: fundo neutro + barra fina (sem faixa azul alta).
+// ignore: unused_element
 Widget _eventImageErrorWithOverlay({
   required String title,
   required String dateStr,
@@ -7359,7 +7372,7 @@ Widget _eventImageErrorWithOverlay({
 }
 
 // -------------------------------------------------------------------------------
-// Barra fina sobre foto/vÃ­deo (tÃ­tulo + data em uma linha) â€” estilo avisos / EcoFire
+// Barra fina sobre foto/vídeo (título + data em uma linha) — estilo avisos / EcoFire
 // -------------------------------------------------------------------------------
 class _EventMediaOverlayBar extends StatelessWidget {
   final String title;
@@ -7430,7 +7443,7 @@ double? _eventPostParseDouble(dynamic v) {
   return null;
 }
 
-/// Links rÃ¡pidos: convite (OG), site pÃºblico da igreja e mapa (evento ou cadastro).
+/// Links rápidos: convite (OG), site público da igreja e mapa (evento ou cadastro).
 class _EventPostLinksRow extends StatelessWidget {
   final String tenantId;
   final String churchSlug;
@@ -7533,11 +7546,11 @@ class _EventPostLinksRow extends StatelessWidget {
           ),
           chip(
             icon: Icons.public_rounded,
-            label: 'Site pÃºblico',
+            label: 'Site público',
             url: publicSite,
           ),
           if (mapsUrl != null)
-            chip(icon: Icons.map_rounded, label: 'LocalizaÃ§Ã£o', url: mapsUrl),
+            chip(icon: Icons.map_rounded, label: 'Localização', url: mapsUrl),
         ],
       ),
     );
@@ -7557,13 +7570,13 @@ class _EventPostLinksRow extends StatelessWidget {
   }
 }
 
-/// Limites da visualizaÃ§Ã£o ampliada (web / tablet largo) â€” imagem centrada, legÃ­vel, sem â€œfullscreenâ€ exagerado.
+/// Limites da visualização ampliada (web / tablet largo) — imagem centrada, legível, sem â€œfullscreenâ€ exagerado.
 const double _kMuralLightboxMaxWidthWeb = 760;
 const double _kMuralLightboxMaxHeightWeb = 520;
 const double _kMuralLightboxMaxWidthTablet = 720;
 
-/// Miniaturas na pÃ¡gina de detalhe do evento (antes de abrir o lightbox) â€”
-/// estilo Instagram: quadrados justos, 3 colunas fixas, gap mÃ­nimo.
+/// Miniaturas na página de detalhe do evento (antes de abrir o lightbox) —
+/// estilo Instagram: quadrados justos, 3 colunas fixas, gap mínimo.
 SliverGridDelegate _muralDetailPhotosGridDelegate(double listViewportWidth) {
   return const SliverGridDelegateWithFixedCrossAxisCount(
     crossAxisCount: 3,
@@ -7735,7 +7748,7 @@ class _FullScreenGalleryState extends State<_FullScreenGallery> {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Imagem indisponÃ­vel',
+                      'Imagem indisponível',
                       style: TextStyle(color: Colors.white70, fontSize: 16),
                     ),
                   ],
@@ -7773,7 +7786,7 @@ class _FeedSkeleton extends StatelessWidget {
 }
 
 // -------------------------------------------------------------------------------
-// Seletor de recorrÃªncia (vÃ¡rios dias da semana + perÃ­odo) â€” Novo Evento
+// Seletor de recorrência (vários dias da semana + período) — Novo Evento
 // -------------------------------------------------------------------------------
 class _EventoRecurrenceSection extends StatelessWidget {
   const _EventoRecurrenceSection({
@@ -7862,7 +7875,7 @@ class _EventoRecurrenceSection extends StatelessWidget {
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
-                  'Repetir em vÃ¡rios dias',
+                  'Repetir em vários dias',
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
                 ),
               ),
@@ -7873,7 +7886,7 @@ class _EventoRecurrenceSection extends StatelessWidget {
             ],
           ),
           Text(
-            'Ex.: toda sexta, de 07/08 atÃ© 19/09 â€” ou sexta, sÃ¡bado e domingo, atÃ© uma data final.',
+            'Ex.: toda sexta, de 07/08 até 19/09 — ou sexta, sábado e domingo, até uma data final.',
             style: TextStyle(
               fontSize: 12,
               color: Colors.grey.shade600,
@@ -7935,7 +7948,7 @@ class _EventoRecurrenceSection extends StatelessWidget {
                     ),
                     icon: const Icon(Icons.event_busy_rounded, size: 18),
                     label: Text(
-                      'AtÃ©: ${_fmtDate(validUntil)}',
+                      'Até: ${_fmtDate(validUntil)}',
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -7969,12 +7982,12 @@ class _EventoRecurrenceSection extends StatelessWidget {
                             ).copyWith(alwaysUse24HourFormat: true),
                             child: child!,
                           ),
-                          helpText: 'HorÃ¡rio de inÃ­cio',
+                          helpText: 'Horário de início',
                         );
                         if (t != null) onStartTimeChanged(t);
                       },
                       icon: const Icon(Icons.schedule_rounded, size: 18),
-                      label: Text('InÃ­cio: ${_fmtTime(startTime)}'),
+                      label: Text('Início: ${_fmtTime(startTime)}'),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -7990,7 +8003,7 @@ class _EventoRecurrenceSection extends StatelessWidget {
                             ).copyWith(alwaysUse24HourFormat: true),
                             child: child!,
                           ),
-                          helpText: 'HorÃ¡rio de tÃ©rmino',
+                          helpText: 'Horário de término',
                         );
                         if (t != null) onEndTimeChanged(t);
                       },
@@ -8002,7 +8015,7 @@ class _EventoRecurrenceSection extends StatelessWidget {
               ),
             const SizedBox(height: 4),
             Text(
-              'Um evento serÃ¡ publicado em cada dia gerado, com a mesma foto/vÃ­deo, texto e local.',
+              'Um evento será publicado em cada dia gerado, com a mesma foto/vídeo, texto e local.',
               style: TextStyle(
                 fontSize: 11.5,
                 color: Colors.grey.shade500,
@@ -8017,7 +8030,7 @@ class _EventoRecurrenceSection extends StatelessWidget {
 }
 
 // -------------------------------------------------------------------------------
-// FormulÃ¡rio de Evento (com mÃºltiplas imagens)
+// Formulário de Evento (com múltiplas imagens)
 // -------------------------------------------------------------------------------
 class _EventoFormPage extends StatefulWidget {
   final String tenantId;
@@ -8064,7 +8077,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   void _notifyAddressPreview() => _addressPreviewTick.value++;
 
-  /// Contagem Ãºnica â€” Android/iOS guardam bytes (igual Web) + path sÃ³ para preview.
+  /// Contagem única — Android/iOS guardam bytes (igual Web) + path só para preview.
   int get _newPhotoCount =>
       _newImages.isNotEmpty ? _newImages.length : _newImagePaths.length;
 
@@ -8096,7 +8109,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         _newSizes.add(preparedBytes.length);
       });
     } else {
-      // Sempre copiar para temp estÃ¡vel â€” path do picker some no Android.
+      // Sempre copiar para temp estável — path do picker some no Android.
       mobilePath = await FeedEditorMediaService.persistXFileToTemp(
         encoded,
         prefix: 'gy_event',
@@ -8105,7 +8118,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.errorSnackBarWithRetry(
-              'NÃ£o foi possÃ­vel preparar a foto. Tente outra imagem.',
+              'Não foi possível preparar a foto. Tente outra imagem.',
             ),
           );
         }
@@ -8128,7 +8141,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       );
       if (preparedBytes.isEmpty) {
         throw StateError(
-          'NÃ£o foi possÃ­vel preparar a foto. Escolha outra imagem.',
+          'Não foi possível preparar a foto. Escolha outra imagem.',
         );
       }
       if (!mounted) return;
@@ -8143,7 +8156,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (duplicate) return;
       setState(() {
         _newImages.add(preparedBytes!);
-        // Path sÃ³ para preview local â€” publish usa exclusivamente bytes.
+        // Path só para preview local — publish usa exclusivamente bytes.
         _newImagePaths.add(mobilePath!);
         _newNames.add(
           displayName.isNotEmpty ? displayName : mobilePath.split('/').last,
@@ -8291,7 +8304,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return out;
   }
 
-  /// MantÃ©m ordem por slot (banner = 0, galeria_01 = 1â€¦) sem apagar fotos anteriores.
+  /// Mantém ordem por slot (banner = 0, galeria_01 = 1…) sem apagar fotos anteriores.
   List<String> _mergeFeedPhotoRefsBySlot({
     required List<String> current,
     required String path,
@@ -8314,6 +8327,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return out;
   }
 
+  // ignore: unused_element
   Future<void> _uploadAttachedEventPhotoInBackground({
     Uint8List? webBytes,
     String? mobilePath,
@@ -8387,6 +8401,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
+  // ignore: unused_element
   Future<List<Uint8List>> _copyNewImagesForPublish() async {
     if (kIsWeb) return List<Uint8List>.from(_newImages);
     final out = <Uint8List>[];
@@ -8398,6 +8413,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return out;
   }
 
+  // ignore: unused_element
   Future<Uint8List?> _firstNewImageBytes() async {
     if (kIsWeb) {
       return _newImages.isEmpty ? null : _newImages.first;
@@ -8411,21 +8427,21 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 
   /// Igreja usada para montar o caminho no Storage.
   ///
-  /// Tem de ser a **mesma** fÃ³rmula de [EventoPublishService.publish], senÃ£o o
-  /// caminho prÃ©-enviado nÃ£o bate com o esperado na publicaÃ§Ã£o e o lote Ã©
-  /// descartado (sem estragar nada â€” sÃ³ perde o adiantamento).
+  /// Tem de ser a **mesma** fórmula de [EventoPublishService.publish], senão o
+  /// caminho pré-enviado não bate com o esperado na publicação e o lote é
+  /// descartado (sem estragar nada — só perde o adiantamento).
   String get _photoPreuploadChurchId =>
       ChurchPublishContext.churchIdForPublish(_editorTenantId);
 
-  /// Quantas fotos jÃ¡ publicadas ficam antes das novas.
+  /// Quantas fotos já publicadas ficam antes das novas.
   ///
-  /// Tem de ser a contagem **depois** do dedupe, porque Ã© essa que a
-  /// publicaÃ§Ã£o usa como `startSlotIndex`. Contar `_existingUrls` cru daria
-  /// um slot a mais e o lote seria descartado por nÃ£o bater.
+  /// Tem de ser a contagem **depois** do dedupe, porque é essa que a
+  /// publicação usa como `startSlotIndex`. Contar `_existingUrls` cru daria
+  /// um slot a mais e o lote seria descartado por não bater.
   int get _eventPhotoSlotBase =>
       dedupeImageRefsByStorageIdentity(_existingUrls).length;
 
-  /// Caminho definitivo da foto nova de Ã­ndice [newIndex].
+  /// Caminho definitivo da foto nova de índice [newIndex].
   String _eventPhotoStoragePathFor(
     int newIndex, {
     String? churchId,
@@ -8436,12 +8452,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     (slotBase ?? _eventPhotoSlotBase) + newIndex,
   );
 
-  /// PÃµe os envios antecipados em dia com a lista atual de fotos.
+  /// Põe os envios antecipados em dia com a lista atual de fotos.
   ///
-  /// Chamado ao anexar e ao remover: o slot de cada foto Ã© a sua posiÃ§Ã£o na
-  /// publicaÃ§Ã£o, portanto remover uma foto do meio muda o destino de todas as
-  /// seguintes. O serviÃ§o apaga o objeto do caminho antigo e reenvia para o
-  /// novo â€” nunca fica um slot com a foto errada.
+  /// Chamado ao anexar e ao remover: o slot de cada foto é a sua posição na
+  /// publicação, portanto remover uma foto do meio muda o destino de todas as
+  /// seguintes. O serviço apaga o objeto do caminho antigo e reenvia para o
+  /// novo — nunca fica um slot com a foto errada.
   void _syncEventPhotoPreuploads() {
     if (_newImages.isEmpty) return;
     final churchId = _photoPreuploadChurchId;
@@ -8483,13 +8499,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             FirebaseStorageCleanupService.deleteManyByUrlPathOrGs([path]),
       ));
     }
-    // `syncBatch` apaga primeiro tudo o que muda de destino e sÃ³ depois envia
-    // â€” ver a nota da prÃ³pria funÃ§Ã£o sobre o cruzamento de slots.
+    // `syncBatch` apaga primeiro tudo o que muda de destino e só depois envia
+    // — ver a nota da própria função sobre o cruzamento de slots.
     unawaited(ChurchPhotoPreupload.syncBatch(desired));
     _watchEventPhotoPreuploads();
   }
 
-  /// Espelha no editor quantas fotos jÃ¡ estÃ£o no Storage.
+  /// Espelha no editor quantas fotos já estão no Storage.
   void _watchEventPhotoPreuploads() {
     _photoPreuploadTicker?.cancel();
     if (!mounted || _newImages.isEmpty) return;
@@ -8506,7 +8522,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     });
   }
 
-  /// Descarta todos os envios antecipados de fotos e limpa os Ã³rfÃ£os.
+  /// Descarta todos os envios antecipados de fotos e limpa os órfãos.
   Future<void> _abandonEventPhotoPreuploads() =>
       ChurchPhotoPreupload.abandonAll(List<Uint8List>.from(_newImages));
 
@@ -8518,7 +8534,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (index < _newNames.length) _newNames.removeAt(index);
       if (index < _newSizes.length) _newSizes.removeAt(index);
     });
-    // Apagar o Ã³rfÃ£o da foto removida e sÃ³ entÃ£o reposicionar as seguintes:
+    // Apagar o órfão da foto removida e só então reposicionar as seguintes:
     // os slots deslocaram, e `syncBatch` garante que nenhuma limpeza corre
     // depois do envio que ocupa o mesmo slot.
     unawaited(() async {
@@ -8527,7 +8543,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }());
   }
 
-  /// BotÃ£o remover (X) ? ?rea tÃ¡til =48px + confirmaÃ§Ã£o.
+  /// Botão remover (X) ? ?rea tátil =48px + confirmação.
   Widget _mediaRemoveButton({
     required VoidCallback onRemove,
     String confirmMessage = 'Remover esta foto?',
@@ -8577,8 +8593,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     );
   }
 
-  /// Mostra resoluÃ§Ã£o (WxH) da foto local â€” melhor-esforÃ§o, assÃ­ncrono.
-  /// Future cacheado no State â€” nÃ£o recria em cada rebuild (teclado).
+  /// Mostra resolução (WxH) da foto local — melhor-esforço, assíncrono.
+  /// Future cacheado no State — não recria em cada rebuild (teclado).
   final Map<String, Future<String?>> _localResolutionFutures = {};
 
   Widget _resolutionChip({Uint8List? bytes, String? path}) {
@@ -8624,7 +8640,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return ImmediateMediaAttachFeedback.readResolution(data);
   }
 
-  /// VÃ­deos enviados (mÃ¡x. 2): cada um com videoUrl e thumbUrl para carregamento rÃ¡pido.
+  /// Vídeos enviados (máx. 2): cada um com videoUrl e thumbUrl para carregamento rápido.
   final List<Map<String, dynamic>> _eventVideos = [];
   DateTime _date = DateTime.now().add(const Duration(days: 1));
   DateTime? _validUntil;
@@ -8632,9 +8648,9 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   bool _allDay = false;
   late DateTime _allDayEndDate;
   late DateTime _endDateTime;
-  // RecorrÃªncia (evento em vÃ¡rios dias da semana, ex.: toda sexta 07/08?19/09,
-  // ou sexta+sÃ¡bado+domingo) â€” reaproveita o mesmo pipeline de publicaÃ§Ã£o do
-  // evento Ãºnico, uma vez por data gerada.
+  // Recorrência (evento em vários dias da semana, ex.: toda sexta 07/08?19/09,
+  // ou sexta+sábado+domingo) — reaproveita o mesmo pipeline de publicação do
+  // evento único, uma vez por data gerada.
   bool _recorrente = false;
   final Set<int> _recorrenteWeekdays = {}; // ISO 1=Seg ... 7=Dom
   DateTime? _recorrenteValidFrom;
@@ -8650,22 +8666,22 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   bool _saving = false;
   bool _mediaPicking = false;
 
-  /// `true` enquanto o vÃ­deo anexado estÃ¡ a ser preparado/enviado Ã  frente.
+  /// `true` enquanto o vídeo anexado está a ser preparado/enviado à frente.
   ///
-  /// Era `final bool _uploadingVideo = false` â€” constante â€” e por isso o
-  /// indicador de envio do vÃ­deo no editor nunca aparecia: o utilizador
-  /// anexava, nÃ£o via nada a acontecer e tocava Â«PublicarÂ» de imediato,
-  /// pagando o encode + rede inteiros na barra Â«A publicar mÃ­diaâ€¦Â».
+  /// Era `final bool _uploadingVideo = false` — constante — e por isso o
+  /// indicador de envio do vídeo no editor nunca aparecia: o utilizador
+  /// anexava, não via nada a acontecer e tocava «Publicar» de imediato,
+  /// pagando o encode + rede inteiros na barra «A publicar mídia…».
   bool _uploadingVideo = false;
 
-  /// Sonda do envio antecipado (o prÃ©-envio nÃ£o tem callback para o editor).
+  /// Sonda do envio antecipado (o pré-envio não tem callback para o editor).
   Timer? _videoPreuploadTicker;
 
-  /// Fotos jÃ¡ no Storage antes de publicar (sonda do envio antecipado).
+  /// Fotos já no Storage antes de publicar (sonda do envio antecipado).
   Timer? _photoPreuploadTicker;
   int _photosReadyCount = 0;
 
-  /// Evento jÃ¡ publicado (stub+fotos) enquanto o vÃ­deo ainda sobe â€” merge ao concluir.
+  /// Evento já publicado (stub+fotos) enquanto o vídeo ainda sobe — merge ao concluir.
 
   /// null = a comprimir / a preparar; 0?1 = progresso real do upload ao Storage.
   double? _videoUploadFraction;
@@ -8679,17 +8695,17 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         : widget.resolvedTenantId,
   );
 
-  /// Novo evento: mesmo id desde o init, para vÃ­deos ficarem em paths estÃ¡veis `â€¦/eventos/videos/{id}_v0.mp4`.
+  /// Novo evento: mesmo id desde o init, para vídeos ficarem em paths estáveis `…/eventos/videos/{id}_v0.mp4`.
   late final DocumentReference<Map<String, dynamic>> _eventDocRef;
 
-  /// O vÃ­deo jÃ¡ foi entregue Ã  publicaÃ§Ã£o: o editor fecha antes de o publish
-  /// terminar, por isso o `dispose` nÃ£o pode apagar o envio antecipado.
+  /// O vídeo já foi entregue à publicação: o editor fecha antes de o publish
+  /// terminar, por isso o `dispose` não pode apagar o envio antecipado.
   bool _videoHandedOffToPublish = false;
 
-  /// Idem para as fotos prÃ©-enviadas.
+  /// Idem para as fotos pré-enviadas.
   bool _photosHandedOffToPublish = false;
 
-  /// EndereÃ§o da igreja (com lat/lng) vs. endereÃ§o manual por CEP.
+  /// Endereço da igreja (com lat/lng) vs. endereço manual por CEP.
   bool _useChurchLocation = false;
   String? _churchAddressText;
   double? _locationLat;
@@ -8698,6 +8714,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
   static const int _maxVideosPerEvent = PublicationEngine.kMaxVideosPerPost;
   static const int _maxPhotosPerEvent = PublicationEngine.kMaxPhotosPerEvento;
 
+  // ignore: unused_element
   static String _buildEnderecoFromTenant(Map<String, dynamic> data) {
     final endereco = (data['endereco'] ?? '').toString().trim();
     if (endereco.isNotEmpty) return endereco;
@@ -8796,7 +8813,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             ThemeCleanPremium.successSnackBar(
               loaded.softError?.isNotEmpty == true
                   ? loaded.softError!
-                  : 'Cadastre o endereÃ§o da igreja em Cadastro da Igreja primeiro.',
+                  : 'Cadastre o endereço da igreja em Cadastro da Igreja primeiro.',
             ),
           );
         }
@@ -8821,7 +8838,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
-            'EndereÃ§o da igreja aplicado. Use Â«Definir por CEP / manualÂ» para outro local.',
+            'Endereço da igreja aplicado. Use «Definir por CEP / manual» para outro local.',
           ),
         );
       }
@@ -8829,7 +8846,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.errorSnackBarWithRetry(
-            'NÃ£o foi possÃ­vel ler o endereÃ§o da igreja agora. '
+            'Não foi possível ler o endereço da igreja agora. '
             'Pode preencher o local manualmente ou tentar de novo.',
             onRetry: _usarEnderecoIgreja,
           ),
@@ -8890,7 +8907,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Informe um CEP com 8 dÃ­gitos.'),
+            content: const Text('Informe um CEP com 8 dígitos.'),
             backgroundColor: ThemeCleanPremium.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -8917,7 +8934,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (j is! Map || j['erro'] == true) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('CEP nÃ£o encontrado.'),
+            content: const Text('CEP não encontrado.'),
             backgroundColor: ThemeCleanPremium.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -8937,7 +8954,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
-            'CEP encontrado. Complete nÃºmero, quadra/lote e ponto de referÃªncia se quiser.',
+            'CEP encontrado. Complete número, quadra/lote e ponto de referência se quiser.',
           ),
         );
       }
@@ -8986,6 +9003,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     );
   }
 
+  // ignore: unused_element
   Future<void> _waitForVideoUploadComplete() async {
     const maxWait = Duration(minutes: 11);
     final deadline = DateTime.now().add(maxWait);
@@ -8994,7 +9012,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     if (_uploadingVideo) {
       throw StateError(
-        'O envio do vÃ­deo demorou demais. Aguarde ou remova o vÃ­deo e tente de novo.',
+        'O envio do vídeo demorou demais. Aguarde ou remova o vídeo e tente de novo.',
       );
     }
   }
@@ -9125,7 +9143,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     _locationLng = lng is num
         ? lng.toDouble()
         : (lng != null ? double.tryParse(lng.toString()) : null);
-    // Mesma extraÃ§Ã£o do feed/painel: imageUrls (lista ou lista de mapas), imageUrl, defaultImageUrl, fotos, etc.
+    // Mesma extração do feed/painel: imageUrls (lista ou lista de mapas), imageUrl, defaultImageUrl, fotos, etc.
     final urls = _eventImageUrlsFromData(data);
     _existingUrls.addAll(urls);
     try {
@@ -9218,7 +9236,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (c.id == _eventCategoryId) {
         final nome = (c.data()['nome'] ?? '').toString().toLowerCase();
         if (nome.contains('culto')) return 'culto';
-        if (nome.contains('lÃ­der') ||
+        if (nome.contains('líder') ||
             nome.contains('lider') ||
             nome.contains('reuni')) {
           return 'lideranca';
@@ -9283,6 +9301,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     await batch.commit();
   }
 
+  // ignore: unused_element
   Future<void> _removeAgendaLinkedNoticia(String noticiaId) async {
     final q = await ChurchUiCollections.agenda(
       _editorTenantId,
@@ -9302,7 +9321,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('CalendÃ¡rio interno: $e'),
+            content: Text('Calendário interno: $e'),
             backgroundColor: Colors.orange.shade800,
           ),
         );
@@ -9369,7 +9388,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'publicSite': _publicSite,
       'startAt': startTs,
       'endAt': Timestamp.fromDate(end),
-      // dataEvento: Ã­ndice da Agenda (sidebar); alinhado ao inÃ­cio do evento no mural.
+      // dataEvento: índice da Agenda (sidebar); alinhado ao início do evento no mural.
       'dataEvento': startTs,
       'notifyLeaders': true,
       'notifyMembers': true,
@@ -9410,14 +9429,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     _photoPreuploadTicker?.cancel();
     _stopEventVideoPreuploadWatch();
     if (!_photosHandedOffToPublish) {
-      // Editor fechado sem publicar: as fotos enviadas Ã  frente viram lixo no
-      // bucket â€” descartar apaga-as. Se a publicaÃ§Ã£o jÃ¡ as reclamou o registo
-      // estÃ¡ vazio e isto Ã© um no-op.
+      // Editor fechado sem publicar: as fotos enviadas à frente viram lixo no
+      // bucket — descartar apaga-as. Se a publicação já as reclamou o registo
+      // está vazio e isto é um no-op.
       unawaited(_abandonEventPhotoPreuploads());
     }
     if (!_videoHandedOffToPublish) {
-      // Editor fechado sem publicar: o vÃ­deo enviado Ã  frente vira lixo no
-      // bucket se ficar lÃ¡ â€” descartar apaga-o quando o envio terminar.
+      // Editor fechado sem publicar: o vídeo enviado à frente vira lixo no
+      // bucket se ficar lá — descartar apaga-o quando o envio terminar.
       for (final v in _eventVideos) {
         final local = (v['localPath'] ?? '').toString().trim();
         if (local.isNotEmpty) ChurchVideoPreupload.abandon(local);
@@ -9439,7 +9458,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     super.dispose();
   }
 
-  /// [allowDeleteSentinels] sÃ³ pode ser true com `set(..., SetOptions(merge: true))` ou `update`.
+  /// [allowDeleteSentinels] só pode ser true com `set(..., SetOptions(merge: true))` ou `update`.
   /// `add()` / `set` sem merge rejeitam [FieldValue.delete] ? causa [cloud_firestore/invalid-argument].
   Map<String, dynamic> _locationFieldsForSave({
     required bool allowDeleteSentinels,
@@ -9513,10 +9532,10 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         _maxPhotosPerEvent,
       );
       var encodeSkipped = 0;
-      // `onEachReady` Ã© disparado sem await e cada foto demora um tempo
+      // `onEachReady` é disparado sem await e cada foto demora um tempo
       // diferente a preparar: sem encadear, as fotos entravam nas quatro
       // listas paralelas (`_newImages`, paths, nomes, tamanhos) na ordem em
-      // que acabavam de codificar â€” nÃ£o na ordem em que foram escolhidas.
+      // que acabavam de codificar — não na ordem em que foram escolhidas.
       var addQueue = Future<void>.value();
       await MediaHandlerService.instance.pickMultiCropEncodeFeedWebpFromGallery(
         context,
@@ -9540,8 +9559,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           SnackBar(
             content: Text(
               encodeSkipped == 1
-                  ? 'NÃ£o foi possÃ­vel preparar 1 foto. Tente outra imagem ou reinicie o app.'
-                  : 'NÃ£o foi possÃ­vel preparar $encodeSkipped fotos. Tente outras imagens.',
+                  ? 'Não foi possível preparar 1 foto. Tente outra imagem ou reinicie o app.'
+                  : 'Não foi possível preparar $encodeSkipped fotos. Tente outras imagens.',
             ),
             backgroundColor: ThemeCleanPremium.error,
             behavior: SnackBarBehavior.floating,
@@ -9606,7 +9625,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
-  /// Deriva caminhos `igrejas/...` a partir das URLs (sÃ³ Firebase Storage HTTPS).
+  /// Deriva caminhos `igrejas/...` a partir das URLs (só Firebase Storage HTTPS).
+  // ignore: unused_element
   List<String>? _pathsFromImageUrls(List<String> urls) {
     final paths = <String>[];
     for (final u in urls) {
@@ -9619,6 +9639,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return paths;
   }
 
+  // ignore: unused_element
   Future<MediaUploadResult> _upload(
     Uint8List bytes,
     String postDocId,
@@ -9719,7 +9740,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: const Text(
-                      'VÃ­deo',
+                      'Vídeo',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 11,
@@ -9741,7 +9762,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     );
   }
 
-  /// Slot 0/1 explÃ­cito no path (`_v0.mp4`); legado sem sufixo ? `null` (apenas apagar por URL).
+  /// Slot 0/1 explícito no path (`_v0.mp4`); legado sem sufixo ? `null` (apenas apagar por URL).
   int? _hostedVideoStorageSlotFromUrl(String videoUrl) {
     final u = sanitizeImageUrl(videoUrl.trim());
     if (u.isEmpty || !isFirebaseStorageHttpUrl(u)) return null;
@@ -9756,7 +9777,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return null;
   }
 
-  /// PrÃ³ximo slot livre (0 ou 1). VÃ­deos legado em `videos/` sem `_vN` contam pelo Ã­ndice na lista.
+  /// Próximo slot livre (0 ou 1). Vídeos legado em `videos/` sem `_vN` contam pelo índice na lista.
+  // ignore: unused_element
   int _nextHostedVideoStorageSlot() {
     final used = <int>{};
     for (var i = 0; i < _eventVideos.length; i++) {
@@ -9783,7 +9805,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (index < 0 || index >= _eventVideos.length) return;
     final v = _eventVideos[index];
     // Envio antecipado em curso para este ficheiro: descartar antes de apagar,
-    // senÃ£o ele terminava e repunha o objeto no Storage.
+    // senão ele terminava e repunha o objeto no Storage.
     final pendingLocal = (v['localPath'] ?? '').toString().trim();
     if (pendingLocal.isNotEmpty) {
       ChurchVideoPreupload.abandon(pendingLocal);
@@ -9813,13 +9835,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (mounted) setState(() => _eventVideos.removeAt(index));
   }
 
-  /// ComeÃ§a a enviar o vÃ­deo **assim que ele Ã© anexado**, para o path
+  /// Começa a enviar o vídeo **assim que ele é anexado**, para o path
   /// definitivo do post (o id do evento existe desde o init do editor).
   ///
-  /// O utilizador ainda vai preencher tÃ­tulo, data e local: essa janela pagava
+  /// O utilizador ainda vai preencher título, data e local: essa janela pagava
   /// zero antes e agora cobre o encode + a rede. Ao publicar,
-  /// [EventoPublishService] reclama este envio â€” quando jÃ¡ terminou, a barra
-  /// Â«A publicar mÃ­diaâ€¦Â» passa direto.
+  /// [EventoPublishService] reclama este envio — quando já terminou, a barra
+  /// «A publicar mídia…» passa direto.
   void _startEventVideoPreupload(String localPath, Uint8List? thumbBytes) {
     if (localPath.trim().isEmpty) return;
     final churchId = ChurchPublishContext.churchIdForPublish(_editorTenantId);
@@ -9880,8 +9902,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     _videoPreuploadTicker = null;
   }
 
-  /// Igual a [_pendingLocalVideoPath], mas marca que a publicaÃ§Ã£o assumiu o
-  /// vÃ­deo â€” a partir daqui o `dispose` nÃ£o pode descartÃ¡-lo.
+  /// Igual a [_pendingLocalVideoPath], mas marca que a publicação assumiu o
+  /// vídeo — a partir daqui o `dispose` não pode descartá-lo.
   String? _takePendingLocalVideoPathForPublish() {
     final path = _pendingLocalVideoPath();
     if (path != null && path.isNotEmpty) _videoHandedOffToPublish = true;
@@ -9894,7 +9916,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Limite atingido: cada evento pode ter no mÃ¡ximo $_maxVideosPerEvent vÃ­deos de atÃ© $_maxVideoSeconds segundos.',
+              'Limite atingido: cada evento pode ter no máximo $_maxVideosPerEvent vídeos de até $_maxVideoSeconds segundos.',
             ),
             backgroundColor: ThemeCleanPremium.error,
             behavior: SnackBarBehavior.floating,
@@ -9919,24 +9941,24 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final durationSec = await getVideoDurationSeconds(xfile);
       if (durationSec != null && durationSec > kMediaEventVideoMaxSeconds) {
         throw StateError(
-          'VÃ­deo excede o limite de $_maxVideoSeconds segundos.',
+          'Vídeo excede o limite de $_maxVideoSeconds segundos.',
         );
       }
       if (kIsWeb) {
-        // O picker web ignora maxDuration/tamanho â€” avisa no anexo, nÃ£o no publish.
+        // O picker web ignora maxDuration/tamanho — avisa no anexo, não no publish.
         final size = await xfile.length();
         if (size > mediaEventVideoHardMaxBytesEffective) {
           final sizeMb = (size / (1024 * 1024)).toStringAsFixed(1);
           final limitMb = (mediaEventVideoHardMaxBytesEffective / (1024 * 1024))
               .round();
           throw StateError(
-            'VÃ­deo muito grande (${sizeMb}MB). MÃ¡ximo: ${limitMb}MB â€” '
+            'Vídeo muito grande (${sizeMb}MB). Máximo: ${limitMb}MB — '
             'ou use o campo de link (YouTube / Vimeo).',
           );
         }
       }
-      // Web nÃ£o tem disco: o prÃ³prio blob do picker Ã© a fonte (o upload lÃª os
-      // bytes via XFile). SÃ³ mobile copia para um ficheiro temporÃ¡rio estÃ¡vel.
+      // Web não tem disco: o próprio blob do picker é a fonte (o upload lê os
+      // bytes via XFile). Só mobile copia para um ficheiro temporário estável.
       final localPath = kIsWeb
           ? xfile.path
           : await FeedEditorMediaService.persistVideoXFileToTemp(
@@ -9947,7 +9969,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           localPath.isEmpty ||
           (!kIsWeb && !File(localPath).existsSync())) {
         throw StateError(
-          'NÃ£o foi possÃ­vel ler o vÃ­deo da galeria. Tente outro ficheiro ou grave em MP4.',
+          'Não foi possível ler o vídeo da galeria. Tente outro ficheiro ou grave em MP4.',
         );
       }
       if (!mounted) return;
@@ -9955,13 +9977,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       setState(() {
         _eventVideos.add({'localPath': localPath});
       });
-      // SÃ³ o 1.Âº vÃ­deo Ã© o que a publicaÃ§Ã£o envia (slot 0).
+      // Só o 1.º vídeo é o que a publicação envia (slot 0).
       if (isFirstVideo) _startEventVideoPreupload(localPath, null);
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
           isFirstVideo
-              ? 'VÃ­deo anexado (mÃ¡x. ${_maxVideoSeconds}s) â€” jÃ¡ a enviar em segundo plano.'
-              : 'VÃ­deo anexado (mÃ¡x. ${_maxVideoSeconds}s) â€” envio ao publicar.',
+              ? 'Vídeo anexado (máx. ${_maxVideoSeconds}s) — já a enviar em segundo plano.'
+              : 'Vídeo anexado (máx. ${_maxVideoSeconds}s) — envio ao publicar.',
         ),
       );
     } catch (e) {
@@ -9989,7 +10011,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Limite atingido: $_maxPhotosPerEvent fotos e $_maxVideosPerEvent vÃ­deos. Remova itens ou use o link abaixo.',
+              'Limite atingido: $_maxPhotosPerEvent fotos e $_maxVideosPerEvent vídeos. Remova itens ou use o link abaixo.',
             ),
             backgroundColor: ThemeCleanPremium.error,
             behavior: SnackBarBehavior.floating,
@@ -10039,7 +10061,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        'MÃ­dia premium',
+                        'Mídia premium',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
@@ -10052,7 +10074,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Fotos: recorte + JPEG (1024 px ? 70%). VÃ­deo: atÃ© $_maxVideoSeconds s â€” comprimido e enviado logo ao anexar.',
+                    'Fotos: recorte + JPEG (1024 px ? 70%). Vídeo: até $_maxVideoSeconds s — comprimido e enviado logo ao anexar.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12.5,
@@ -10085,7 +10107,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     subtitle: Text(
                       photosFull
                           ? 'Limite de $_maxPhotosPerEvent fotos atingido'
-                          : 'VÃ¡rias imagens ? recorte por foto',
+                          : 'Várias imagens — recorte por foto',
                       style: TextStyle(
                         fontSize: 12,
                         color: photosFull
@@ -10165,15 +10187,15 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       ),
                     ),
                     title: const Text(
-                      'VÃ­deo (arquivo)',
+                      'Vídeo (arquivo)',
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                     subtitle: Text(
                       _uploadingVideo
-                          ? 'Aguarde o envio em andamentoâ€¦'
+                          ? 'Aguarde o envio em andamento…'
                           : videosFull
-                          ? 'MÃ¡x. $_maxVideosPerEvent vÃ­deos por evento'
-                          : 'AtÃ© $_maxVideoSeconds s â€” comprime e envia em segundo plano',
+                          ? 'Máx. $_maxVideosPerEvent vídeos por evento'
+                          : 'Até $_maxVideoSeconds s — comprime e envia em segundo plano',
                       style: TextStyle(
                         fontSize: 12,
                         color: (_uploadingVideo || videosFull)
@@ -10198,6 +10220,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     );
   }
 
+  // ignore: unused_element
   double? _aspectRatioFromBytes(Uint8List bytes) {
     try {
       final im = img.decodeImage(bytes);
@@ -10305,8 +10328,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     return payload;
   }
 
-  /// `videoUrl` sÃ³ sai do payload quando estÃ¡ vazia (sem vÃ­deo) ou quando hÃ¡
-  /// upload de ficheiro pendente â€” nesse caso o pipeline grava a URL real do
+  /// `videoUrl` só sai do payload quando está vazia (sem vídeo) ou quando há
+  /// upload de ficheiro pendente — nesse caso o pipeline grava a URL real do
   /// Storage. Link YouTube/Vimeo tem de seguir para o Firestore.
   void _dropVideoUrlIfNotPublishable(
     Map<String, dynamic> payload,
@@ -10318,6 +10341,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
+  // ignore: unused_element
   Future<void> _mergePublishedEventVideoFields() async {
     try {
       await runFirebaseBackgroundTask(() async {
@@ -10365,18 +10389,18 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     } catch (_) {}
   }
 
-  /// ReconexÃ£o apÃ³s INTERNAL ASSERTION ? mesmo pipeline linear (upload ? Firestore).
+  /// Reconexão após INTERNAL ASSERTION ? mesmo pipeline linear (upload ? Firestore).
   Future<void> _retryEventPublishFirestoreFirst() async {
     await FirebaseBootstrapService.ensureAlwaysOn(refreshAuthToken: false);
     final ctx = await _prepareEventoPublishContext();
     final docRef = ctx.docRef;
     final publishTenantId = ctx.igrejaId;
     final isNewDoc = widget.doc == null && !_eventDraftEnsured;
-    // Retry: sobe tudo de raiz. Descartar primeiro (apaga Ã³rfÃ£os) evita
-    // deixar objetos de um prÃ©-envio que jÃ¡ nÃ£o vai ser reclamado â€” e impede
+    // Retry: sobe tudo de raiz. Descartar primeiro (apaga órfãos) evita
+    // deixar objetos de um pré-envio que já não vai ser reclamado — e impede
     // o `dispose` de apagar depois o que este publish escrever nos mesmos
-    // slots. Se o publish anterior jÃ¡ reclamou, o registo estÃ¡ vazio e isto
-    // Ã© um no-op.
+    // slots. Se o publish anterior já reclamou, o registo está vazio e isto
+    // é um no-op.
     await ChurchPhotoPreupload.abandonAll(List<Uint8List>.from(_newImages));
     _photosHandedOffToPublish = true;
     final pending = _pendingEventPhotosForPublish();
@@ -10420,6 +10444,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     );
   }
 
+  // ignore: unused_element
   Future<void> _waitForInFlightPhotoUploads() async {
     const maxWait = Duration(seconds: 90);
     final deadline = DateTime.now().add(maxWait);
@@ -10428,7 +10453,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
     if (_inFlightPhotoUploads > 0) {
       throw StateError(
-        'Ainda a enviar fotos. Aguarde o vÃ­nculo ao Storage e tente de novo.',
+        'Ainda a enviar fotos. Aguarde o vínculo ao Storage e tente de novo.',
       );
     }
   }
@@ -10450,7 +10475,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       return out;
     }
-    // ?ltimo recurso: ler temp estÃ¡vel (preview) ? bytes ? nunca publish por path.
+    // ?ltimo recurso: ler temp estável (preview) ? bytes ? nunca publish por path.
     if (!kIsWeb) {
       for (final path in FeedEditorMediaService.existingValidPaths(
         _newImagePaths,
@@ -10551,16 +10576,16 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     }
   }
 
-  /// Evento recorrente: publica um post completo (mesma foto/vÃ­deo/texto) para
-  /// cada data gerada a partir dos dias da semana + perÃ­odo escolhidos.
-  /// A 1? data sobe a mÃ­dia normalmente; as seguintes reaproveitam a mesma
-  /// mÃ­dia jÃ¡ enviada (sem novo upload) â€” ver [EventoPublishService.publish].
+  /// Evento recorrente: publica um post completo (mesma foto/vídeo/texto) para
+  /// cada data gerada a partir dos dias da semana + período escolhidos.
+  /// A 1? data sobe a mídia normalmente; as seguintes reaproveitam a mesma
+  /// mídia já enviada (sem novo upload) — ver [EventoPublishService.publish].
   Future<void> _publishRecurringSeries() async {
     if (_saving) return;
     if (_mediaPicking) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'Aguarde a preparaÃ§Ã£o das fotos terminar.',
+          'Aguarde a preparação das fotos terminar.',
         ),
       );
       return;
@@ -10568,7 +10593,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Informe o tÃ­tulo.')));
+      ).showSnackBar(const SnackBar(content: Text('Informe o título.')));
       return;
     }
     if (_recorrenteWeekdays.isEmpty) {
@@ -10581,14 +10606,14 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     final until = _recorrenteValidUntil;
     if (from == null || until == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Informe o perÃ­odo (De / AtÃ©).')),
+        const SnackBar(content: Text('Informe o período (De / Até).')),
       );
       return;
     }
     if (until.isBefore(from)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('A data Â«AtÃ©Â» deve ser igual ou depois da Â«DeÂ».'),
+          content: Text('A data «Até» deve ser igual ou depois da «De».'),
         ),
       );
       return;
@@ -10613,7 +10638,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (occSet.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Nenhuma data cai no perÃ­odo/dias escolhidos.'),
+          content: Text('Nenhuma data cai no período/dias escolhidos.'),
         ),
       );
       return;
@@ -10635,7 +10660,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'Publicando ${dates.length} eventosâ€¦',
+          'Publicando ${dates.length} eventos…',
         ),
       );
     }
@@ -10670,8 +10695,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final videoPathForPublish = _videoStoragePathForPublish(publishTenantId);
 
       // Mesmo reaproveitamento tudo-ou-nada do publish simples. Este caminho
-      // TEM de reclamar (ou descartar) os prÃ©-envios: se ficassem registados,
-      // o `dispose` do editor apagaria do bucket os objetos que a publicaÃ§Ã£o
+      // TEM de reclamar (ou descartar) os pré-envios: se ficassem registados,
+      // o `dispose` do editor apagaria do bucket os objetos que a publicação
       // acabou de escrever nos mesmos slots.
       var seriesPhotos = compressedPhotos;
       var seriesRefs = const <String>[];
@@ -10697,7 +10722,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       }
       _photosHandedOffToPublish = true;
 
-      // 1? ocorrÃªncia: pipeline normal (sobe foto/vÃ­deo de verdade).
+      // 1? ocorrência: pipeline normal (sobe foto/vídeo de verdade).
       final firstDt = dates.first;
       _date = firstDt;
       _endDateTime = _allDay ? firstDt : firstDt.add(eventDuration());
@@ -10730,19 +10755,19 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       ChurchEventosLoadService.invalidate(publishTenantId);
       publishedCount++;
 
-      // LÃª de volta a mÃ­dia realmente gravada (URLs + path do vÃ­deo) para
-      // reaproveitar nas prÃ³ximas datas, sem subir foto/vÃ­deo de novo.
+      // Lê de volta a mídia realmente gravada (URLs + path do vídeo) para
+      // reaproveitar nas próximas datas, sem subir foto/vídeo de novo.
       final firstSnap = await firstDocRef.get();
       final firstData = firstSnap.data() ?? {};
       final reusedPhotoUrls = eventNoticiaPhotoUrls(firstData);
       final reusedVideoPath = (firstData['videoPath'] ?? '').toString().trim();
       final reusedHasVideo = reusedVideoPath.isNotEmpty;
 
-      // As ocorrÃªncias seguintes sÃ³ reutilizam mÃ­dia jÃ¡ no Storage: nÃ£o hÃ¡
-      // upload nem dependÃªncia entre elas. Em fila, publicar 12 datas eram 12
-      // idas ao Firestore uma a seguir Ã  outra â€” o Â«Publicando N eventosâ€¦Â»
+      // As ocorrências seguintes só reutilizam mídia já no Storage: não há
+      // upload nem dependência entre elas. Em fila, publicar 12 datas eram 12
+      // idas ao Firestore uma a seguir à outra — o «Publicando N eventos…»
       // ficava minutos no ar. Payloads montados primeiro (leem `_date` e
-      // companhia, que sÃ£o estado do editor), gravaÃ§Ãµes em lotes concorrentes.
+      // companhia, que são estado do editor), gravações em lotes concorrentes.
       final restPayloads =
           <
             ({
@@ -10803,7 +10828,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           ThemeCleanPremium.successSnackBar(
-            '$publishedCount eventos publicados (recorrÃªncia).',
+            '$publishedCount eventos publicados (recorrência).',
           ),
         );
         Navigator.pop(context, true);
@@ -10835,23 +10860,23 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (_mediaPicking) {
       ScaffoldMessenger.of(context).showSnackBar(
         ThemeCleanPremium.successSnackBar(
-          'Aguarde a preparaÃ§Ã£o das fotos terminar.',
+          'Aguarde a preparação das fotos terminar.',
         ),
       );
       return;
     }
-    // Offline: permite publicar (fila local ? sync automÃ¡tico).
+    // Offline: permite publicar (fila local ? sync automático).
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Informe o tÃ­tulo.')));
+      ).showSnackBar(const SnackBar(content: Text('Informe o título.')));
       return;
     }
     setState(() => _saving = true);
     try {
       await DirectStorageUrlPublish.ensureReady(requireAuth: true);
     } catch (e) {
-      // Offline / bootstrap fr?gil ? segue para compressÃ£o + fila local.
+      // Offline / bootstrap fr?gil ? segue para compressão + fila local.
       if (!EcoFireResilientPublish.shouldQueueFeedPublish(e) &&
           AppConnectivityService.instance.isOnline) {
         if (mounted) {
@@ -10894,8 +10919,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       final publishTenantId = ctx.igrejaId;
       final postId = docRef.id;
       final existingUrls = dedupeImageRefsByStorageIdentity(_existingUrls);
-      // Permite evento sem mÃ­dia (somente texto/data/local), mantendo
-      // upload opcional de fotos/vÃ­deos quando houver anexos.
+      // Permite evento sem mídia (somente texto/data/local), mantendo
+      // upload opcional de fotos/vídeos quando houver anexos.
       if (compressedPhotos.isNotEmpty) {
         await MuralPostPendingMediaCache.put(
           tenantId: publishTenantId,
@@ -10943,7 +10968,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               : 'Evento atualizado.',
           closeEditor: () {
             if (!mounted) return;
-            // Fecha na hora; o Feed/painel sÃ³ refrescam quando [publishDone] completar.
+            // Fecha na hora; o Feed/painel só refrescam quando [publishDone] completar.
             Navigator.pop(context, <String, dynamic>{
               'ok': true,
               'awaitPublish': publishDone.future,
@@ -10954,8 +10979,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             if (!publishDone.isCompleted) publishDone.complete(true);
           },
           action: (reportProgress) async {
-            // Aguardar prÃ©-uploads somente depois de fechar o editor. Assim o
-            // botÃ£o nunca fica preso enquanto fotos e vÃ­deo terminam no Storage.
+            // Aguardar pré-uploads somente depois de fechar o editor. Assim o
+            // botão nunca fica preso enquanto fotos e vídeo terminam no Storage.
             var photosForUpload = compressedPhotos;
             var refsForPublish = existingUrls;
             if (compressedPhotos.isNotEmpty) {
@@ -10997,7 +11022,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               existingUrls: refsForPublish,
               startSlotIndex: refsForPublish.length,
               hasVideo: hasVideo,
-              // SÃ³ bytes â€” igual Web. Paths no Android duplicavam upload e falhavam.
+              // Só bytes — igual Web. Paths no Android duplicavam upload e falhavam.
               newImagesBytes: photosForUpload.isNotEmpty
                   ? photosForUpload
                   : null,
@@ -11030,7 +11055,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         if (!publishDone.isCompleted) publishDone.complete(true);
         EventosPublishVerificationService.clearLastError();
         _clearPendingEventPhotosAfterPublish();
-        // O evento jÃ¡ estÃ¡ gravado; se sÃ³ o vÃ­deo falhou, avisa sem o perder.
+        // O evento já está gravado; se só o vídeo falhou, avisa sem o perder.
         final videoFailure = EventoPublishService.lastVideoFailure;
         if (videoFailure != null && videoFailure.isNotEmpty && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -11112,7 +11137,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           FirestoreWebGuard.isClientTerminated(e) ||
           isFirebaseNoAppError(e);
       final verifyFailed =
-          msg.contains('Documento nÃ£o localizado no Firestore') ||
+          msg.contains('Documento não localizado no Firestore') ||
           msg.contains(
             EventosPublishVerificationService.kPublishVerifyFailedMessage,
           ) ||
@@ -11170,7 +11195,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     if (_title.text.trim().isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Informe o tÃ­tulo.')));
+      ).showSnackBar(const SnackBar(content: Text('Informe o título.')));
       return;
     }
     setState(() => _saving = true);
@@ -11182,7 +11207,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       } catch (e) {
         if (!EcoFireResilientPublish.shouldQueueFeedPublish(e)) rethrow;
       }
-      // Persiste fotos/vÃ­deo locais no cache + payload (tÃ­tulo/data/descriÃ§Ã£o).
+      // Persiste fotos/vídeo locais no cache + payload (título/data/descrição).
       List<Uint8List> draftPhotos = const [];
       try {
         draftPhotos = await _prepareCompressedEventPhotosForPublish();
@@ -11235,7 +11260,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             ThemeCleanPremium.successSnackBar(
               draftPhotos.isNotEmpty || hasLocalVideo
-                  ? 'Rascunho guardado (texto + mÃ­dia local).'
+                  ? 'Rascunho guardado (texto + mídia local).'
                   : 'Rascunho guardado',
             ),
           );
@@ -11273,7 +11298,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'ResponsÃ¡veis',
+            'Responsáveis',
             style: TextStyle(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 8),
@@ -11511,8 +11536,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
         ),
         title: Text(
           widget.doc != null
-              ? (widget.meetingMode ? 'Editar ReuniÃ£o' : 'Editar Evento')
-              : (widget.meetingMode ? 'Nova ReuniÃ£o' : 'Novo Evento'),
+              ? (widget.meetingMode ? 'Editar Reunião' : 'Editar Evento')
+              : (widget.meetingMode ? 'Nova Reunião' : 'Novo Evento'),
           style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
         ),
       ),
@@ -11544,7 +11569,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       size: 22,
                     ),
                     label: Text(
-                      'Adicionar foto ou vÃ­deo (${_existingUrls.length + _newPhotoCount + _eventVideos.length})',
+                      'Adicionar foto ou vídeo (${_existingUrls.length + _newPhotoCount + _eventVideos.length})',
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     style: FilledButton.styleFrom(
@@ -11616,7 +11641,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
             AsyncUploadProgressStrip(
               localActive: _mediaPicking || _uploadingVideo,
               localLabel: _uploadingVideo
-                  ? 'A preparar vÃ­deoâ€¦'
+                  ? 'A preparar vídeo…'
                   : 'A preparar fotos?',
             ),
             if (_firebaseBootstrapError != null) ...[
@@ -11644,7 +11669,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
               const LinearProgressIndicator(minHeight: 3),
             ],
             const SizedBox(height: 10),
-            // MÃ­dia no topo (fotos + vÃ­deos antes dos campos de texto).
+            // Mídia no topo (fotos + vídeos antes dos campos de texto).
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -11665,13 +11690,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
                 subtitle: const Text(
-                  'Escolha a cor que aparecerÃ¡ no calendÃ¡rio.',
+                  'Escolha a cor que aparecerá no calendário.',
                 ),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () async {
                   final selected = await mostrarSeletorDeCores(
                     context,
-                    titulo: 'Cor no calendÃ¡rio',
+                    titulo: 'Cor no calendário',
                     selecionadaHex: _agendaColorHexForCategory(),
                   );
                   if (selected != null && mounted) {
@@ -11705,7 +11730,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Fotos e vÃ­deos do evento',
+                          'Fotos e vídeos do evento',
                           style: TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 15,
@@ -11718,8 +11743,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   const SizedBox(height: 6),
                   Text(
                     kIsWeb
-                        ? 'Fotos comprimidas no dispositivo (1024 px ? 70%). VÃ­deos atÃ© $_maxVideoSeconds s.'
-                        : 'Fotos nÃ­tidas no celular (1024 px ? 70%). VÃ­deos atÃ© $_maxVideoSeconds s e mÃ¡x. 15 MB ? acima disso o app bloqueia para nÃ£o travar.',
+                        ? 'Fotos comprimidas no dispositivo (1024 px ? 70%). Vídeos até $_maxVideoSeconds s.'
+                        : 'Fotos nítidas no celular (1024 px · 70%). Vídeos até $_maxVideoSeconds s e máx. 15 MB — acima disso o app bloqueia para não travar.',
                     style: TextStyle(
                       fontSize: 12,
                       height: 1.35,
@@ -11743,8 +11768,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         Expanded(
                           child: Text(
                             _photosReadyCount >= _newImages.length
-                                ? 'Fotos jÃ¡ enviadas â€” publicar vai ser imediato.'
-                                : 'A enviar fotos em segundo planoâ€¦ '
+                                ? 'Fotos já enviadas — publicar vai ser imediato.'
+                                : 'A enviar fotos em segundo plano… '
                                       '$_photosReadyCount/${_newImages.length}',
                             style: TextStyle(
                               fontSize: 12,
@@ -11768,8 +11793,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     const SizedBox(height: 4),
                     Text(
                       _videoUploadFraction == null
-                          ? 'A preparar vÃ­deoâ€¦'
-                          : 'A enviar vÃ­deoâ€¦ ${((_videoUploadFraction ?? 0) * 100).round()}%',
+                          ? 'A preparar vídeo…'
+                          : 'A enviar vídeo… ${((_videoUploadFraction ?? 0) * 100).round()}%',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
@@ -11813,7 +11838,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     enableSuggestions: true,
                     textCapitalization: TextCapitalization.sentences,
                     decoration: const InputDecoration(
-                      labelText: 'TÃ­tulo do evento *',
+                      labelText: 'Título do evento *',
                       prefixIcon: Icon(Icons.title_rounded),
                     ),
                   ),
@@ -11833,7 +11858,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'DescriÃ§Ã£o / divulgaÃ§Ã£o',
+                              'Descrição / divulgação',
                               style: TextStyle(
                                 fontWeight: FontWeight.w800,
                                 fontSize: 13,
@@ -11847,7 +11872,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       const SizedBox(height: 6),
                       Text(
                         'Texto simples ? sem negrito nem cores no editor. '
-                        'O mural e o site continuam a mostrar o conteÃºdo normalmente.',
+                        'O mural e o site continuam a mostrar o conteúdo normalmente.',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -11868,7 +11893,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                           fillColor: Colors.white,
                           alignLabelWithHint: true,
                           hintText:
-                              'Convite, horÃ¡rios, local, linkâ€¦ Use Enter para parÃ¡grafos.',
+                              'Convite, horários, local, link… Use Enter para parágrafos.',
                           contentPadding: const EdgeInsets.fromLTRB(
                             14,
                             14,
@@ -11912,11 +11937,11 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     controller: _videoUrl,
                     keyboardType: TextInputType.url,
                     decoration: InputDecoration(
-                      labelText: 'Link do vÃ­deo (YouTube / Vimeo)',
+                      labelText: 'Link do vídeo (YouTube / Vimeo)',
                       prefixIcon: const Icon(Icons.link_rounded),
                       hintText: 'https://...',
                       helperText:
-                          'Opcional. Use o botÃ£o inferior para foto/vÃ­deo em arquivo.',
+                          'Opcional. Use o botão inferior para foto/vídeo em arquivo.',
                       suffixIcon: _copyPasteFieldButtons(_videoUrl),
                     ),
                   ),
@@ -11946,7 +11971,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        'Data, horÃ¡rio e categoria',
+                        'Data, horário e categoria',
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 15,
@@ -11965,7 +11990,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Text(
-                        'Nenhuma categoria no cache. Toque em Â«Gerir categoriasÂ» ou verifique a ligaÃ§Ã£o.',
+                        'Nenhuma categoria no cache. Toque em «Gerir categorias» ou verifique a ligação.',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -12103,7 +12128,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                                   ),
                                   locale: const Locale('pt', 'BR'),
                                 );
-                                if (d != null && mounted) {
+                                if (!context.mounted) return;
+                                if (d != null) {
                                   setState(() {
                                     _date = DateTime(
                                       d.year,
@@ -12125,7 +12151,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                               },
                               icon: const Icon(Icons.event_rounded, size: 18),
                               label: Text(
-                                'InÃ­cio: ${_date.day.toString().padLeft(2, '0')}/${_date.month.toString().padLeft(2, '0')}/${_date.year}',
+                                'Início: ${_date.day.toString().padLeft(2, '0')}/${_date.month.toString().padLeft(2, '0')}/${_date.year}',
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -12150,7 +12176,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                                   ),
                                   locale: const Locale('pt', 'BR'),
                                 );
-                                if (d != null && mounted) {
+                                if (!context.mounted) return;
+                                if (d != null) {
                                   setState(
                                     () => _allDayEndDate = DateTime(
                                       d.year,
@@ -12185,11 +12212,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                               const Duration(days: 730),
                             ),
                             locale: const Locale('pt', 'BR'),
-                            helpText: 'Data de inÃ­cio',
+                            helpText: 'Data de início',
                             cancelText: 'Cancelar',
                             confirmText: 'OK',
                           );
-                          if (d != null && mounted) {
+                          if (!context.mounted) return;
+                          if (d != null) {
                             final t = await showTimePicker(
                               context: context,
                               initialTime: TimeOfDay.fromDateTime(_date),
@@ -12199,7 +12227,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                                 ).copyWith(alwaysUse24HourFormat: true),
                                 child: child!,
                               ),
-                              helpText: 'HorÃ¡rio de inÃ­cio',
+                              helpText: 'Horário de início',
                               cancelText: 'Cancelar',
                               confirmText: 'OK',
                             );
@@ -12218,7 +12246,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         },
                         child: InputDecorator(
                           decoration: const InputDecoration(
-                            labelText: 'InÃ­cio',
+                            labelText: 'Início',
                             prefixIcon: Icon(Icons.calendar_month_rounded),
                             border: OutlineInputBorder(),
                           ),
@@ -12242,11 +12270,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                               const Duration(days: 730),
                             ),
                             locale: const Locale('pt', 'BR'),
-                            helpText: 'Data de tÃ©rmino',
+                            helpText: 'Data de término',
                             cancelText: 'Cancelar',
                             confirmText: 'OK',
                           );
-                          if (d != null && mounted) {
+                          if (!context.mounted) return;
+                          if (d != null) {
                             final t = await showTimePicker(
                               context: context,
                               initialTime: TimeOfDay.fromDateTime(_endDateTime),
@@ -12256,7 +12285,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                                 ).copyWith(alwaysUse24HourFormat: true),
                                 child: child!,
                               ),
-                              helpText: 'HorÃ¡rio de tÃ©rmino',
+                              helpText: 'Horário de término',
                               cancelText: 'Cancelar',
                               confirmText: 'OK',
                             );
@@ -12275,7 +12304,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         },
                         child: InputDecorator(
                           decoration: const InputDecoration(
-                            labelText: 'TÃ©rmino',
+                            labelText: 'Término',
                             prefixIcon: Icon(Icons.event_available_rounded),
                             border: OutlineInputBorder(),
                           ),
@@ -12316,7 +12345,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'NotificaÃ§Ãµes automÃ¡ticas: ao publicar, 1 dia antes e 1 hora antes do evento. Agenda interna sincronizada sozinha.',
+                            'Notificações automáticas: ao publicar, 1 dia antes e 1 hora antes do evento. Agenda interna sincronizada sozinha.',
                             style: TextStyle(
                               fontSize: 12.5,
                               height: 1.4,
@@ -12351,7 +12380,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Use o endereÃ§o da igreja com um toque ou preencha manualmente (CEP ou campos abaixo).',
+                    'Use o endereço da igreja com um toque ou preencha manualmente (CEP ou campos abaixo).',
                     style: TextStyle(
                       fontSize: 12.5,
                       height: 1.35,
@@ -12374,7 +12403,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'EndereÃ§o da igreja',
+                            'Endereço da igreja',
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
                               color: Colors.green.shade800,
@@ -12470,8 +12499,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                             ),
                       label: Text(
                         _loadingChurchAddress
-                            ? 'A carregar endereÃ§oâ€¦'
-                            : 'Usar endereÃ§o da igreja (cadastro)',
+                            ? 'A carregar endereço…'
+                            : 'Usar endereço da igreja (cadastro)',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w600,
@@ -12581,7 +12610,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       onChanged: (_) => _notifyAddressPreview(),
                       keyboardType: TextInputType.text,
                       decoration: InputDecoration(
-                        labelText: 'NÃºmero',
+                        labelText: 'Número',
                         prefixIcon: const Icon(Icons.numbers_rounded),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -12658,8 +12687,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       onChanged: (_) => _notifyAddressPreview(),
                       maxLines: 2,
                       decoration: InputDecoration(
-                        labelText: 'Ponto de referÃªncia (opcional)',
-                        hintText: 'Ex.: prÃ³ximo ao mercado, fundos do salÃ£oâ€¦',
+                        labelText: 'Ponto de referência (opcional)',
+                        hintText: 'Ex.: próximo ao mercado, fundos do salão…',
                         prefixIcon: const Icon(Icons.flag_outlined),
                         alignLabelWithHint: true,
                         border: OutlineInputBorder(
@@ -12750,11 +12779,12 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                                     const Duration(days: 365 * 3),
                                   ),
                                   locale: const Locale('pt', 'BR'),
-                                  helpText: 'AtÃ© quando exibir o evento',
+                                  helpText: 'Até quando exibir o evento',
                                   cancelText: 'Cancelar',
                                   confirmText: 'OK',
                                 );
-                                if (d != null && mounted) {
+                                if (!context.mounted) return;
+                                if (d != null) {
                                   setState(() => _validUntil = d);
                                 }
                               },
@@ -12817,13 +12847,13 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                 value: _publicSite,
                 onChanged: (v) => setState(() => _publicSite = v),
                 title: const Text(
-                  'Publicar no site pÃºblico',
+                  'Publicar no site público',
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
                 subtitle: Text(
                   _publicSite
-                      ? 'VisÃ­vel no site da igreja com interaÃ§Ãµes (padrÃ£o ligado).'
-                      : 'SÃ³ no painel e no app da igreja.',
+                      ? 'Visível no site da igreja com interações (padrão ligado).'
+                      : 'Só no painel e no app da igreja.',
                   style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                 ),
                 secondary: Container(
@@ -12849,7 +12879,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
 }
 
 // -------------------------------------------------------------------------------
-// PerÃ­odo personalizado na lista Â«PrÃ³ximos na programaÃ§Ã£oÂ» â€” digitar e/ou calendÃ¡rio.
+// Período personalizado na lista «Próximos na programação» — digitar e/ou calendário.
 // -------------------------------------------------------------------------------
 
 class _UpcomingCustomPeriodDialog extends StatefulWidget {
@@ -12949,7 +12979,7 @@ class _UpcomingCustomPeriodDialogState
     if (s == null || e == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Informe data inicial e final vÃ¡lidas (dd/mm/aaaa).'),
+          content: Text('Informe data inicial e final válidas (dd/mm/aaaa).'),
         ),
       );
       return;
@@ -12957,7 +12987,7 @@ class _UpcomingCustomPeriodDialogState
     if (e.isBefore(s)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('A data final nÃ£o pode ser anterior Ã  data inicial.'),
+          content: Text('A data final não pode ser anterior à data inicial.'),
         ),
       );
       return;
@@ -12977,14 +13007,14 @@ class _UpcomingCustomPeriodDialogState
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusLg),
       ),
-      title: const Text('PerÃ­odo personalizado'),
+      title: const Text('Período personalizado'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Digite as datas ou toque nos Ã­cones para abrir primeiro o calendÃ¡rio da data inicial e depois o da final.',
+              'Digite as datas ou toque nos ícones para abrir primeiro o calendário da data inicial e depois o da final.',
               style: TextStyle(
                 fontSize: 13,
                 color: Colors.grey.shade700,
@@ -13002,7 +13032,7 @@ class _UpcomingCustomPeriodDialogState
                 isDense: true,
                 border: const OutlineInputBorder(),
                 suffixIcon: IconButton(
-                  tooltip: 'Abrir calendÃ¡rio (inÃ­cio)',
+                  tooltip: 'Abrir calendário (início)',
                   icon: Icon(
                     Icons.calendar_today_rounded,
                     color: ThemeCleanPremium.primary,
@@ -13022,7 +13052,7 @@ class _UpcomingCustomPeriodDialogState
                 isDense: true,
                 border: const OutlineInputBorder(),
                 suffixIcon: IconButton(
-                  tooltip: 'Abrir calendÃ¡rio (fim)',
+                  tooltip: 'Abrir calendário (fim)',
                   icon: Icon(
                     Icons.calendar_month_rounded,
                     color: ThemeCleanPremium.primary,
@@ -13076,11 +13106,11 @@ class _FixosTab extends StatefulWidget {
   State<_FixosTab> createState() => _FixosTabState();
 }
 
-/// Retorna URL da foto do evento fixo â€” extraÃ§Ã£o centralizada.
+/// Retorna URL da foto do evento fixo — extração centralizada.
 String _templateImageUrl(Map<String, dynamic> m) => imageUrlFromMap(m);
 
 class _FixosTabState extends State<_FixosTab> {
-  static const _wn = ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'SÃ¡b', 'Dom'];
+  static const _wn = ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
   static const _wdEvento = [
     '',
     'Seg',
@@ -13088,7 +13118,7 @@ class _FixosTabState extends State<_FixosTab> {
     'Qua',
     'Qui',
     'Sex',
-    'SÃ¡b',
+    'Sáb',
     'Dom',
   ];
   late Future<QuerySnapshot<Map<String, dynamic>>> _templatesFuture;
@@ -13099,7 +13129,7 @@ class _FixosTabState extends State<_FixosTab> {
   bool _selectMode = false;
   final Set<String> _selectedTemplateIds = <String>{};
 
-  /// Filtro da lista â€œPrÃ³ximos na programaÃ§Ã£oâ€ (notÃ­cias `evento`): 7/15/30/mÃªs/custom.
+  /// Filtro da lista â€œPróximos na programaçãoâ€ (notícias `evento`): 7/15/30/mês/custom.
   String _upcomingViewFilter = '30';
   DateTime? _upcomingCustomStart;
   DateTime? _upcomingCustomEnd;
@@ -13168,7 +13198,7 @@ class _FixosTabState extends State<_FixosTab> {
       );
       if (filtered.isEmpty &&
           TenantDeletedDocTombstones.hasAny(tid, 'event_templates')) {
-        // SÃ³ restavam docs excluÃ­dos â€” nÃ£o repor lista fantasma.
+        // Só restavam docs excluídos — não repor lista fantasma.
         _EventTemplatesRamCache.put(tid, filtered);
         setState(() {
           _lastGoodTemplatesSnap = MergedFirestoreQuerySnapshot(filtered);
@@ -13207,7 +13237,7 @@ class _FixosTabState extends State<_FixosTab> {
   Future<QuerySnapshot<Map<String, dynamic>>> _load() async {
     final tid = widget.templates.parent?.id ?? '';
     if (tid.isEmpty) return const MergedFirestoreQuerySnapshot([]);
-    // NÃ£o bloquear a UI se o bootstrap ainda sincroniza â€” cache/vazio = sucesso.
+    // Não bloquear a UI se o bootstrap ainda sincroniza — cache/vazio = sucesso.
     unawaited(_awaitEventosFirebasePanelReady());
     try {
       if (kIsWeb) {
@@ -13242,7 +13272,7 @@ class _FixosTabState extends State<_FixosTab> {
     }
   }
 
-  /// Remove docs com lÃ¡pide â€” exclusÃ£o nÃ£o Â«voltaÂ» pelo cache Firestore.
+  /// Remove docs com lápide — exclusão não «volta» pelo cache Firestore.
   QuerySnapshot<Map<String, dynamic>>? _filteredTemplatesSnap(
     String tid,
     QuerySnapshot<Map<String, dynamic>>? snap,
@@ -13257,7 +13287,7 @@ class _FixosTabState extends State<_FixosTab> {
     return MergedFirestoreQuerySnapshot(docs);
   }
 
-  /// ExclusÃ£o otimista na UI (antes do round-trip do servidor).
+  /// Exclusão otimista na UI (antes do round-trip do servidor).
   void _removeTemplateLocally(String docId) {
     final tid = widget.templates.parent?.id ?? '';
     final id = docId.trim();
@@ -13295,8 +13325,8 @@ class _FixosTabState extends State<_FixosTab> {
     );
   }
 
-  /// PrÃ³ximos eventos em [noticias]: feed (especiais), agenda/gerados e instÃ¢ncias com data.
-  /// Nunca lanÃ§a â€” falha de sync/rede devolve lista vazia (UI Ãºtil, sem banner vermelho).
+  /// Próximos eventos em [noticias]: feed (especiais), agenda/gerados e instÃ¢ncias com data.
+  /// Nunca lança — falha de sync/rede devolve lista vazia (UI útil, sem banner vermelho).
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
   _loadProximosNoticias() async {
     final now = DateTime.now();
@@ -13335,7 +13365,7 @@ class _FixosTabState extends State<_FixosTab> {
         .orderBy('startAt')
         .limit(_proximosNoticiasLimit);
 
-    // Cache-first â€” pintura imediata na Web quando o SDK jÃ¡ tem dados locais.
+    // Cache-first — pintura imediata na Web quando o SDK já tem dados locais.
     try {
       final cacheSnap = await ranged()
           .get(const GetOptions(source: Source.cache))
@@ -13428,10 +13458,10 @@ class _FixosTabState extends State<_FixosTab> {
       return '$w ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} ? dia inteiro';
     }
     final w = dt.weekday >= 1 && dt.weekday <= 7 ? _wdEvento[dt.weekday] : '';
-    return '$w ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} Ã s ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    return '$w ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
   }
 
-  /// Filtro de templates por data de criaÃ§Ã£o/atualizaÃ§Ã£o (alinhado a â€œexcluir por perÃ­odoâ€).
+  /// Filtro de templates por data de criação/atualização (alinhado a â€œexcluir por períodoâ€).
   DateTime? _templateCreatedOrUpdated(Map<String, dynamic> m) {
     final c = m['createdAt'];
     if (c is Timestamp) return c.toDate();
@@ -13451,7 +13481,7 @@ class _FixosTabState extends State<_FixosTab> {
     }).toList();
   }
 
-  /// Filtro de eventos da agenda (notÃ­cias `type: evento`) por intervalo de [startAt].
+  /// Filtro de eventos da agenda (notícias `type: evento`) por intervalo de [startAt].
   List<QueryDocumentSnapshot<Map<String, dynamic>>> _applyUpcomingFilter(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
@@ -13645,15 +13675,15 @@ class _FixosTabState extends State<_FixosTab> {
               chip('7', '7 dias'),
               chip('15', '15 dias'),
               chip('30', '30 dias'),
-              chip('month', 'Este mÃªs'),
-              chip('last_month', 'MÃªs anterior'),
+              chip('month', 'Este mês'),
+              chip('last_month', 'Mês anterior'),
               ActionChip(
                 avatar: Icon(
                   Icons.date_range_rounded,
                   size: 18,
                   color: ThemeCleanPremium.primary,
                 ),
-                label: const Text('PerÃ­odoâ€¦'),
+                label: const Text('Período…'),
                 onPressed: _pickUpcomingCustomRange,
               ),
             ],
@@ -13663,7 +13693,7 @@ class _FixosTabState extends State<_FixosTab> {
               _upcomingCustomEnd != null) ...[
             const SizedBox(height: 6),
             Text(
-              'PerÃ­odo: ${_upcomingCustomStart!.day.toString().padLeft(2, '0')}/${_upcomingCustomStart!.month.toString().padLeft(2, '0')}/${_upcomingCustomStart!.year} '
+              'Período: ${_upcomingCustomStart!.day.toString().padLeft(2, '0')}/${_upcomingCustomStart!.month.toString().padLeft(2, '0')}/${_upcomingCustomStart!.year} '
               '? ${_upcomingCustomEnd!.day.toString().padLeft(2, '0')}/${_upcomingCustomEnd!.month.toString().padLeft(2, '0')}/${_upcomingCustomEnd!.year}',
               style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
             ),
@@ -13693,7 +13723,7 @@ class _FixosTabState extends State<_FixosTab> {
               size: 18,
             ),
             label: Text(
-              _upcomingSelectMode ? 'Cancelar seleÃ§Ã£o' : 'Selecionar',
+              _upcomingSelectMode ? 'Cancelar seleção' : 'Selecionar',
             ),
           ),
           if (_upcomingSelectMode && visible.isNotEmpty)
@@ -13718,7 +13748,7 @@ class _FixosTabState extends State<_FixosTab> {
           if (_upcomingSelectMode && _selectedNoticiaIds.isNotEmpty)
             TextButton(
               onPressed: () => setState(() => _selectedNoticiaIds.clear()),
-              child: const Text('Limpar seleÃ§Ã£o'),
+              child: const Text('Limpar seleção'),
             ),
           if (_upcomingSelectMode)
             FilledButton.icon(
@@ -13738,7 +13768,7 @@ class _FixosTabState extends State<_FixosTab> {
                   ? null
                   : () => _deleteVisibleNoticias(visible),
               icon: const Icon(Icons.delete_sweep_rounded, size: 18),
-              label: Text('Excluir visÃ­veis ($visibleCount)'),
+              label: Text('Excluir visíveis ($visibleCount)'),
               style: FilledButton.styleFrom(
                 backgroundColor: ThemeCleanPremium.error,
                 foregroundColor: Colors.white,
@@ -13846,8 +13876,8 @@ class _FixosTabState extends State<_FixosTab> {
     }
 
     try {
-      // Mesma exclusÃ£o completa do botÃ£o individual: template + eventos e
-      // agenda gerados + capa no Storage + caches RAM/disco. O batch sÃ³ com
+      // Mesma exclusão completa do botão individual: template + eventos e
+      // agenda gerados + capa no Storage + caches RAM/disco. O batch só com
       // os refs dos templates deixava tudo o resto vivo, e o evento voltava.
       final res = await ChurchEventTemplateDeleteService.deleteTemplates(
         tenantId: tid,
@@ -13868,7 +13898,7 @@ class _FixosTabState extends State<_FixosTab> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('NÃ£o foi possÃ­vel excluir: $e'),
+            content: Text('Não foi possível excluir: $e'),
             backgroundColor: ThemeCleanPremium.error,
           ),
         );
@@ -13901,7 +13931,7 @@ class _FixosTabState extends State<_FixosTab> {
     await _deleteTemplateRefs(toDelete);
   }
 
-  /// CartÃ£o de evento da agenda (coleÃ§Ã£o notÃ­cias) â€” mesma interaÃ§Ã£o da lista sem templates.
+  /// Cartão de evento da agenda (coleção notícias) — mesma interação da lista sem templates.
   Widget _buildUpcomingNoticiaCard(
     QueryDocumentSnapshot<Map<String, dynamic>> d,
   ) {
@@ -14033,7 +14063,7 @@ class _FixosTabState extends State<_FixosTab> {
     );
   }
 
-  /// BotÃ£o no estilo do mÃ³dulo PatrimÃ³nio (+ Novo Bem).
+  /// Botão no estilo do módulo Património (+ Novo Bem).
   Widget _buildNovoEventoFixoPremiumButton() {
     return Material(
       color: Colors.transparent,
@@ -14126,7 +14156,7 @@ class _FixosTabState extends State<_FixosTab> {
         var templatesLoadFailed = false;
         if (snap.hasError) {
           templatesLoadFailed = true;
-          // Cache local se houver; senÃ£o lista vazia (UI Ãºtil, sem tela vermelha).
+          // Cache local se houver; senão lista vazia (UI útil, sem tela vermelha).
         }
         QuerySnapshot<Map<String, dynamic>>? effectiveSnap = snap.data;
         if (snap.hasError) {
@@ -14159,7 +14189,7 @@ class _FixosTabState extends State<_FixosTab> {
           >(
             future: _proximosNoticiasFuture,
             builder: (context, proxSnap) {
-              // Vazio / erro de sync = UI Ãºtil (nunca banner vermelho de tela cheia).
+              // Vazio / erro de sync = UI útil (nunca banner vermelho de tela cheia).
               final stillLoadingProximos =
                   proxSnap.connectionState != ConnectionState.done &&
                   !proxSnap.hasData &&
@@ -14197,8 +14227,8 @@ class _FixosTabState extends State<_FixosTab> {
                                   isSyncing: false,
                                   showStaleCache: true,
                                   errorTitle: templatesLoadFailed
-                                      ? 'Eventos fixos em sincronizaÃ§Ã£o â€” toque para atualizar'
-                                      : 'Agenda em sincronizaÃ§Ã£o â€” toque para atualizar',
+                                      ? 'Eventos fixos em sincronização — toque para atualizar'
+                                      : 'Agenda em sincronização — toque para atualizar',
                                   error: proxSnap.error ?? snap.error,
                                   onRetry: _refresh,
                                 ),
@@ -14222,7 +14252,7 @@ class _FixosTabState extends State<_FixosTab> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'Enquanto isso, veja abaixo os prÃ³ximos eventos da agenda, do feed e instÃ¢ncias geradas â€” ou crie cada culto fixo com Â«Novo evento fixoÂ».',
+                              'Enquanto isso, veja abaixo os próximos eventos da agenda, do feed e instÃ¢ncias geradas — ou crie cada culto fixo com «Novo evento fixo».',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: 13,
@@ -14241,12 +14271,12 @@ class _FixosTabState extends State<_FixosTab> {
                               alignment: Alignment.centerLeft,
                               child: Text(
                                 stillLoadingProximos
-                                    ? 'A carregar programaÃ§Ã£oâ€¦'
+                                    ? 'A carregar programação…'
                                     : upcoming.isEmpty
-                                    ? 'ProgramaÃ§Ã£o'
+                                    ? 'Programação'
                                     : vis.length == upcoming.length
-                                    ? 'PrÃ³ximos na programaÃ§Ã£o (${upcoming.length})'
-                                    : 'PrÃ³ximos na programaÃ§Ã£o (${vis.length} de ${upcoming.length} no filtro)',
+                                    ? 'Próximos na programação (${upcoming.length})'
+                                    : 'Próximos na programação (${vis.length} de ${upcoming.length} no filtro)',
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
@@ -14286,7 +14316,7 @@ class _FixosTabState extends State<_FixosTab> {
                           padding: const EdgeInsets.fromLTRB(24, 0, 24, 88),
                           child: Center(
                             child: Text(
-                              'Nenhum evento com data nos prÃ³ximos ~400 dias. Use a aba Feed ou Agenda para publicar eventos.',
+                              'Nenhum evento com data nos próximos ~400 dias. Use a aba Feed ou Agenda para publicar eventos.',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: 13,
@@ -14303,7 +14333,7 @@ class _FixosTabState extends State<_FixosTab> {
                           padding: const EdgeInsets.fromLTRB(24, 0, 24, 88),
                           child: Center(
                             child: Text(
-                              'Nenhum evento no perÃ­odo selecionado. Ajuste o filtro (7, 15, 30 dias, este mÃªs, mÃªs anterior ou perÃ­odo personalizado).',
+                              'Nenhum evento no período selecionado. Ajuste o filtro (7, 15, 30 dias, este mês, mês anterior ou período personalizado).',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: 13,
@@ -14355,7 +14385,7 @@ class _FixosTabState extends State<_FixosTab> {
                             isSyncing: false,
                             showStaleCache: true,
                             errorTitle:
-                                'NÃ£o foi possÃ­vel carregar os eventos fixos',
+                                'Não foi possível carregar os eventos fixos',
                             onRetry: _refresh,
                           ),
                         ),
@@ -14380,7 +14410,7 @@ class _FixosTabState extends State<_FixosTab> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'O perÃ­odo filtra a lista abaixo e define quais modelos entram em â€œExcluir por perÃ­odoâ€. Em â€œTodosâ€, esse botÃ£o exclui todos os modelos.',
+                        'O período filtra a lista abaixo e define quais modelos entram em â€œExcluir por períodoâ€. Em â€œTodosâ€, esse botão exclui todos os modelos.',
                         style: TextStyle(
                           fontSize: 11,
                           height: 1.25,
@@ -14400,7 +14430,7 @@ class _FixosTabState extends State<_FixosTab> {
                               size: 18,
                             ),
                             label: Text(
-                              _selectMode ? 'Cancelar seleÃ§Ã£o' : 'Selecionar',
+                              _selectMode ? 'Cancelar seleção' : 'Selecionar',
                             ),
                             style: OutlinedButton.styleFrom(
                               minimumSize: const Size(
@@ -14444,22 +14474,22 @@ class _FixosTabState extends State<_FixosTab> {
                                             e.id,
                                           ),
                                         )
-                                    ? 'Desmarcar visÃ­veis'
-                                    : 'Selecionar visÃ­veis',
+                                    ? 'Desmarcar visíveis'
+                                    : 'Selecionar visíveis',
                               ),
                             ),
                           if (_selectMode && _selectedTemplateIds.isNotEmpty)
                             TextButton(
                               onPressed: () =>
                                   setState(() => _selectedTemplateIds.clear()),
-                              child: const Text('Limpar seleÃ§Ã£o'),
+                              child: const Text('Limpar seleção'),
                             ),
                           SizedBox(
                             width: 160,
                             child: DropdownButtonFormField<String>(
                               initialValue: _fixFilterPeriod,
                               decoration: const InputDecoration(
-                                labelText: 'PerÃ­odo',
+                                labelText: 'Período',
                                 isDense: true,
                               ),
                               items: const [
@@ -14473,11 +14503,11 @@ class _FixosTabState extends State<_FixosTab> {
                                 ),
                                 DropdownMenuItem(
                                   value: 'month',
-                                  child: Text('Este mÃªs'),
+                                  child: Text('Este mês'),
                                 ),
                                 DropdownMenuItem(
                                   value: 'last_month',
-                                  child: Text('MÃªs anterior'),
+                                  child: Text('Mês anterior'),
                                 ),
                                 DropdownMenuItem(
                                   value: 'year',
@@ -14520,7 +14550,7 @@ class _FixosTabState extends State<_FixosTab> {
                                 Icons.delete_outline_rounded,
                                 size: 18,
                               ),
-                              label: const Text('Excluir por perÃ­odo'),
+                              label: const Text('Excluir por período'),
                               style: FilledButton.styleFrom(
                                 backgroundColor: ThemeCleanPremium.error,
                                 minimumSize: const Size(
@@ -14565,8 +14595,8 @@ class _FixosTabState extends State<_FixosTab> {
                           const Divider(height: 28),
                           Text(
                             vis.length == upcoming.length
-                                ? 'PrÃ³ximos na programaÃ§Ã£o (${upcoming.length})'
-                                : 'PrÃ³ximos na programaÃ§Ã£o (${vis.length} de ${upcoming.length} no filtro)',
+                                ? 'Próximos na programação (${upcoming.length})'
+                                : 'Próximos na programação (${vis.length} de ${upcoming.length} no filtro)',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
@@ -14584,7 +14614,7 @@ class _FixosTabState extends State<_FixosTab> {
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               child: Text(
-                                'Nenhum evento no perÃ­odo selecionado.',
+                                'Nenhum evento no período selecionado.',
                                 style: TextStyle(
                                   color: Colors.grey.shade600,
                                   fontSize: 13,
@@ -14824,7 +14854,7 @@ class _FixosTabState extends State<_FixosTab> {
   }
 }
 
-/// Tela de detalhes do evento fixo: data, local, dados e foto. Editar sÃ³ para gestores/adm; ao tocar vai ao mÃ³dulo (abre o editor).
+/// Tela de detalhes do evento fixo: data, local, dados e foto. Editar só para gestores/adm; ao tocar vai ao módulo (abre o editor).
 class _EventoFixoDetailPage extends StatelessWidget {
   final DocumentSnapshot<Map<String, dynamic>> doc;
   final bool canEdit;
@@ -14842,11 +14872,11 @@ class _EventoFixoDetailPage extends StatelessWidget {
   static const _wn = [
     '',
     'Segunda',
-    'TerÃ§a',
+    'Terça',
     'Quarta',
     'Quinta',
     'Sexta',
-    'SÃ¡bado',
+    'Sábado',
     'Domingo',
   ];
 
@@ -14956,21 +14986,21 @@ class _EventoFixoDetailPage extends StatelessWidget {
                     _detailRow(
                       Icons.calendar_today_rounded,
                       'Data',
-                      '$dayName Ã s $time',
+                      '$dayName às $time',
                     ),
                     if (location.isNotEmpty) ...[
                       const SizedBox(height: 12),
                       _detailRow(Icons.location_on_outlined, 'Local', location),
                     ],
                     const SizedBox(height: 12),
-                    _detailRow(Icons.repeat_rounded, 'RecorrÃªncia', recLabel),
+                    _detailRow(Icons.repeat_rounded, 'Recorrência', recLabel),
                     const SizedBox(height: 12),
                     _detailRow(
                       Icons.event_available_rounded,
-                      'Agenda e programaÃ§Ã£o pÃºblica',
+                      'Agenda e programação pública',
                       eventTemplateIncludeInAgenda(m)
                           ? 'Sim ? datas na agenda e ?Gerar no feed?'
-                          : 'NÃ£o â€” sÃ³ no resumo de horÃ¡rios do site',
+                          : 'Não — só no resumo de horários do site',
                     ),
                   ],
                 ),
@@ -15063,7 +15093,7 @@ class _EventoFixoDetailPage extends StatelessWidget {
 }
 
 // -------------------------------------------------------------------------------
-// Dashboard Eventos â€” grÃ¡ficos de confirmaÃ§Ãµes, curtidas e comentÃ¡rios por evento
+// Dashboard Eventos — gráficos de confirmações, curtidas e comentários por evento
 // -------------------------------------------------------------------------------
 class _DashboardEventosTab extends StatefulWidget {
   final CollectionReference<Map<String, dynamic>> noticias;
@@ -15091,7 +15121,7 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       });
     }
     final tid = widget.noticias.parent?.id ?? '';
-    // NÃ£o bloquear dashboard com Â«sincronizaÃ§Ã£oÂ» â€” tenta cache/rede na mesma.
+    // Não bloquear dashboard com «sincronização» — tenta cache/rede na mesma.
     unawaited(_awaitEventosFirebasePanelReady());
     try {
       QuerySnapshot<Map<String, dynamic>> snap;
@@ -15281,7 +15311,7 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
       return ChurchPanelResilientLoadBanner(
         hasLocalData: false,
         isSyncing: false,
-        errorTitle: 'NÃ£o foi possÃ­vel carregar as estatÃ­sticas dos eventos',
+        errorTitle: 'Não foi possível carregar as estatísticas dos eventos',
         error: _error,
         onRetry: _load,
       );
@@ -15291,7 +15321,7 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
         icon: Icons.bar_chart_rounded,
         title: 'Nenhum evento para exibir',
         subtitle:
-            'Publique eventos no Feed para ver estatÃ­sticas de RSVP, curtidas e comentÃ¡rios aqui.',
+            'Publique eventos no Feed para ver estatísticas de RSVP, curtidas e comentários aqui.',
       );
     }
     final padding = ThemeCleanPremium.pagePadding(context);
@@ -15314,13 +15344,13 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
                 isSyncing: false,
                 showStaleCache: true,
                 errorTitle:
-                    'NÃ£o foi possÃ­vel carregar as estatÃ­sticas dos eventos',
+                    'Não foi possível carregar as estatísticas dos eventos',
                 onRetry: _load,
               ),
             ),
           if (_categoryPieSections.isNotEmpty) ...[
             _ChartCard(
-              title: 'Eventos por categoria (amostra dos Ãºltimos registros)',
+              title: 'Eventos por categoria (amostra dos últimos registros)',
               icon: Icons.pie_chart_outline_rounded,
               color: const Color(0xFF7C3AED),
               onTap: null,
@@ -15331,7 +15361,7 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
           _DashboardTotalsRow(stats: _stats),
           const SizedBox(height: ThemeCleanPremium.spaceLg),
           _ChartCard(
-            title: 'ConfirmaÃ§Ãµes de presenÃ§a (RSVP) por evento',
+            title: 'Confirmações de presença (RSVP) por evento',
             icon: Icons.check_circle_rounded,
             color: ThemeCleanPremium.success,
             onTap: () => _showNamesSheet(context, 'rsvp'),
@@ -15357,7 +15387,7 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
           ),
           const SizedBox(height: ThemeCleanPremium.spaceLg),
           _ChartCard(
-            title: 'ComentÃ¡rios por evento',
+            title: 'Comentários por evento',
             icon: Icons.comment_rounded,
             color: const Color(0xFF0EA5E9),
             onTap: () => _showNamesSheet(context, 'comments'),
@@ -15398,7 +15428,7 @@ class _DashboardEventosTabState extends State<_DashboardEventosTab> {
   }
 }
 
-/// Resumo rÃ¡pido no topo do dashboard.
+/// Resumo rápido no topo do dashboard.
 class _DashboardTotalsRow extends StatelessWidget {
   final List<_EventStats> stats;
 
@@ -15429,7 +15459,7 @@ class _DashboardTotalsRow extends StatelessWidget {
           children: [
             Icon(icon, size: 20, color: color),
             const SizedBox(height: 6),
-            // FittedBox: nÃºmero nunca estoura a caixa mesmo estreito no celular.
+            // FittedBox: número nunca estoura a caixa mesmo estreito no celular.
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
@@ -15471,7 +15501,7 @@ class _DashboardTotalsRow extends StatelessWidget {
     }
 
     // Os 3 cards SEMPRE lado a lado numa linha reta (celular e web) ? pedido
-    // do usuÃ¡rio. EspaÃ§amento menor no celular para caber sem estourar.
+    // do usuário. Espaçamento menor no celular para caber sem estourar.
     final gap = narrow ? 8.0 : 10.0;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -15492,7 +15522,7 @@ class _DashboardTotalsRow extends StatelessWidget {
         SizedBox(width: gap),
         chipExpanded(
           Icons.comment_rounded,
-          'ComentÃ¡rios',
+          'Comentários',
           '$comments',
           const Color(0xFF0EA5E9),
         ),
@@ -15559,7 +15589,7 @@ class _EventMetricBars extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 12),
             child: Text(
-              '+ ${stats.length - maxItems} evento(s) fora do grÃ¡fico â€” toque no cartÃ£o para ver a lista completa.',
+              '+ ${stats.length - maxItems} evento(s) fora do gráfico — toque no cartão para ver a lista completa.',
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -15822,7 +15852,7 @@ class _EventStats {
   });
 }
 
-/// Sheet: selecionar evento e ver nomes (RSVP, curtidas) ou lista de comentÃ¡rios com opÃ§Ã£o de excluir.
+/// Sheet: selecionar evento e ver nomes (RSVP, curtidas) ou lista de comentários com opção de excluir.
 class _EventNamesSheet extends StatefulWidget {
   final List<_EventStats> stats;
   final String type;
@@ -15841,8 +15871,8 @@ class _EventNamesSheet extends StatefulWidget {
 class _EventNamesSheetState extends State<_EventNamesSheet> {
   int _selectedIndex = 0;
   List<String> _names = [];
-  // uids alinhados a _names (mesmo Ã­ndice) â€” necessÃ¡rio para remover
-  // (arrayRemove) curtidas/RSVP de forma precisa. SÃ³ usado em likes/rsvp.
+  // uids alinhados a _names (mesmo índice) — necessário para remover
+  // (arrayRemove) curtidas/RSVP de forma precisa. Só usado em likes/rsvp.
   List<String> _uids = [];
   bool _selectionMode = false;
   final Set<String> _selectedUids = {};
@@ -15854,13 +15884,13 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
   /// Campo-array no doc do evento para o tipo atual (rsvp/likes).
   String get _arrayField => widget.type == 'likes' ? 'likes' : 'rsvp';
 
-  /// Remove uids da curtida/RSVP (arrayRemove â€” preciso, nÃ£o apaga o resto).
+  /// Remove uids da curtida/RSVP (arrayRemove — preciso, não apaga o resto).
   /// [all] esvazia a lista inteira. Recarrega ao terminar.
   Future<void> _clearEngagement(
     List<String> uidsToRemove, {
     bool all = false,
   }) async {
-    if (widget.type == 'comments') return; // comentÃ¡rios tÃªm fluxo prÃ³prio
+    if (widget.type == 'comments') return; // comentários têm fluxo próprio
     if (!all && uidsToRemove.isEmpty) return;
     setState(() => _clearing = true);
     try {
@@ -15885,7 +15915,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('NÃ£o foi possÃ­vel limpar: $e')));
+        ).showSnackBar(SnackBar(content: Text('Não foi possível limpar: $e')));
       }
     }
   }
@@ -15917,7 +15947,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
   _EventStats get _selected =>
       widget.stats[_selectedIndex.clamp(0, widget.stats.length - 1)];
 
-  /// Exclui comentÃ¡rios (docs) em lote â€” gestor/pastor/secretÃ¡rio/adm/lÃ­der
+  /// Exclui comentários (docs) em lote — gestor/pastor/secretário/adm/líder
   /// (canDeleteComments). Usa batch. O StreamBuilder atualiza sozinho.
   Future<void> _deleteCommentRefs(
     List<DocumentReference<Map<String, dynamic>>> refs,
@@ -15942,7 +15972,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('NÃ£o foi possÃ­vel limpar: $e')));
+        ).showSnackBar(SnackBar(content: Text('Não foi possível limpar: $e')));
       }
     }
   }
@@ -16062,11 +16092,11 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
   String get _titleLabel {
     switch (widget.type) {
       case 'rsvp':
-        return 'ConfirmaÃ§Ãµes de presenÃ§a';
+        return 'Confirmações de presença';
       case 'likes':
         return 'Curtidas';
       case 'comments':
-        return 'ComentÃ¡rios';
+        return 'Comentários';
       default:
         return 'Lista';
     }
@@ -16077,14 +16107,14 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
     if (widget.stats.isEmpty) {
       return const Padding(
         padding: EdgeInsets.all(24),
-        child: Center(child: Text('Nenhum evento disponÃ­vel.')),
+        child: Center(child: Text('Nenhum evento disponível.')),
       );
     }
     final canDelete = widget.type == 'comments' && widget.canDeleteComments;
     return DraggableScrollableSheet(
       expand: false,
-      // TELA CHEIA ao tocar no card (RSVP/Curtidas/ComentÃ¡rios) â€” pedido do
-      // usuÃ¡rio. Ainda arrastÃ¡vel para baixo.
+      // TELA CHEIA ao tocar no card (RSVP/Curtidas/Comentários) — pedido do
+      // usuário. Ainda arrastável para baixo.
       initialChildSize: 0.96,
       maxChildSize: 0.98,
       minChildSize: 0.5,
@@ -16101,7 +16131,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
               ),
             ),
           ),
-          // BotÃ£o Voltar + tÃ­tulo (padrÃ£o de tela cheia do sistema).
+          // Botão Voltar + título (padrão de tela cheia do sistema).
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 6, 12, 4),
             child: Row(
@@ -16132,8 +16162,8 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: DropdownButtonFormField<int>(
               initialValue: _selectedIndex.clamp(0, widget.stats.length - 1),
-              // isExpanded: tÃ­tulo longo do evento corta com "..." DENTRO da
-              // caixa (antes vazava para fora Ã  direita no celular).
+              // isExpanded: título longo do evento corta com "..." DENTRO da
+              // caixa (antes vazava para fora à direita no celular).
               isExpanded: true,
               decoration: InputDecoration(
                 labelText: 'Evento',
@@ -16182,7 +16212,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                           hasLocalData: false,
                           isSyncing: false,
                           errorTitle:
-                              'NÃ£o foi possÃ­vel carregar os comentÃ¡rios',
+                              'Não foi possível carregar os comentários',
                           error: snap.error,
                           onRetry: () => setState(() => _commentsStreamKey++),
                         );
@@ -16199,7 +16229,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                       if (docs.isEmpty) {
                         return Center(
                           child: Text(
-                            'Nenhum comentÃ¡rio neste evento.',
+                            'Nenhum comentário neste evento.',
                             style: TextStyle(color: Colors.grey.shade600),
                           ),
                         );
@@ -16213,7 +16243,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                               isSyncing: false,
                               showStaleCache: true,
                               errorTitle:
-                                  'NÃ£o foi possÃ­vel carregar os comentÃ¡rios',
+                                  'Não foi possível carregar os comentários',
                               onRetry: () =>
                                   setState(() => _commentsStreamKey++),
                             ),
@@ -16272,7 +16302,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                           ? null
                                           : () async {
                                               if (await _confirmClear(
-                                                'Excluir ${_selectedUids.length} comentÃ¡rio(s) selecionado(s)?',
+                                                'Excluir ${_selectedUids.length} comentário(s) selecionado(s)?',
                                               )) {
                                                 await _deleteCommentRefs(
                                                   docs
@@ -16303,7 +16333,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                           ? null
                                           : () async {
                                               if (await _confirmClear(
-                                                'Excluir TODOS os comentÃ¡rios deste evento?',
+                                                'Excluir TODOS os comentários deste evento?',
                                               )) {
                                                 await _deleteCommentRefs(
                                                   docs
@@ -16415,10 +16445,10 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                                 context: context,
                                                 builder: (ctx) => AlertDialog(
                                                   title: const Text(
-                                                    'Excluir comentÃ¡rio',
+                                                    'Excluir comentário',
                                                   ),
                                                   content: const Text(
-                                                    'Deseja excluir este comentÃ¡rio?',
+                                                    'Deseja excluir este comentário?',
                                                   ),
                                                   actions: [
                                                     TextButton(
@@ -16456,7 +16486,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                                 );
                                               }
                                             },
-                                            tooltip: 'Excluir comentÃ¡rio',
+                                            tooltip: 'Excluir comentário',
                                           )
                                         : null,
                                   ),
@@ -16475,11 +16505,11 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                         hasLocalData: _names.isNotEmpty,
                         isSyncing: _loading,
                         showStaleCache: _names.isNotEmpty && !_loading,
-                        errorTitle: 'NÃ£o foi possÃ­vel carregar a lista',
+                        errorTitle: 'Não foi possível carregar a lista',
                         error: _names.isEmpty ? _error : null,
                         onRetry: _loadNames,
                       ),
-                      // Barra de aÃ§Ãµes: selecionar (um/vÃ¡rios/todos) + limpar.
+                      // Barra de ações: selecionar (um/vários/todos) + limpar.
                       if (_names.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
@@ -16553,7 +16583,7 @@ class _EventNamesSheetState extends State<_EventNamesSheet> {
                                       ? null
                                       : () async {
                                           if (await _confirmClear(
-                                            'Limpar TODA a lista deste evento? Esta aÃ§Ã£o remove todos os registros.',
+                                            'Limpar TODA a lista deste evento? Esta ação remove todos os registros.',
                                           )) {
                                             await _clearEngagement(
                                               const [],
@@ -16785,7 +16815,7 @@ class _ChartCard extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                    'Toque no cartÃ£o para ver nomes e detalhes',
+                    'Toque no cartão para ver nomes e detalhes',
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                   ),
                 ),
@@ -16799,7 +16829,7 @@ class _ChartCard extends StatelessWidget {
   }
 }
 
-/// SÃ³ monta abas pesadas (Galeria, Fixos, Dashboard) quando o utilizador as abre.
+/// Só monta abas pesadas (Galeria, Fixos, Dashboard) quando o utilizador as abre.
 class _LazyEventsTabGate extends StatefulWidget {
   final int tabIndex;
   final TabController controller;

@@ -37,6 +37,7 @@ async function sendRemindersForDoc(
   eventMs: number,
   now: number,
   deepLinkPath: string,
+  kind: "evento" | "aviso" = "evento",
 ): Promise<{ s24: number; s60: number }> {
   const d = doc.data() as Record<string, unknown>;
   const diffMs = eventMs - now;
@@ -45,6 +46,7 @@ async function sendRemindersForDoc(
   if (diffMs <= 0) return { s24, s60 };
 
   const title = clip(eventTitle(d), 80);
+  const label = kind === "aviso" ? "Aviso" : "Evento";
   const when = new Date(eventMs).toLocaleString("pt-BR", {
     timeZone: "America/Sao_Paulo",
   });
@@ -55,18 +57,20 @@ async function sendRemindersForDoc(
     try {
       await admin.messaging().send(
         buildGyTopicMessage({
-          topic: topicPushNovo(tenantId, "evento"),
-          title: "📅 Evento amanhã",
+          topic: topicPushNovo(tenantId, kind),
+          title: "📅 " + label + " amanhã",
           body: clip(`${title} • ${when}`, 160),
           data: {
-            type: "evento_reminder",
+            type: kind + "_reminder",
             reminder: "24h",
             tenantId,
-            eventoId: doc.id,
+            postId: doc.id,
+            eventoId: kind === "evento" ? doc.id : "",
+            avisoId: kind === "aviso" ? doc.id : "",
             click_action: "FLUTTER_NOTIFICATION_CLICK",
             deepLink: buildGyNotificationDeepLink(tenantId, deepLinkPath),
           },
-          module: "evento",
+          module: kind,
         }),
       );
       await doc.ref.update({
@@ -84,18 +88,20 @@ async function sendRemindersForDoc(
     try {
       await admin.messaging().send(
         buildGyTopicMessage({
-          topic: topicPushNovo(tenantId, "evento"),
-          title: "📅 Evento em 1 hora",
+          topic: topicPushNovo(tenantId, kind),
+          title: "📅 " + label + " em 1 hora",
           body: clip(`${title} • ${when}`, 160),
           data: {
-            type: "evento_reminder",
+            type: kind + "_reminder",
             reminder: "60m",
             tenantId,
-            eventoId: doc.id,
+            postId: doc.id,
+            eventoId: kind === "evento" ? doc.id : "",
+            avisoId: kind === "aviso" ? doc.id : "",
             click_action: "FLUTTER_NOTIFICATION_CLICK",
             deepLink: buildGyNotificationDeepLink(tenantId, deepLinkPath),
           },
-          module: "evento",
+          module: kind,
         }),
       );
       await doc.ref.update({
@@ -120,6 +126,52 @@ function agendaDocIsChurchEvent(d: Record<string, unknown>): boolean {
   return false;
 }
 
+function timestampMillis(value: unknown): number | null {
+  const ts = value as admin.firestore.Timestamp | undefined;
+  return ts && typeof ts.toMillis === "function" ? ts.toMillis() : null;
+}
+
+async function resetReminderMarkersIfDateChanged(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  field: string,
+  ref: admin.firestore.DocumentReference,
+): Promise<void> {
+  if (timestampMillis(before[field]) === timestampMillis(after[field])) return;
+  await ref.set(
+    {
+      eventReminder24hSentAt: admin.firestore.FieldValue.delete(),
+      eventReminder60mSentAt: admin.firestore.FieldValue.delete(),
+    },
+    { merge: true },
+  );
+}
+
+export const onEventoReminderScheduleChanged = functions
+  .region("us-central1")
+  .firestore.document("igrejas/{tenantId}/eventos/{id}")
+  .onUpdate(async (change) => {
+    await resetReminderMarkersIfDateChanged(
+      change.before.data() as Record<string, unknown>,
+      change.after.data() as Record<string, unknown>,
+      "startAt",
+      change.after.ref,
+    );
+    return null;
+  });
+
+export const onAvisoReminderScheduleChanged = functions
+  .region("us-central1")
+  .firestore.document("igrejas/{tenantId}/avisos/{id}")
+  .onUpdate(async (change) => {
+    await resetReminderMarkersIfDateChanged(
+      change.before.data() as Record<string, unknown>,
+      change.after.data() as Record<string, unknown>,
+      "validUntil",
+      change.after.ref,
+    );
+    return null;
+  });
 export const scheduledEventoReminders = functions
   .region("us-central1")
   .runWith({ timeoutSeconds: 300, memory: "512MB" })
@@ -164,6 +216,32 @@ export const scheduledEventoReminders = functions
         functions.logger.warn("eventoReminders eventos query", { tenantId, e });
       }
 
+      // 2) Avisos com vencimento — permanentes não têm instante futuro.
+      try {
+        const qAvisos = await base
+          .collection("avisos")
+          .where("validUntil", ">=", startTs)
+          .where("validUntil", "<=", endTs)
+          .get();
+        for (const doc of qAvisos.docs) {
+          const ts = doc.data().validUntil as
+            | admin.firestore.Timestamp
+            | undefined;
+          if (!ts || typeof ts.toMillis !== "function") continue;
+          const r = await sendRemindersForDoc(
+            tenantId,
+            doc,
+            ts.toMillis(),
+            now,
+            "avisos",
+            "aviso",
+          );
+          sent24 += r.s24;
+          sent60 += r.s60;
+        }
+      } catch (e) {
+        functions.logger.warn("eventoReminders avisos query", { tenantId, e });
+      }
       // 2) Coleção `agenda` (cultos/eventos lançados direto) — campo startTime.
       try {
         const qa = await base

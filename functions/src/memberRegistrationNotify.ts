@@ -46,7 +46,7 @@ export async function notifyGestoresNewMember(params: {
 
   await sendGyTopicPush(tenantId, "gestores", (churchId) =>
     buildGyTopicMessage({
-      topic: topicPushNovo(churchId, "gestores"),
+      topic: topicPushNovo(churchId, "membro"),
       title: (publicSignup ? "⚡ " : "👤 ") + titulo,
       body,
       data: {

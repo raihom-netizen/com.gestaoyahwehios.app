@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.scheduledEventoReminders = void 0;
+exports.scheduledEventoReminders = exports.onAvisoReminderScheduleChanged = exports.onEventoReminderScheduleChanged = void 0;
 /**
  * Lembretes push — eventos/cultos da igreja ~24h e ~60min antes do horário.
  * Respeita tópico `gypush_{churchId}_evento` (preferência pushEventos no app).
@@ -63,7 +63,7 @@ function eventTitle(d) {
     return t || "Evento";
 }
 /** Envia (se estiver na janela) os lembretes 24h/60m de UM documento. */
-async function sendRemindersForDoc(tenantId, doc, eventMs, now, deepLinkPath) {
+async function sendRemindersForDoc(tenantId, doc, eventMs, now, deepLinkPath, kind = "evento") {
     const d = doc.data();
     const diffMs = eventMs - now;
     let s24 = 0;
@@ -71,6 +71,7 @@ async function sendRemindersForDoc(tenantId, doc, eventMs, now, deepLinkPath) {
     if (diffMs <= 0)
         return { s24, s60 };
     const title = clip(eventTitle(d), 80);
+    const label = kind === "aviso" ? "Aviso" : "Evento";
     const when = new Date(eventMs).toLocaleString("pt-BR", {
         timeZone: "America/Sao_Paulo",
     });
@@ -78,18 +79,20 @@ async function sendRemindersForDoc(tenantId, doc, eventMs, now, deepLinkPath) {
     if (in24hWindow && !d.eventReminder24hSentAt) {
         try {
             await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
-                topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, "evento"),
-                title: "📅 Evento amanhã",
+                topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, kind),
+                title: "📅 " + label + " amanhã",
                 body: clip(`${title} • ${when}`, 160),
                 data: {
-                    type: "evento_reminder",
+                    type: kind + "_reminder",
                     reminder: "24h",
                     tenantId,
-                    eventoId: doc.id,
+                    postId: doc.id,
+                    eventoId: kind === "evento" ? doc.id : "",
+                    avisoId: kind === "aviso" ? doc.id : "",
                     click_action: "FLUTTER_NOTIFICATION_CLICK",
                     deepLink: (0, pushNovoConteudo_1.buildGyNotificationDeepLink)(tenantId, deepLinkPath),
                 },
-                module: "evento",
+                module: kind,
             }));
             await doc.ref.update({
                 eventReminder24hSentAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -104,18 +107,20 @@ async function sendRemindersForDoc(tenantId, doc, eventMs, now, deepLinkPath) {
     if (in60Window && !d.eventReminder60mSentAt) {
         try {
             await admin.messaging().send((0, notificationBranding_1.buildGyTopicMessage)({
-                topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, "evento"),
-                title: "📅 Evento em 1 hora",
+                topic: (0, pushNovoConteudo_1.topicPushNovo)(tenantId, kind),
+                title: "📅 " + label + " em 1 hora",
                 body: clip(`${title} • ${when}`, 160),
                 data: {
-                    type: "evento_reminder",
+                    type: kind + "_reminder",
                     reminder: "60m",
                     tenantId,
-                    eventoId: doc.id,
+                    postId: doc.id,
+                    eventoId: kind === "evento" ? doc.id : "",
+                    avisoId: kind === "aviso" ? doc.id : "",
                     click_action: "FLUTTER_NOTIFICATION_CLICK",
                     deepLink: (0, pushNovoConteudo_1.buildGyNotificationDeepLink)(tenantId, deepLinkPath),
                 },
-                module: "evento",
+                module: kind,
             }));
             await doc.ref.update({
                 eventReminder60mSentAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -139,6 +144,32 @@ function agendaDocIsChurchEvent(d) {
         return true;
     return false;
 }
+function timestampMillis(value) {
+    const ts = value;
+    return ts && typeof ts.toMillis === "function" ? ts.toMillis() : null;
+}
+async function resetReminderMarkersIfDateChanged(before, after, field, ref) {
+    if (timestampMillis(before[field]) === timestampMillis(after[field]))
+        return;
+    await ref.set({
+        eventReminder24hSentAt: admin.firestore.FieldValue.delete(),
+        eventReminder60mSentAt: admin.firestore.FieldValue.delete(),
+    }, { merge: true });
+}
+exports.onEventoReminderScheduleChanged = functions
+    .region("us-central1")
+    .firestore.document("igrejas/{tenantId}/eventos/{id}")
+    .onUpdate(async (change) => {
+    await resetReminderMarkersIfDateChanged(change.before.data(), change.after.data(), "startAt", change.after.ref);
+    return null;
+});
+exports.onAvisoReminderScheduleChanged = functions
+    .region("us-central1")
+    .firestore.document("igrejas/{tenantId}/avisos/{id}")
+    .onUpdate(async (change) => {
+    await resetReminderMarkersIfDateChanged(change.before.data(), change.after.data(), "validUntil", change.after.ref);
+    return null;
+});
 exports.scheduledEventoReminders = functions
     .region("us-central1")
     .runWith({ timeoutSeconds: 300, memory: "512MB" })
@@ -173,6 +204,25 @@ exports.scheduledEventoReminders = functions
         }
         catch (e) {
             functions.logger.warn("eventoReminders eventos query", { tenantId, e });
+        }
+        // 2) Avisos com vencimento — permanentes não têm instante futuro.
+        try {
+            const qAvisos = await base
+                .collection("avisos")
+                .where("validUntil", ">=", startTs)
+                .where("validUntil", "<=", endTs)
+                .get();
+            for (const doc of qAvisos.docs) {
+                const ts = doc.data().validUntil;
+                if (!ts || typeof ts.toMillis !== "function")
+                    continue;
+                const r = await sendRemindersForDoc(tenantId, doc, ts.toMillis(), now, "avisos", "aviso");
+                sent24 += r.s24;
+                sent60 += r.s60;
+            }
+        }
+        catch (e) {
+            functions.logger.warn("eventoReminders avisos query", { tenantId, e });
         }
         // 2) Coleção `agenda` (cultos/eventos lançados direto) — campo startTime.
         try {

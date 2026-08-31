@@ -11,6 +11,7 @@ class ChurchMemberNotificationPrefs {
   const ChurchMemberNotificationPrefs({
     this.receberAvisos = true,
     this.receberEscalas = true,
+    this.receberNovosMembros = true,
     this.receberEventosTempo = true,
     this.receberAniversariantes = true,
     this.receberChat = true,
@@ -19,6 +20,7 @@ class ChurchMemberNotificationPrefs {
 
   final bool receberAvisos;
   final bool receberEscalas;
+  final bool receberNovosMembros;
   final bool receberEventosTempo;
   final bool receberAniversariantes;
   final bool receberChat;
@@ -27,6 +29,7 @@ class ChurchMemberNotificationPrefs {
   ChurchMemberNotificationPrefs copyWith({
     bool? receberAvisos,
     bool? receberEscalas,
+    bool? receberNovosMembros,
     bool? receberEventosTempo,
     bool? receberAniversariantes,
     bool? receberChat,
@@ -35,6 +38,7 @@ class ChurchMemberNotificationPrefs {
     return ChurchMemberNotificationPrefs(
       receberAvisos: receberAvisos ?? this.receberAvisos,
       receberEscalas: receberEscalas ?? this.receberEscalas,
+      receberNovosMembros: receberNovosMembros ?? this.receberNovosMembros,
       receberEventosTempo: receberEventosTempo ?? this.receberEventosTempo,
       receberAniversariantes:
           receberAniversariantes ?? this.receberAniversariantes,
@@ -45,20 +49,24 @@ class ChurchMemberNotificationPrefs {
   }
 
   Map<String, dynamic> toMap() => {
-        'receberAvisos': receberAvisos,
-        'receberEscalas': receberEscalas,
-        'receberEventosTempo': receberEventosTempo,
-        'receberAniversariantes': receberAniversariantes,
-        'receberChat': receberChat,
-        'receberFinanceiroTempo': receberFinanceiroTempo,
-      };
+    'receberAvisos': receberAvisos,
+    'receberEscalas': receberEscalas,
+    'receberNovosMembros': receberNovosMembros,
+    'receberEventosTempo': receberEventosTempo,
+    'receberAniversariantes': receberAniversariantes,
+    'receberChat': receberChat,
+    'receberFinanceiroTempo': receberFinanceiroTempo,
+  };
 
   static ChurchMemberNotificationPrefs fromMap(Map<String, dynamic>? raw) {
-    if (raw == null || raw.isEmpty) return const ChurchMemberNotificationPrefs();
+    if (raw == null || raw.isEmpty) {
+      return const ChurchMemberNotificationPrefs();
+    }
     bool b(String k, bool def) => raw[k] is bool ? raw[k] as bool : def;
     return ChurchMemberNotificationPrefs(
       receberAvisos: b('receberAvisos', true),
       receberEscalas: b('receberEscalas', true),
+      receberNovosMembros: b('receberNovosMembros', true),
       receberEventosTempo: b('receberEventosTempo', true),
       receberAniversariantes: b('receberAniversariantes', true),
       receberChat: b('receberChat', true),
@@ -68,14 +76,15 @@ class ChurchMemberNotificationPrefs {
 
   /// Campos legados em `users/{uid}` (compatível com [FcmService]).
   Map<String, dynamic> toLegacyUserFields() => {
-        'pushAvisos': receberAvisos,
-        'pushEventos': receberEventosTempo,
-        'pushEscalas': receberEscalas,
-        'pushAniversariantes': receberAniversariantes,
-        'pushChat': receberChat,
-        'pushFornecedorAgenda': receberFinanceiroTempo,
-        'config_notificacoes': toMap(),
-      };
+    'pushAvisos': receberAvisos,
+    'pushEventos': receberEventosTempo,
+    'pushEscalas': receberEscalas,
+    'pushMembros': receberNovosMembros,
+    'pushAniversariantes': receberAniversariantes,
+    'pushChat': receberChat,
+    'pushFornecedorAgenda': receberFinanceiroTempo,
+    'config_notificacoes': toMap(),
+  };
 }
 
 abstract final class ChurchMemberNotificationPrefsService {
@@ -95,9 +104,15 @@ abstract final class ChurchMemberNotificationPrefsService {
     }
     return ChurchMemberNotificationPrefs(
       receberAvisos: d['pushAvisos'] is bool ? d['pushAvisos'] as bool : true,
-      receberEscalas: d['pushEscalas'] is bool ? d['pushEscalas'] as bool : true,
-      receberEventosTempo:
-          d['pushEventos'] is bool ? d['pushEventos'] as bool : true,
+      receberEscalas: d['pushEscalas'] is bool
+          ? d['pushEscalas'] as bool
+          : true,
+      receberNovosMembros: d['pushMembros'] is bool
+          ? d['pushMembros'] as bool
+          : true,
+      receberEventosTempo: d['pushEventos'] is bool
+          ? d['pushEventos'] as bool
+          : true,
       receberAniversariantes: d['pushAniversariantes'] is bool
           ? d['pushAniversariantes'] as bool
           : true,
@@ -113,12 +128,14 @@ abstract final class ChurchMemberNotificationPrefsService {
     String? churchIdHint,
     String? memberDocIdHint,
   }) async {
-    ChurchMemberNotificationPrefs fromSp = const ChurchMemberNotificationPrefs();
+    ChurchMemberNotificationPrefs fromSp =
+        const ChurchMemberNotificationPrefs();
     try {
       final prefs = await SharedPreferences.getInstance();
       fromSp = ChurchMemberNotificationPrefs(
         receberAvisos: prefs.getBool('notif_avisos') ?? true,
         receberEscalas: prefs.getBool('notif_escalas') ?? true,
+        receberNovosMembros: prefs.getBool('notif_membros') ?? true,
         receberEventosTempo: prefs.getBool('notif_eventos') ?? true,
         receberAniversariantes: prefs.getBool('notif_aniversariantes') ?? true,
         receberChat: prefs.getBool('notif_chat') ?? true,
@@ -167,6 +184,7 @@ abstract final class ChurchMemberNotificationPrefsService {
     await sp.setBool('notif_avisos', prefs.receberAvisos);
     await sp.setBool('notif_eventos', prefs.receberEventosTempo);
     await sp.setBool('notif_escalas', prefs.receberEscalas);
+    await sp.setBool('notif_membros', prefs.receberNovosMembros);
     await sp.setBool('notif_aniversariantes', prefs.receberAniversariantes);
     await sp.setBool('notif_chat', prefs.receberChat);
     await sp.setBool('notif_fornecedor', prefs.receberFinanceiroTempo);
@@ -181,9 +199,9 @@ abstract final class ChurchMemberNotificationPrefsService {
     final memberId = (memberDocIdHint ?? uid).trim();
     if (churchId.isNotEmpty && memberId.isNotEmpty) {
       try {
-        await ChurchUiCollections.membros(churchId)
-            .doc(memberId)
-            .set({field: prefs.toMap()}, SetOptions(merge: true));
+        await ChurchUiCollections.membros(
+          churchId,
+        ).doc(memberId).set({field: prefs.toMap()}, SetOptions(merge: true));
       } catch (_) {}
     }
   }
