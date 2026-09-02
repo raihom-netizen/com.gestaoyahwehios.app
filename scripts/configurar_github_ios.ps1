@@ -2,11 +2,16 @@
 # Depois disso basta: Actions > "iOS TestFlight (Flutter)" > Run workflow.
 #
 # Uso:  .\scripts\configurar_github_ios.ps1
-#       .\scripts\configurar_github_ios.ps1 -KeyId 85X9UNAT43    # escolher a chave .p8
+#       .\scripts\configurar_github_ios.ps1 -KeyId GDVCL94D6D    # escolher a chave .p8
 #       .\scripts\configurar_github_ios.ps1 -DispararBuild       # ja dispara o build no fim
 #
 # Os valores sao lidos do disco e enviados direto ao GitHub pelo "gh secret set";
 # nada e impresso na tela nem gravado em log.
+#
+# Este repo tambem aceita o modo manual do Codemagic (P12 + .mobileprovision em
+# Base64 nos secrets CM_CERTIFICATE / CM_PROVISIONING_PROFILE). O padrao aqui e o
+# mesmo dos outros apps: API-only com a chave RSA — os scripts detectam o formato
+# PEM e caem sozinhos nesse modo. Para voltar ao manual, grave aqueles dois secrets.
 #
 # A conta Apple e a mesma do Controle Total (Issuer 77a1debb-...), entao as chaves
 # em C:\Controletotalapp_Independente\ios_keys servem aqui — inclusive a chave RSA,
@@ -126,42 +131,44 @@ if ($IssuerId -notmatch '^[0-9a-fA-F-]{36}$') {
 }
 Escrever "Issuer ID: $IssuerId" Green
 
-# --- 4. Assinatura: P12 + perfil (modo manual deste repo) ------------------
-# Diferente dos outros apps, aqui o CI assina com o .p12 Apple Distribution e o
-# .mobileprovision App Store (ver comentarios do codemagic.yaml). Os dois vao
-# para os secrets em Base64, exatamente como iam para o Codemagic.
-function AcharArquivo($padroes) {
-    foreach ($pad in $padroes) {
-        $achado = Get-ChildItem -Path $root -Filter $pad -File -Recurse -Depth 2 -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -notmatch "\(node_modules|build|\.git)\\" } |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($achado) { return $achado }
+# --- 4. Chave RSA do certificado (CERTIFICATE_PRIVATE_KEY) -----------------
+# O CI usa essa chave para buscar ou CRIAR o certificado Apple Distribution.
+# Usar a MESMA chave em todos os apps da conta evita estourar o limite de 3
+# certificados de distribuicao da Apple.
+$rsaPath = Join-Path $iosKeys "ios_distribution_private_key.pem"
+$rsaCompartilhada = Join-Path $ChavesCompartilhadas "ios_distribution_private_key.pem"
+
+if (-not (Test-Path $rsaPath) -and (Test-Path $rsaCompartilhada)) {
+    Escrever "`nUsando a chave RSA compartilhada da conta Apple:" Green
+    Escrever "  $rsaCompartilhada" Gray
+    Escrever "  (mesmo certificado Apple Distribution dos outros apps — e o que evita o limite de 3)" Gray
+    $rsaPath = $rsaCompartilhada
+} elseif (-not (Test-Path $rsaPath)) {
+    Escrever "`nChave RSA do certificado nao existe ainda. Gerando..." Yellow
+    if (-not (Test-Path $iosKeys)) { New-Item -ItemType Directory $iosKeys | Out-Null }
+    $sshKeygen = Get-Command ssh-keygen -ErrorAction SilentlyContinue
+    $openssl = Get-Command openssl -ErrorAction SilentlyContinue
+    if ($sshKeygen) {
+        $tmp = Join-Path $iosKeys "ios_distribution_private_key"
+        if (Test-Path $tmp) { Remove-Item $tmp -Force }
+        if (Test-Path "$tmp.pub") { Remove-Item "$tmp.pub" -Force }
+        & ssh-keygen -t rsa -b 2048 -m PEM -f $tmp -q -N '""' | Out-Null
+        if (-not (Test-Path $tmp)) { & ssh-keygen -t rsa -b 2048 -m PEM -f $tmp -q -N "" | Out-Null }
+        if (Test-Path $tmp) { Move-Item $tmp $rsaPath -Force }
+        if (Test-Path "$tmp.pub") { Remove-Item "$tmp.pub" -Force }
+    } elseif ($openssl) {
+        & openssl genrsa -out $rsaPath 2048 2>$null
     }
-    return $null
-}
-
-$p12 = AcharArquivo @("gestaoyahwehiosapp.p12", "*.p12")
-$perfil = AcharArquivo @("gestaoyahwehiosapp.mobileprovision", "*.mobileprovision")
-
-$b64P12 = $null
-$b64Perfil = $null
-if ($p12) {
-    Escrever "`
-Certificado .p12: $($p12.FullName)" Green
-    $b64P12 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($p12.FullName))
+    if (-not (Test-Path $rsaPath)) {
+        Escrever "Nao consegui gerar a chave RSA (precisa de ssh-keygen ou openssl no PATH)." Red
+        Escrever "Gere manualmente e salve em: $rsaPath" Yellow
+        exit 1
+    }
+    Escrever "Chave RSA gerada: $rsaPath" Green
+    Escrever "GUARDE esse arquivo — e ele que amarra o certificado Apple da conta." Yellow
 } else {
-    Escrever "`
-AVISO: nenhum .p12 encontrado no projeto." Yellow
-    Escrever "Sem ele o CI cai no modo API-only, que so funciona se a chave da API for Admin." Yellow
+    Escrever "`nChave RSA do certificado: reaproveitando $rsaPath" Green
 }
-if ($perfil) {
-    Escrever "Perfil App Store: $($perfil.FullName)" Green
-    $b64Perfil = [Convert]::ToBase64String([IO.File]::ReadAllBytes($perfil.FullName))
-} else {
-    Escrever "AVISO: nenhum .mobileprovision encontrado no projeto." Yellow
-}
-
-$senhaP12 = Read-Host "Senha do .p12 (Enter se nao tiver)"
 
 # --- 5. Enviar os secrets --------------------------------------------------
 Escrever "`n=== Gravando os secrets em $Repo ===" Cyan
@@ -179,22 +186,9 @@ function DefinirSecretTexto($nome, $valor) {
 }
 
 DefinirSecret "APP_STORE_CONNECT_PRIVATE_KEY" $p8.FullName
+DefinirSecret "CERTIFICATE_PRIVATE_KEY" $rsaPath
 DefinirSecretTexto "APP_STORE_CONNECT_KEY_IDENTIFIER" $keyIdFinal
 DefinirSecretTexto "APP_STORE_CONNECT_ISSUER_ID" $IssuerId
-
-if ($b64P12) {
-    # CERTIFICATE_PRIVATE_KEY e CM_CERTIFICATE sao o mesmo valor com nomes diferentes
-    # (o primeiro e o nome do assistente Codemagic) — os scripts aceitam qualquer um.
-    DefinirSecretTexto "CERTIFICATE_PRIVATE_KEY" $b64P12
-    DefinirSecretTexto "CM_CERTIFICATE" $b64P12
-}
-if ($b64Perfil) {
-    DefinirSecretTexto "CM_PROVISIONING_PROFILE" $b64Perfil
-}
-if (-not [string]::IsNullOrWhiteSpace($senhaP12)) {
-    DefinirSecretTexto "CM_CERTIFICATE_PASSWORD" $senhaP12
-    DefinirSecretTexto "CERTIFICATE_PASSWORD" $senhaP12
-}
 
 # Opcional: service account do Firebase, para publicar o .ipa no site.
 $firebaseCandidatos = @(
