@@ -387,190 +387,52 @@ jobs:
       - name: Build iOS IPA (instalável)
         run: |
           set -e
-          ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
+          ROOT="${CM_BUILD_DIR:-$(pwd)}"
           cd "$ROOT"
           case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app ;; root) ;; *) echo "ERRO: layout"; exit 1 ;; esac
           FLUTTER_PWD="$(pwd)"
-          echo "Flutter project dir: $FLUTTER_PWD FLUTTER_BUILD_DIR=${FLUTTER_BUILD_DIR:-<default>}"
-          echo "--- Re-validar perfil .mobileprovision vs P12 (fail-fast antes de flutter build ipa) ---"
-          if [ ! -f "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh" ]; then
-            echo "ERRO: falta $ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
-            exit 1
-          fi
+
+          echo "--- Re-validar perfil .mobileprovision vs P12 (fail-fast antes do archive) ---"
           bash "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
+
           if [ ! -f /tmp/cm_ios_build_name ] || [ ! -f /tmp/cm_ios_build_number ]; then
-            echo "ERRO: execute o passo 'Versão iOS' antes do build (faltam /tmp/cm_ios_build_*)."
+            echo "::error::execute o passo 'Versao iOS' antes do build (faltam /tmp/cm_ios_build_*)."
             exit 1
           fi
-          BUILD_NAME="$(tr -d '\r\n' < /tmp/cm_ios_build_name)"
-          BN="$(tr -d '\r\n' < /tmp/cm_ios_build_number)"
-          if [ -z "$BUILD_NAME" ] || [ -z "$BN" ]; then
-            echo "ERRO: build-name ou build-number vazio após sync iOS."
+          export GHA_IOS_BUILD_NAME="$(tr -d '[:space:]' < /tmp/cm_ios_build_name)"
+          export GHA_IOS_BUILD_NUMBER="$(tr -d '[:space:]' < /tmp/cm_ios_build_number)"
+          if [ -z "$GHA_IOS_BUILD_NAME" ] || [ -z "$GHA_IOS_BUILD_NUMBER" ]; then
+            echo "::error::build-name ou build-number vazio apos o sync iOS."
             exit 1
           fi
-          echo "flutter build ipa --build-name=$BUILD_NAME --build-number=$BN"
-          echo "  (CFBundleVersion = ASC último + offset — ver passo Versão iOS; sem Retry só em Publishing)"
-          grep '^version:' pubspec.yaml || true
-          # Asset dotenv: pubspec lista .env.example (commitado). Nunca exigir .env (gitignore).
+
+          # Asset dotenv: o pubspec lista .env.example (commitado). Nunca exigir .env (gitignore).
           if [ ! -f .env.example ]; then
-            echo "ERRO: falta .env.example (asset obrigatório no pubspec)."
+            echo "::error::falta .env.example (asset obrigatorio no pubspec)."
             exit 1
           fi
-          export BUNDLE_ID WIDGET_BUNDLE_ID APP_GROUP_ID
-          python3 "$ROOT/scripts/codemagic_ios_verify_widget_profile.py"
-          python3 "$ROOT/scripts/codemagic_ios_write_export_options.py" -o /tmp/ExportOptions.plist
-          python3 "$ROOT/scripts/codemagic_ios_write_export_options.py" -o ios/ExportOptions.plist
-          bash "$ROOT/scripts/codemagic_ios_prepare_build_ipa.sh"
-          TDLIB_BUILD_ARGS=()
+
           if [ -f /tmp/cm_yw_tdlib_ios_enabled ]; then
             YAHWEH_TDLIB_IOS_ENABLED="$(cat /tmp/cm_yw_tdlib_ios_enabled)"
           fi
-          TDLIB_BUILD_ARGS+=(--dart-define=YAHWEH_TDLIB_IOS_ENABLED=${YAHWEH_TDLIB_IOS_ENABLED:-0})
-          if [ "${YAHWEH_TDLIB_IOS_ENABLED:-0}" = "1" ] && \
-             [ -n "${TELEGRAM_API_ID:-}" ] && \
-             [ -n "${TELEGRAM_API_HASH:-}" ]; then
-            python3 - <<'PY'
-          import json
-          import os
-          with open('/tmp/gestao_yahweh_tdlib.json', 'w', encoding='utf-8') as f:
-              json.dump({
-                  'TELEGRAM_API_ID': os.environ['TELEGRAM_API_ID'],
-                  'TELEGRAM_API_HASH': os.environ['TELEGRAM_API_HASH'],
-              }, f)
-          PY
-            TDLIB_BUILD_ARGS+=(--dart-define-from-file=/tmp/gestao_yahweh_tdlib.json)
-            echo "TDLib: credenciais + nativo iOS incluídos no IPA."
-          elif [ "${YAHWEH_TDLIB_IOS_ENABLED:-0}" = "1" ]; then
-            echo "AVISO: TDLib iOS nativo sem TELEGRAM_API_ID/HASH no ambiente (Firestore/master no app)."
-          else
-            echo "TDLib iOS: fallback (plugin removido); app usa Telegram embutido + Firebase chat."
-          fi
-          set +e
-          flutter build ipa --release \
-            --no-pub \
-            --build-name="$BUILD_NAME" \
-            --build-number="$BN" \
-            --export-options-plist=/tmp/ExportOptions.plist \
-            "${TDLIB_BUILD_ARGS[@]}" > /tmp/cm_flutter_ipa.log 2>&1
-          FLUTTER_IPA_EXIT=$?
-          set -e
-          echo "flutter build ipa exit code: $FLUTTER_IPA_EXIT"
-          # Se o linker/archive TDLib falhar, forçar fallback + pod reinstall + rebuild.
-          if [ "$FLUTTER_IPA_EXIT" -ne 0 ] && \
-             grep -Eiq 'tdlib|libtdjson|flutter_libtdjson|force_load|Undefined symbols|XCFrameworkIntermediates' /tmp/cm_flutter_ipa.log; then
-            echo "TDLib iOS archive falhou — rebuild automático com fallback seguro…"
-            FLUTTER_DIR="$FLUTTER_PWD"
-            export YAHWEH_TDLIB_IOS_ENABLED=0
-            export YAHWEH_TDLIB_FORCE_FALLBACK=1
-            echo "0" > /tmp/cm_yw_tdlib_ios_enabled
-            bash "$ROOT/scripts/codemagic_ios_apply_tdlib_fallback.sh" "$FLUTTER_DIR" --force
-            flutter pub get
-            rm -rf ios/Pods/flutter_libtdjson ios/.symlinks/plugins/libtdjson 2>/dev/null || true
-            if [ -f ios/Podfile.lock ] && grep -Eiq 'flutter_libtdjson|libtdjson' ios/Podfile.lock; then
-              rm -f ios/Podfile.lock
-            fi
-            # Regenerar Pods sem flutter_libtdjson (obrigatório — só pub get não basta).
-            bash "$ROOT/scripts/codemagic_ios_pod_install.sh"
-            bash "$ROOT/scripts/codemagic_ios_bump_pods_deployment_to_15.sh" || true
-            set +e
-            flutter build ipa --release \
-              --no-pub \
-              --build-name="$BUILD_NAME" \
-              --build-number="$BN" \
-              --export-options-plist=/tmp/ExportOptions.plist \
-              --dart-define=YAHWEH_TDLIB_IOS_ENABLED=0 > /tmp/cm_flutter_ipa.log 2>&1
-            FLUTTER_IPA_EXIT=$?
-            set -e
-            echo "flutter build ipa (fallback) exit code: $FLUTTER_IPA_EXIT"
-          fi
-          if [ "$FLUTTER_IPA_EXIT" -ne 0 ]; then
-            echo "--- ultimas linhas do log (flutter build ipa) ---"
-            tail -120 /tmp/cm_flutter_ipa.log || true
-            if grep -q "doesn't include signing certificate" /tmp/cm_flutter_ipa.log 2>/dev/null; then
-              echo ""
-              echo "=== DICA exportArchive (perfil vs certificado) ==="
-              echo "O .mobileprovision no Codemagic (CM_PROVISIONING_PROFILE) foi gerado SEM o certificado"
-              echo "Apple Distribution que está no P12 (CM_CERTIFICATE). Corrija no Apple Developer:"
-              echo "  developer.apple.com → Profiles → App Store do bundle com.gestaoyahwehios.app → Edit"
-              echo "  → Certificates: marque o Apple Distribution: Raihom Barbosa (82RC6YL7KL)"
-              echo "  → Save → Download → novo Base64 em CM_PROVISIONING_PROFILE"
-            fi
-            if grep -qE "Sign In with Apple|applesignin" /tmp/cm_flutter_ipa.log 2>/dev/null; then
-              echo ""
-              echo "=== DICA Sign In with Apple (perfil sem capability) ==="
-              echo "Ative Sign In with Apple no App ID com.gestaoyahwehios.app, regenere o perfil App Store,"
-              echo "atualize CM_PROVISIONING_PROFILE no Codemagic. Ver: IOS/CODEMAGIC_SIGN_IN_APPLE.txt"
-            fi
-            exit "$FLUTTER_IPA_EXIT"
-          fi
-          BD="${FLUTTER_BUILD_DIR:-build}"
-          if [ "${BD#/}" != "$BD" ]; then
-            IPA_DIR_BD="$BD/ios/ipa"
-          else
-            IPA_DIR_BD="$FLUTTER_PWD/$BD/ios/ipa"
-          fi
-          IPA_PATH=""
-          # Codemagic por vezes define FLUTTER_BUILD_DIR na raiz do clone: o .ipa sai em ROOT/build/ios/ipa,
-          # nao em flutter_app/build/ios/ipa — procurar em todos os candidatos antes de falhar.
-          for trydir in "$IPA_DIR_BD" "$FLUTTER_PWD/build/ios/ipa" "$ROOT/build/ios/ipa" "$ROOT/flutter_app/build/ios/ipa"; do
-            if [ -z "$trydir" ] || [ ! -d "$trydir" ]; then
-              continue
-            fi
-            IPA_PATH=$(find "$trydir" -maxdepth 1 -name "*.ipa" -type f 2>/dev/null | head -n 1)
-            if [ -n "$IPA_PATH" ] && [ -f "$IPA_PATH" ]; then
-              break
-            fi
-          done
+          export GHA_IOS_EXTRA_ARGS="--dart-define=YAHWEH_TDLIB_IOS_ENABLED=${YAHWEH_TDLIB_IOS_ENABLED:-0}"
+
+          bash "$ROOT/scripts/gha_ios_build_ipa.sh" "$FLUTTER_PWD"
+
+          # Cauda: os passos seguintes (dSYM, copia para ASC, site) leem estes caminhos.
+          IPA_PATH="$(find "$FLUTTER_PWD/build/ios/ipa" -maxdepth 1 -name '*.ipa' -type f 2>/dev/null | head -n 1)"
           if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
-            IPA_PATH=$(find "$ROOT" -type f -name "*.ipa" -not -path "*/.git/*" -not -path "*/.dart_tool/*" 2>/dev/null | head -n 1)
-          fi
-          if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
-            IPA_PATH=$(find "$FLUTTER_PWD" -type f -name "*.ipa" -not -path "*/.git/*" 2>/dev/null | head -n 1)
-          fi
-          if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
-            echo "AVISO: .ipa ainda nao encontrado — fallback xcodebuild -exportArchive (archive existe mas export Flutter falhou?)..."
-            ARCH="$(find "$FLUTTER_PWD/build/ios" -name "Runner.xcarchive" -type d 2>/dev/null | head -n 1)"
-            if [ -z "$ARCH" ]; then
-              ARCH="$(find "$ROOT" -path "*/build/ios/archive/Runner.xcarchive" -type d 2>/dev/null | head -n 1)"
-            fi
-            if [ -n "$ARCH" ] && [ -d "$ARCH" ]; then
-              mkdir -p "$FLUTTER_PWD/build/ios/ipa"
-              set +e
-              xcodebuild -exportArchive \
-                -archivePath "$ARCH" \
-                -exportPath "$FLUTTER_PWD/build/ios/ipa" \
-                -exportOptionsPlist /tmp/ExportOptions.plist
-              XB_EXIT=$?
-              set -e
-              echo "xcodebuild -exportArchive exit=$XB_EXIT archive=$ARCH"
-              IPA_PATH=$(find "$FLUTTER_PWD/build/ios/ipa" -maxdepth 1 -name "*.ipa" -type f 2>/dev/null | head -n 1)
-            else
-              echo "Nenhum Runner.xcarchive encontrado para export manual."
-            fi
-          fi
-          if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
-            echo "ERRO: flutter build ipa terminou sem .ipa (export falhou ou caminho de saida mudou)."
-            echo "--- candidatos ---"
-            for trydir in "$IPA_DIR_BD" "$FLUTTER_PWD/build/ios/ipa" "$ROOT/build/ios/ipa"; do
-              echo "dir=$trydir"; ls -la "$trydir" 2>/dev/null || true
-            done
-            echo "--- list build/ios (flutter_app) ---"
-            ls -laR "$FLUTTER_PWD/build/ios" 2>/dev/null | head -80 || true
-            echo "--- find *.ipa sob $ROOT (max 40) ---"
-            find "$ROOT" -name "*.ipa" -type f 2>/dev/null | head -40 || true
-            echo "--- tail flutter log ---"
-            tail -80 /tmp/cm_flutter_ipa.log || true
+            echo "::error::nenhum .ipa em $FLUTTER_PWD/build/ios/ipa apos o export."
+            ls -la "$FLUTTER_PWD/build/ios/ipa" 2>/dev/null || true
             exit 1
           fi
           ABS_IPA="$(cd "$(dirname "$IPA_PATH")" && pwd)/$(basename "$IPA_PATH")"
-          printf '%s\n' "$ABS_IPA" > "$FLUTTER_PWD/.cm_last_ipa_path"
-          printf '%s\n' "$ABS_IPA" > "$ROOT/.cm_yw_last_ipa_path"
-          mkdir -p "$ROOT/build/ios/ipa" "$FLUTTER_PWD/build/ios/ipa"
+          echo "$ABS_IPA" > "$FLUTTER_PWD/.cm_last_ipa_path"
+          echo "$ABS_IPA" > "$ROOT/.cm_yw_last_ipa_path"
+          mkdir -p "$ROOT/build/ios/ipa"
           bash "$ROOT/scripts/codemagic_ios_cp_ipa_safe.sh" "$ABS_IPA" "$ROOT/build/ios/ipa"
-          bash "$ROOT/scripts/codemagic_ios_cp_ipa_safe.sh" "$ABS_IPA" "$FLUTTER_PWD/build/ios/ipa"
           bash "$ROOT/scripts/codemagic_ios_normalize_ipa_for_asc.sh"
-          echo "IPA: $ABS_IPA (normalizado para GestaoYahweh.ipa no passo seguinte)"
-          echo "Copias para artefactos: $ROOT/build/ios/ipa/ e $FLUTTER_PWD/build/ios/ipa/"
+          echo "IPA: $ABS_IPA"
           ls -la "$ROOT/build/ios/ipa" "$FLUTTER_PWD/build/ios/ipa"
 
       - name: Upload dSYM para Firebase Crashlytics (obrigatorio)

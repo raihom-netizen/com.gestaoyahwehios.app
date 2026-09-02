@@ -187,11 +187,66 @@ CAPABILITIES = (
 SITE = ('Subir IPA para o site',)
 OPCIONAIS = ('Firebase App Distribution', 'Upload dSYM')
 
+# O passo de gerar o IPA e o mesmo dos outros apps: scripts/gha_ios_build_ipa.sh
+# (flutter build ios --no-codesign -> xcodebuild archive -> exportArchive). Mantem as
+# verificacoes daqui e a cauda que os passos seguintes esperam (caminho e copias do IPA).
+BUILD_PADRAO = """set -e
+ROOT="${CM_BUILD_DIR:-$(pwd)}"
+cd "$ROOT"
+case "$(cat /tmp/cm_yw_layout)" in mono) cd flutter_app ;; root) ;; *) echo "ERRO: layout"; exit 1 ;; esac
+FLUTTER_PWD="$(pwd)"
+
+echo "--- Re-validar perfil .mobileprovision vs P12 (fail-fast antes do archive) ---"
+bash "$ROOT/scripts/codemagic_ios_verify_profile_matches_p12.sh"
+
+if [ ! -f /tmp/cm_ios_build_name ] || [ ! -f /tmp/cm_ios_build_number ]; then
+  echo "::error::execute o passo 'Versao iOS' antes do build (faltam /tmp/cm_ios_build_*)."
+  exit 1
+fi
+export GHA_IOS_BUILD_NAME="$(tr -d '[:space:]' < /tmp/cm_ios_build_name)"
+export GHA_IOS_BUILD_NUMBER="$(tr -d '[:space:]' < /tmp/cm_ios_build_number)"
+if [ -z "$GHA_IOS_BUILD_NAME" ] || [ -z "$GHA_IOS_BUILD_NUMBER" ]; then
+  echo "::error::build-name ou build-number vazio apos o sync iOS."
+  exit 1
+fi
+
+# Asset dotenv: o pubspec lista .env.example (commitado). Nunca exigir .env (gitignore).
+if [ ! -f .env.example ]; then
+  echo "::error::falta .env.example (asset obrigatorio no pubspec)."
+  exit 1
+fi
+
+if [ -f /tmp/cm_yw_tdlib_ios_enabled ]; then
+  YAHWEH_TDLIB_IOS_ENABLED="$(cat /tmp/cm_yw_tdlib_ios_enabled)"
+fi
+export GHA_IOS_EXTRA_ARGS="--dart-define=YAHWEH_TDLIB_IOS_ENABLED=${YAHWEH_TDLIB_IOS_ENABLED:-0}"
+
+bash "$ROOT/scripts/gha_ios_build_ipa.sh" "$FLUTTER_PWD"
+
+# Cauda: os passos seguintes (dSYM, copia para ASC, site) leem estes caminhos.
+IPA_PATH="$(find "$FLUTTER_PWD/build/ios/ipa" -maxdepth 1 -name '*.ipa' -type f 2>/dev/null | head -n 1)"
+if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
+  echo "::error::nenhum .ipa em $FLUTTER_PWD/build/ios/ipa apos o export."
+  ls -la "$FLUTTER_PWD/build/ios/ipa" 2>/dev/null || true
+  exit 1
+fi
+ABS_IPA="$(cd "$(dirname "$IPA_PATH")" && pwd)/$(basename "$IPA_PATH")"
+echo "$ABS_IPA" > "$FLUTTER_PWD/.cm_last_ipa_path"
+echo "$ABS_IPA" > "$ROOT/.cm_yw_last_ipa_path"
+mkdir -p "$ROOT/build/ios/ipa"
+bash "$ROOT/scripts/codemagic_ios_cp_ipa_safe.sh" "$ABS_IPA" "$ROOT/build/ios/ipa"
+bash "$ROOT/scripts/codemagic_ios_normalize_ipa_for_asc.sh"
+echo "IPA: $ABS_IPA"
+ls -la "$ROOT/build/ios/ipa" "$FLUTTER_PWD/build/ios/ipa"
+"""
+
 for st in scripts:
     nome = st.get('name', 'passo')
     corpo = st.get('script', '')
     if not isinstance(corpo, str):
         continue
+    if nome.startswith('Build iOS IPA'):
+        corpo = BUILD_PADRAO
     A('      - name: %s' % nome)
     if nome.startswith(CAPABILITIES):
         A('        if: inputs.setup_capabilities != false')
