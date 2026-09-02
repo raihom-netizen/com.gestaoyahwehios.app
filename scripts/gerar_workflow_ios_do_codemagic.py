@@ -249,9 +249,9 @@ for st in scripts:
         corpo = BUILD_PADRAO
     A('      - name: %s' % nome)
     if nome.startswith(CAPABILITIES):
-        A('        if: inputs.setup_capabilities != false')
+        A("        if: ${{ github.event_name != 'workflow_dispatch' || inputs.setup_capabilities }}")
     elif nome.startswith(SITE):
-        A('        if: inputs.subir_site != false')
+        A("        if: ${{ github.event_name != 'workflow_dispatch' || inputs.subir_site }}")
         A('        continue-on-error: true')
     elif nome.startswith(OPCIONAIS):
         A('        continue-on-error: true')
@@ -275,7 +275,7 @@ A('')
 A('      # No Codemagic o envio ao TestFlight era a secao publishing.app_store_connect;')
 A('      # aqui e o mesmo CLI, chamado explicitamente.')
 A('      - name: Enviar para o TestFlight (App Store Connect)')
-A('        if: inputs.enviar_testflight != false')
+A("        if: ${{ github.event_name != 'workflow_dispatch' || inputs.enviar_testflight }}")
 A('        run: |')
 A('          set -e')
 A('          IPA=$(ls -1 flutter_app/build/ios/ipa/*.ipa 2>/dev/null | head -1)')

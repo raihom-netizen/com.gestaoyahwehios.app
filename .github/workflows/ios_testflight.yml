@@ -215,14 +215,14 @@ jobs:
           bash "$ROOT/scripts/codemagic_ios_prepare_api_pem.sh"
 
       - name: Ativar Sign In with Apple no App ID (API Apple)
-        if: inputs.setup_capabilities != false
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.setup_capabilities }}
         run: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
           python3 "$ROOT/scripts/codemagic_ios_enable_sign_in_with_apple.py"
 
       - name: Ativar Push Notifications no App ID (API Apple)
-        if: inputs.setup_capabilities != false
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.setup_capabilities }}
         run: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
@@ -230,7 +230,7 @@ jobs:
           python3 "$ROOT/scripts/codemagic_ios_enable_push_notifications.py"
 
       - name: Ativar App Groups no App e Widget (API Apple)
-        if: inputs.setup_capabilities != false
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.setup_capabilities }}
         run: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
@@ -238,7 +238,7 @@ jobs:
           python3 "$ROOT/scripts/codemagic_ios_enable_app_groups.py"
 
       - name: Registar App Groups no portal (Xcode + ASC key)
-        if: inputs.setup_capabilities != false
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.setup_capabilities }}
         run: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
@@ -246,7 +246,7 @@ jobs:
           bash "$ROOT/scripts/codemagic_ios_register_app_groups_via_xcode.sh"
 
       - name: Ativar Associated Domains no App ID (API Apple)
-        if: inputs.setup_capabilities != false
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.setup_capabilities }}
         run: |
           set -e
           ROOT="${CM_BUILD_DIR:-${FCI_BUILD_DIR:-$(pwd)}}"
@@ -533,7 +533,7 @@ jobs:
           fi
 
       - name: Subir IPA para o site (Firebase Storage) e atualizar link na divulgação
-        if: inputs.subir_site != false
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.subir_site }}
         continue-on-error: true
         run: |
           set -e
@@ -638,7 +638,7 @@ jobs:
       # No Codemagic o envio ao TestFlight era a secao publishing.app_store_connect;
       # aqui e o mesmo CLI, chamado explicitamente.
       - name: Enviar para o TestFlight (App Store Connect)
-        if: inputs.enviar_testflight != false
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.enviar_testflight }}
         run: |
           set -e
           IPA=$(ls -1 flutter_app/build/ios/ipa/*.ipa 2>/dev/null | head -1)
