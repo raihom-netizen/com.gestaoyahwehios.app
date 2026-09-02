@@ -1,282 +1,228 @@
 rules_version = '2';
-// Padrão de pastas: mídia de cada igreja cliente sob `igrejas/{igrejaId}/`
-// (membros, noticias, eventos, patrimonio, logo, etc.). Conteúdo institucional
-// da Gestão YAHWEH (divulgação) não deve usar o prefixo `igrejas/`.
+
+// ============================================================================
+// LIMITE DA PLATAFORMA — leia antes de mexer
 //
-// Leitura pública: já coberta por regras explícitas (membros, notícias, eventos,
-// patrimônio, logos, etc.). NÃO substitua este arquivo por um único
-// `match /{allPaths=**} { allow read: if true; }` — isso expõe qualquer objeto
-// futuro no bucket e, com a semântica OR do Storage, pode anular regras mais restritas.
+// Uma avaliação de regra do Cloud Storage pode ler NO MÁXIMO DOIS documentos do
+// Firestore. Passando disso a avaliação falha e o upload é negado, mesmo com o
+// usuário tendo permissão de verdade.
+// https://firebase.google.com/docs/storage/security/rules-conditions
 //
-// Deploy: na raiz do repo, `.\scripts\deploy_firebase_rules.ps1` (ver regra do projeto).
+// Era exatamente o que quebrava eventos, avisos, comprovantes, financeiro,
+// fornecedores, patrimônio e foto de membro neste app: a cadeia antiga
+// (isChurchStaffWriter / isChurchMember) chegava a consultar sete caminhos —
+// users/{uid}, igrejas/{id}, igrejas/{id}/users/{uid}, .../membros/{uid},
+// .../membros/{cpf}, .../membros/__none__. Como as checagens são `||`, quem
+// tivesse role de admin em users/{uid} passava lendo um documento só e
+// funcionava; gestor, tesoureiro e membro comum seguiam para o terceiro e
+// quarto documento e levavam permission-denied.
 //
-// Padrão Controle Total: write autenticado + limite de tamanho; MIME flexível (octet-stream / vazio).
-// Ficheiro no Storage → URL no documento Firestore (sem fila pending_uploads).
+// REGRA DE OURO — cada avaliação lê no máximo:
+//   DOC A  users/{uid}                papel global e igreja do usuário
+//   DOC B  igrejas/{t}/users/{uid}    papel/permissões na igreja   (trilha STAFF)
+//   DOC C  igrejas/{t}/membros/{uid}  vínculo de membro            (trilha MEMBRO)
+//
+// staffWriter()   usa A + B      churchMember()  usa A + C
+// NUNCA combine as duas trilhas no mesmo allow — soma três documentos e volta a
+// estourar. Para os casos mistos (fotos de membro) existe staffLite(), que
+// decide só com o token e o DOC A, sem custo de documento extra.
+//
+// Nunca use `match /{allPaths=**} { allow read: if true; }` — isso expõe
+// qualquer objeto do bucket a quem descobrir a URL.
+// ============================================================================
+
 service firebase.storage {
   match /b/{bucket}/o {
 
+    // ---------------------------------------------------------------- 0 docs
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function fsUser() {
-      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid));
+    function emailLower() {
+      return isSignedIn() && request.auth.token.email is string
+        ? request.auth.token.email.lower() : '';
     }
 
-    function fsMembro(igrejaId) {
-      return firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/$(request.auth.uid));
+    // Operador da plataforma — decidido só pelo token, sem ler Firestore.
+    function isMasterEmail() {
+      return emailLower() == 'raihom@gmail.com'
+        || emailLower() == 'isabellecardoso@gmail.com'
+        || emailLower() == 'isabelle.cardoso@gmail.com';
     }
 
-    function fsTenantUser(igrejaId) {
-      return firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/users/$(request.auth.uid));
-    }
-
-    function fsIgreja(igrejaId) {
-      return firestore.get(/databases/(default)/documents/igrejas/$(igrejaId));
-    }
-
-    function tokenTenantMatches(igrejaId) {
-      return isSignedIn() && (
-        storageTenantValueMatches(request.auth.token.igrejaId, igrejaId)
-        || storageTenantValueMatches(request.auth.token.tenantId, igrejaId)
-        || storageTenantValueMatches(request.auth.token.churchId, igrejaId)
-        || storageTenantValueMatches(request.auth.token.churchCanonicalId, igrejaId)
-        || storageTenantValueMatches(request.auth.token.canonicalTenantId, igrejaId)
-      );
-    }
-
-    // Compatibilidade de tenant (canónico + legados): `igreja_xxx`, `id_igreja_xxx`,
-    // `v_igreja_xxx` e formatos path-like `igrejas/{id}/...`.
-    function storageTenantValueMatches(value, igrejaId) {
-      return value is string && (
-        value == igrejaId
-        || value == ('id_' + igrejaId)
-        || value == ('v_' + igrejaId)
-        || igrejaId == ('id_' + value)
-        || igrejaId == ('v_' + value)
-        || value.matches('^/?igrejas/' + igrejaId + '(/.*)?$')
-        || value.matches('^/?igrejas/v_' + igrejaId + '(/.*)?$')
-        || value.matches('^.*/igrejas/' + igrejaId + '(/.*)?$')
-        || value.matches('^.*/igrejas/v_' + igrejaId + '(/.*)?$')
-      );
-    }
-
-    function tenantIdMatchesUserData(igrejaId, d) {
-      return storageTenantValueMatches(d.get('igrejaId', ''), igrejaId)
-        || storageTenantValueMatches(d.get('tenantId', ''), igrejaId)
-        || storageTenantValueMatches(d.get('churchId', ''), igrejaId)
-        || storageTenantValueMatches(d.get('churchCanonicalId', ''), igrejaId)
-        || storageTenantValueMatches(d.get('canonicalTenantId', ''), igrejaId);
-    }
-
-    function storageUserDocMatchesTenant(igrejaId) {
-      return fsUser().exists && tenantIdMatchesUserData(igrejaId, fsUser().data);
-    }
-
-    function bpcCanonicalId() {
-      return 'igreja_o_brasil_para_cristo_jardim_goiano';
-    }
-
-    function isBpcLegacyTenantId(id) {
-      return id == 'brasilparacristo'
-        || id == 'brasilparacristo_sistema'
-        || id == 'iobpc-jardim-goiano'
-        || id == 'o-brasil-cristo-jardim-goiano';
-    }
-
-    function storageBoundTenantId() {
-      return fsUser().exists
-        ? (fsUser().data.get('igrejaId', '').size() > 0
-            ? fsUser().data.get('igrejaId', '')
-            : fsUser().data.get('tenantId', ''))
-        : '';
-    }
-
-    function storageBpcClusterMatches(igrejaId) {
-      let bound = storageBoundTenantId();
-      return isSignedIn() && (
-        (igrejaId == bpcCanonicalId() && (
-          isBpcLegacyTenantId(bound)
-          || isBpcLegacyTenantId(request.auth.token.igrejaId)
-          || isBpcLegacyTenantId(request.auth.token.tenantId)
-        ))
-        || (isBpcLegacyTenantId(igrejaId) && (
-          bound == bpcCanonicalId()
-          || request.auth.token.igrejaId == bpcCanonicalId()
-          || request.auth.token.tenantId == bpcCanonicalId()
-        ))
-      );
-    }
-
-    function storageUserRole() {
-      return isSignedIn() && fsUser().exists && fsUser().data.role is string
-        ? fsUser().data.role : '';
-    }
-
-    function storageMemberRole(data) {
-      return data.role is string ? data.role
-        : (data.FUNCAO is string ? data.FUNCAO
-        : (data.funcao is string ? data.funcao : ''));
-    }
-
-    function storageStaffRoleMatches(r) {
-      return r == 'GESTOR' || r == 'gestor' || r == 'Gestor'
-        || r == 'ADMIN' || r == 'ADM' || r == 'admin' || r == 'adm'
-        || r == 'Adm' || r == 'Admin'
-        || r == 'administrador' || r == 'administradora'
-        || r == 'Administrador' || r == 'Administradora'
-        || r == 'PASTOR' || r == 'pastor' || r == 'PASTORA' || r == 'pastora'
-        || r == 'Pastor' || r == 'Pastora'
-        || r == 'pastor_presidente' || r == 'PASTOR_PRESIDENTE'
-        || r == 'pastor_auxiliar' || r == 'PASTOR_AUXILIAR' || r == 'Pastor Auxiliar'
-        || r == 'ministerial' || r == 'pastor_auxiliar_ministerial'
-        || r == 'SECRETARIO' || r == 'secretario' || r == 'Secretario'
-        || r == 'SECRETÃRIO' || r == 'SecretÃ¡rio'
-        || r == 'secretÃ¡ria' || r == 'Secretaria'
-        || r == 'tesoureiro' || r == 'TESOUREIRO' || r == 'Tesoureiro'
-        || r == 'tesouraria' || r == 'TESOURARIA' || r == 'Tesouraria'
-        || r == 'MASTER' || r == 'master' || r == 'Master'
-        || r == 'PRESBITERO' || r == 'presbitero' || r == 'PRESBITERA' || r == 'presbitera'
-        || r == 'Presbitero' || r == 'Presbitera'
-        || r == 'lider' || r == 'LIDER' || r == 'Lider'
-        || r == 'lider_departamento' || r == 'LIDER_DEPARTAMENTO' || r == 'Lider Departamento'
-        || r == 'lider_depto' || r == 'LIDER_DEPTO'
-        || r == 'lider_grupo' || r == 'LIDER_GRUPO' || r == 'Lider grupo' || r == 'Lider Grupo'
-        || r == 'lider_de_grupo' || r == 'LIDER_DE_GRUPO';
-    }
-
-    function storageTokenRole() {
+    function tokenRole() {
       return isSignedIn() && request.auth.token.role is string
         ? request.auth.token.role : '';
     }
 
-    function storageMuralPermissionList(perms) {
+    // Vínculo com a igreja pelo custom claim (backfillUsersIndex grava role + igrejaId).
+    function tokenTenantMatches(t) {
+      return isSignedIn() && (
+        (request.auth.token.igrejaId is string && request.auth.token.igrejaId == t)
+        || (request.auth.token.tenantId is string && request.auth.token.tenantId == t)
+        || (request.auth.token.churchId is string && request.auth.token.churchId == t)
+        || (request.auth.token.churchCanonicalId is string && request.auth.token.churchCanonicalId == t)
+        || (request.auth.token.canonicalTenantId is string && request.auth.token.canonicalTenantId == t)
+      );
+    }
+
+    // ------------------------------------------------------- DOC A: users/{uid}
+    function userPath() {
+      return /databases/(default)/documents/users/$(request.auth.uid);
+    }
+    function userData() {
+      return firestore.get(userPath()).data;
+    }
+    function userExists() {
+      return isSignedIn() && firestore.exists(userPath());
+    }
+    function userRole() {
+      return userExists() && userData().get('role', '') is string
+        ? userData().get('role', '') : '';
+    }
+    function userTenantMatches(t) {
+      return userExists() && (
+        userData().get('igrejaId', '') == t
+        || userData().get('tenantId', '') == t
+        || userData().get('churchId', '') == t
+      );
+    }
+
+    // ------------------------------------ DOC B: igrejas/{t}/users/{uid} (STAFF)
+    function tenantUserPath(t) {
+      return /databases/(default)/documents/igrejas/$(t)/users/$(request.auth.uid);
+    }
+    function tenantUserData(t) {
+      return firestore.get(tenantUserPath(t)).data;
+    }
+    function tenantUserExists(t) {
+      return isSignedIn() && firestore.exists(tenantUserPath(t));
+    }
+    function tenantUserRole(t) {
+      return tenantUserExists(t) && tenantUserData(t).get('role', '') is string
+        ? tenantUserData(t).get('role', '') : '';
+    }
+    function tenantUserPerms(t) {
+      return tenantUserExists(t) && tenantUserData(t).permissions is list
+        ? tenantUserData(t).permissions
+        : (tenantUserExists(t) && tenantUserData(t).roles is list
+          ? tenantUserData(t).roles : []);
+    }
+
+    // ---------------------------------- DOC C: igrejas/{t}/membros/{uid} (MEMBRO)
+    function membroPath(t) {
+      return /databases/(default)/documents/igrejas/$(t)/membros/$(request.auth.uid);
+    }
+    function membroExists(t) {
+      return isSignedIn() && firestore.exists(membroPath(t));
+    }
+    // ------------------------------------------------------------- Papéis
+    // Staff: gestor, admin, pastor, secretário, tesoureiro, presbítero, líder.
+    // Comparação em minúsculas — a lista antiga repetia cada cargo em 4 grafias.
+    function isStaffRole(r) {
+      return r is string && (
+        r.lower() == 'gestor' || r.lower() == 'admin' || r.lower() == 'adm'
+        || r.lower() == 'administrador' || r.lower() == 'administradora'
+        || r.lower() == 'master'
+        || r.lower() == 'pastor' || r.lower() == 'pastora'
+        || r.lower() == 'pastor_presidente' || r.lower() == 'pastor presidente'
+        || r.lower() == 'pastor_auxiliar' || r.lower() == 'pastor auxiliar'
+        || r.lower() == 'ministerial' || r.lower() == 'pastor_auxiliar_ministerial'
+        || r.lower() == 'secretario' || r.lower() == 'secretário'
+        || r.lower() == 'secretaria' || r.lower() == 'secretária'
+        || r.lower() == 'tesoureiro' || r.lower() == 'tesouraria'
+        || r.lower() == 'presbitero' || r.lower() == 'presbítero'
+        || r.lower() == 'presbitera' || r.lower() == 'presbítera'
+        || r.lower() == 'lider' || r.lower() == 'líder'
+        || r.lower() == 'lider_departamento' || r.lower() == 'lider departamento'
+        || r.lower() == 'lider_depto' || r.lower() == 'lider_grupo'
+        || r.lower() == 'lider grupo' || r.lower() == 'lider_de_grupo'
+      );
+    }
+
+    function hasFinancePerm(perms) {
+      return perms is list && perms.hasAny([
+        'financeiro', 'fornecedores', 'eventos', 'eventos_avisos_edicao', 'mural_avisos_edicao'
+      ]);
+    }
+    function hasPatrimonioPerm(perms) {
+      return perms is list && perms.hasAny(['patrimonio']);
+    }
+    function hasMuralPerm(perms) {
       return perms is list && perms.hasAny([
         'eventos', 'eventos_avisos_edicao', 'mural_avisos_edicao'
       ]);
     }
 
-    function storageTenantUserMuralEdit(igrejaId) {
-      return fsTenantUser(igrejaId).exists && (
-        (fsTenantUser(igrejaId).data.permissions is list
-          && storageMuralPermissionList(fsTenantUser(igrejaId).data.permissions))
-        || (fsTenantUser(igrejaId).data.roles is list
-          && storageMuralPermissionList(fsTenantUser(igrejaId).data.roles))
-      );
-    }
+    // ------------------------------------------------------ Autorização (topo)
 
-    function storageGestorEmailMatches(igrejaId) {
-      return isSignedIn()
-        && request.auth.token.email != null
-        && fsIgreja(igrejaId).exists
-        && (
-          fsIgreja(igrejaId).data.gestorEmail == request.auth.token.email
-          || fsIgreja(igrejaId).data.email == request.auth.token.email
-        );
-    }
-
-    /// Membro com ficha `membros/{cpf}` ou `memberDocId` em `users/{uid}`.
-    function storageMemberDocIdFromUser(d) {
-      return ('memberDocId' in d && d.memberDocId is string && d.memberDocId.size() > 0)
-        ? d.memberDocId
-        : (('member_doc_id' in d && d.member_doc_id is string && d.member_doc_id.size() > 0)
-            ? d.member_doc_id : '');
-    }
-
-    function storageCpf11FromUser(d) {
-      let c1 = ('cpf' in d && d.cpf is string) ? d.cpf : '';
-      let c2 = ('CPF' in d && d.CPF is string) ? d.CPF : '';
-      let c3 = ('linkedCpf' in d && d.linkedCpf is string) ? d.linkedCpf : '';
-      let c4 = ('cpfDigits' in d && d.cpfDigits is string) ? d.cpfDigits : '';
-      let c5 = ('CPF_DIGITS' in d && d.CPF_DIGITS is string) ? d.CPF_DIGITS : '';
-      return c1.size() == 11 && c1.matches('^[0-9]{11}$') ? c1
-        : (c2.size() == 11 && c2.matches('^[0-9]{11}$') ? c2
-        : (c3.size() == 11 && c3.matches('^[0-9]{11}$') ? c3
-        : (c4.size() == 11 && c4.matches('^[0-9]{11}$') ? c4
-        : (c5.size() == 11 && c5.matches('^[0-9]{11}$') ? c5 : ''))));
-    }
-
-    function storageMembroLinkedByUserDoc(igrejaId) {
-      let rootUser = firestore.get(/databases/(default)/documents/users/$(request.auth.uid));
-      let chosen = rootUser.exists ? storageMemberDocIdFromUser(rootUser.data) : '';
-      let pByChosen = chosen.size() > 0
-        ? firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/$(chosen))
-        : firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/__none__);
-      let cpf = rootUser.exists ? storageCpf11FromUser(rootUser.data) : '';
-      let pByCpf = cpf.size() == 11
-        ? firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/$(cpf))
-        : firestore.get(/databases/(default)/documents/igrejas/$(igrejaId)/membros/__none__);
-      return (rootUser.exists && chosen.size() > 0 && pByChosen.exists
-          && (pByChosen.data.authUid == request.auth.uid
-              || pByChosen.data.firebaseUid == request.auth.uid))
-        || (rootUser.exists && cpf.size() == 11 && pByCpf.exists
-          && (pByCpf.data.authUid == request.auth.uid
-              || pByCpf.data.firebaseUid == request.auth.uid));
-    }
-
-    function isChurchMember(igrejaId) {
+    // staffLite — token + DOC A. Custo: no máximo 1 documento.
+    // Existe para os casos que precisam combinar staff e membro no mesmo allow.
+    function staffLite() {
       return isSignedIn() && (
-        tokenTenantMatches(igrejaId)
-        || storageUserDocMatchesTenant(igrejaId)
-        || storageBpcClusterMatches(igrejaId)
-        || fsMembro(igrejaId).exists
-        || fsTenantUser(igrejaId).exists
-        || storageGestorEmailMatches(igrejaId)
-        || storageMembroLinkedByUserDoc(igrejaId)
+        isMasterEmail()
+        || isStaffRole(tokenRole())
+        || isStaffRole(userRole())
       );
     }
 
-    function storageFinancePermissionList(perms) {
-      return perms is list && perms.hasAny([
-        'financeiro', 'fornecedores', 'eventos', 'eventos_avisos_edicao', 'mural_avisos_edicao'
-      ]);
-    }
-
-    function storagePatrimonioPermissionList(perms) {
-      return perms is list && perms.hasAny(['patrimonio']);
-    }
-
-    function storageTenantUserFinanceAccess(igrejaId) {
-      return fsTenantUser(igrejaId).exists && (
-        (fsTenantUser(igrejaId).data.permissions is list
-          && storageFinancePermissionList(fsTenantUser(igrejaId).data.permissions))
-        || (fsTenantUser(igrejaId).data.roles is list
-          && storageFinancePermissionList(fsTenantUser(igrejaId).data.roles))
-      );
-    }
-
-    function storageTenantUserPatrimonioAccess(igrejaId) {
-      return fsTenantUser(igrejaId).exists && (
-        (fsTenantUser(igrejaId).data.permissions is list
-          && storagePatrimonioPermissionList(fsTenantUser(igrejaId).data.permissions))
-        || (fsTenantUser(igrejaId).data.roles is list
-          && storagePatrimonioPermissionList(fsTenantUser(igrejaId).data.roles))
-      );
-    }
-
-    /// Patrimônio — alinhado a Firestore `canAccessPatrimonioTenant` (staff + permissão granular).
-    function canWritePatrimonioStorage(igrejaId) {
-      return isChurchStaffWriter(igrejaId)
-        || (isChurchMember(igrejaId) && storageTenantUserPatrimonioAccess(igrejaId));
-    }
-
-    /// Staff: gestor, admin, pastor, secretário, tesoureiro, líder (+ e-mail gestor + permissões).
-    function isChurchStaffWriter(igrejaId) {
+    // staffWriter — trilha STAFF. Custo: DOC A + DOC B = 2 documentos.
+    function staffWriter(t) {
       return isSignedIn() && (
-        storageStaffRoleMatches(storageUserRole())
-        || storageStaffRoleMatches(storageTokenRole())
-        || (fsTenantUser(igrejaId).exists
-          && storageStaffRoleMatches(storageMemberRole(fsTenantUser(igrejaId).data)))
-        || (fsMembro(igrejaId).exists
-          && storageStaffRoleMatches(storageMemberRole(fsMembro(igrejaId).data)))
-        || storageGestorEmailMatches(igrejaId)
-        || (isChurchMember(igrejaId) && storageTenantUserMuralEdit(igrejaId))
-        || (isChurchMember(igrejaId) && storageTenantUserFinanceAccess(igrejaId))
-        || (isChurchMember(igrejaId) && storageTenantUserPatrimonioAccess(igrejaId))
+        isMasterEmail()
+        || isStaffRole(tokenRole())
+        || isStaffRole(userRole())
+        || isStaffRole(tenantUserRole(t))
+        || hasFinancePerm(tenantUserPerms(t))
       );
     }
 
-    // Imagem ou vídeo + tipos que Flutter/Web enviam (octet-stream / vazio)
+    // patrimonioWriter — staff ou permissão granular. Custo: DOC A + DOC B.
+    function patrimonioWriter(t) {
+      return isSignedIn() && (
+        isMasterEmail()
+        || isStaffRole(tokenRole())
+        || isStaffRole(userRole())
+        || isStaffRole(tenantUserRole(t))
+        || hasPatrimonioPerm(tenantUserPerms(t))
+      );
+    }
+
+    // muralWriter — staff ou permissão de mural. Custo: DOC A + DOC B.
+    function muralWriter(t) {
+      return isSignedIn() && (
+        isMasterEmail()
+        || isStaffRole(tokenRole())
+        || isStaffRole(userRole())
+        || isStaffRole(tenantUserRole(t))
+        || hasMuralPerm(tenantUserPerms(t))
+      );
+    }
+
+    // churchMember — trilha MEMBRO. Custo: DOC A + DOC C = 2 documentos.
+    function churchMember(t) {
+      return isSignedIn() && (
+        isMasterEmail()
+        || isStaffRole(tokenRole())
+        || tokenTenantMatches(t)
+        || userTenantMatches(t)
+        || isStaffRole(userRole())
+        || membroExists(t)
+      );
+    }
+
+    // ------------------------------------------------------------ Tipos de arquivo
+    // iOS e Android mandam MIME atípico (heic, quicktime) e o picker às vezes não
+    // manda nenhum — daí octet-stream e '' serem aceitos em todos os grupos.
+    function photoImageOrBlob() {
+      return request.resource.contentType.matches('image/.*')
+        || request.resource.contentType == 'image/heic'
+        || request.resource.contentType == 'image/heif'
+        || request.resource.contentType == 'application/octet-stream'
+        || request.resource.contentType == '';
+    }
+
     function mediaImageVideoOrBlob() {
       return request.resource.contentType.matches('image/.*')
         || request.resource.contentType.matches('video/.*')
@@ -284,73 +230,7 @@ service firebase.storage {
         || request.resource.contentType == '';
     }
 
-    /// Chat: fotos, vídeos, áudio (voz / ficheiro), PDF, Office, ZIP/RAR, APK, etc.
-    /// iOS/Android podem enviar MIME atípico (ex.: audio/x-caf, image/heic, video/quicktime).
-    /// Bloqueia executáveis e pacotes perigosos (exe/bat/dll/apk) por extensão e tipo.
-    function blockedBinaryContentType() {
-      return request.resource.contentType == 'application/java-archive'
-        || request.resource.contentType == 'application/vnd.android.package-archive'
-        || request.resource.contentType == 'application/x-msdownload'
-        || request.resource.contentType == 'application/x-msdos-program'
-        || request.resource.name.matches('(?i).*\\.(exe|bat|dll|apk|cmd|scr|com|msi|jar)$');
-    }
-
-    function chatMediaOrBlob() {
-      return !blockedBinaryContentType()
-        && (mediaImageVideoOrBlob()
-        || request.resource.contentType == 'image/webp'
-        || request.resource.contentType.matches('audio/.*')
-        || request.resource.contentType.matches('application/pdf')
-        || request.resource.contentType.matches('application/msword')
-        || request.resource.contentType == 'application/vnd.ms-excel'
-        || request.resource.contentType == 'application/vnd.ms-powerpoint'
-        || request.resource.contentType.matches('application/vnd.ms-.*')
-        || request.resource.contentType ==
-             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        || request.resource.contentType ==
-             'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-        || request.resource.contentType.matches(
-             'application/vnd.openxmlformats-officedocument.*')
-        || request.resource.contentType.matches('text/.*')
-        || request.resource.contentType.matches('application/rtf')
-        || request.resource.contentType == 'audio/x-caf'
-        || request.resource.contentType == 'audio/amr'
-        || request.resource.contentType == 'audio/x-m4a'
-        || request.resource.contentType == 'image/heic'
-        || request.resource.contentType == 'image/heif'
-        || request.resource.contentType == 'video/quicktime'
-        || request.resource.contentType == 'video/x-m4v'
-        || request.resource.contentType == 'application/zip'
-        || request.resource.contentType == 'application/vnd.rar'
-        || request.resource.contentType == 'application/x-rar-compressed'
-        || request.resource.contentType == 'application/x-7z-compressed');
-    }
-
-    /// Upload autenticado (mobile): não bloquear por MIME quando o cliente envia octet-stream ou tipo vazio.
-    function authMediaWriteMax(maxBytes) {
-      return request.auth != null
-        && request.resource != null
-        && request.resource.size < maxBytes;
-    }
-
-    // Só imagem (foto de membro, logo, patrimônio) + octet-stream / vazio
-    function photoImageOrBlob() {
-      return request.resource.contentType.matches('image/.*')
-        || request.resource.contentType == 'image/webp'
-        || request.resource.contentType == 'image/heic'
-        || request.resource.contentType == 'image/heif'
-        || request.resource.contentType == 'application/octet-stream'
-        || request.resource.contentType == '';
-    }
-
-    // Cadastro público (web): `membros/fotos/{id}.webp` ou legado `foto_perfil.jpg`
-    function isMemberCanonicalProfilePhotoPath(p) {
-      return p.matches('^fotos/[^/]+\\.webp$')
-        || p.matches('^thumbs/[^/]+\\.webp$')
-        || p.matches('^[^/]+/foto_perfil\\.jpg$');
-    }
-
-    // Comprovantes: imagem ou PDF + blob
+    // Comprovantes: imagem ou PDF + blob.
     function comprovanteOrBlob() {
       return request.resource.contentType.matches('image/.*')
         || request.resource.contentType.matches('application/pdf')
@@ -372,79 +252,96 @@ service firebase.storage {
         || request.resource.contentType == '';
     }
 
-    // Upload público de foto de membro (cadastro sem login) — sem vídeo
+    function underMax(maxBytes) {
+      return request.resource != null && request.resource.size < maxBytes;
+    }
+
+    // Cadastro público (web): `membros/fotos/{id}.webp` ou legado `foto_perfil.jpg`
+    function isMemberCanonicalProfilePhotoPath(p) {
+      return p.matches('^fotos/[^/]+\\.webp$')
+        || p.matches('^thumbs/[^/]+\\.webp$')
+        || p.matches('^[^/]+/foto_perfil\\.jpg$');
+    }
+
+    // ========================================================== CAMINHOS
+
+    // Upload público de foto de membro (cadastro sem login) — sem vídeo.
     match /members/{tenantId}/{fileName} {
       allow write: if request.auth == null
-        && request.resource.size < 15 * 1024 * 1024
+        && underMax(15 * 1024 * 1024)
         && photoImageOrBlob();
       allow read: if true;
     }
 
     // Cadastro público: foto temporária, isolada pelo UID anónimo da sessão.
     // A aprovação server-side move o objeto para `membros/{id}`.
+    // Custo: 0 documentos — só compara UID do caminho.
     match /igrejas/{igrejaId}/pending_member_signups/{ownerUid}/{signupId}/{fileName} {
-      allow read: if request.auth != null && request.auth.uid == ownerUid;
-      allow create, update: if request.auth != null
+      allow read: if isSignedIn() && request.auth.uid == ownerUid;
+      allow create, update: if isSignedIn()
         && request.auth.uid == ownerUid
-        && request.resource.size < 15 * 1024 * 1024
+        && underMax(15 * 1024 * 1024)
         && photoImageOrBlob();
-      allow delete: if request.auth != null && request.auth.uid == ownerUid;
+      allow delete: if isSignedIn() && request.auth.uid == ownerUid;
     }
 
-    // Fotos de membros: membro da igreja (auth) OU cadastro público sem sessão (foto canónica só)
+    // Fotos de membros. Caso misto (membro edita a própria foto, secretaria edita
+    // a de outro): churchMember (A+C) + staffLite (sem documento novo) = 2 docs.
     match /igrejas/{igrejaId}/membros/{path=**} {
       allow read: if true;
-      allow create, update: if request.resource.size < 20 * 1024 * 1024
+      allow create, update: if underMax(20 * 1024 * 1024)
         && photoImageOrBlob()
-        && isChurchMember(igrejaId)
+        && churchMember(igrejaId)
         && (
           isMemberCanonicalProfilePhotoPath(path)
-          || (
-            isChurchStaffWriter(igrejaId)
-            || path.matches('^fotos/.*')
-            || path.matches('^thumbs/.*')
-          )
-        );
-      // Delete não possui request.resource; separar evita permission-denied
-      // ao remover/substituir a foto pelo módulo Membros.
-      allow delete: if isChurchStaffWriter(igrejaId)
-        || (isChurchMember(igrejaId) && (
-          path.matches('^fotos/.*')
+          || staffLite()
+          || path.matches('^fotos/.*')
           || path.matches('^thumbs/.*')
-          || path.matches('^[^/]+/foto_perfil\\.jpg$')
-        ));
+        );
+      // Delete não tem request.resource — sem checagem de size/contentType.
+      allow delete: if staffLite() || (churchMember(igrejaId) && (
+        path.matches('^fotos/.*')
+        || path.matches('^thumbs/.*')
+        || path.matches('^[^/]+/foto_perfil\\.jpg$')
+      ));
     }
 
-    // Certificado digital A1 (PKCS#12) — só staff
+    // Certificado digital A1 (PKCS#12) — só staff.
     match /igrejas/{igrejaId}/certificados_gestor/{fileName} {
-      allow read: if isChurchStaffWriter(igrejaId);
-      allow write: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 10 * 1024 * 1024
+      allow read: if staffWriter(igrejaId);
+      allow write: if staffWriter(igrejaId)
+        && underMax(10 * 1024 * 1024)
         && pkcs12OrBlob();
     }
 
-    // Logo na raiz da igreja — só staff
+    // Logo na raiz da igreja — só staff.
     match /igrejas/{igrejaId}/{fileName} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 25 * 1024 * 1024
+      allow create, update: if staffWriter(igrejaId)
+        && underMax(25 * 1024 * 1024)
         && photoImageOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if staffWriter(igrejaId);
     }
 
-    // Identidade: logo, assinatura — só staff
+    // Identidade: logo, assinatura — só staff.
     match /igrejas/{igrejaId}/configuracoes/{fileName} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 15 * 1024 * 1024
+      allow create, update: if staffWriter(igrejaId)
+        && underMax(15 * 1024 * 1024)
         && photoImageOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if staffWriter(igrejaId);
     }
 
-    // Foto do gestor — só staff
+    // Foto do gestor — só staff.
     match /igrejas/{igrejaId}/gestor/{path=**} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 20 * 1024 * 1024
+      allow create, update: if staffWriter(igrejaId)
+        && underMax(20 * 1024 * 1024)
         && photoImageOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if staffWriter(igrejaId);
     }
 
     match /noticias/{tenantId}/{fileName} {
@@ -462,52 +359,61 @@ service firebase.storage {
       allow write: if false;
     }
 
+    // Comprovantes (legado, na raiz da igreja).
     match /igrejas/{igrejaId}/comprovantes/{fileName} {
-      allow read: if isChurchMember(igrejaId);
-      allow create, update: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 15 * 1024 * 1024
+      allow read: if churchMember(igrejaId);
+      allow create, update: if staffWriter(igrejaId)
+        && underMax(15 * 1024 * 1024)
         && comprovanteOrBlob();
-      allow delete: if isChurchStaffWriter(igrejaId);
+      allow delete: if staffWriter(igrejaId);
     }
 
-    // Financeiro — comprovantes: leitura membro; escrita staff.
-    // DELETE: request.resource é null — não exigir size/MIME (bug clássico → permission-denied).
+    // Financeiro — comprovantes (igrejas/{id}/financeiro/AAAA_MM/...).
+    // DELETE: request.resource é null — não exigir size/MIME (bug clássico).
     match /igrejas/{igrejaId}/financeiro/{path=**} {
-      allow read: if isChurchMember(igrejaId);
-      allow create, update: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 15 * 1024 * 1024
+      allow read: if churchMember(igrejaId);
+      allow create, update: if staffWriter(igrejaId)
+        && underMax(15 * 1024 * 1024)
         && comprovanteOrBlob();
-      allow delete: if isChurchStaffWriter(igrejaId);
+      allow delete: if staffWriter(igrejaId);
     }
 
-    // Mural eventos/avisos — qualquer membro da igreja (controle de criação no app).
+    // Mural eventos/avisos/notícias — membro da igreja (quem cria é controlado no app).
     match /igrejas/{igrejaId}/eventos/{path=**} {
       allow read: if true;
-      allow write: if isChurchMember(igrejaId)
-        && authMediaWriteMax(120 * 1024 * 1024)
+      allow create, update: if churchMember(igrejaId)
+        && underMax(120 * 1024 * 1024)
         && mediaImageVideoOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if churchMember(igrejaId);
     }
 
     match /igrejas/{igrejaId}/noticias/{path=**} {
       allow read: if true;
-      allow write: if isChurchMember(igrejaId)
-        && authMediaWriteMax(120 * 1024 * 1024)
+      allow create, update: if churchMember(igrejaId)
+        && underMax(120 * 1024 * 1024)
         && mediaImageVideoOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if churchMember(igrejaId);
     }
 
     match /igrejas/{igrejaId}/avisos/{path=**} {
       allow read: if true;
-      allow write: if isChurchMember(igrejaId)
-        && authMediaWriteMax(120 * 1024 * 1024)
+      allow create, update: if churchMember(igrejaId)
+        && underMax(120 * 1024 * 1024)
         && mediaImageVideoOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if churchMember(igrejaId);
     }
 
-    // Fotos de departamentos — só staff
+    // Fotos de departamentos — staff ou permissão de mural.
     match /igrejas/{igrejaId}/departamentos/{path=**} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 15 * 1024 * 1024
+      allow create, update: if muralWriter(igrejaId)
+        && underMax(15 * 1024 * 1024)
         && photoImageOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if muralWriter(igrejaId);
     }
 
     match /tenants/{tenantId}/media/{path=**} {
@@ -524,98 +430,109 @@ service firebase.storage {
 
     match /certificado_logos/{tenantId}/{fileName} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(tenantId)
-        && request.resource.size < 10 * 1024 * 1024
+      allow create, update: if staffWriter(tenantId)
+        && underMax(10 * 1024 * 1024)
         && photoImageOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if staffWriter(tenantId);
     }
 
     match /carteira_logos/{tenantId}/{fileName} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(tenantId)
-        && request.resource.size < 10 * 1024 * 1024
+      allow create, update: if staffWriter(tenantId)
+        && underMax(10 * 1024 * 1024)
         && photoImageOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if staffWriter(tenantId);
     }
 
-    // Cartão de membro — logo dedicada (padrão: igrejas/{id}/cartao_membro/; legado: carteira_logos/).
+    // Cartão de membro — logo dedicada (padrão: igrejas/{id}/cartao_membro/).
     match /igrejas/{igrejaId}/cartao_membro/{path=**} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 10 * 1024 * 1024
+      allow create, update: if staffWriter(igrejaId)
+        && underMax(10 * 1024 * 1024)
         && photoImageOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if staffWriter(igrejaId);
     }
 
     match /igrejas/{igrejaId}/certificados/{path=**} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 25 * 1024 * 1024
+      allow create, update: if staffWriter(igrejaId)
+        && underMax(25 * 1024 * 1024)
         && photoImageOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if staffWriter(igrejaId);
     }
 
+    // Patrimônio — fotos dos bens. Staff ou permissão granular 'patrimonio'.
     match /igrejas/{igrejaId}/patrimonio/{path=**} {
       allow read: if true;
-      allow create, update: if canWritePatrimonioStorage(igrejaId)
-        && request.resource.size < 20 * 1024 * 1024
+      allow create, update: if patrimonioWriter(igrejaId)
+        && underMax(20 * 1024 * 1024)
         && photoImageOrBlob();
       // Delete: request.resource é null — sem checagem de size/contentType.
-      allow delete: if canWritePatrimonioStorage(igrejaId);
+      allow delete: if patrimonioWriter(igrejaId);
     }
 
-    // Capa marketing (Master / site divulgação) — staff da igreja
+    // Capa marketing (Master / site divulgação) — staff da igreja.
     match /igrejas/{igrejaId}/marketing_destaque/{path=**} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 15 * 1024 * 1024
+      allow create, update: if staffWriter(igrejaId)
+        && underMax(15 * 1024 * 1024)
         && photoImageOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if staffWriter(igrejaId);
     }
 
-    // Templates certificados — fundos HD
+    // Templates certificados — fundos HD.
     match /igrejas/{igrejaId}/templates/certificados/{path=**} {
       allow read: if true;
-      allow write: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 25 * 1024 * 1024
+      allow create, update: if staffWriter(igrejaId)
+        && underMax(25 * 1024 * 1024)
         && photoImageOrBlob();
+      // Delete nao tem request.resource — sem checagem de size/contentType.
+      allow delete: if staffWriter(igrejaId);
     }
 
-    // Fornecedores — comprovantes de compromissos (foto/PDF)
+    // Fornecedores — comprovantes de compromissos (foto/PDF).
     match /igrejas/{igrejaId}/fornecedores/{path=**} {
       allow read: if true;
-      allow create, update: if isChurchStaffWriter(igrejaId)
-        && request.resource.size < 15 * 1024 * 1024
+      allow create, update: if staffWriter(igrejaId)
+        && underMax(15 * 1024 * 1024)
         && (photoImageOrBlob() || comprovanteOrBlob());
-      allow delete: if isChurchStaffWriter(igrejaId);
+      allow delete: if staffWriter(igrejaId);
     }
 
-    // Uploads genéricos — membro da igreja (chat legado) ou staff
+    // Uploads genéricos — membro da igreja.
     match /igrejas/{igrejaId}/uploads/{path=**} {
-      allow read: if isChurchMember(igrejaId);
-      allow write: if isChurchMember(igrejaId)
-        && request.resource.size < 300 * 1024 * 1024
+      allow read: if churchMember(igrejaId);
+      allow write: if churchMember(igrejaId)
+        && underMax(300 * 1024 * 1024)
         && (
           request.resource.contentType.matches('image/.*')
           || request.resource.contentType.matches('video/.*')
           || request.resource.contentType.matches('audio/.*')
           || request.resource.contentType.matches('text/.*')
-          || request.resource.contentType == 'application/pdf'
-          || request.resource.contentType == 'application/octet-stream'
-          || request.resource.contentType == ''
           || request.resource.contentType.matches('application/.*')
+          || request.resource.contentType == ''
         );
     }
 
-    // Divulgação Gestão YAHWEH (`public/gestao_yahweh/...`). Em DELETE, `request.resource` é nulo —
-    // a regra antiga só com `request.resource.size` bloqueava a exclusão pelo painel master.
+    // Divulgação Gestão YAHWEH (`public/gestao_yahweh/...`). Em DELETE
+    // `request.resource` é nulo — por isso a checagem de tamanho fica só no create.
     match /public/{path=**} {
       allow read: if true;
-      allow delete: if request.auth != null;
-      allow create, update: if request.auth != null
-        && request.resource.size < 200 * 1024 * 1024
+      allow delete: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && underMax(200 * 1024 * 1024)
         && publicMediaPdfOrBlob();
     }
 
-    // Demais pastas sob igrejas/{id}/... (eventos, notícias, avisos, configuracoes, gestor já cobertos acima).
+    // Demais pastas sob igrejas/{id}/... (as tratadas acima ficam de fora).
     match /igrejas/{igrejaId}/{seg}/{rest=**} {
       allow read: if seg != 'certificados_gestor';
-      allow write: if isChurchStaffWriter(igrejaId)
+      allow write: if staffWriter(igrejaId)
         && seg != 'eventos'
         && seg != 'noticias'
         && seg != 'avisos'
@@ -635,7 +552,8 @@ service firebase.storage {
         && seg != 'templates'
         && seg != 'certificados_gestor'
         && seg != 'membros'
-        && request.resource.size < 10 * 1024 * 1024
+        && seg != 'pending_member_signups'
+        && underMax(10 * 1024 * 1024)
         && photoImageOrBlob();
     }
 
