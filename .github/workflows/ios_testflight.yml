@@ -642,13 +642,10 @@ jobs:
         run: |
           set -e
           IPA=$(ls -1 flutter_app/build/ios/ipa/*.ipa 2>/dev/null | head -1)
-          if [ -z "$IPA" ]; then IPA=$(ls -1 *.ipa 2>/dev/null | head -1); fi
+          if [ -z "$IPA" ]; then IPA=$(ls -1 build/ios/ipa/*.ipa 2>/dev/null | head -1); fi
           if [ -z "$IPA" ]; then echo "::error::nenhum .ipa encontrado para enviar"; exit 1; fi
-          echo "Enviando: $IPA"
-          app-store-connect publish \
-            --path "$IPA" \
-            --testflight
-          echo "IPA enviado. Acompanhe em App Store Connect > TestFlight."
+          # Mesmo script de envio dos outros apps: 3 tentativas e 90189 tratado.
+          GHA_IOS_IPA_PATH="$IPA" bash scripts/gha_ios_publish_testflight.sh .
 
       - name: Guardar piso de build number e PEM de bootstrap
         if: always()
