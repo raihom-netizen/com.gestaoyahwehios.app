@@ -108,7 +108,7 @@ abstract final class MediaService {
   static Future<Uint8List> readXFileBytes(XFile file) async {
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) {
-      throw StateError('Ficheiro vazio ? selecione outro.');
+      throw StateError('Ficheiro vazio — selecione outro.');
     }
     return bytes;
   }

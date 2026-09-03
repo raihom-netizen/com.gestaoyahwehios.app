@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async' show TimeoutException, unawaited;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
@@ -16,6 +16,14 @@ import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 /// Progresso bloqueante — avisos, eventos, património, etc. (padrão Ecofire).
 abstract final class EcofirePublishProgressUi {
   EcofirePublishProgressUi._();
+
+  /// Teto de uma publicação inteira (mídia + gravação + agenda).
+  ///
+  /// Cada etapa já tem o seu tempo máximo, mas uma etapa nova sem teto — ou um
+  /// `Future` do SDK que nunca resolve — deixava a barra «A publicar mídia…»
+  /// para sempre no ecrã, sem erro e sem forma de repetir. Ao estourar, o
+  /// utilizador recebe o snack de falha com «Tentar novamente».
+  static const Duration kPublishTimeout = Duration(minutes: 10);
 
   /// Publicação silenciosa (padrão Controle Total): fecha o editor na hora,
   /// upload em background com progresso global, e snack de sucesso **só depois**
@@ -259,14 +267,23 @@ abstract final class EcofirePublishProgressUi {
     void Function(double progress) reportProgress,
   ) async {
     try {
-      return await action(reportProgress);
+      return await _withPublishTimeout(action(reportProgress));
     } catch (e) {
       if (!isFirebaseNoAppError(e)) rethrow;
       await EcoFireDirectFirebase.ensureDefaultApp();
       await ChurchMediaUploadFacade.ensureReady(requireAuth: true);
-      return action(reportProgress);
+      return _withPublishTimeout(action(reportProgress));
     }
   }
+
+  static Future<T> _withPublishTimeout<T>(Future<T> publish) => publish.timeout(
+    kPublishTimeout,
+    onTimeout: () => throw TimeoutException(
+      'A publicação demorou demais e foi interrompida. '
+      'Verifique a rede e toque em «Tentar novamente».',
+      kPublishTimeout,
+    ),
+  );
 
   static Future<void> _retryPublishOnly<T>({
     required ScaffoldMessengerState? messenger,

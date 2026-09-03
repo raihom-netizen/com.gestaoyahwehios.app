@@ -1,4 +1,15 @@
 ﻿/// Single source of app version used everywhere.
+/// 11.2.305+2253: Publicacao de aviso/evento deixou de se perder: a gravacao
+/// passou a exigir confirmacao do servidor (escrita estrita) e ganhou REST de
+/// seguranca tambem no Android/iOS, com verificacao do documento antes de dar
+/// sucesso. Barra de progresso deixa de congelar aos 65% (faixas separadas para
+/// video e resto do envio) e a publicacao tem tempo maximo. Painel inicial e
+/// site publico passam a usar o carrossel do modulo Eventos (fotos + video com
+/// «N fotos · N video — arraste»). Leitura do documento da igreja com REST de
+/// seguranca (igreja sem cache local ficava em «Nao foi possivel carregar os
+/// dados da igreja»). Abrir e excluir Eventos/Avisos mais rapido: fim das
+/// consultas repetidas e limpeza de Storage/agenda em segundo plano. Acentos
+/// corrigidos no anexo de fotos e videos.
 /// 11.2.305+2252: Eventos e avisos com distribuicao para painel/site publico,
 /// push configuravel por usuario (incluindo novos membros e lembretes),
 /// partilha de fotos/videos com cache e revisao da fila de upload resiliente.
@@ -625,7 +636,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2252';
+const String appBuildNumber = '2254';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

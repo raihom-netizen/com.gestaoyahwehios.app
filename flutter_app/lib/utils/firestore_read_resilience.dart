@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:gestao_yahweh/services/firestore_stream_utils.dart';
 import 'package:gestao_yahweh/core/church_panel_read_timeouts.dart';
 import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
@@ -142,6 +142,26 @@ class FirestoreReadResilience {
     if (key.isNotEmpty) {
       final mem = _lastDocByKey[key];
       if (mem != null && mem.exists) return mem;
+    }
+    // Android/iOS: o SDK esgotou as tentativas e não há cache. O REST não
+    // depende do cliente Firestore, por isso ainda traz o documento quando o
+    // cliente do SDK está sem rede efetiva — era o que fazia o painel de uma
+    // igreja **sem cache local** (outra igreja do operador global) parar em
+    // «Não foi possível carregar os dados da igreja», enquanto a igreja de
+    // origem, essa com cache, abria normalmente.
+    if (!YahwehRestFirst.prefer) {
+      try {
+        final snap = await firestoreRestGetDocSnap(
+          ref.path,
+        ).timeout(perAttempt);
+        if (snap.exists) {
+          if (key.isNotEmpty) _lastDocByKey[key] = snap;
+          return snap;
+        }
+        return snap;
+      } catch (restError) {
+        debugPrint('read resilience REST (${ref.path}): $restError');
+      }
     }
     throw lastError ?? StateError('firestore_document_failed');
   }

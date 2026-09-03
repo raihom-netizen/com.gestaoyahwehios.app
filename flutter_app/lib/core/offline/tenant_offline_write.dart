@@ -77,12 +77,23 @@ abstract final class TenantOfflineWrite {
     } catch (_) {}
   }
 
+  /// Publicação (aviso/evento): a gravação **tem de ser confirmada**.
+  ///
+  /// O caminho normal é optimista — 2,2 s de espera e o resto em background,
+  /// engolindo o erro. Isso é certo para texto de formulário, e errado para
+  /// uma publicação: a UI dizia «Aviso publicado com sucesso» e o documento
+  /// nunca chegava ao servidor (mídia no Storage, `avisos` vazia). Com
+  /// [strict] a falha chega ao chamador, que já sabe distinguir «sem rede →
+  /// fica em fila» de erro real.
+  static const Duration kStrictWriteTimeout = Duration(seconds: 30);
+
   static Future<void> setDocument({
     required DocumentReference<Map<String, dynamic>> ref,
     required Map<String, dynamic> data,
     bool merge = false,
     String? module,
     String? tenantId,
+    bool strict = false,
   }) async {
     final path = ref.path;
     final tid = tenantId?.trim().isNotEmpty == true
@@ -104,7 +115,14 @@ abstract final class TenantOfflineWrite {
     );
     final mod = module ?? OfflineModules.tenant;
 
-    if (_persistBeforeRemote(mod)) {
+    // `strict` (publicação) nunca desvia para a fila sem tentar a rede: o
+    // «offline» aqui é o palpite do `connectivity_plus`, que num 5G instável
+    // dá `none` por momentos. Bastava esse palpite para o aviso ir só para a
+    // fila Hive — que só é drenada na transição offline→online — enquanto a
+    // mídia subia ao Storage e o mirror legado gravava no servidor pelo
+    // caminho directo. Se a rede estiver mesmo em baixo, o erro sobe e quem
+    // publica é que decide enfileirar (e diz isso ao utilizador).
+    if (!strict && _persistBeforeRemote(mod)) {
       await _enqueue(
         module: mod,
         tenantId: tid,
@@ -133,6 +151,10 @@ abstract final class TenantOfflineWrite {
     }
 
     await runFirestorePublishWithRecovery<void>(() async {
+      if (strict) {
+        await _setStrict(ref, payload, merge: effectiveMerge);
+        return;
+      }
       await _setWithLocalTimeout(
         ref,
         payload,
@@ -174,6 +196,25 @@ abstract final class TenantOfflineWrite {
         payload: payload,
       );
     } catch (_) {}
+  }
+
+  /// Grava e **espera a confirmação do servidor** — erro sobe ao chamador.
+  static Future<void> _setStrict(
+    DocumentReference<Map<String, dynamic>> ref,
+    Map<String, dynamic> data, {
+    required bool merge,
+  }) async {
+    final write = merge
+        ? ref.set(data, SetOptions(merge: true))
+        : ref.set(data);
+    await write.timeout(
+      kStrictWriteTimeout,
+      onTimeout: () => throw TimeoutException(
+        'A gravação não foi confirmada pelo servidor. '
+        'Verifique a rede e toque em «Tentar novamente».',
+        kStrictWriteTimeout,
+      ),
+    );
   }
 
   static Future<void> _setWithLocalTimeout(

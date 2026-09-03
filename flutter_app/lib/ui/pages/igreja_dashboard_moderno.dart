@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/ui/widgets/member_segment_preview_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_post_media_carousel.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/home_daily_financial_tip_card.dart';
 import 'package:intl/intl.dart';
@@ -8120,7 +8121,29 @@ class _DestaqueCardState extends State<_DestaqueCard> {
     final panelW = MediaQuery.sizeOf(context).width;
     final useWebSplit = kIsWeb && panelW >= _kPainelDestaqueWebSplitMinWidth;
     final layoutWide = panelW >= 620;
-    final carouselOrImage = showCarousel
+    // Mesmo carrossel do módulo Eventos (fotos + vídeo juntos, contagem
+    // «N fotos · N vídeo» e a dica «arraste»). O painel inicial tinha um
+    // carrossel próprio, sem a contagem nem a leitura de vídeo — dois visuais
+    // para o mesmo post.
+    final panelMediaItems = buildChurchPostMedia(
+      imageUrls: galleryPhotos,
+      hostedVideoUrl: panelVideoUrl,
+      videoThumbUrl: videoThumb ?? '',
+    );
+    final carouselOrImage = panelMediaItems.isNotEmpty
+        ? GestureDetector(
+            onDoubleTap: () => unawaited(
+              _painelDestaqueToggleLike(context, widget.doc, widget.tenantId),
+            ),
+            child: ChurchPostMediaCarousel(
+              items: panelMediaItems,
+              accent: ThemeCleanPremium.primary,
+              borderRadius: ThemeCleanPremium.radiusLg,
+              aspectRatio: 4 / 5,
+              title: title,
+            ),
+          )
+        : showCarousel
         ? _PainelDestaqueMediaCarousel(
             data: data,
             docId: widget.doc.id,

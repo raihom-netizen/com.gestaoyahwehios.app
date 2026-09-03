@@ -274,7 +274,7 @@ Future<dynamic> openChurchEventEditor({
   );
 }
 
-/// Cache RAM — eventos/notícias instantÃ¢neo ao reabrir Feed/Galeria/Dashboard.
+/// Cache RAM — eventos/notícias instantâneo ao reabrir Feed/Galeria/Dashboard.
 abstract final class _EventosNoticiasRamCache {
   _EventosNoticiasRamCache._();
 
@@ -558,7 +558,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
               if (report.ultimoEventoDocId != null) ...[
                 const SizedBox(height: 8),
                 Text(
-                  'Ãšltimo evento: ${report.ultimoEventoTitulo ?? '(sem título)'}',
+                  'Último evento: ${report.ultimoEventoTitulo ?? '(sem título)'}',
                 ),
                 Text('Doc ID: ${report.ultimoEventoDocId}'),
                 if (report.ultimoEventoCreatedAt != null)
@@ -570,7 +570,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
                   report.ultimoErro!.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Text(
-                  'Ãšltimo erro:',
+                  'Último erro:',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
                     color: ThemeCleanPremium.error,
@@ -1125,7 +1125,7 @@ class _EventsManagerPageState extends State<EventsManagerPage>
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               ThemeCleanPremium.successSnackBar(
-                'Capa pronta ? toque em Salvar para gravar.',
+                'Capa pronta — toque em Salvar para gravar.',
               ),
             );
           }
@@ -5990,7 +5990,7 @@ class _EventoPostState extends State<_EventoPost>
   void initState() {
     super.initState();
     // Pré-aquece foto/vídeo assim que o card aparece — ao tocar em
-    // "Compartilhar" minutos depois, já está em cache (instantÃ¢neo).
+    // "Compartilhar" minutos depois, já está em cache (instantâneo).
     warmNoticiaShareMediaBundle(
       widget.doc.data(),
       tenantId: widget.tenantId,
@@ -7056,7 +7056,7 @@ class _HostedVideoInlinePanelState extends State<_HostedVideoInlinePanel> {
           padding: const EdgeInsets.only(top: 6, left: 4, right: 4),
           child: Text(
             kIsWeb
-                ? 'Controles do navegador ? ?cone Tela cheia para ampliar'
+                ? 'Controles do navegador · ícone Tela cheia para ampliar'
                 : 'Toque no vídeo para abrir em tela cheia nesta mesma sessão',
             style: TextStyle(
               fontSize: 10,
@@ -7117,7 +7117,7 @@ class _EventVideoBlock extends StatelessWidget {
       final caption = [
         if (title.isNotEmpty) title,
         if (dateStr.isNotEmpty) dateStr,
-      ].join(' ? ');
+      ].join(' · ');
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -7385,7 +7385,7 @@ class _EventMediaOverlayBar extends StatelessWidget {
     final line = [
       if (title.isNotEmpty) title,
       if (dateStr.isNotEmpty) dateStr,
-    ].join(' ? ');
+    ].join(' · ');
     return ClipRect(
       child: Container(
         width: double.infinity,
@@ -10074,7 +10074,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Fotos: recorte + JPEG (1024 px ? 70%). Vídeo: até $_maxVideoSeconds s — comprimido e enviado logo ao anexar.',
+                    'Fotos: recorte + JPEG (1024 px · 70%). Vídeo: até $_maxVideoSeconds s — comprimido e enviado logo ao anexar.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 12.5,
@@ -10150,7 +10150,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                     subtitle: Text(
                       photosFull
                           ? 'Limite de fotos atingido'
-                          : 'CÃ¢mera ? uma foto com recorte',
+                          : 'Câmera · uma foto com recorte',
                       style: TextStyle(
                         fontSize: 12,
                         color: photosFull
@@ -11743,7 +11743,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                   const SizedBox(height: 6),
                   Text(
                     kIsWeb
-                        ? 'Fotos comprimidas no dispositivo (1024 px ? 70%). Vídeos até $_maxVideoSeconds s.'
+                        ? 'Fotos comprimidas no dispositivo (1024 px · 70%). Vídeos até $_maxVideoSeconds s.'
                         : 'Fotos nítidas no celular (1024 px · 70%). Vídeos até $_maxVideoSeconds s e máx. 15 MB — acima disso o app bloqueia para não travar.',
                     style: TextStyle(
                       fontSize: 12,
@@ -11871,7 +11871,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        'Texto simples ? sem negrito nem cores no editor. '
+                        'Texto simples — sem negrito nem cores no editor. '
                         'O mural e o site continuam a mostrar o conteúdo normalmente.',
                         style: TextStyle(
                           fontSize: 12,
@@ -13325,7 +13325,7 @@ class _FixosTabState extends State<_FixosTab> {
     );
   }
 
-  /// Próximos eventos em [noticias]: feed (especiais), agenda/gerados e instÃ¢ncias com data.
+  /// Próximos eventos em [noticias]: feed (especiais), agenda/gerados e instâncias com data.
   /// Nunca lança — falha de sync/rede devolve lista vazia (UI útil, sem banner vermelho).
   Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
   _loadProximosNoticias() async {
@@ -13455,7 +13455,7 @@ class _FixosTabState extends State<_FixosTab> {
     final dt = startTs.toDate();
     if (data['allDay'] == true) {
       final w = dt.weekday >= 1 && dt.weekday <= 7 ? _wdEvento[dt.weekday] : '';
-      return '$w ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} ? dia inteiro';
+      return '$w ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} · dia inteiro';
     }
     final w = dt.weekday >= 1 && dt.weekday <= 7 ? _wdEvento[dt.weekday] : '';
     return '$w ${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
@@ -14252,7 +14252,7 @@ class _FixosTabState extends State<_FixosTab> {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'Enquanto isso, veja abaixo os próximos eventos da agenda, do feed e instÃ¢ncias geradas — ou crie cada culto fixo com «Novo evento fixo».',
+                              'Enquanto isso, veja abaixo os próximos eventos da agenda, do feed e instâncias geradas — ou crie cada culto fixo com «Novo evento fixo».',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: 13,
@@ -14999,7 +14999,7 @@ class _EventoFixoDetailPage extends StatelessWidget {
                       Icons.event_available_rounded,
                       'Agenda e programação pública',
                       eventTemplateIncludeInAgenda(m)
-                          ? 'Sim ? datas na agenda e ?Gerar no feed?'
+                          ? 'Sim · datas na agenda e «Gerar no feed»'
                           : 'Não — só no resumo de horários do site',
                     ),
                   ],

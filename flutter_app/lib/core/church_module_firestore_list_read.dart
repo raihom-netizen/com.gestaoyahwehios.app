@@ -156,9 +156,12 @@ abstract final class ChurchModuleFirestoreListRead {
             maxAttempts: kIsWeb ? 2 : 3,
             attemptTimeout: ChurchPanelReadTimeouts.attempt,
           );
-          if (plainSnap.docs.isNotEmpty || orderByField == null) {
-            return plainSnap;
-          }
+          // Vazio **sem erro** é resposta, não falha: a mesma coleção com o
+          // mesmo limite já respondeu que não há documentos. Repetir com
+          // `orderBy` e depois outra vez em plain só triplicava o tempo de
+          // abrir um módulo vazio — e ainda mandava a cascata inteira para a
+          // coleção legada a seguir.
+          return plainSnap;
         } catch (e) {
           lastError = e;
           if (kIsWeb &&
@@ -189,8 +192,8 @@ abstract final class ChurchModuleFirestoreListRead {
             maxAttempts: kIsWeb ? 2 : 3,
             attemptTimeout: ChurchPanelReadTimeouts.attempt,
           );
-        } catch (e) {
-          throw lastError ?? e;
+        } catch (_) {
+          throw lastError;
         }
       }
 

@@ -84,6 +84,14 @@ abstract final class ChurchVideoPreupload {
   static double progressOf(String localPath) =>
       _entries[localPath.trim()]?.progress ?? 0.0;
 
+  /// Teto da espera pelo envio antecipado.
+  ///
+  /// O encode nativo (`video_compress`) não tem tempo máximo: quando ele
+  /// emperra, `await entry.future` nunca resolvia e a publicação inteira
+  /// ficava pendurada — barra parada, aviso nunca gravado. Ao estourar, o
+  /// chamador trata como falha de vídeo e publica o aviso sem ele.
+  static const Duration kClaimTimeout = Duration(minutes: 5);
+
   /// Aguarda o envio antecipado de [localPath] para o destino [tag].
   ///
   /// Devolve `null` quando não há envio aproveitável — o chamador segue então
@@ -92,6 +100,7 @@ abstract final class ChurchVideoPreupload {
     required String localPath,
     required String tag,
     void Function(double progress)? onProgress,
+    Duration timeout = kClaimTimeout,
   }) async {
     final key = localPath.trim();
     final entry = _entries[key];
@@ -102,7 +111,13 @@ abstract final class ChurchVideoPreupload {
       sub = entry.progressStream.listen(onProgress);
     }
     try {
-      final result = await entry.future;
+      final result = await entry.future.timeout(
+        timeout,
+        onTimeout: () => throw TimeoutException(
+          'O envio do vídeo demorou demais.',
+          timeout,
+        ),
+      );
       return result is T ? result : null;
     } finally {
       await sub?.cancel();

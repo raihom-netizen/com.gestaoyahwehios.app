@@ -152,6 +152,7 @@ final class ChurchDataService {
     required Map<String, dynamic> data,
     bool merge = false,
     String? module,
+    bool strict = false,
   }) async {
     await ensureReadyForWrite();
     final payload = FirestoreWriteGuard.stripHeavyFields(
@@ -168,6 +169,7 @@ final class ChurchDataService {
         merge: merge,
         module: mod,
         tenantId: tid,
+        strict: strict,
       );
       ChurchTenantWriteLog.firestoreSetOk(path, module: mod);
     } catch (e, s) {

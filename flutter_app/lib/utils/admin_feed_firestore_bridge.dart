@@ -282,7 +282,31 @@ abstract final class AdminFeedFirestoreBridge {
         }
       }
     }
-    await directWrite();
+    // Android/iOS: o SDK é o caminho normal, mas quando ele não confirma a
+    // escrita (fila local que não drena, cliente sem rede efetiva) a
+    // publicação ficava perdida — mídia no Storage e documento inexistente no
+    // Firestore. O REST não depende do estado do cliente Firestore, por isso
+    // serve aqui de rede de segurança, como já servia na web.
+    try {
+      await directWrite();
+    } catch (directError) {
+      final restPath = <String>[
+        'igrejas',
+        churchId.trim(),
+        collection,
+        docId,
+        if ((subCollection ?? '').isNotEmpty) subCollection!,
+        if ((subDocId ?? '').isNotEmpty) subDocId!,
+      ].join('/');
+      debugPrint(
+        'AdminFeedFirestoreBridge: SDK falhou ($collection/$docId) ? REST: $directError',
+      );
+      if (await _restUpsert(restPath, data)) {
+        onProgress?.call(0.94);
+        return;
+      }
+      rethrow;
+    }
   }
 
   /// Resolve path a partir de [docRef] ? avisos, membros, chat/messages, etc.

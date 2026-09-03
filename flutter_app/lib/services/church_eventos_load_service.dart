@@ -551,8 +551,9 @@ abstract final class ChurchEventosLoadService {
         }
       }
 
+      QuerySnapshot<Map<String, dynamic>>? plainSnap;
       try {
-        final plainSnap = await FirestoreReadResilience.getQuery(
+        plainSnap = await FirestoreReadResilience.getQuery(
           plain(),
           cacheKey: '${cacheKey}_plain',
           maxAttempts: kIsWeb ? 4 : 3,
@@ -570,6 +571,12 @@ abstract final class ChurchEventosLoadService {
       } catch (e) {
         debugPrint('EVENTOS _loadFirestoreFeed plain fallback failed: $e');
       }
+
+      // A tentativa seguinte era **a mesma query plain outra vez**: quando a
+      // coleção está vazia (ou nada passa no filtro) isso é uma ida à rede
+      // inteira, com retries, a somar ao tempo de abrir o módulo. Se já temos
+      // a resposta, é ela que vale.
+      if (plainSnap != null) return plainSnap;
 
       return FirestoreReadResilience.getQuery(
         plain(),
@@ -1113,14 +1120,27 @@ abstract final class ChurchEventosLoadService {
           data: dataById[id],
         );
       }
-      await _deleteLegacyEventsMirror(cid, slice);
-      await Future.wait(
-        slice.map(
-          (id) => ChurchFeedAgendaSyncService.deleteForEvento(
-            tenantId: cid,
-            eventoId: id,
+      // Mirror legado e agenda em background: o documento canónico já saiu e
+      // o evento já desapareceu da lista. Esperar por estas duas rondas de
+      // rede era o que fazia «Excluir» demorar (pior ainda em lote).
+      unawaited(
+        _deleteLegacyEventsMirror(cid, slice).catchError((Object e) {
+          debugPrint('EVENTOS mirror legado (background): $e');
+        }),
+      );
+      unawaited(
+        Future.wait(
+          slice.map(
+            (id) => ChurchFeedAgendaSyncService.deleteForEvento(
+              tenantId: cid,
+              eventoId: id,
+            ),
           ),
-        ),
+          eagerError: false,
+        ).catchError((Object e) {
+          debugPrint('EVENTOS agenda delete (background): $e');
+          return <void>[];
+        }),
       );
     }
 

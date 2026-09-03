@@ -1,4 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:gestao_yahweh/utils/firestore_rest_read.dart'
+    show firestoreRestGetDocSnap;
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:gestao_yahweh/core/church_storage_layout.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
@@ -147,14 +149,33 @@ abstract final class EventosPublishVerificationService {
     bool preferServer = true,
   }) async {
     assertEventosCollectionPath(docRef);
-    final check = await docRef.get(
-      GetOptions(
-        source: preferServer ? Source.server : Source.serverAndCache,
-      ),
-    );
-    if (!check.exists) {
-      rememberLastError(kPublishVerifyFailedMessage);
-      throw StateError(kPublishVerifyFailedMessage);
+    DocumentSnapshot<Map<String, dynamic>>? check;
+    try {
+      check = await docRef.get(
+        GetOptions(
+          source: preferServer ? Source.server : Source.serverAndCache,
+        ),
+      );
+    } catch (sdkError) {
+      // O cliente Firestore pode estar sem rede efetiva (fila local que não
+      // drena). A gravação, essa, já tem caminho REST — logo «o SDK não
+      // consegue ler» não é prova de que o documento não existe. Confirmar
+      // pelo REST antes de acusar falha de publicação.
+      debugPrint('verify publish: SDK falhou (${docRef.path}): $sdkError');
+      check = null;
+    }
+    if (check == null || !check.exists) {
+      final rest = await firestoreRestGetDocSnap(docRef.path).catchError(
+        (Object e) {
+          debugPrint('verify publish: REST falhou (${docRef.path}): $e');
+          throw StateError(kPublishVerifyFailedMessage);
+        },
+      );
+      if (!rest.exists) {
+        rememberLastError(kPublishVerifyFailedMessage);
+        throw StateError(kPublishVerifyFailedMessage);
+      }
+      return rest;
     }
     return check;
   }

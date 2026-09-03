@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -33,7 +33,8 @@ abstract final class FinanceComprovanteAttachFlow {
     final data = docData ?? {};
     final jaTem = FinanceComprovanteAttachService.hasComprovanteInDoc(data);
 
-    final picked = prePicked ??
+    final picked =
+        prePicked ??
         (showPickSheet
             ? await FinanceComprovanteAttachService.showPickSheet(
                 context,
@@ -48,8 +49,9 @@ abstract final class FinanceComprovanteAttachFlow {
     }
 
     try {
-      final refDate =
-          FinanceComprovantePublishService.referenceDateFromMap(data);
+      final refDate = FinanceComprovantePublishService.referenceDateFromMap(
+        data,
+      );
       final mime = picked.isPdf ? 'application/pdf' : picked.mimeType;
 
       await FinanceComprovantePublishService.uploadComprovanteControleTotal(
@@ -64,7 +66,7 @@ abstract final class FinanceComprovanteAttachFlow {
             (data['comprovanteUrl'] ?? data['comprovanteLink'] ?? '')
                 .toString(),
         alreadyCompressed: picked.alreadyOptimized,
-        queueOnTransientFailure: false,
+        queueOnTransientFailure: true,
       );
 
       if (context.mounted && !suppressSuccessSnackBar) {
@@ -125,7 +127,8 @@ abstract final class FinanceComprovanteAttachFlow {
     final data = docData ?? {};
     final jaTem = FinanceComprovanteAttachService.hasComprovanteInDoc(data);
 
-    final picked = prePicked ??
+    final picked =
+        prePicked ??
         (showPickSheet
             ? await FinanceComprovanteAttachService.showPickSheet(
                 context,
@@ -151,7 +154,7 @@ abstract final class FinanceComprovanteAttachFlow {
         mimeType: mime,
         fileName: picked.fileName,
         alreadyCompressed: picked.alreadyOptimized,
-        queueOnTransientFailure: false,
+        queueOnTransientFailure: true,
       );
 
       if (context.mounted && !suppressSuccessSnackBar) {

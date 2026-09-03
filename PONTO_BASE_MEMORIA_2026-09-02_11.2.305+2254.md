@@ -1,12 +1,12 @@
 # Ponto Base de Memória — Gestão YAHWEH (GERAL)
 
-**Data:** 2026-08-02  
-**Release de referência:** `11.2.305+2153`  
+**Data:** 2026-09-02  
+**Release de referência:** `11.2.305+2254`  
 **Marketing:** `11.2.305`  
-**Build / versionCode:** `2153`  
-**Git:** `main` — commit `3710feb`  
-**Web + forceUpdate:** `config/appVersion` = `11.2.305+2153`, `minBuildNumber=2153`, `forceUpdate=true`, `webRefresh=true`  
-**Anterior:** `PONTO_BASE_MEMORIA_2026-07-30_11.2.305+2145.md` (arquivada)
+**Build / versionCode:** `2254`  
+**Git:** `main` — release de produção `2254`  
+**Web + forceUpdate:** `config/appVersion` = `11.2.305+2254`, `minBuildNumber=2254`, `forceUpdate=true`, `webRefresh=true`  
+**Anterior:** `PONTO_BASE_MEMORIA_2026-08-02_11.2.305+2153.md` (arquivada no histórico Git)
 
 **Firebase:** `gestaoyahweh-21e23`  
 **Bucket Storage:** `gs://gestaoyahweh-21e23.firebasestorage.app`  
@@ -119,7 +119,7 @@
 
 ## Referências
 
-- Ponto ativo: `PONTO_BASE_MEMORIA_2026-08-02_11.2.305+2153.md`
+- Ponto ativo: `PONTO_BASE_MEMORIA_2026-09-02_11.2.305+2254.md`
 - Regra Cursor: `.cursor/rules/ponto-base-memoria-11-2-305-2153.mdc`
 - Memórias `2145`, `2143`, `2134`, `2122` e anteriores são históricas.
 

@@ -5814,6 +5814,9 @@ class _ChurchTenantFallback extends StatelessWidget {
                                       child: ChurchPublicConstrainedMedia(
                                         child: ChurchPostMediaCarousel(
                                           items: items,
+                                          accent: ThemeCleanPremium.primary,
+                                          borderRadius:
+                                              ThemeCleanPremium.radiusLg,
                                           aspectRatio: 4 / 5,
                                           title: title,
                                         ),
@@ -6109,6 +6112,9 @@ class _ChurchTenantFallback extends StatelessWidget {
                                     child: ChurchPublicConstrainedMedia(
                                       child: ChurchPostMediaCarousel(
                                         items: avisoItems,
+                                        accent: ThemeCleanPremium.primary,
+                                        borderRadius:
+                                            ThemeCleanPremium.radiusLg,
                                         aspectRatio: 4 / 5,
                                         title: title,
                                       ),

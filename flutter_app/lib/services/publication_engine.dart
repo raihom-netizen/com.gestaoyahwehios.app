@@ -257,6 +257,10 @@ abstract final class PublicationEngine {
             data: patch,
             merge: !isNewDoc,
             module: request.postType,
+            // Publicar exige confirmação do servidor: sem isto a gravação
+            // optimista devolvia sucesso em 2,2 s e o aviso ficava só no
+            // aparelho — mídia no Storage e `avisos` vazia no Firestore.
+            strict: true,
           ),
         ),
       );

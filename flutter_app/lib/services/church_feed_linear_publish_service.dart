@@ -33,6 +33,9 @@ import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
 abstract final class ChurchFeedLinearPublishService {
   ChurchFeedLinearPublishService._();
 
+  /// Teto da confirmação pós-gravação (leitura no servidor do doc gravado).
+  static const Duration kFeedPublishVerifyTimeout = Duration(seconds: 15);
+
   static void _report(void Function(double progress)? cb, double value) {
     cb?.call(value.clamp(0.0, 1.0));
   }
@@ -504,14 +507,21 @@ abstract final class ChurchFeedLinearPublishService {
       );
     }
 
-    // Verify em background ??? n+?o segurar a UI em 78???88%.
-    unawaited(
-      _verifyFeedDocPublished(docRef: docRef, isEvento: isEvento).catchError((
-        Object e,
-      ) {
-        debugPrint('feed doc verify (background): $e');
-      }),
-    );
+    // Confirmar que o documento existe **no servidor** antes de dizer
+    // «publicado». Ficava em background com o erro só no log: a barra chegava
+    // a 100%, a UI dava sucesso, e o aviso não existia no Firestore (mídia no
+    // Storage, coleção `avisos` vazia). Teto curto — quem falhar aqui cai no
+    // snack de erro com «Tentar novamente», que reaproveita a mídia já enviada.
+    await _verifyFeedDocPublished(
+      docRef: docRef,
+      isEvento: isEvento,
+    ).timeout(kFeedPublishVerifyTimeout);
+    /* confirmation errors must reach the retry UI
+      // Sem resposta a tempo não é o mesmo que «não gravou»: aqui o
+      // documento provavelmente existe e só a leitura de confirmação é que
+      // não voltou. Falhar seria assustar o utilizador com um post publicado.
+      debugPrint('feed doc verify (sem resposta): $e');
+    */
     logFirebasePublishPhase(
       'linear_firestore_saved',
       '$postType path=${docRef.path} tenant=$churchId',
@@ -553,10 +563,9 @@ abstract final class ChurchFeedLinearPublishService {
             title: (payload['title'] ?? '').toString(),
             description: (payload['text'] ?? '').toString(),
             referenceDate: refDate,
-            colorHex: (payload['agendaColorHex'] ??
-                    payload['colorHex'] ??
-                    '#F59E0B')
-                .toString(),
+            colorHex:
+                (payload['agendaColorHex'] ?? payload['colorHex'] ?? '#F59E0B')
+                    .toString(),
           ).catchError((Object e) {
             debugPrint('AVISOS calendar sync (background): $e');
           }),
@@ -744,14 +753,14 @@ abstract final class ChurchFeedLinearPublishService {
       }
     }
 
-    if (kIsWeb) {
+    /* no web suppression: REST fallback already handles SDK failures
       try {
         await verify().timeout(const Duration(seconds: 10));
       } catch (_) {
         // CF Admin SDK j+? gravou ??? n+?o bloquear por lag de leitura web.
       }
       return;
-    }
+    */
     await verify();
   }
 

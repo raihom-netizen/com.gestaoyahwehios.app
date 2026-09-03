@@ -15,6 +15,7 @@ abstract final class OptimisticFirestoreWrite {
     bool merge = false,
     String? module,
     String? tenantId,
+    bool strict = false,
   }) =>
       TenantOfflineWrite.setDocument(
         ref: ref,
@@ -22,6 +23,7 @@ abstract final class OptimisticFirestoreWrite {
         merge: merge,
         module: module,
         tenantId: tenantId,
+        strict: strict,
       );
 
   static Future<void> update({

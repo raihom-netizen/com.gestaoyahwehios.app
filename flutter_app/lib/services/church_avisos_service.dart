@@ -183,6 +183,37 @@ abstract final class ChurchAvisosService {
     }
   }
 
+  /// Fim da faixa do vídeo na barra — o pipeline continua a partir daqui.
+  static const double _kVideoProgressEnd = 0.45;
+
+  /// Vídeo do aviso: 5% → 45% da barra.
+  ///
+  /// A barra da UI é **monotónica** (nunca anda para trás). O vídeo ocupava
+  /// 10%→65% e logo a seguir o pipeline recomeçava a reportar na sua própria
+  /// escala (0.12 … 0.82): tudo abaixo de 65% era descartado, e a barra ficava
+  /// congelada nos 65% durante o envio das fotos e a gravação — a fase mais
+  /// longa. Lida como «travou em 65%». Faixas disjuntas resolvem na origem.
+  static void Function(double)? _videoProgress(
+    void Function(double progress)? onUploadProgress,
+  ) {
+    if (onUploadProgress == null) return null;
+    return (p) => onUploadProgress(
+      0.05 + p.clamp(0.0, 1.0) * (_kVideoProgressEnd - 0.05),
+    );
+  }
+
+  /// Restante do pipeline (fotos + Firestore + agenda): 45% → 100% quando
+  /// houve vídeo; escala inteira quando não houve.
+  static void Function(double)? _pipelineProgress(
+    void Function(double progress)? onUploadProgress, {
+    required bool afterVideo,
+  }) {
+    if (onUploadProgress == null || !afterVideo) return onUploadProgress;
+    return (p) => onUploadProgress(
+      _kVideoProgressEnd + p.clamp(0.0, 1.0) * (1.0 - _kVideoProgressEnd),
+    );
+  }
+
   static Future<void> _publishAvisoWithRecovery({
     required DocumentReference<Map<String, dynamic>> docRef,
     required String tenantId,
@@ -609,7 +640,14 @@ abstract final class ChurchAvisosService {
     var resolvedVideoPath = (videoStoragePath ?? '').trim();
     var resolvedThumbPath = '';
     final localVideo = (videoLocalPath ?? '').trim();
-    if (resolvedVideoPath.isEmpty && localVideo.isNotEmpty) {
+    final hasVideoUpload = resolvedVideoPath.isEmpty && localVideo.isNotEmpty;
+    // Faixas **disjuntas** (ver [_pipelineProgress]): sem isto a barra parava
+    // nos 65% do fim do vídeo durante todo o envio das fotos e a gravação.
+    final pipelineProgress = _pipelineProgress(
+      onUploadProgress,
+      afterVideo: hasVideoUpload,
+    );
+    if (hasVideoUpload) {
       // O vídeo é anexo, não pode vetar o aviso: sem este try/catch, uma falha
       // de upload (rede, limite de tamanho, blob inválido) rebentava aqui e o
       // aviso — título, texto, fotos — nunca chegava a ser gravado.
@@ -618,11 +656,7 @@ abstract final class ChurchAvisosService {
           churchId: cid,
           postId: postId,
           localPath: localVideo,
-          // O vídeo ia de 0 a 100% da barra e a gravação no Firestore ficava
-          // sem espaço para avançar. Aqui ele ocupa 10%→65%.
-          onProgress: onUploadProgress == null
-              ? null
-              : (p) => onUploadProgress(0.10 + p.clamp(0.0, 1.0) * 0.55),
+          onProgress: _videoProgress(onUploadProgress),
         );
         resolvedVideoPath = uploaded.videoPath;
         resolvedThumbPath = uploaded.thumbPath;
@@ -726,7 +760,7 @@ abstract final class ChurchAvisosService {
         publicSite: publicSite,
         calendarDate: permanent ? null : expiresAtEndOfDay,
         syncCalendar: true,
-        onUploadProgress: onUploadProgress,
+        onUploadProgress: pipelineProgress,
       );
     } catch (e, st) {
       logFirebasePublishPhase(
@@ -794,7 +828,13 @@ abstract final class ChurchAvisosService {
     var resolvedVideoPath = (videoStoragePath ?? '').trim();
     var resolvedThumbPath = '';
     final localVideo = (videoLocalPath ?? '').trim();
-    if (resolvedVideoPath.isEmpty && localVideo.isNotEmpty) {
+    final hasVideoUpload = resolvedVideoPath.isEmpty && localVideo.isNotEmpty;
+    // Faixas disjuntas na barra — ver [_pipelineProgress].
+    final pipelineProgress = _pipelineProgress(
+      onUploadProgress,
+      afterVideo: hasVideoUpload,
+    );
+    if (hasVideoUpload) {
       // O vídeo é anexo, não pode vetar o aviso: sem este try/catch, uma falha
       // de upload (rede, limite de tamanho, blob inválido) rebentava aqui e o
       // aviso — título, texto, fotos — nunca chegava a ser gravado.
@@ -803,7 +843,7 @@ abstract final class ChurchAvisosService {
           churchId: cid,
           postId: id,
           localPath: localVideo,
-          onProgress: onUploadProgress,
+          onProgress: _videoProgress(onUploadProgress),
         );
         resolvedVideoPath = uploaded.videoPath;
         resolvedThumbPath = uploaded.thumbPath;
@@ -943,7 +983,7 @@ abstract final class ChurchAvisosService {
         publicSite: publicSite,
         calendarDate: permanent ? null : expiresAtEndOfDay,
         syncCalendar: true,
-        onUploadProgress: onUploadProgress,
+        onUploadProgress: pipelineProgress,
       );
     } catch (e, st) {
       logFirebasePublishPhase(
@@ -994,36 +1034,47 @@ abstract final class ChurchAvisosService {
       await FirestoreWebGuard.prepareForPublishWrite().catchError((_) {});
     }
 
+    // Só ler o documento quando a UI não trouxe os dados: eram dois `get()`
+    // com retry (`avisos` + `mural_avisos`) antes de qualquer coisa acontecer,
+    // e é isso que fazia «Excluir» ficar segundos parado.
     var docData = data == null ? null : Map<String, dynamic>.from(data);
-    final snaps = await Future.wait(
-      _deleteCollections.map((sub) async {
-        try {
-          return await FirestoreWebGuard.runWithWebRecovery(
-            () => _collection(cid, sub).doc(id).get(),
-            maxAttempts: kIsWeb ? 4 : 3,
-          );
-        } catch (_) {
-          return null;
+    if (docData == null || docData.isEmpty) {
+      final snaps = await Future.wait(
+        _deleteCollections.map((sub) async {
+          try {
+            return await FirestoreWebGuard.runWithWebRecovery(
+              () => _collection(cid, sub).doc(id).get(),
+              maxAttempts: kIsWeb ? 4 : 3,
+            );
+          } catch (_) {
+            return null;
+          }
+        }),
+      );
+      for (final snap in snaps) {
+        if (snap != null && snap.exists) {
+          docData = <String, dynamic>{...?docData, ...?snap.data()};
         }
-      }),
-    );
-    for (final snap in snaps) {
-      if (snap != null && snap.exists) {
-        docData = <String, dynamic>{...?docData, ...?snap.data()};
       }
     }
 
     await _deleteAvisoDocs(churchId: cid, docIds: [id]);
 
-    await ChurchCanonicalMediaDeleteService.purgeFeedPostDeleted(
-      tenantId: cid,
-      postId: id,
-      isEvento: false,
-      data: docData,
-    );
-
     ChurchAvisosLoadService.evictDocFromCaches(cid, id);
-    await ChurchAvisosLoadService.invalidate(cid);
+    // Storage e caches em background: o documento já saiu do Firestore e o
+    // aviso já desapareceu da lista. Esperar por N chamadas de rede de
+    // limpeza só servia para o utilizador ficar a olhar para um spinner.
+    unawaited(
+      ChurchCanonicalMediaDeleteService.purgeFeedPostDeleted(
+        tenantId: cid,
+        postId: id,
+        isEvento: false,
+        data: docData,
+      ).catchError((Object e) {
+        debugPrint('AVISOS purge storage (background): $e');
+      }),
+    );
+    unawaited(ChurchAvisosLoadService.invalidate(cid));
   }
 
   static Future<void> _deleteAvisoDocs({
@@ -1100,24 +1151,34 @@ abstract final class ChurchAvisosService {
 
     await _deleteAvisoDocs(churchId: cid, docIds: ids);
 
-    await Future.wait(
-      ids.map((id) async {
-        await ChurchCanonicalMediaDeleteService.purgeFeedPostDeleted(
-          tenantId: cid,
-          postId: id,
-          isEvento: false,
-          data: dataById[id],
-        );
-        ChurchAvisosLoadService.evictDocFromCaches(cid, id);
-        await ChurchFeedAgendaSyncService.deleteForAviso(
-          tenantId: cid,
-          avisoId: id,
-        );
+    for (final id in ids) {
+      ChurchAvisosLoadService.evictDocFromCaches(cid, id);
+    }
+    // Idem [deleteOne]: limpeza de Storage e da agenda em background. Numa
+    // exclusão de 20 avisos isto eram dezenas de chamadas de rede seguradas
+    // à frente do utilizador, com os documentos já apagados.
+    unawaited(
+      Future.wait(
+        ids.map((id) async {
+          await ChurchCanonicalMediaDeleteService.purgeFeedPostDeleted(
+            tenantId: cid,
+            postId: id,
+            isEvento: false,
+            data: dataById[id],
+          );
+          await ChurchFeedAgendaSyncService.deleteForAviso(
+            tenantId: cid,
+            avisoId: id,
+          );
+        }),
+        eagerError: false,
+      ).catchError((Object e) {
+        debugPrint('AVISOS purge lote (background): $e');
+        return const <Null>[];
       }),
-      eagerError: false,
     );
 
-    await ChurchAvisosLoadService.invalidate(cid);
+    unawaited(ChurchAvisosLoadService.invalidate(cid));
     return ids.length;
   }
 }
