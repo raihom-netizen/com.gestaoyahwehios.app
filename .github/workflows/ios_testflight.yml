@@ -60,7 +60,7 @@ jobs:
       # github.env e o equivalente do GitHub Actions (mesmo formato NOME=valor).
       CM_ENV: ${{ github.env }}
       CM_USE_CODEMAGIC_TEAM_SIGNING: 0
-      CM_FORCE_API_ONLY_SIGNING: 0
+      CM_FORCE_API_ONLY_SIGNING: 1
       CM_CI_BOOTSTRAP_DISTRIBUTION_IF_NO_PEM: 0
       CM_AUTO_BOOTSTRAP_PEM_MISMATCH: 1
       CM_DISALLOW_API_ONLY_SIGNING: 0
