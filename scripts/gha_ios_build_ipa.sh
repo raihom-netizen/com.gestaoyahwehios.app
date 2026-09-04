@@ -63,6 +63,13 @@ fi
 python3 "$SCRIPTS_DIR/codemagic_ios_strip_spm.py" ios
 
 echo "=== xcodebuild archive ==="
+# O Flutter aplica --build-number ao Runner, mas targets de extensao podem
+# conservar CURRENT_PROJECT_VERSION=1. A Apple exige que app e extensoes usem
+# exatamente o mesmo CFBundleVersion. O override no xcodebuild vale para todos
+# os targets do archive (Runner, Widget e futuras extensoes).
+XCODE_VERSION_ARGS=()
+[ -n "${GHA_IOS_BUILD_NUMBER:-}" ] && XCODE_VERSION_ARGS+=(CURRENT_PROJECT_VERSION="$GHA_IOS_BUILD_NUMBER")
+[ -n "${GHA_IOS_BUILD_NAME:-}" ] && XCODE_VERSION_ARGS+=(MARKETING_VERSION="$GHA_IOS_BUILD_NAME")
 xcodebuild -workspace ios/Runner.xcworkspace \
   -scheme "$SCHEME" \
   -configuration Release \
@@ -72,12 +79,25 @@ xcodebuild -workspace ios/Runner.xcworkspace \
   FLUTTER_APPLICATION_PATH="$APP_PATH" \
   COMPILER_INDEX_STORE_ENABLE=NO \
   -disableAutomaticPackageResolution \
+  "${XCODE_VERSION_ARGS[@]}" \
   2>&1 | tee /tmp/xcodebuild_archive.log | tail -40
 if [ ! -d build/ios/Runner.xcarchive ]; then
   echo "::error::archive nao gerado"
   tail -120 /tmp/xcodebuild_archive.log
   exit 1
 fi
+
+# Gate antes do export/upload: nenhuma extensao pode sair com build diferente.
+APP_INFO="build/ios/Runner.xcarchive/Products/Applications/Runner.app/Info.plist"
+APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_INFO")"
+while IFS= read -r EXT_INFO; do
+  EXT_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$EXT_INFO")"
+  if [ "$EXT_BUILD" != "$APP_BUILD" ]; then
+    echo "::error::CFBundleVersion da extensao ($EXT_BUILD) difere do app ($APP_BUILD): $EXT_INFO"
+    exit 1
+  fi
+done < <(find "$(dirname "$APP_INFO")" -path '*/PlugIns/*.appex/Info.plist' -type f -print)
+echo "=== CFBundleVersion uniforme no archive: $APP_BUILD ==="
 
 echo "=== xcodebuild -exportArchive ==="
 xcodebuild -exportArchive \
