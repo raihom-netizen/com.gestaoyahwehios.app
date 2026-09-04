@@ -1,4 +1,9 @@
-﻿/// Single source of app version used everywhere.
+/// Single source of app version used everywhere.
+/// 11.2.305+2255: Eventos temporarios deixam de entrar na Galeria e sao
+/// removidos do Firestore e Storage 24 horas depois da validade. Eventos
+/// permanentes continuam arquivados. Feed do painel, site publico e modulo
+/// Eventos usam midia primeiro, texto abaixo e acoes sociais no fim, com
+/// reproducao de fotos e videos no mesmo carrossel.
 /// 11.2.305+2253: Publicacao de aviso/evento deixou de se perder: a gravacao
 /// passou a exigir confirmacao do servidor (escrita estrita) e ganhou REST de
 /// seguranca tambem no Android/iOS, com verificacao do documento antes de dar
@@ -636,7 +641,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2254';
+const String appBuildNumber = '2255';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

@@ -3176,7 +3176,7 @@ class _GalleryArchiveTabState extends State<_GalleryArchiveTab> {
         return false;
       }
       return eventoDocApareceNoFeedPainel(d) &&
-          noticiaEventoEspecialCaiuDoFeedParaGaleria(data, now);
+          eventShouldMoveToGalleryArchive(data, now);
     }).toList();
     if (_period != 'all') {
       final cutoff = switch (_period) {
@@ -6650,7 +6650,17 @@ class _EventoPostState extends State<_EventoPost>
                 ),
             ],
           ),
-          // Actions ? barra WISDOM unificada (Participar ? Comentar ? Compartilhar ? ?).
+          // Texto abaixo da midia, no padrao Instagram.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+            child: ChurchPostRichTextViewer(
+              key: ValueKey(
+                '${widget.doc.id}_${churchPostRichContentSig(Map<String, dynamic>.from(data))}',
+              ),
+              data: Map<String, dynamic>.from(data),
+            ),
+          ),
+          // Participar, comentar e compartilhar sempre depois do texto.
           if (!widget.selectionMode)
             YahwehSocialPostBar(
               tenantId: widget.tenantId,
@@ -6662,17 +6672,7 @@ class _EventoPostState extends State<_EventoPost>
             )
           else
             const SizedBox(height: 8),
-          // Texto de divulgação (título já está na faixa)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: ChurchPostRichTextViewer(
-              key: ValueKey(
-                '${widget.doc.id}_${churchPostRichContentSig(Map<String, dynamic>.from(data))}',
-              ),
-              data: Map<String, dynamic>.from(data),
-            ),
-          ),
-          // Convite, site público e mapa
+          // Convite, site publico e mapa
           _EventPostLinksRow(
             tenantId: widget.tenantId,
             churchSlug: widget.churchSlug,
@@ -10293,7 +10293,7 @@ class _EventoFormPageState extends State<_EventoFormPage> {
       'updatedAt': YahwehFv.serverTimestamp,
       'generated': false,
       'publicSite': _publicSite,
-      'galleryPermanent': false,
+      'galleryPermanent': _validUntil == null,
       ..._schedulingAndCategoryFields(merge: !isNewDoc),
       ..._locationFieldsForSave(allowDeleteSentinels: !isNewDoc),
       ...MuralPostMediaPayload.buildMediaFields(
@@ -10311,6 +10311,8 @@ class _EventoFormPageState extends State<_EventoFormPage> {
     };
     if (_validUntil != null) {
       payload['validUntil'] = Timestamp.fromDate(_validUntil!);
+    } else if (!isNewDoc) {
+      payload['validUntil'] = YahwehFv.deleteField;
     }
     if (!isNewDoc) {
       payload['imageVariants'] = YahwehFv.deleteField;

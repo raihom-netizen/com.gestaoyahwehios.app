@@ -1,9 +1,10 @@
-﻿import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:gestao_yahweh/core/data/yahweh_doc_write.dart';
 import 'package:gestao_yahweh/core/church_tenant_posts_collections.dart';
 import 'package:gestao_yahweh/core/event_feed_mural_visibility.dart';
+import 'package:gestao_yahweh/core/event_gallery_archive.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart';
 import 'package:gestao_yahweh/services/church_operational_paths.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
@@ -33,6 +34,9 @@ class NoticiaExpiredMediaCleanupService {
 
   static bool _isExpired(Map<String, dynamic> data, DateTime now) {
     final vu = data['validUntil'];
+    if ((data['type'] ?? '').toString() == 'evento') {
+      return eventTemporaryRetentionExpired(data, now);
+    }
     if (vu is Timestamp && !vu.toDate().isAfter(now)) return true;
     final ae = data['avisoExpiresAt'];
     if (ae is Timestamp && !ae.toDate().isAfter(now)) return true;
@@ -46,7 +50,10 @@ class NoticiaExpiredMediaCleanupService {
     sink.add(s);
   }
 
-  static void _collectStorageTargets(Map<String, dynamic> data, Set<String> sink) {
+  static void _collectStorageTargets(
+    Map<String, dynamic> data,
+    Set<String> sink,
+  ) {
     for (final u in eventNoticiaPhotoUrls(data)) {
       _addUrl(sink, u);
     }
@@ -83,7 +90,8 @@ class NoticiaExpiredMediaCleanupService {
   }
 
   static Future<void> _deleteSubcollections(
-      DocumentReference<Map<String, dynamic>> docRef) async {
+    DocumentReference<Map<String, dynamic>> docRef,
+  ) async {
     for (final sub in ['comentarios', 'curtidas', 'confirmacoes']) {
       while (true) {
         final q = await docRef.collection(sub).limit(120).get();
@@ -98,7 +106,8 @@ class NoticiaExpiredMediaCleanupService {
   }
 
   static Future<void> _purgeDoc(
-      DocumentSnapshot<Map<String, dynamic>> doc) async {
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
     final data = doc.data();
     if (data == null) return;
     final now = DateTime.now();
@@ -117,12 +126,18 @@ class NoticiaExpiredMediaCleanupService {
   }
 
   static Future<void> _purgeCollection(
-    CollectionReference<Map<String, dynamic>> col,
-  ) async {
+    CollectionReference<Map<String, dynamic>> col, {
+    bool keepEventForOneExtraDay = false,
+  }) async {
     final now = Timestamp.now();
+    final validUntilCutoff = keepEventForOneExtraDay
+        ? Timestamp.fromDate(DateTime.now().subtract(const Duration(days: 1)))
+        : now;
 
     Future<void> handle(
-        QuerySnapshot<Map<String, dynamic>> snap, Set<String> seen) async {
+      QuerySnapshot<Map<String, dynamic>> snap,
+      Set<String> seen,
+    ) async {
       for (final doc in snap.docs) {
         if (!seen.add(doc.id)) continue;
         await _purgeDoc(doc);
@@ -131,10 +146,14 @@ class NoticiaExpiredMediaCleanupService {
 
     for (var round = 0; round < 8; round++) {
       final seen = <String>{};
-      final q1 =
-          await col.where('avisoExpiresAt', isLessThan: now).limit(30).get();
-      final q2 =
-          await col.where('validUntil', isLessThan: now).limit(30).get();
+      final q1 = await col
+          .where('avisoExpiresAt', isLessThan: now)
+          .limit(30)
+          .get();
+      final q2 = await col
+          .where('validUntil', isLessThan: validUntilCutoff)
+          .limit(30)
+          .get();
       if (q1.docs.isEmpty && q2.docs.isEmpty) break;
       await handle(q1, seen);
       await handle(q2, seen);
@@ -148,8 +167,12 @@ class NoticiaExpiredMediaCleanupService {
       base.collection(ChurchTenantPostsCollections.eventos),
     );
     await _purgeCollection(
-        base.collection(ChurchTenantPostsCollections.eventos));
-    await _purgeCollection(base.collection(ChurchTenantPostsCollections.avisos));
+      base.collection(ChurchTenantPostsCollections.eventos),
+      keepEventForOneExtraDay: true,
+    );
+    await _purgeCollection(
+      base.collection(ChurchTenantPostsCollections.avisos),
+    );
   }
 
   /// Eventos sem [validUntil] e com data passada → `status: galeria` (feed limpo).
@@ -165,22 +188,19 @@ class NoticiaExpiredMediaCleanupService {
           .get();
       for (final doc in snap.docs) {
         final data = doc.data();
-        if ((data['validUntil'] is Timestamp)) continue;
+        if (!eventIsGalleryPermanent(data)) continue;
         final status = (data['status'] ?? '').toString().trim().toLowerCase();
         if (status == 'galeria') continue;
         if (!noticiaEventoEspecialNaoMaisNoDestaquePorDataHora(data, now)) {
           continue;
         }
         try {
-          await doc.reference.set(
-            {
-              'status': 'galeria',
-              'galleryPermanent': true,
-              'archivedAt': YahwehFv.serverTimestamp,
-              'updatedAt': YahwehFv.serverTimestamp,
-            },
-            SetOptions(merge: true),
-          );
+          await doc.reference.set({
+            'status': 'galeria',
+            'galleryPermanent': true,
+            'archivedAt': YahwehFv.serverTimestamp,
+            'updatedAt': YahwehFv.serverTimestamp,
+          }, SetOptions(merge: true));
         } catch (_) {}
       }
     } catch (_) {}

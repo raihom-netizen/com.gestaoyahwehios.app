@@ -7506,6 +7506,7 @@ export {
 
 export { scheduledPurgeStalePendingUploads } from "./purgeStalePendingUploads";
 export { scheduledCleanupOrphanFiles } from "./cleanupOrphanFiles";
+export { scheduledCleanupExpiredTemporaryEvents } from "./eventExpirationCleanup";
 
 // Telegram REMOVIDO — telegramBotBridge não é mais exportado/deployado.
 

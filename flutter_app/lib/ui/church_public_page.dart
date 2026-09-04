@@ -720,9 +720,7 @@ class _ChurchPublicMuralStreamSliverState
     final now = DateTime.now();
     final eventosArquivo =
         eventos
-            .where(
-              (e) => noticiaEventoEspecialCaiuDoFeedParaGaleria(e.data(), now),
-            )
+            .where((e) => eventShouldMoveToGalleryArchive(e.data(), now))
             .toList()
           ..sort(_compareEventosGaleriaRecentFirst);
     final eventosAtivos = eventos
@@ -2631,8 +2629,8 @@ class _ChurchPublicPageInner extends StatelessWidget {
                                                             24,
                                                           ),
                                                       gradient: LinearGradient(
-                                                        begin: Alignment
-                                                            .topCenter,
+                                                        begin:
+                                                            Alignment.topCenter,
                                                         end: Alignment
                                                             .bottomCenter,
                                                         colors: [
@@ -5666,7 +5664,9 @@ class _ChurchTenantFallback extends StatelessWidget {
                                       borderRadius: BorderRadius.circular(12),
                                       boxShadow: [
                                         BoxShadow(
-                                          color: accentFb.withValues(alpha: 0.28),
+                                          color: accentFb.withValues(
+                                            alpha: 0.28,
+                                          ),
                                           blurRadius: 12,
                                           offset: const Offset(0, 4),
                                         ),
@@ -6089,8 +6089,12 @@ class _ChurchTenantFallback extends StatelessWidget {
                               final avisoHint = sanitizeImageUrl(
                                 eventNoticiaFeedCoverHintUrl(p),
                               );
-                              final avisoVid = eventNoticiaHostedVideoPlayUrl(p);
-                              final avisoExtVid = eventNoticiaExternalVideoUrl(p);
+                              final avisoVid = eventNoticiaHostedVideoPlayUrl(
+                                p,
+                              );
+                              final avisoExtVid = eventNoticiaExternalVideoUrl(
+                                p,
+                              );
                               final avisoItems = buildChurchPostMedia(
                                 imageUrls: avisoPhotos.isNotEmpty
                                     ? avisoPhotos
@@ -6173,11 +6177,10 @@ class _ChurchTenantFallback extends StatelessWidget {
                                       child: Row(
                                         children: [
                                           Container(
-                                            padding:
-                                                const EdgeInsets.symmetric(
-                                                  horizontal: 10,
-                                                  vertical: 4,
-                                                ),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                              vertical: 4,
+                                            ),
                                             decoration: BoxDecoration(
                                               color: cardAccent.withValues(
                                                 alpha: 0.10,
