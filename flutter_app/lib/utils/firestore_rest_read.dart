@@ -230,7 +230,20 @@ Map<String, dynamic> _toRestValue(dynamic v) {
       'arrayValue': {'values': v.map(_toRestValue).toList()},
     };
   }
-  return {'stringValue': v.toString()};
+  // ⚠️ Rede de seguranca: um objeto Dart sem `toString()` proprio virava o
+  // texto «Instance of 'Ohb'» dentro do documento (foi assim que o campo
+  // `instagramUrl` ficou preenchido com lixo e o botao do Instagram passou a
+  // aparecer em todos os posts). Objeto desconhecido grava NULO, nunca texto.
+  final asText = v.toString();
+  if (asText.startsWith("Instance of")) {
+    assert(() {
+      // ignore: avoid_print
+      print('firestore_rest_read: objeto nao serializavel descartado ($asText)');
+      return true;
+    }());
+    return {'nullValue': null};
+  }
+  return {'stringValue': asText};
 }
 
 /// GRAVA (cria/sobrescreve) um documento por REST (`PATCH .../documents/{docPath}`).

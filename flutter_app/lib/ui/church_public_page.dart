@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:gestao_yahweh/ui/widgets/church_feed_post_card.dart';
 import 'package:gestao_yahweh/ui/widgets/gestao_yahweh_brand_logo.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/core/app_constants.dart';
@@ -5811,15 +5812,13 @@ class _ChurchTenantFallback extends StatelessWidget {
                                   media.add(
                                     Padding(
                                       padding: const EdgeInsets.only(top: 10),
-                                      child: ChurchPublicConstrainedMedia(
-                                        child: ChurchPostMediaCarousel(
-                                          items: items,
-                                          accent: ThemeCleanPremium.primary,
-                                          borderRadius:
-                                              ThemeCleanPremium.radiusLg,
-                                          aspectRatio: 4 / 5,
-                                          title: title,
-                                        ),
+                                      child: ChurchPostMediaCarousel(
+                                        items: items,
+                                        accent: ThemeCleanPremium.primary,
+                                        borderRadius:
+                                            ThemeCleanPremium.radiusLg,
+                                        aspectRatio: 4 / 5,
+                                        title: title,
                                       ),
                                     ),
                                   );
@@ -6113,8 +6112,7 @@ class _ChurchTenantFallback extends StatelessWidget {
                                 media.add(
                                   Padding(
                                     padding: const EdgeInsets.only(top: 10),
-                                    child: ChurchPublicConstrainedMedia(
-                                      child: ChurchPostMediaCarousel(
+                                    child: ChurchPostMediaCarousel(
                                         items: avisoItems,
                                         accent: ThemeCleanPremium.primary,
                                         borderRadius:
@@ -6122,7 +6120,6 @@ class _ChurchTenantFallback extends StatelessWidget {
                                         aspectRatio: 4 / 5,
                                         title: title,
                                       ),
-                                    ),
                                   ),
                                 );
                               }
@@ -6237,27 +6234,23 @@ class _ChurchTenantFallback extends StatelessWidget {
                                                 ),
                                               ),
                                             ),
-                                          if ((p['instagramUrl'] ?? '')
-                                                  .toString()
-                                                  .trim()
-                                                  .isNotEmpty ||
-                                              (eventNoticiaExternalVideoUrl(
-                                                        p,
-                                                      ) ??
-                                                      '')
-                                                  .isNotEmpty)
+                                          if (churchFeedPostInstagramUrl(
+                                                    p,
+                                                  ).isNotEmpty ||
+                                              churchFeedPostYoutubeUrl(
+                                                p,
+                                              ).isNotEmpty)
                                             Padding(
                                               padding: const EdgeInsets.only(
                                                 top: 12,
                                               ),
                                               child: avisoEventoSocialLinksRow(
                                                 instagramUrl:
-                                                    (p['instagramUrl'] ?? '')
-                                                        .toString(),
-                                                youtubeUrl:
-                                                    eventNoticiaExternalVideoUrl(
+                                                    churchFeedPostInstagramUrl(
                                                       p,
                                                     ),
+                                                youtubeUrl:
+                                                    churchFeedPostYoutubeUrl(p),
                                               ),
                                             ),
                                           YahwehSocialPostBar(

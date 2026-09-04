@@ -2,6 +2,8 @@ import 'dart:async' show TimeoutException;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:gestao_yahweh/core/data/yahweh_write_batch.dart'
+    show YahwehFv, YahwehFvType;
 import 'package:gestao_yahweh/core/firestore_write_guard.dart';
 import 'package:gestao_yahweh/services/church_functions_service.dart';
 import 'package:gestao_yahweh/core/data/yahweh_rest_first.dart';
@@ -54,6 +56,24 @@ abstract final class AdminFeedFirestoreBridge {
     final deletes = <String>[];
     for (final e in data.entries) {
       final v = e.value;
+      // ⚠️ [YahwehFv] TEM de vir antes do `setFields`: sem isto o sentinel caía
+      // no encoder REST genérico e era gravado como TEXTO
+      // (`instagramUrl: "Instance of 'Ohb'"`) — o campo ficava «preenchido» e o
+      // botão do Instagram aparecia em publicações sem link nenhum.
+      if (v is YahwehFv) {
+        switch (v.type) {
+          case YahwehFvType.deleteField:
+            deletes.add(e.key);
+          case YahwehFvType.serverTimestamp:
+            serverTs.add(e.key);
+          case YahwehFvType.increment:
+          case YahwehFvType.arrayUnion:
+          case YahwehFvType.arrayRemove:
+            // Não ocorrem em publicação; descartar é melhor do que gravar lixo.
+            break;
+        }
+        continue;
+      }
       if (v is FieldValue) {
         if (v == FieldValue.delete() ||
             v.toString().toLowerCase().contains('delete')) {
@@ -93,6 +113,12 @@ abstract final class AdminFeedFirestoreBridge {
   }
 
   static dynamic encodeValue(dynamic value) {
+    if (value is YahwehFv) {
+      // Mesma razão do `_restWriteFor`: sem isto o sentinel seguia para a CF
+      // como objeto Dart e acabava gravado como texto.
+      if (value.type == YahwehFvType.deleteField) return cfDelete;
+      return _skip;
+    }
     if (value is FieldValue) {
       // cloud_firestore 6.x: serverTimestamp()/delete() criam instância nova —
       // `identical` falhava e o FieldValue cru quebrava a serialização da CF

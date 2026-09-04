@@ -88,6 +88,8 @@ import 'package:gestao_yahweh/core/noticia_event_feed.dart'
         noticiaDocEhEventoSpecialFeed,
         noticiaEventoEhRotinaOuGeradoAutomatico,
         eventoDocApareceNoFeedPainel;
+import 'package:gestao_yahweh/ui/widgets/aviso_evento_social_link_button.dart';
+import 'package:gestao_yahweh/ui/widgets/church_feed_post_card.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
     show
         eventNoticiaDocHasPhotoMedia,
@@ -6417,7 +6419,37 @@ class _EventoPostState extends State<_EventoPost>
               ],
             ),
           ),
-          // Título + data ficam só como barra fina sobre foto/vídeo (estilo avisos / EcoFire)
+          // Selo + data/hora + titulo ANTES da midia — o mesmo cabecalho do
+          // painel inicial e do site publico.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ChurchFeedPostChips(
+                  isEvento:
+                      (data['type'] ?? 'evento').toString().toLowerCase() !=
+                      'reuniao',
+                  dateStr: eventDateStr,
+                ),
+                if (title.trim().isNotEmpty) ...[
+                  const SizedBox(height: 5),
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                      height: 1.25,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
           // Fotos e vídeo (preview visível)
           Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -6650,7 +6682,9 @@ class _EventoPostState extends State<_EventoPost>
                 ),
             ],
           ),
-          // Texto abaixo da midia, no padrao Instagram.
+          // Texto abaixo da midia, no padrao Instagram — recolhido com
+          // «Veja mais» quando e comprido (mesmo comportamento do painel
+          // inicial e do site publico).
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
             child: ChurchPostRichTextViewer(
@@ -6658,8 +6692,20 @@ class _EventoPostState extends State<_EventoPost>
                 '${widget.doc.id}_${churchPostRichContentSig(Map<String, dynamic>.from(data))}',
               ),
               data: Map<String, dynamic>.from(data),
+              collapsible: true,
+              boxed: false,
             ),
           ),
+          // Instagram / YouTube: so quando o post tem mesmo o link.
+          if (churchFeedPostInstagramUrl(data).isNotEmpty ||
+              churchFeedPostYoutubeUrl(data).isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+              child: avisoEventoSocialLinksRow(
+                instagramUrl: churchFeedPostInstagramUrl(data),
+                youtubeUrl: churchFeedPostYoutubeUrl(data),
+              ),
+            ),
           // Participar, comentar e compartilhar sempre depois do texto.
           if (!widget.selectionMode)
             YahwehSocialPostBar(

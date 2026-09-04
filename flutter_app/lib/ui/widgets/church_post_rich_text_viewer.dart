@@ -18,12 +18,25 @@ class ChurchPostRichTextViewer extends StatefulWidget {
   /// `true` = Quill sem scroll interno (recomendado em feed, mural, galeria).
   final bool embedInParentScroll;
 
+  /// Legenda longa fica recolhida com o botao «Veja mais» (padrao do feed).
+  /// Sem isto um texto grande empurrava os botoes do card para fora da tela.
+  final bool collapsible;
+
+  /// Linhas visiveis enquanto esta recolhido.
+  final int collapsedMaxLines;
+
+  /// Cartao cinza a volta do texto. No feed a legenda fica solta (Instagram).
+  final bool boxed;
+
   const ChurchPostRichTextViewer({
     super.key,
     required this.data,
     this.maxHeight,
     this.padding = const EdgeInsets.only(bottom: 4),
     this.embedInParentScroll = true,
+    this.collapsible = false,
+    this.collapsedMaxLines = 4,
+    this.boxed = true,
   });
 
   @override
@@ -34,6 +47,7 @@ class ChurchPostRichTextViewer extends StatefulWidget {
 class _ChurchPostRichTextViewerState extends State<ChurchPostRichTextViewer> {
   late QuillController _controller;
   late ScrollController _scroll;
+  bool _expanded = false;
 
   void _rebuildController() {
     _controller = QuillController(
@@ -126,6 +140,12 @@ class _ChurchPostRichTextViewerState extends State<ChurchPostRichTextViewer> {
         height: widget.maxHeight!.clamp(120, 2000),
         child: ClipRect(child: editor),
       );
+    } else if (widget.collapsible) {
+      body = _collapsible(context, editor, plain);
+    }
+
+    if (!widget.boxed) {
+      return Padding(padding: widget.padding, child: body);
     }
 
     return Padding(
@@ -145,6 +165,81 @@ class _ChurchPostRichTextViewerState extends State<ChurchPostRichTextViewer> {
           ),
         ),
       ),
+    );
+  }
+
+  /// Recolhe a legenda em [ChurchPostRichTextViewer.collapsedMaxLines] linhas e
+  /// mostra «Veja mais». A medicao usa o texto simples: o Quill nao expoe
+  /// `maxLines`, entao o corte e por ALTURA (com `ClipRect`), o que preserva a
+  /// formatacao (negrito, listas, links) do que fica visivel.
+  Widget _collapsible(BuildContext context, Widget editor, String plain) {
+    const style = TextStyle(fontSize: 14, height: 1.45);
+    return LayoutBuilder(
+      builder: (context, c) {
+        final maxW = c.maxWidth.isFinite && c.maxWidth > 0
+            ? c.maxWidth - 16
+            : 320.0;
+        final tp = TextPainter(
+          text: TextSpan(text: plain, style: style),
+          maxLines: widget.collapsedMaxLines,
+          textDirection: Directionality.of(context),
+        )..layout(maxWidth: maxW > 0 ? maxW : 320.0);
+        final overflows = tp.didExceedMaxLines;
+        if (!overflows) return editor;
+        // 14 * 1.45 por linha + o padding vertical do editor (8 + 8).
+        final collapsedH = (14 * 1.45 * widget.collapsedMaxLines) + 16;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_expanded)
+              editor
+            else
+              SizedBox(
+                height: collapsedH,
+                child: ClipRect(
+                  child: ShaderMask(
+                    shaderCallback: (rect) => const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.black, Colors.black, Colors.transparent],
+                      stops: [0.0, 0.72, 1.0],
+                    ).createShader(rect),
+                    blendMode: BlendMode.dstIn,
+                    child: OverflowBox(
+                      alignment: Alignment.topCenter,
+                      minHeight: 0,
+                      maxHeight: double.infinity,
+                      child: editor,
+                    ),
+                  ),
+                ),
+              ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: () => setState(() => _expanded = !_expanded),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  minimumSize: const Size(0, 32),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: Text(
+                  _expanded ? 'Ver menos' : 'Veja mais',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

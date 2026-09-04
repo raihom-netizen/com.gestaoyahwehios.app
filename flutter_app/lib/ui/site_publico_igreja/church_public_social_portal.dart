@@ -25,6 +25,7 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         postFeedCarouselAspectRatioForIndex;
 import 'package:gestao_yahweh/core/widgets/stable_storage_image.dart'
     show StableStorageImage;
+import 'package:gestao_yahweh/ui/widgets/church_feed_post_card.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
 import 'package:gestao_yahweh/ui/widgets/aviso_evento_social_link_button.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_premium_ui.dart'
@@ -617,7 +618,6 @@ class _SocialGridTile extends StatefulWidget {
 
 class _SocialGridTileState extends State<_SocialGridTile> {
   bool _hover = false;
-  int _galleryPage = 0;
 
   @override
   void initState() {
@@ -658,342 +658,106 @@ class _SocialGridTileState extends State<_SocialGridTile> {
 
   @override
   Widget build(BuildContext context) {
-    final p = widget.post;
-    final galleryUrls = eventNoticiaPhotoUrls(p);
-    final type = (p['type'] ?? 'aviso').toString();
-    final isEvento = type == 'evento';
-    final title = (p['title'] ?? '').toString();
-    final hosted =
-        sanitizeImageUrl((eventNoticiaHostedVideoPlayUrl(p) ?? '').trim());
-    final ext = eventNoticiaExternalVideoUrl(p);
-    final legacy = (p['videoUrl'] ?? '').toString().trim();
-    final hasVideo = hosted.isNotEmpty ||
-        (ext != null && ext.isNotEmpty) ||
-        legacy.isNotEmpty;
-    final playWeb = kIsWeb &&
-        hosted.isNotEmpty &&
-        eventNoticiaUrlEligibleForHostedInlinePlayer(hosted);
-    final thumb = churchPublicPostThumbUrl(p);
-    final cover = eventNoticiaFeedCoverHintUrl(p);
-    final displayRef = (thumb != null && thumb.isNotEmpty) ? thumb : cover;
-    final path = eventNoticiaPhotoStoragePathAt(
-          p,
-          0,
-          docIdHint: widget.postId,
-          churchIdHint: widget.igrejaId,
-        ) ??
-        eventNoticiaImageStoragePath(p);
-    final poster = sanitizeImageUrl(
-        (eventNoticiaDisplayVideoThumbnailUrl(p) ?? '').trim());
-    final badge = isEvento ? 'Evento' : 'Aviso';
-    final badgeBg = isEvento
-        ? const Color(0xFF0369A1).withValues(alpha: 0.92)
-        : const Color(0xFF6D28D9).withValues(alpha: 0.92);
-    final publishState = (p['publishState'] ?? '').toString();
-    final mediaUploading =
-        publishState == MuralFastPublishService.stateUploading;
-
     if (widget.galleryArchivePremiumLayout) {
       return _buildGalleryArchivePremiumLayout(context);
     }
 
-    Widget mediaChild;
-    if (playWeb) {
-      mediaChild = ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (poster.isNotEmpty &&
-                (isValidImageUrl(poster) ||
-                    isFirebaseStorageHttpUrl(poster) ||
-                    firebaseStorageMediaUrlLooksLike(poster)))
-              _gridImageOrStable(
-                displayRef: poster,
-                path: null,
-                memW: widget.memCacheW,
-                memH: widget.memCacheH,
-                fit: BoxFit.contain,
-              )
-            else if (displayRef.isNotEmpty)
-              _gridImageOrStable(
-                displayRef: displayRef,
-                path: path,
-                memW: widget.memCacheW,
-                memH: widget.memCacheH,
-                fit: BoxFit.contain,
-              )
-            else
-              Container(color: const Color(0xFFE5E7EB)),
-            PremiumHtmlFeedVideo(
-              videoUrl: hosted,
-              visibilityKey: 'pubgrid_${widget.postId}',
-              showControls: false,
-              posterUrl: poster.isNotEmpty ? poster : null,
-              startLoadingImmediately: true,
-              videoObjectFitContain: true,
-            ),
-          ],
-        ),
-      );
-    } else if (!playWeb && galleryUrls.length > 1) {
-      mediaChild = ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            PageView.builder(
-              itemCount: galleryUrls.length,
-              onPageChanged: (i) => setState(() => _galleryPage = i),
-              itemBuilder: (ctx, idx) {
-                final raw = sanitizeImageUrl(galleryUrls[idx]);
-                final pathI = eventNoticiaPhotoStoragePathAt(p, idx);
-                return ColoredBox(
-                  color: const Color(0xFFF1F5F9),
-                  child: _gridImageOrStable(
-                    displayRef: raw,
-                    path: pathI,
-                    memW: widget.memCacheW,
-                    memH: widget.memCacheH,
-                    fit: BoxFit.contain,
-                  ),
-                );
-              },
-            ),
-            Positioned(
-              bottom: 10,
-              left: 0,
-              right: 0,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(
-                  galleryUrls.length,
-                  (i) => Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 3),
-                    width: _galleryPage == i ? 16 : 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: _galleryPage == i
-                          ? Colors.white
-                          : Colors.white.withValues(alpha: 0.45),
-                      borderRadius: BorderRadius.circular(999),
-                      boxShadow: const [
-                        BoxShadow(color: Colors.black26, blurRadius: 4),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    } else if (hasVideo && displayRef.isNotEmpty) {
-      mediaChild = ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            _gridImageOrStable(
-              displayRef: displayRef,
-              path: path,
-              memW: widget.memCacheW,
-              memH: widget.memCacheH,
-              fit: BoxFit.contain,
-            ),
-            const Center(
-              child: Icon(Icons.play_circle_fill_rounded,
-                  size: 52, color: Colors.white70),
-            ),
-          ],
-        ),
-      );
-    } else if (displayRef.isNotEmpty || (path != null && path.isNotEmpty)) {
-      mediaChild = ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: ColoredBox(
-          color: const Color(0xFFF1F5F9),
-          child: _gridImageOrStable(
-            displayRef: displayRef,
-            path: path,
-            memW: widget.memCacheW,
-            memH: widget.memCacheH,
-            fit: BoxFit.contain,
-          ),
-        ),
-      );
-    } else if (mediaUploading) {
-      mediaChild = _churchPublicProcessingMediaPlaceholder(widget.accent);
-    } else {
-      mediaChild = ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          color: const Color(0xFFF1F5F9),
-          child: Center(
-            child: Icon(Icons.article_rounded,
-                size: 40, color: widget.accent.withValues(alpha: 0.35)),
-          ),
-        ),
-      );
-    }
+    final p = widget.post;
+    final type = (p['type'] ?? 'aviso').toString();
+    final isEvento = type == 'evento';
+    final title = (p['title'] ?? '').toString().trim();
+    final publishState = (p['publishState'] ?? '').toString();
+    final mediaUploading =
+        publishState == MuralFastPublishService.stateUploading;
 
-    final tile = Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(22),
-      clipBehavior: Clip.antiAlias,
-      elevation: 0,
-      shadowColor: const Color(0x10000000),
-      child: InkWell(
-        onTap: () {
-          if (playWeb) {
-            widget.onOpenDetail();
-            return;
-          }
-          if (galleryUrls.length > 1) {
-            widget.onOpenDetail();
-            return;
-          }
-          if (hasVideo &&
-              (hosted.isNotEmpty ||
-                  (ext != null && ext.isNotEmpty) ||
-                  legacy.isNotEmpty)) {
-            unawaited(widget.onOpenHostedVideo(
-                context, p, widget.postId));
-            return;
-          }
-          widget.onOpenDetail();
-        },
-        child: Stack(
-          fit: StackFit.expand,
+    // MESMA leitura de mídia do módulo Eventos e do painel inicial: fotos e
+    // vídeo no mesmo carrossel. O site público mostrava só a capa (ou só o
+    // vídeo, nunca os dois) — quem visitava não via o vídeo publicado.
+    final items = churchFeedPostMediaFromData(p);
+
+    DateTime? dt;
+    final startAt = p['startAt'];
+    if (startAt is Timestamp) {
+      dt = startAt.toDate();
+    } else {
+      final createdAt = p['createdAt'];
+      if (createdAt is Timestamp) dt = createdAt.toDate();
+    }
+    final dateStr = dt != null
+        ? '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}'
+        : '';
+    final timeStr = dt != null
+        ? '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}'
+        : '';
+
+    return ChurchFeedPostCard(
+      data: p,
+      title: title.isEmpty ? 'Publicação' : title,
+      isEvento: isEvento,
+      mediaItems: items,
+      dateStr: dateStr,
+      timeStr: timeStr,
+      onOpenPost: widget.onOpenDetail,
+      emptyMediaPlaceholder: mediaUploading
+          ? AspectRatio(
+              aspectRatio: 4 / 5,
+              child: _churchPublicProcessingMediaPlaceholder(widget.accent),
+            )
+          : null,
+      headerTrailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Copiar link',
+            icon: Icon(Icons.near_me_rounded, size: 20, color: widget.accent),
+            onPressed: () => _copyLink(context),
+          ),
+          IconButton(
+            tooltip: 'Compartilhar',
+            icon: Icon(Icons.share_rounded, size: 20, color: widget.accent),
+            onPressed: () => _share(context),
+          ),
+        ],
+      ),
+      actions: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
+        child: Row(
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: AnimatedScale(
-                scale: _hover ? 1.012 : 1.0,
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                child: AnimatedOpacity(
-                  opacity: _hover ? 1.0 : 0.98,
-                  duration: const Duration(milliseconds: 200),
-                  child: mediaChild,
-                ),
-              ),
-            ),
-            Positioned(
-              left: 10,
-              top: 10,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: badgeBg,
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.18),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Text(
-                  badge,
-                  style: GoogleFonts.inter(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.3,
+            Expanded(
+              child: FilledButton.tonalIcon(
+                onPressed: widget.onOpenDetail,
+                icon: const Icon(Icons.open_in_full_rounded, size: 18),
+                label: const Text('Ver publicação'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: widget.accent.withValues(alpha: 0.10),
+                  foregroundColor: widget.accent,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
               ),
             ),
-            Positioned(
-              right: 6,
-              top: 6,
-              child: Column(
-                children: [
-                  Material(
-                    color: Colors.white.withValues(alpha: 0.92),
-                    shape: const CircleBorder(),
-                    clipBehavior: Clip.antiAlias,
-                    child: IconButton(
-                      tooltip: 'Copiar link',
-                      icon: Icon(Icons.near_me_rounded,
-                          size: 20, color: widget.accent),
-                      onPressed: () => _copyLink(context),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Material(
-                    color: Colors.white.withValues(alpha: 0.92),
-                    shape: const CircleBorder(),
-                    clipBehavior: Clip.antiAlias,
-                    child: IconButton(
-                      tooltip: 'Compartilhar',
-                      icon: Icon(Icons.share_rounded,
-                          size: 20, color: widget.accent),
-                      onPressed: () => _share(context),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
-                padding:
-                    const EdgeInsets.fromLTRB(10, 24, 10, 10),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: 0.65),
-                    ],
-                  ),
+            const SizedBox(width: 8),
+            FilledButton.tonalIcon(
+              onPressed: () => _share(context),
+              icon: const Icon(Icons.ios_share_rounded, size: 18),
+              label: const Text('Compartilhar'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF16A34A).withValues(alpha: 0.10),
+                foregroundColor: const Color(0xFF16A34A),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
                 ),
-                child: Text(
-                  title.isEmpty ? 'Publicação' : title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.inter(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 12.5,
-                    height: 1.2,
-                  ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
               ),
             ),
           ],
         ),
       ),
-    );
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final cw =
-            constraints.maxWidth.isFinite && constraints.maxWidth > 0
-                ? constraints.maxWidth
-                : 360.0;
-        final ar = postFeedCarouselAspectRatioForIndex(
-          p,
-          galleryUrls.length > 1 ? _galleryPage : 0,
-          galleryUrls.isNotEmpty ? galleryUrls.length : 1,
-        );
-        final tileH = churchMuralCarouselClipHeight(context, cw, ar);
-        return SizedBox(
-          height: tileH,
-          child: MouseRegion(
-            onEnter: (_) => setState(() => _hover = true),
-            onExit: (_) => setState(() => _hover = false),
-            child: tile,
-          ),
-        );
-      },
     );
   }
 

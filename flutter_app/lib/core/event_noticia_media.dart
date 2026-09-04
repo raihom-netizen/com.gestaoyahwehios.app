@@ -1027,3 +1027,33 @@ ProgramacaoEventCover resolveProgramacaoEventCover({
     fallbackStoragePaths: fallbacks,
   );
 }
+
+/// `true` quando o valor gravado no Firestore e mesmo um link utilizavel.
+///
+/// ⚠️ Uma publicacao gravada por REST chegou a guardar o sentinel de apagar
+/// campo como TEXTO (`instagramUrl: "Instance of 'Ohb'"`). Como esse texto nao
+/// e vazio, o botao «Instagram» aparecia em TODAS as publicacoes, mesmo sem
+/// link nenhum. Validar sempre por aqui antes de mostrar um botao de link.
+bool churchPostLinkLooksReal(String? raw) {
+  final v = (raw ?? '').trim();
+  if (v.isEmpty) return false;
+  if (v.startsWith('Instance of')) return false;
+  if (v == 'null' || v == 'undefined') return false;
+  final low = v.toLowerCase();
+  return low.startsWith('http://') ||
+      low.startsWith('https://') ||
+      low.startsWith('www.');
+}
+
+/// Link do Instagram do post — vazio quando nao foi preenchido.
+String churchPostInstagramUrl(Map<String, dynamic>? data) {
+  final raw = (data?['instagramUrl'] ?? '').toString();
+  return churchPostLinkLooksReal(raw) ? raw.trim() : '';
+}
+
+/// Link de video externo (YouTube/Vimeo) do post — vazio quando nao existe.
+String churchPostExternalVideoLink(Map<String, dynamic>? data) {
+  if (data == null) return '';
+  final raw = eventNoticiaExternalVideoUrl(data) ?? '';
+  return churchPostLinkLooksReal(raw) ? raw.trim() : '';
+}

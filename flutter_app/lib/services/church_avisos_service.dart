@@ -30,7 +30,10 @@ import 'package:gestao_yahweh/services/church_video_preupload.dart';
 import 'package:gestao_yahweh/services/church_photo_preupload.dart';
 import 'package:gestao_yahweh/services/firebase_storage_cleanup_service.dart';
 import 'package:gestao_yahweh/core/event_noticia_media.dart'
-    show eventNoticiaDocHasPhotoMedia, eventNoticiaHostedVideoPlayUrl;
+    show
+        churchPostInstagramUrl,
+        eventNoticiaDocHasPhotoMedia,
+        eventNoticiaHostedVideoPlayUrl;
 import 'package:gestao_yahweh/ui/widgets/safe_network_image.dart'
     show isValidImageUrl;
 import 'package:gestao_yahweh/utils/youtube_url_helper.dart';
@@ -149,7 +152,9 @@ class ChurchAvisoItem {
       authorName: (m['authorName'] ?? m['autor'] ?? '').toString().trim(),
       videoUrl: videoUrl,
       youtubeVideoId: ytId,
-      instagramUrl: (m['instagramUrl'] ?? '').toString().trim(),
+      // Sanitizado: um doc gravado por REST chegou a guardar o sentinel como
+      // texto («Instance of 'Ohb'») e o botao do Instagram aparecia sem link.
+      instagramUrl: churchPostInstagramUrl(Map<String, dynamic>.from(m)),
     );
   }
 }

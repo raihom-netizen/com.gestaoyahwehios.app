@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -179,19 +180,57 @@ class _ChurchPostMediaCarouselState extends State<ChurchPostMediaCarousel> {
     );
   }
 
+  /// Altura do bloco de indicadores (espaco + bolinhas) — entra na conta da
+  /// altura total para o carrossel NUNCA passar da caixa do pai.
+  static const double _dotsBlockHeight = 17;
+
   @override
   Widget build(BuildContext context) {
     final items = widget.items;
     if (items.isEmpty) return const SizedBox.shrink();
     final multiple = items.length > 1;
+    final dotsH = multiple ? _dotsBlockHeight : 0.0;
 
-    final gallery = Column(
+    // ⚠️ NAO usar `Column(AspectRatio)` solto: numa Column os filhos recebem
+    // altura infinita no eixo principal, por isso a foto ficava maior do que a
+    // caixa e o excedente era PINTADO POR CIMA da legenda e dos botoes (o
+    // texto do evento aparecia sobre a foto). Aqui a altura da midia e
+    // calculada e limitada — nunca transborda.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth.isFinite && constraints.maxWidth > 0
+            ? constraints.maxWidth
+            : 360.0;
+        final ar = widget.aspectRatio > 0 ? widget.aspectRatio : 4 / 5;
+        var mediaH = w / ar;
+        final caps = <double>[
+          if (widget.maxHeight != null && widget.maxHeight!.isFinite)
+            widget.maxHeight! - dotsH,
+          if (constraints.maxHeight.isFinite && constraints.maxHeight > 0)
+            constraints.maxHeight - dotsH,
+        ];
+        for (final cap in caps) {
+          mediaH = math.min(mediaH, math.max(120.0, cap));
+        }
+        return _gallery(items, multiple, w, mediaH);
+      },
+    );
+  }
+
+  Widget _gallery(
+    List<ChurchPostMediaItem> items,
+    bool multiple,
+    double width,
+    double mediaHeight,
+  ) {
+    return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(widget.borderRadius),
-          child: AspectRatio(
-            aspectRatio: widget.aspectRatio,
+          child: SizedBox(
+            width: width,
+            height: mediaHeight,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -207,7 +246,10 @@ class _ChurchPostMediaCarouselState extends State<ChurchPostMediaCarousel> {
                           onTap: () => _open(i),
                           child: _MediaPagePreview(item: items[i]),
                         )
-                      : _MediaPagePreview(item: items[i]),
+                      : _MediaPagePreview(
+                          item: items[i],
+                          onOpenViewer: () => _open(i),
+                        ),
                 ),
                 if (multiple)
                   Positioned(
@@ -266,25 +308,28 @@ class _ChurchPostMediaCarouselState extends State<ChurchPostMediaCarousel> {
         ),
         if (multiple) ...[
           const SizedBox(height: 10),
-          _Dots(count: items.length, index: _index, accent: widget.accent),
+          SizedBox(
+            height: 7,
+            child: _Dots(
+              count: items.length,
+              index: _index,
+              accent: widget.accent,
+            ),
+          ),
         ],
       ],
-    );
-
-    final maxH = widget.maxHeight;
-    if (maxH == null) return gallery;
-    return ConstrainedBox(
-      constraints: BoxConstraints(maxHeight: maxH),
-      child: gallery,
     );
   }
 }
 
 /// Página do carrossel na lista: foto, ou capa de vídeo com botão de play.
 class _MediaPagePreview extends StatelessWidget {
-  const _MediaPagePreview({required this.item});
+  const _MediaPagePreview({required this.item, this.onOpenViewer});
 
   final ChurchPostMediaItem item;
+
+  /// Toque no slide de video: abre o visualizador em tela cheia.
+  final VoidCallback? onOpenViewer;
 
   @override
   Widget build(BuildContext context) {
@@ -292,6 +337,32 @@ class _MediaPagePreview extends StatelessWidget {
       return ColoredBox(
         color: const Color(0xFF0F172A),
         child: SafeNetworkImage(imageUrl: item.url, fit: BoxFit.cover),
+      );
+    }
+    // YouTube na lista = capa + botao de play. Montar o player do YouTube em
+    // cada card do feed era o que deixava o mural pesado (e na web nem
+    // chegava a tocar): a reproducao acontece no visualizador em tela cheia.
+    if (item.kind == ChurchPostMediaKind.youtube) {
+      return GestureDetector(
+        onTap: onOpenViewer,
+        child: ColoredBox(
+          color: const Color(0xFF0F172A),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (item.thumbUrl.isNotEmpty)
+                SafeNetworkImage(imageUrl: item.thumbUrl, fit: BoxFit.cover),
+              const ColoredBox(color: Color(0x55000000)),
+              const Center(
+                child: Icon(
+                  Icons.play_circle_fill_rounded,
+                  size: 64,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     }
     return ColoredBox(

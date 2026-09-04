@@ -1,4 +1,12 @@
 /// Single source of app version used everywhere.
+/// 11.2.305+2256: Legenda do evento deixou de ser pintada por cima da foto — o
+/// carrossel calcula e limita a propria altura, e o texto fica abaixo da midia
+/// com «Veja mais» quando e comprido. Botao do Instagram/YouTube so aparece
+/// quando o link existe mesmo (o sentinel de apagar campo era gravado como
+/// texto «Instance of ...» pelo caminho REST e enchia `instagramUrl` de lixo).
+/// Site publico passou a mostrar foto E video no mesmo carrossel — antes so a
+/// capa. Painel inicial, modulo Eventos e site publico usam agora o MESMO
+/// cartao de publicacao.
 /// 11.2.305+2255: Eventos temporarios deixam de entrar na Galeria e sao
 /// removidos do Firestore e Storage 24 horas depois da validade. Eventos
 /// permanentes continuam arquivados. Feed do painel, site publico e modulo
@@ -641,7 +649,7 @@ const String appVersion = '11.2.305';
 /// 11.2.305+1968: Tenant fields backfill + visitantes provisionados; deploy completo web/AAB/iOS.
 /// 11.2.305+1975: UI premium membros/departamentos/fornecedores full screen; editar/excluir fornecedor lote; deploy completo web+AAB+iOS.
 /// 11.2.305+1976: Padrão blindado — FirestoreMapFields, Membros/Financeiro paginação 30, Cartão membro, Certificados/Cartas/Fornecedores; deploy completo web+AAB+iOS.
-const String appBuildNumber = '2255';
+const String appBuildNumber = '2256';
 
 /// 11.2.295+1569: Web `/igreja/login/apple` (mesmo login + pós-login em planos); «Atualizar plano» iOS
 /// abre esse URL; fluxo expresso `from=ios_app` — botões Mensal/Anual nos planos, scroll ao pagamento,

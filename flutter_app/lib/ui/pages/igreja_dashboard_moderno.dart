@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:gestao_yahweh/ui/widgets/member_segment_preview_page.dart';
 import 'package:gestao_yahweh/ui/theme_clean_premium.dart';
+import 'package:gestao_yahweh/ui/widgets/church_feed_post_card.dart';
 import 'package:gestao_yahweh/ui/widgets/church_post_media_carousel.dart';
 import 'package:gestao_yahweh/ui/widgets/church_chat_premium_gradients.dart';
 import 'package:gestao_yahweh/ui/widgets/home_daily_financial_tip_card.dart';
@@ -73,7 +74,6 @@ import 'package:gestao_yahweh/core/event_noticia_media.dart'
         eventNoticiaUrlEligibleForHostedInlinePlayer,
         looksLikeHostedVideoFileUrl,
         postFeedCarouselAspectRatioForIndex;
-import 'package:gestao_yahweh/ui/widgets/aviso_evento_social_link_button.dart';
 import 'package:gestao_yahweh/ui/widgets/church_public_event_detail_sheet.dart';
 import 'package:gestao_yahweh/ui/widgets/yahweh_post_card.dart'
     show yahwehPostGalleryRefs;
@@ -113,7 +113,6 @@ import 'package:gestao_yahweh/core/dashboard/church_dashboard_panel_controller.d
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_engagement_controller.dart';
 import 'package:gestao_yahweh/core/dashboard/church_dashboard_finance_period.dart';
 import 'package:gestao_yahweh/core/finance_infer_tipo.dart';
-import 'dart:ui' show ImageFilter;
 import 'igreja_cadastro_page.dart';
 import 'members_page.dart';
 import 'finance_page_adapter.dart';
@@ -5781,10 +5780,6 @@ class _DestaqueEventosEspeciaisPainel extends StatelessWidget {
 /// Tamanho base da mídia no painel (cartão lateral em desktop/tablet).
 const double _kPainelDestaqueThumbSide = 288;
 
-/// Largura mínima para dividir mídia (esq.) e texto (dir.) no painel — web.
-/// Reduzido para ativar mais cedo no dashboard com sidebar.
-const double _kPainelDestaqueWebSplitMinWidth = 620;
-
 /// Mesmo critério do site público / mural: [churchMuralCarouselClipHeight] +
 /// [postFeedCarouselAspectRatioForIndex] (incl. [media_info.aspect_ratio]).
 double _painelDestaqueMediaClipHeight(
@@ -7972,7 +7967,6 @@ class _DestaqueCardState extends State<_DestaqueCard> {
       return const SizedBox.shrink();
     }
     final title = PanelFeedPostValidator.resolveTitle(data);
-    final text = (data['text'] ?? '').toString();
     final type = (data['type'] ?? 'aviso').toString();
     final fromAvisosCol =
         ChurchTenantPostsCollections.segmentFromPostRef(widget.doc.reference) ==
@@ -8118,9 +8112,6 @@ class _DestaqueCardState extends State<_DestaqueCard> {
               : 0);
     final denomPhotos = nPhotosForAr > 0 ? nPhotosForAr : 1;
 
-    final panelW = MediaQuery.sizeOf(context).width;
-    final useWebSplit = kIsWeb && panelW >= _kPainelDestaqueWebSplitMinWidth;
-    final layoutWide = panelW >= 620;
     // Mesmo carrossel do módulo Eventos (fotos + vídeo juntos, contagem
     // «N fotos · N vídeo» e a dica «arraste»). O painel inicial tinha um
     // carrossel próprio, sem a contagem nem a leitura de vídeo — dois visuais
@@ -8188,459 +8179,54 @@ class _DestaqueCardState extends State<_DestaqueCard> {
             ),
           );
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-        child: Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.94),
-            borderRadius: BorderRadius.circular(ThemeCleanPremium.radiusMd),
-            boxShadow: [
-              BoxShadow(
-                color: ThemeCleanPremium.primary.withValues(alpha: 0.08),
-                blurRadius: 18,
-                offset: const Offset(0, 8),
-                spreadRadius: -2,
-              ),
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-            border: Border(
-              top: BorderSide(
-                color: YahwehDesignSystem.brandGold.withValues(alpha: 0.55),
-                width: 3,
-              ),
-              left: const BorderSide(color: Color(0xFFE2E8F0)),
-              right: const BorderSide(color: Color(0xFFE2E8F0)),
-              bottom: const BorderSide(color: Color(0xFFE2E8F0)),
-            ),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (useWebSplit)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        flex: 48,
-                        child: LayoutBuilder(
-                          builder: (context, lc) {
-                            final gw = lc.maxWidth;
-                            if (gw <= 0) {
-                              return const SizedBox.shrink();
-                            }
-                            final mh = _painelDestaqueMediaClipHeight(
-                              context,
-                              gw,
-                              data,
-                              nPhotosForAr: denomPhotos,
-                              carouselIndex: showCarousel ? _carouselPage : 0,
-                            );
-                            return ClipRRect(
-                              borderRadius: BorderRadius.circular(14),
-                              child: SizedBox(
-                                height: mh,
-                                width: double.infinity,
-                                child: carouselOrImage,
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        flex: 52,
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: openModulo,
-                            borderRadius: BorderRadius.circular(12),
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Wrap(
-                                    spacing: 6,
-                                    runSpacing: 4,
-                                    crossAxisAlignment:
-                                        WrapCrossAlignment.center,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 3,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: isEvento
-                                              ? const Color(0xFFFFF7ED)
-                                              : const Color(0xFFEFF6FF),
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          isEvento ? 'Evento' : 'Aviso',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w800,
-                                            color: isEvento
-                                                ? const Color(0xFFD97706)
-                                                : const Color(0xFF2563EB),
-                                          ),
-                                        ),
-                                      ),
-                                      if (dateStr.isNotEmpty)
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.calendar_today_rounded,
-                                              size: 14,
-                                              color: Colors.grey.shade500,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              dateStr,
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey.shade700,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      if (timeStr.isNotEmpty)
-                                        Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.schedule_rounded,
-                                              size: 14,
-                                              color: Colors.grey.shade500,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              timeStr,
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color: Colors.grey.shade700,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                    ],
-                                  ),
-                                  if (title.isNotEmpty) ...[
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      title,
-                                      maxLines: 4,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 16,
-                                        height: 1.25,
-                                        color: Color(0xFF0F172A),
-                                      ),
-                                    ),
-                                  ],
-                                  if (text.trim().isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 10),
-                                      child: _PainelDestaqueExpandableText(
-                                        text: text,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+    // Mesmo cartao do modulo Eventos e do site publico: selo + data, titulo,
+    // carrossel (fotos + video), legenda ABAIXO da foto com «Veja mais» e so
+    // depois os links sociais e a barra de acoes. O layout antigo espremia o
+    // carrossel numa caixa calculada por `media_info`; a foto transbordava e a
+    // legenda saia POR CIMA da imagem.
+    return ChurchFeedPostCard(
+      data: data,
+      title: title,
+      isEvento: isEvento,
+      mediaItems: panelMediaItems,
+      dateStr: dateStr,
+      timeStr: timeStr,
+      margin: EdgeInsets.zero,
+      onDoubleTapMedia: () => unawaited(
+        _painelDestaqueToggleLike(context, widget.doc, widget.tenantId),
+      ),
+      emptyMediaPlaceholder: showCarousel || hasVideo || primaryPhotoUrl.isNotEmpty
+          ? LayoutBuilder(
+              builder: (context, c) {
+                final mw = c.maxWidth > 0 ? c.maxWidth : 360.0;
+                return SizedBox(
+                  width: double.infinity,
+                  height: _painelDestaqueMediaClipHeight(
+                    context,
+                    mw,
+                    data,
+                    nPhotosForAr: denomPhotos,
+                    carouselIndex: showCarousel ? _carouselPage : 0,
                   ),
-                )
-              else if (layoutWide)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 6),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: (kIsWeb ? _kPainelDestaqueThumbSide : 180)
-                            .toDouble(),
-                        height: _painelDestaqueMediaClipHeight(
-                          context,
-                          (kIsWeb ? _kPainelDestaqueThumbSide : 180).toDouble(),
-                          data,
-                          nPhotosForAr: denomPhotos,
-                          carouselIndex: showCarousel ? _carouselPage : 0,
-                        ).clamp(kIsWeb ? 120.0 : 150.0, kIsWeb ? 220.0 : 280.0),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: carouselOrImage,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 4,
-                                crossAxisAlignment: WrapCrossAlignment.center,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 7,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: isEvento
-                                          ? const Color(0xFFFFF7ED)
-                                          : const Color(0xFFEFF6FF),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Text(
-                                      isEvento ? 'Evento' : 'Aviso',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w800,
-                                        color: isEvento
-                                            ? const Color(0xFFD97706)
-                                            : const Color(0xFF2563EB),
-                                      ),
-                                    ),
-                                  ),
-                                  if (dateStr.isNotEmpty)
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.calendar_today_rounded,
-                                          size: 13,
-                                          color: Colors.grey.shade500,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          dateStr,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade700,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  if (timeStr.isNotEmpty)
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          Icons.schedule_rounded,
-                                          size: 13,
-                                          color: Colors.grey.shade500,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          timeStr,
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey.shade700,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                ],
-                              ),
-                              if (title.isNotEmpty) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 14,
-                                    height: 1.25,
-                                    color: Color(0xFF0F172A),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              else ...[
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isEvento
-                                  ? const Color(0xFFFFF7ED)
-                                  : const Color(0xFFEFF6FF),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              isEvento ? 'Evento' : 'Aviso',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                color: isEvento
-                                    ? const Color(0xFFD97706)
-                                    : const Color(0xFF2563EB),
-                              ),
-                            ),
-                          ),
-                          if (dateStr.isNotEmpty)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.calendar_today_rounded,
-                                  size: 14,
-                                  color: Colors.grey.shade500,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  dateStr,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade700,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          if (timeStr.isNotEmpty)
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.schedule_rounded,
-                                  size: 14,
-                                  color: Colors.grey.shade500,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  timeStr,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade700,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                        ],
-                      ),
-                      if (title.isNotEmpty) ...[
-                        const SizedBox(height: 5),
-                        Text(
-                          title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14,
-                            height: 1.25,
-                            color: Color(0xFF0F172A),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+                  child: carouselOrImage,
+                );
+              },
+            )
+          : null,
+      actions: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: openModulo,
+          child: YahwehSocialPostBar(
+            tenantId: widget.tenantId,
+            postId: widget.doc.id,
+            isEvento: isEvento,
+            churchSlug: widget.churchSlug,
+            churchName: widget.nomeIgreja,
+            postsParentCollection:
+                ChurchTenantPostsCollections.segmentFromPostRef(
+                  widget.doc.reference,
                 ),
-                LayoutBuilder(
-                  builder: (context, c) {
-                    final mw = c.maxWidth > 0 ? c.maxWidth : 360.0;
-                    final mediaH = _painelDestaqueMediaClipHeight(
-                      context,
-                      mw,
-                      data,
-                      nPhotosForAr: denomPhotos,
-                      carouselIndex: showCarousel ? _carouselPage : 0,
-                    );
-                    return SizedBox(
-                      width: double.infinity,
-                      height: mediaH,
-                      child: carouselOrImage,
-                    );
-                  },
-                ),
-              ],
-              if (!useWebSplit)
-                Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: openModulo,
-                    borderRadius: const BorderRadius.vertical(
-                      bottom: Radius.circular(ThemeCleanPremium.radiusMd),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 10),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (text.trim().isNotEmpty)
-                            _PainelDestaqueExpandableText(text: text),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              if ((data['instagramUrl'] ?? '').toString().trim().isNotEmpty ||
-                  (eventNoticiaExternalVideoUrl(data) ?? '').isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                  child: avisoEventoSocialLinksRow(
-                    instagramUrl: (data['instagramUrl'] ?? '').toString(),
-                    youtubeUrl: eventNoticiaExternalVideoUrl(data),
-                  ),
-                ),
-              YahwehSocialPostBar(
-                tenantId: widget.tenantId,
-                postId: widget.doc.id,
-                isEvento: isEvento,
-                churchSlug: widget.churchSlug,
-                churchName: widget.nomeIgreja,
-                postsParentCollection:
-                    ChurchTenantPostsCollections.segmentFromPostRef(
-                      widget.doc.reference,
-                    ),
-              ),
-            ],
           ),
         ),
       ),
